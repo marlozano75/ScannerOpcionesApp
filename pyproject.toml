@@ -32,4 +32,4 @@ markers = ["manual: requiere TWS/IB Gateway en ejecucion (excluido por defecto)"
 addopts = "-m \"not manual\""
 
 [tool.setuptools.package-data]
-scanner_opciones = ["ui/templates/*.html"]
+scanner_opciones = ["ui/templates/*.html", "ui/templates/*.js"]

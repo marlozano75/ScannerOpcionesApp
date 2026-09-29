@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from typing import Optional
 
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.domain.enums import OperationType
+from scanner_opciones.domain.enums import OperationType, PriceReference
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,8 @@ class ScanCriteria:
     max_spread_pct: Optional[float] = None
     min_iv_rank: Optional[float] = None
     min_iv_percentile: Optional[float] = None
+    price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD
+    price_spread_pct: float = 25.0
 
     def with_filters(self, **overrides) -> "ScanCriteria":
         """Copia con filtros modificados (p. ej. desde la UI)."""
@@ -41,4 +43,6 @@ def criteria_from_settings(settings: Settings, operation: OperationType) -> Scan
         dte_max=op.dte_max,
         min_oi=f.min_oi, max_spread_pct=f.max_spread_pct,
         min_iv_rank=f.min_iv_rank, min_iv_percentile=f.min_iv_percentile,
+        price_reference=settings.scanner.price_reference.mode,
+        price_spread_pct=settings.scanner.price_reference.spread_pct,
     )

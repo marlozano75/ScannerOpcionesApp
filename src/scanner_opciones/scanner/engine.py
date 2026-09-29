@@ -6,7 +6,10 @@ from datetime import date
 from typing import Optional, Sequence
 
 from scanner_opciones.domain.models import ContractSnapshot, Position, TickerInfo
-from scanner_opciones.metrics.yields import strike_distance_pct
+from scanner_opciones.domain.enums import PriceReference
+from scanner_opciones.metrics.yields import (
+    annualized_yield_pct, gross_yield_ref_pct, reference_price, strike_distance_pct,
+)
 from scanner_opciones.portfolio.diversification import CandidateImpact, candidate_impact
 from scanner_opciones.scanner.criteria import ScanCriteria
 from scanner_opciones.scanner.filters import reject_reason
@@ -19,6 +22,10 @@ class ScanResult:
     dte: int
     strike_distance_pct: Optional[float]
     impact: CandidateImpact
+    reference_price: Optional[float] = None       # precio de venta usado
+    yield_ref_pct: Optional[float] = None         # yield con el precio de referencia
+    yield_ref_annualized_pct: Optional[float] = None
+    yield_bid_pct: Optional[float] = None         # yield vendiendo al bid (para comparar)
 
 
 @dataclass(frozen=True)
@@ -52,6 +59,14 @@ def run_scan(
         impact = candidate_impact(
             positions, info.sector if info else None, c.strike, c.multiplier, c.expiry
         )
-        results.append(ScanResult(snap, info, c.dte(today), strike_distance_pct(price, c.strike), impact))
-    results.sort(key=lambda r: r.snapshot.yield_annualized_pct or 0.0, reverse=True)
+        dte = c.dte(today)
+        ref = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct)
+        y_ref = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)
+        results.append(ScanResult(
+            snap, info, dte, strike_distance_pct(price, c.strike), impact,
+            reference_price=ref, yield_ref_pct=y_ref,
+            yield_ref_annualized_pct=annualized_yield_pct(y_ref, dte),
+            yield_bid_pct=gross_yield_ref_pct(snap.bid, snap.ask, c.strike, PriceReference.BID),
+        ))
+    results.sort(key=lambda r: r.yield_ref_annualized_pct or 0.0, reverse=True)
     return ScanOutput(results, rejected, rejections)

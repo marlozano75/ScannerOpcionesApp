@@ -6,7 +6,7 @@ from typing import Optional
 
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot
-from scanner_opciones.metrics.yields import strike_distance_pct
+from scanner_opciones.metrics.yields import gross_yield_ref_pct, strike_distance_pct
 from scanner_opciones.scanner.criteria import ScanCriteria
 
 _EPS = 1e-9  # tolerancia para comparaciones en el límite (float)
@@ -31,10 +31,11 @@ def reject_reason(
         return "sin precio del subyacente"
     if not (criteria.strike_below_pct_min - _EPS <= dist <= criteria.strike_below_pct_max + _EPS):
         return f"strike a {dist:.2f}% fuera de [{criteria.strike_below_pct_min}, {criteria.strike_below_pct_max}]"
-    if snap.yield_pct is None:
+    y = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)
+    if y is None:
         return "sin yield (cotización no válida)"
-    if snap.yield_pct < criteria.min_yield_pct - _EPS:
-        return f"yield {snap.yield_pct:.2f}% < {criteria.min_yield_pct}%"
+    if y < criteria.min_yield_pct - _EPS:
+        return f"yield {y:.2f}% < {criteria.min_yield_pct}%"
     if criteria.min_oi is not None and (snap.open_interest is None or snap.open_interest < criteria.min_oi):
         return "OI insuficiente o desconocido"
     if criteria.max_spread_pct is not None and (

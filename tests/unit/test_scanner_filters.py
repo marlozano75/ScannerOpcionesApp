@@ -3,7 +3,7 @@ from datetime import date, datetime
 import pytest
 
 from scanner_opciones.config.settings import CandidateRange, Settings
-from scanner_opciones.domain.enums import OperationType, OptionRight
+from scanner_opciones.domain.enums import OperationType, OptionRight, PriceReference
 from scanner_opciones.domain.models import ContractSnapshot, OptionChain, OptionContract
 from scanner_opciones.scanner.candidates import candidate_contracts
 from scanner_opciones.scanner.criteria import criteria_from_settings
@@ -18,7 +18,9 @@ TACTICAL = criteria_from_settings(Settings(), OperationType.TACTICAL)
 def snap(strike=78.0, days=30, yield_pct=1.2, oi=500, spread=5.0, right=OptionRight.PUT):
     from datetime import timedelta
     c = OptionContract("AAPL", TODAY + timedelta(days=days), strike, right)
-    return ContractSnapshot(c, NOW, open_interest=oi, spread_pct=spread, yield_pct=yield_pct)
+    # el yield objetivo se traduce a un bid = ask (spread 0): bid, mid y bid+X % dan el mismo precio
+    price = None if yield_pct is None else yield_pct * strike / 100
+    return ContractSnapshot(c, NOW, bid=price, ask=price, open_interest=oi, spread_pct=spread, yield_pct=yield_pct)
 
 
 def test_criteria_from_settings():
@@ -116,3 +118,33 @@ class TestCandidates:
     def test_no_price(self):
         assert candidate_contracts(self.CHAIN, 0, TODAY, CandidateRange()) == []
         assert candidate_contracts(self.CHAIN, None, TODAY, CandidateRange()) == []
+
+
+class TestPriceReference:
+    """Con un spread ancho, el precio de referencia cambia el yield y por tanto el filtro."""
+
+    def wide(self):
+        # bid 0.50 / ask 1.10 sobre strike 78 -> bid 0.64 %, bid+25 % 0.83 %, mid 1.03 %
+        c = OptionContract("AAPL", TODAY + __import__("datetime").timedelta(days=30), 78.0)
+        return ContractSnapshot(c, NOW, bid=0.50, ask=1.10, open_interest=500, spread_pct=75.0)
+
+    def with_ref(self, mode, x=25.0):
+        return REGULAR.with_filters(price_reference=mode, price_spread_pct=x, min_yield_pct=1.0)
+
+    def test_only_mid_reaches_one_percent(self):
+        s = self.wide()
+        assert "yield" in reject_reason(s, 100.0, TODAY, self.with_ref(PriceReference.BID))
+        assert "yield" in reject_reason(s, 100.0, TODAY, self.with_ref(PriceReference.BID_PLUS_SPREAD, 25))
+        assert reject_reason(s, 100.0, TODAY, self.with_ref(PriceReference.MID)) is None
+
+    def test_bid_plus_spread_threshold_depends_on_x(self):
+        s = self.wide()
+        # 0.50 + x * 0.60 >= 0.78  ->  x >= 46.7 %
+        assert "yield" in reject_reason(s, 100.0, TODAY, self.with_ref(PriceReference.BID_PLUS_SPREAD, 45))
+        assert reject_reason(s, 100.0, TODAY, self.with_ref(PriceReference.BID_PLUS_SPREAD, 50)) is None
+
+    def test_invalid_quote_is_rejected_for_every_reference(self):
+        c = OptionContract("AAPL", TODAY + __import__("datetime").timedelta(days=30), 78.0)
+        bad = ContractSnapshot(c, NOW, bid=-1, ask=1.1, open_interest=500, spread_pct=None)
+        for mode in PriceReference:
+            assert "yield" in reject_reason(bad, 100.0, TODAY, self.with_ref(mode))

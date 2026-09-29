@@ -201,7 +201,9 @@ class TestScanEngine:
 
     def snap(self, ticker, strike, y, ann):
         c = OptionContract(ticker, date(2026, 10, 30), strike)   # DTE 31
-        return ContractSnapshot(c, self.NOW, yield_pct=y, yield_annualized_pct=ann, open_interest=100, spread_pct=5)
+        price = y * strike / 100          # bid = ask: todas las referencias dan el mismo precio
+        return ContractSnapshot(c, self.NOW, bid=price, ask=price, yield_pct=y, yield_annualized_pct=ann,
+                                open_interest=100, spread_pct=5)
 
     def test_filters_enriches_and_sorts(self):
         crit = criteria_from_settings(Settings(), OperationType.REGULAR)

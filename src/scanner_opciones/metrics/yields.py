@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from scanner_opciones.domain.enums import PriceReference
 from scanner_opciones.metrics.spread import mid_price
 
 
@@ -12,6 +13,31 @@ def gross_yield_pct(bid: Optional[float], ask: Optional[float], strike: Optional
     if mid is None or strike is None or strike <= 0:
         return None
     return mid / strike * 100
+
+
+def reference_price(
+    bid: Optional[float], ask: Optional[float], mode: PriceReference, spread_pct: float = 25.0
+) -> Optional[float]:
+    """Precio de venta de referencia: bid, mid, o bid + X % del spread (X entre 0 y 100)."""
+    if mid_price(bid, ask) is None:   # cotización no válida
+        return None
+    if mode is PriceReference.BID:
+        return bid
+    if mode is PriceReference.MID:
+        return (bid + ask) / 2
+    x = min(max(spread_pct, 0.0), 100.0) / 100
+    return bid + x * (ask - bid)
+
+
+def gross_yield_ref_pct(
+    bid: Optional[float], ask: Optional[float], strike: Optional[float],
+    mode: PriceReference, spread_pct: float = 25.0,
+) -> Optional[float]:
+    """Yield bruto en % = precio de referencia / strike * 100."""
+    price = reference_price(bid, ask, mode, spread_pct)
+    if price is None or strike is None or strike <= 0:
+        return None
+    return price / strike * 100
 
 
 def annualized_yield_pct(yield_pct: Optional[float], dte: Optional[int]) -> Optional[float]:

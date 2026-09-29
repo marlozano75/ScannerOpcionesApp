@@ -126,3 +126,28 @@ class TestIvRankHighLow:
 
     def test_percentile_still_uses_closes(self):
         assert iv_percentile(0.375, self.CLOSES) == pytest.approx(2 / 3 * 100)
+
+
+class TestReferencePrice:
+    def test_modes(self):
+        from scanner_opciones.domain.enums import PriceReference as R
+        from scanner_opciones.metrics.yields import gross_yield_ref_pct, reference_price
+        assert reference_price(0.50, 1.10, R.BID) == 0.50
+        assert reference_price(0.50, 1.10, R.MID) == pytest.approx(0.80)
+        assert reference_price(0.50, 1.10, R.BID_PLUS_SPREAD, 25) == pytest.approx(0.65)
+        assert reference_price(0.50, 1.10, R.BID_PLUS_SPREAD, 0) == pytest.approx(0.50)     # X=0 -> bid
+        assert reference_price(0.50, 1.10, R.BID_PLUS_SPREAD, 50) == pytest.approx(0.80)    # X=50 -> mid
+        assert gross_yield_ref_pct(0.50, 1.10, 20, R.BID_PLUS_SPREAD, 25) == pytest.approx(3.25)
+        assert gross_yield_ref_pct(0.50, 1.10, 20, R.BID) == pytest.approx(2.5)
+        assert gross_yield_ref_pct(0.50, 1.10, 20, R.MID) == pytest.approx(4.0)
+
+    def test_x_is_clamped_and_bad_quotes_rejected(self):
+        from scanner_opciones.domain.enums import PriceReference as R
+        from scanner_opciones.metrics.yields import gross_yield_ref_pct, reference_price
+        assert reference_price(0.50, 1.10, R.BID_PLUS_SPREAD, 250) == pytest.approx(1.10)   # máx. = ask
+        assert reference_price(0.50, 1.10, R.BID_PLUS_SPREAD, -10) == pytest.approx(0.50)   # mín. = bid
+        for mode in R:
+            assert reference_price(-1, 1.1, mode) is None
+            assert reference_price(None, 1.1, mode) is None
+            assert reference_price(1.2, 1.1, mode) is None                                   # bid > ask
+            assert gross_yield_ref_pct(0.5, 1.1, 0, mode) is None

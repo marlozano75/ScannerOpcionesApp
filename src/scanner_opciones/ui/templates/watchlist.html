@@ -19,7 +19,7 @@
     <div class="banner err">Errores en la última actualización:
       {% for t, e in state.last_daily_report.errors.items() %}<div><strong>{{ t }}</strong>: {{ e }}</div>{% endfor %}</div>
   {% endif %}
-  <div class="scroll"><table>
+  <div class="scroll"><table class="sortable" id="watchlist-table">
     <tr><th>Ticker</th><th>Sector</th><th>Categoría</th><th>Precio</th><th>Días ex-div.</th><th>IV Rank</th><th>IV Pctl</th><th>Actualizado</th><th></th></tr>
     {% for t in tickers %}{% set i = infos.get(t) %}
       <tr><td>{{ t }}</td><td>{{ i.sector if i and i.sector else '—' }}</td><td>{{ i.category if i and i.category else '—' }}</td>

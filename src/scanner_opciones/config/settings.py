@@ -7,7 +7,7 @@ from typing import Optional
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from scanner_opciones.domain.enums import AccountMode
+from scanner_opciones.domain.enums import AccountMode, PriceReference
 from scanner_opciones.domain.errors import ConfigError
 
 
@@ -105,7 +105,14 @@ class FilterSettings(_Model):
     min_iv_percentile: Optional[float] = Field(None, ge=0, le=100)
 
 
+class PriceReferenceSettings(_Model):
+    """Precio de venta de referencia para el yield (editable en el formulario del scanner)."""
+    mode: PriceReference = PriceReference.BID_PLUS_SPREAD
+    spread_pct: float = Field(25, ge=0, le=100)  # X: % del spread que se suma al bid (0 = bid, 50 = mid)
+
+
 class ScannerSettings(_Model):
+    price_reference: PriceReferenceSettings = PriceReferenceSettings()
     candidates: CandidateRange = CandidateRange()
     regular: RegularSettings = RegularSettings()
     tactical: TacticalSettings = TacticalSettings()

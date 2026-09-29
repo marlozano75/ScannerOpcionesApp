@@ -19,6 +19,9 @@ scanner:
     strike_below_pct_max: 45   # ... hasta un 45 % por debajo del precio
     dte_min: 1
     dte_max: 60                # vencimientos hasta 60 días
+  price_reference:         # precio de venta con el que se calcula el yield
+    mode: bid_plus_spread      # bid | mid | bid_plus_spread
+    spread_pct: 25             # X: % del spread sumado al bid (0 = bid, 50 = mid)
   regular:                 # valores iniciales del formulario (editables allí)
     strike_below_pct: 20       # descuento mínimo del strike (%)
     min_yield_pct: 1.0

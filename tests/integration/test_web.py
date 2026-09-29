@@ -219,3 +219,60 @@ def test_scanner_shows_desc_and_bid_size_columns(client_and_service):
     r = client.get("/scanner")
     assert "<th>Desc.</th>" in r.text and "<th>Dist.</th>" not in r.text
     assert "<th>Bid size</th>" in r.text
+
+
+def test_watchlist_and_scanner_tables_are_sortable(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    wl = client.get("/watchlist").text
+    assert 'class="sortable" id="watchlist-table"' in wl
+    assert "SortableTables.init" in wl and "function sortRows" in wl          # script incluido en la página
+    sc = client.get("/scanner").text
+    assert 'class="sortable" id="scan-results"' in sc
+    assert "<th data-nosort>Cant.</th>" in sc                                # la columna de cantidad no ordena
+    assert "th[aria-sort=descending]::after" in sc and "\\25BC" in sc     # indicador de dirección
+    # las tablas del panel no se ordenan
+    assert 'class="sortable"' not in client.get("/").text
+    # el JS no rompe el renderizado de Jinja: no quedan marcas sin resolver
+    assert "{%" not in wl and "{{" not in wl
+
+
+def test_price_reference_selector_defaults_and_columns(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    r = client.get("/scanner")
+    assert 'name="ref"' in r.text and 'name="ref_x"' in r.text
+    assert 'value="bid_plus_spread" selected' in r.text and 'name="ref_x" id="ref_x" size="5" value="25"' in r.text
+    assert "precio de venta: bid + 25% del spread" in r.text
+    assert "<th>Prima ref.</th>" in r.text and "<th>Yield bid</th>" in r.text
+    assert 'id="ref_x_label" hidden' not in r.text                    # X visible con «Bid + X % del spread»
+    mid = client.get(BASE + "&ref=mid&ref_x=25")
+    assert "precio de venta: mid (media bid/ask)" in mid.text and 'id="ref_x_label" hidden' in mid.text
+    bid = client.get(BASE + "&ref=bid&ref_x=25")
+    assert "precio de venta: bid" in bid.text
+
+
+def test_price_reference_changes_which_contracts_pass(client_and_service):
+    client, svc, gw, _ = client_and_service
+    from scanner_opciones.domain.models import OptionQuote
+    refresh(client)
+    for c in svc.contracts.list("AAPL"):          # spread muy ancho: bid 0.40 / ask 1.60 (mid 1.00)
+        gw.quotes[c] = OptionQuote(bid=0.40, ask=1.60, open_interest=500)
+    refresh(client)
+    url = "/scanner?submitted=1&op=regular&discount=20&dte_min=25&dte_max=35&min_yield=1.2"
+    assert "Ningún contrato cumple" in client.get(url + "&ref=bid&ref_x=25").text          # 0.40/75 = 0.53 %
+    assert "Ningún contrato cumple" in client.get(url + "&ref=bid_plus_spread&ref_x=25").text   # 0.70/75 = 0.93 %
+    assert "contratos cumplen" in client.get(url + "&ref=mid&ref_x=25").text              # 1.00/75 = 1.33 %
+    assert "contratos cumplen" in client.get(url + "&ref=bid_plus_spread&ref_x=75").text  # 1.30/75 = 1.73 % con X=75 %
+    # la columna «Yield bid» muestra siempre el del bid, aunque el filtro use otra referencia
+    assert "0.5%" in client.get(url + "&ref=mid&ref_x=25").text
+
+
+@pytest.mark.parametrize("qs", [
+    "ref=raro&ref_x=25", "ref=bid_plus_spread&ref_x=", "ref=bid_plus_spread&ref_x=abc",
+    "ref=bid_plus_spread&ref_x=120", "ref=bid_plus_spread&ref_x=-5",
+])
+def test_invalid_price_reference(client_and_service, qs):
+    client, *_ = client_and_service
+    r = client.get(BASE + "&" + qs)
+    assert r.status_code == 200 and "Parámetro no válido" in r.text
