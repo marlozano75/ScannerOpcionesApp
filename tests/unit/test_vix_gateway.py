@@ -96,7 +96,8 @@ class QuoteIB:
 
     def __init__(self):
         self.cancelled = []
-        self.prices = {"AAPL": 210.5, "KO": float("nan")}
+        self.prices = {"AAPL": 210.5, "KO": float("nan"), "MU": 90.0}
+        self.ivs = {"AAPL": 0.31, "KO": float("nan"), "MU": float("nan")}
 
     def isConnected(self):
         return True
@@ -110,7 +111,8 @@ class QuoteIB:
         symbol = contract.symbol
         if contract.secType == "STK":
             px = self.prices.get(symbol, float("nan"))
-            return NS(marketPrice=lambda px=px: px)
+            iv = self.ivs.get(symbol, float("nan"))
+            return NS(marketPrice=lambda px=px: px, impliedVolatility=iv)
         return NS(
             bid=1.0, ask=1.2, last=1.1, bidSize=37.0, putOpenInterest=500.0, callOpenInterest=float("nan"),
             modelGreeks=NS(delta=-0.12, impliedVol=0.31),
@@ -130,9 +132,29 @@ async def test_get_quotes_includes_bid_size():
     assert q.bid == 1.0 and q.ask == 1.2 and q.bid_size == 37 and q.open_interest == 500
 
 
-async def test_get_underlying_prices_batches_and_skips_missing():
+async def test_get_underlying_quotes_returns_price_and_live_iv():
     gw = IBKRGateway(IbkrSettings(quote_wait_seconds=0.3))
     gw.ib = QuoteIB()
-    prices = await gw.get_underlying_prices(["AAPL", "KO"])
-    assert prices == {"AAPL": 210.5}                       # KO sin precio: no aparece
-    assert sorted(gw.ib.cancelled) == ["AAPL", "KO"]       # las líneas de mercado se liberan
+    quotes = await gw.get_underlying_quotes(["AAPL", "KO", "MU"])
+    assert quotes["AAPL"].price == 210.5 and quotes["AAPL"].iv == 0.31
+    assert "KO" not in quotes                                # sin precio ni IV: no aparece
+    assert quotes["MU"].price == 90.0 and quotes["MU"].iv is None   # precio sí, IV no
+    assert sorted(gw.ib.cancelled) == ["AAPL", "KO", "MU"]   # las líneas de mercado se liberan
+
+
+async def test_get_iv_history_returns_close_high_low():
+    class HistIB(QuoteIB):
+        async def reqHistoricalDataAsync(self, contract, **kw):
+            self.what = kw["whatToShow"]
+            return [
+                NS(date=date(2026, 9, 28), close=0.30, high=0.33, low=0.28),
+                NS(date=date(2026, 9, 29), close=0.31, high=float("nan"), low=-1),   # sin máx/mín válidos
+            ]
+
+    gw = IBKRGateway(IbkrSettings(), now=lambda: datetime(2026, 9, 29, 10))
+    gw.ib = HistIB()
+    out = await gw.get_iv_history("AAPL", None)
+    assert gw.ib.what == "OPTION_IMPLIED_VOLATILITY"
+    assert out == [(date(2026, 9, 28), 0.30, 0.33, 0.28), (date(2026, 9, 29), 0.31, None, None)]
+    since = await gw.get_iv_history("AAPL", date(2026, 9, 29))
+    assert [p[0] for p in since] == [date(2026, 9, 29)]                  # incluye el día indicado

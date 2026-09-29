@@ -51,6 +51,8 @@ MIGRATIONS: list[str] = [
     """,
     # v2: tamaño del bid
     "ALTER TABLE snapshots ADD COLUMN bid_size INTEGER;",
+    # v3: máximo y mínimo diarios de la IV (para el rango del IV Rank)
+    "ALTER TABLE iv_history ADD COLUMN high REAL; ALTER TABLE iv_history ADD COLUMN low REAL;",
 ]
 
 

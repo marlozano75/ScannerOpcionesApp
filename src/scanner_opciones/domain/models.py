@@ -120,6 +120,13 @@ class OptionQuote:
 
 
 @dataclass(frozen=True)
+class UnderlyingQuote:
+    """Precio y volatilidad implícita (30 días) actuales de un subyacente."""
+    price: Optional[float] = None
+    iv: Optional[float] = None
+
+
+@dataclass(frozen=True)
 class OptionChain:
     """Expiraciones y strikes disponibles de un subyacente."""
     ticker: str

@@ -23,6 +23,7 @@ o 7496 (real). La app arranca aunque TWS no esté disponible y lo indica en pant
 - **Watchlist:** pega tickers o carga `.txt`/`.csv`/`.xlsx`. Al añadir tickers nuevos se les aplica la
   actualización diaria en el acto. La actualización diaria también corre al arrancar si no se hizo hoy.
 - El precio de cada subyacente se refresca en cada ciclo (columna **Desc.** = descuento del strike sobre ese precio). Cada contrato muestra también el **Bid size**.
+- **IV Rank:** rango = mayor máximo / menor mínimo diarios de la IV en 365 días, con la IV en directo como valor actual. **IV Percentile:** % de días (cierres) con IV menor. Difiere de TWS en unos pocos puntos y bastante en valores con picos en el historial de IBKR.
 - Al **quitar** un ticker se borran sus contratos y cotizaciones. **Forzar actualización diaria** corre en segundo plano (verás el progreso arriba) y espera su turno si hay otra tarea en curso.
 - **Scanner:** operación Regular (descuento mín. del strike 20 %, DTE 25–35) o Táctica (descuento mín. 10 %, solo DTE máx. 15); todo editable,
   yield bruto ≥ 1 % (prima = media bid/ask ÷ strike). El descuento del strike (mín./máx.) y el yield bruto mínimo se editan en el propio formulario. Filtros opcionales (OI, spread, IV Rank, IV Percentile): solo se aplican si marcas su casilla.

@@ -73,7 +73,9 @@ class AppService:
         self.snapshots = SnapshotRepo(db)
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.iv_history,
                                   self.contracts, settings, now)
-        self.refresh_job = RefreshJob(gateway, self.contracts, self.snapshots, self.ticker_info, settings, now)
+        self.refresh_job = RefreshJob(
+            gateway, self.contracts, self.snapshots, self.ticker_info, settings, now, self.iv_history
+        )
         self.state = AppState()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas
         self._background: set = set()

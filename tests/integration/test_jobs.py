@@ -32,7 +32,7 @@ class Env:
             self.gw, self.watch, self.info, self.iv, self.contracts, self.settings, lambda: self.clock
         )
         self.refresh = RefreshJob(
-            self.gw, self.contracts, self.snaps, self.info, self.settings, lambda: self.clock
+            self.gw, self.contracts, self.snaps, self.info, self.settings, lambda: self.clock, self.iv
         )
 
     def add_aapl(self):
@@ -43,7 +43,8 @@ class Env:
         )
         self.gw.ex_dividend_days["AAPL"] = 12
         self.gw.iv_history["AAPL"] = [
-            (TODAY - timedelta(days=n), 0.20 + 0.01 * (10 - n)) for n in range(10, 0, -1)
+            (TODAY - timedelta(days=n), 0.20 + 0.01 * (10 - n), 0.20 + 0.01 * (10 - n), 0.20 + 0.01 * (10 - n))
+            for n in range(10, 0, -1)
         ]
         self.watch.add(["AAPL"], NOW)
 
@@ -70,7 +71,7 @@ async def test_iv_history_is_incremental(env):
     env.add_aapl()
     await env.daily.run(["AAPL"])
     env.gw.calls.clear()
-    env.gw.iv_history["AAPL"].append((TODAY, 0.5))
+    env.gw.iv_history["AAPL"].append((TODAY, 0.5, 0.5, 0.5))
     await env.daily.run(["AAPL"])
     assert env.gw.calls == [("get_iv_history", "AAPL", TODAY - timedelta(days=1))]
     assert len(env.iv.series("AAPL")) == 11
@@ -218,7 +219,7 @@ async def test_refresh_survives_price_errors(env):
     async def boom(tickers):
         from scanner_opciones.domain.errors import DataUnavailableError
         raise DataUnavailableError("sin datos")
-    env.gw.get_underlying_prices = boom
+    env.gw.get_underlying_quotes = boom
     report = await env.refresh.run()
     assert report.prices_updated == 0 and report.refreshed == 2
 
@@ -229,3 +230,65 @@ async def test_refresh_stores_bid_size(env):
     await env.refresh.run()
     by = {s.contract.strike: s for s in env.snaps.all("AAPL")}
     assert by[75.0].bid_size == 42 and by[80.0].bid_size is None
+
+
+async def test_refresh_recomputes_iv_rank_and_percentile_with_live_iv(env):
+    c75, c80 = await _prepare_refresh(env)
+    assert env.info.get("AAPL").iv_rank == 100.0          # valor del día: última barra = máximo
+    hist = [v for _, v in env.iv.series("AAPL")]           # 0.20 ... 0.29
+    live = 0.245                                           # la IV en directo es menor que la última barra
+    env.gw.underlying_ivs["AAPL"] = live
+    report = await env.refresh.run()
+    assert report.iv_updated == 1
+    info = env.info.get("AAPL")
+    lo, hi = min(hist), max(hist)
+    assert info.iv_rank == pytest.approx((live - lo) / (hi - lo) * 100)
+    assert info.iv_percentile == pytest.approx(sum(1 for v in hist if v < live) / len(hist) * 100)
+    # y los snapshots usan los valores recalculados
+    assert all(s.iv_rank == pytest.approx(info.iv_rank) for s in env.snaps.all("AAPL"))
+
+
+async def test_refresh_keeps_iv_stats_when_no_live_iv(env):
+    await _prepare_refresh(env)
+    before = env.info.get("AAPL")
+    report = await env.refresh.run()                       # el fake no tiene IV en directo
+    assert report.iv_updated == 0
+    assert env.info.get("AAPL").iv_rank == before.iv_rank
+
+
+async def test_todays_iv_bar_is_redone_on_next_daily_update(env):
+    env.add_aapl()
+    env.gw.iv_history["AAPL"].append((TODAY, 0.5, 0.5, 0.5))          # barra parcial de hoy
+    await env.daily.run(["AAPL"])
+    assert env.iv.series("AAPL")[-1] == (TODAY, 0.5)
+    env.gw.iv_history["AAPL"][-1] = (TODAY, 0.9, 0.9, 0.9)            # al cierre el valor cambia
+    await env.daily.run(["AAPL"])
+    series = env.iv.series("AAPL")
+    assert series[-1] == (TODAY, 0.9) and len(series) == 11   # se sustituye, no se duplica
+
+
+async def test_iv_rank_uses_daily_high_low_range(env):
+    env.add_aapl()
+    # cierres 0.30 .. 0.32 pero la barra del medio llegó a 0.60 y a 0.10 durante el día
+    env.gw.iv_history["AAPL"] = [
+        (TODAY - timedelta(days=3), 0.30, 0.31, 0.29),
+        (TODAY - timedelta(days=2), 0.31, 0.60, 0.10),
+        (TODAY - timedelta(days=1), 0.32, 0.33, 0.30),
+    ]
+    await env.daily.run(["AAPL"])
+    info = env.info.get("AAPL")
+    assert info.iv_rank == pytest.approx((0.32 - 0.10) / (0.60 - 0.10) * 100)   # 44 (con cierres saldría 100)
+
+
+async def test_old_bars_without_high_low_trigger_one_full_download(env):
+    env.add_aapl()
+    await env.daily.run(["AAPL"])
+    # simula datos guardados antes de la migración v3: se borran máx/mín
+    env.db.conn.execute("UPDATE iv_history SET high = NULL, low = NULL")
+    env.db.conn.commit()
+    env.gw.calls.clear()
+    await env.daily.run(["AAPL"])
+    assert env.gw.calls == [("get_iv_history", "AAPL", None)]           # descarga completa (una vez)
+    env.gw.calls.clear()
+    await env.daily.run(["AAPL"])
+    assert env.gw.calls[0][2] is not None                               # ya incremental

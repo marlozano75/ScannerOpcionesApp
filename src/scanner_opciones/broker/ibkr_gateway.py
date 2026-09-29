@@ -21,7 +21,7 @@ from scanner_opciones.domain.errors import (
     BrokerDisconnectedError, BrokerError, DataUnavailableError,
 )
 from scanner_opciones.domain.models import (
-    AccountSummary, OptionChain, OptionContract, OptionQuote, Position, VixData,
+    AccountSummary, OptionChain, OptionContract, OptionQuote, Position, UnderlyingQuote, VixData,
 )
 
 log = logging.getLogger(__name__)
@@ -167,9 +167,9 @@ class IBKRGateway:
 
     PRICE_BATCH = 50
 
-    async def get_underlying_prices(self, tickers: Sequence[str]) -> dict[str, float]:
-        """Precios de varios subyacentes con una sola espera acotada por lote. Sin precio en
-        directo (p. ej. sin suscripción) el ticker no aparece y se conserva el anterior."""
+    async def get_underlying_quotes(self, tickers: Sequence[str]) -> dict[str, UnderlyingQuote]:
+        """Precio e IV (30 días, tick 106) de varios subyacentes con una espera acotada por lote.
+        Lo que no llegue (p. ej. sin suscripción) queda como None: se conserva el valor anterior."""
         self._require()
         stocks: dict[str, Stock] = {}
         for t in tickers:
@@ -177,15 +177,18 @@ class IBKRGateway:
                 stocks[t] = await self._stock(t)
             except DataUnavailableError:
                 continue
-        out: dict[str, float] = {}
+        out: dict[str, UnderlyingQuote] = {}
         items = list(stocks.items())
         for i in range(0, len(items), self.PRICE_BATCH):
             chunk = items[i : i + self.PRICE_BATCH]
-            ticks = {t: self.ib.reqMktData(s, "", False, False) for t, s in chunk}
+            ticks = {t: self.ib.reqMktData(s, "106", False, False) for t, s in chunk}  # 106 = IV de opciones
             try:
                 waited, step = 0.0, 0.25
                 while waited < self.s.quote_wait_seconds:
-                    if all(m.num(tk.marketPrice()) is not None for tk in ticks.values()):
+                    if all(
+                        m.num(tk.marketPrice()) is not None and m.num(tk.impliedVolatility) is not None
+                        for tk in ticks.values()
+                    ):
                         break
                     await asyncio.sleep(step)
                     waited += step
@@ -193,9 +196,9 @@ class IBKRGateway:
                 for _, s in chunk:
                     self.ib.cancelMktData(s)
             for t, tk in ticks.items():
-                price = m.num(tk.marketPrice())
-                if price is not None:
-                    out[t] = price
+                q = UnderlyingQuote(price=m.num(tk.marketPrice()), iv=m.num(tk.impliedVolatility))
+                if q.price is not None or q.iv is not None:
+                    out[t] = q
         return out
 
     async def get_option_chain(self, ticker: str) -> OptionChain:
@@ -219,7 +222,7 @@ class IBKRGateway:
             return None
         return (div.nextDate - self.now().date()).days
 
-    async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple[date, float]]:
+    async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple]:
         stock = await self._stock(ticker)
         if since is None:
             duration = "1 Y"
@@ -234,8 +237,8 @@ class IBKRGateway:
         for b in bars:
             d = self._bar_day(b)
             v = m.num(b.close)
-            if v is not None and (since is None or d > since):
-                out.append((d, v))
+            if v is not None and (since is None or d >= since):
+                out.append((d, v, m.num(b.high), m.num(b.low)))   # (día, cierre, máximo, mínimo)
         return out
 
     # ---- opciones -------------------------------------------------------------------------

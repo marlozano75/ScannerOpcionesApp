@@ -7,7 +7,7 @@ from typing import Optional, Sequence
 
 from scanner_opciones.domain.errors import BrokerDisconnectedError, DataUnavailableError
 from scanner_opciones.domain.models import (
-    AccountSummary, OptionChain, OptionContract, OptionQuote, Position, VixData,
+    AccountSummary, OptionChain, OptionContract, OptionQuote, Position, UnderlyingQuote, VixData,
 )
 
 
@@ -17,9 +17,10 @@ class FakeGateway:
     positions: list[Position] = field(default_factory=list)
     sectors: dict[str, tuple[Optional[str], Optional[str]]] = field(default_factory=dict)
     prices: dict[str, float] = field(default_factory=dict)
+    underlying_ivs: dict[str, float] = field(default_factory=dict)  # IV en directo
     chains: dict[str, OptionChain] = field(default_factory=dict)
     ex_dividend_days: dict[str, Optional[int]] = field(default_factory=dict)
-    iv_history: dict[str, list[tuple[date, float]]] = field(default_factory=dict)
+    iv_history: dict[str, list[tuple]] = field(default_factory=dict)  # (día, cierre[, máx, mín])
     quotes: dict[OptionContract, OptionQuote] = field(default_factory=dict)
     margins: dict[OptionContract, float] = field(default_factory=dict)
     vix: VixData = field(default_factory=VixData)
@@ -59,9 +60,16 @@ class FakeGateway:
         self._check(ticker)
         return self.prices.get(ticker)
 
-    async def get_underlying_prices(self, tickers: Sequence[str]) -> dict[str, float]:
+    async def get_underlying_quotes(self, tickers: Sequence[str]) -> dict[str, UnderlyingQuote]:
         self._check()
-        return {t: self.prices[t] for t in tickers if t in self.prices and t not in self.failing_tickers}
+        out = {}
+        for t in tickers:
+            if t in self.failing_tickers:
+                continue
+            q = UnderlyingQuote(self.prices.get(t), self.underlying_ivs.get(t))
+            if q.price is not None or q.iv is not None:
+                out[t] = q
+        return out
 
     async def get_option_chain(self, ticker: str) -> OptionChain:
         self._check(ticker)
@@ -71,11 +79,11 @@ class FakeGateway:
         self._check(ticker)
         return self.ex_dividend_days.get(ticker)
 
-    async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple[date, float]]:
+    async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple]:
         self._check(ticker)
         self.calls.append(("get_iv_history", ticker, since))
         data = self.iv_history.get(ticker, [])
-        return [(d, v) for d, v in data if since is None or d > since]
+        return [p for p in data if since is None or p[0] >= since]  # incluye el último día: se rehace
 
     async def qualify_contracts(self, contracts: Sequence[OptionContract]) -> list[OptionContract]:
         self._check()

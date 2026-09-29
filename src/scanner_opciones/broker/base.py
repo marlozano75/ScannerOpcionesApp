@@ -5,7 +5,7 @@ from datetime import date
 from typing import Optional, Protocol, Sequence
 
 from scanner_opciones.domain.models import (
-    AccountSummary, OptionChain, OptionContract, OptionQuote, Position, VixData,
+    AccountSummary, OptionChain, OptionContract, OptionQuote, Position, UnderlyingQuote, VixData,
 )
 
 
@@ -27,16 +27,17 @@ class BrokerGateway(Protocol):
 
     async def get_underlying_price(self, ticker: str) -> Optional[float]: ...
 
-    async def get_underlying_prices(self, tickers: Sequence[str]) -> dict[str, float]:
-        """Precio actual de varios subyacentes de una vez. Los que no tengan precio no aparecen."""
+    async def get_underlying_quotes(self, tickers: Sequence[str]) -> dict[str, UnderlyingQuote]:
+        """Precio y IV actuales de varios subyacentes de una vez. Sin ningún dato: no aparecen."""
 
     async def get_option_chain(self, ticker: str) -> OptionChain: ...
 
     async def get_days_to_ex_dividend(self, ticker: str) -> Optional[int]:
         """None si no aplica / no hay dividendo próximo."""
 
-    async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple[date, float]]:
-        """IV diaria del subyacente. Si `since` no es None, solo días posteriores a esa fecha."""
+    async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple]:
+        """IV diaria del subyacente: tuplas (día, cierre) o (día, cierre, máximo, mínimo).
+        Si `since` no es None, solo desde esa fecha (incluida: la barra del último día se rehace)."""
 
     async def qualify_contracts(self, contracts: Sequence[OptionContract]) -> list[OptionContract]:
         """Devuelve solo los contratos que existen en IBKR, con `con_id` informado."""

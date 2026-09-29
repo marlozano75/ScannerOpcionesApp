@@ -75,15 +75,19 @@ class DailyUpdater:
         chain = await gw.get_option_chain(ticker)
         ex_div = await gw.get_days_to_ex_dividend(ticker)
 
-        # IV incremental: solo los días posteriores al último guardado (RF-06)
+        # IV incremental: solo desde el último día guardado (RF-06); ese último día se rehace porque
+        # su barra podía ser parcial. Si hay barras sin máximo/mínimo (guardadas antes de la
+        # migración v3) se descarga la ventana completa una vez.
+        window_start = today - timedelta(days=self.settings.iv.lookback_days)
         last = self.iv_history.last_day(ticker)
+        if last is not None and self.iv_history.needs_hilo_backfill(ticker, window_start):
+            last = None
         new_points = await gw.get_iv_history(ticker, last)
         if new_points:
             self.iv_history.add(ticker, new_points)
-        window_start = today - timedelta(days=self.settings.iv.lookback_days)
         self.iv_history.prune(ticker, window_start)
-        series = self.iv_history.series(ticker, since=window_start)
-        values = [v for _, v in series]
+        bars = self.iv_history.bars(ticker, since=window_start)
+        values = [b[1] for b in bars]
         current_iv = values[-1] if values else None
 
         candidates = (
@@ -97,7 +101,7 @@ class DailyUpdater:
             TickerInfo(
                 ticker=ticker, sector=sector, category=category, underlying_price=price,
                 days_to_ex_dividend=ex_div,
-                iv_rank=iv_rank(current_iv, values),
+                iv_rank=iv_rank(current_iv, values, [b[2] for b in bars], [b[3] for b in bars]),
                 iv_percentile=iv_percentile(current_iv, values),
                 updated_daily_at=now,
             )

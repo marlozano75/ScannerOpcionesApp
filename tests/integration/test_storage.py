@@ -20,9 +20,9 @@ def db():
 
 
 def test_migration_sets_version_and_is_idempotent(db):
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 3
     db.migrate()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 3
 
 
 def test_file_database_persists(tmp_path):
@@ -146,7 +146,7 @@ def test_migration_from_v1_keeps_existing_snapshots(tmp_path):
     conn.commit()
     conn.close()
     db = Database(path)
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 3
     snaps = SnapshotRepo(db).all()
     assert len(snaps) == 1 and snaps[0].bid == 1.0 and snaps[0].bid_size is None
 
@@ -163,3 +163,34 @@ def test_snapshot_bid_size_roundtrip_and_price_update(db):
     assert got.underlying_price == 91.5 and got.updated_daily_at == NOW and got.sector == "Tech"
     infos.update_price("NOPE", 1.0)   # ticker sin ficha: no falla ni crea filas
     assert infos.get("NOPE") is None
+
+
+def test_iv_bars_store_high_low_and_flag_old_rows_for_backfill(db):
+    r = IVHistoryRepo(db)
+    r.add("AAPL", [(date(2026, 9, 1), 0.20), (date(2026, 9, 2), 0.25, 0.30, 0.18)])   # una antigua, una nueva
+    assert r.bars("AAPL") == [
+        (date(2026, 9, 1), 0.20, None, None), (date(2026, 9, 2), 0.25, 0.30, 0.18)
+    ]
+    assert r.series("AAPL") == [(date(2026, 9, 1), 0.20), (date(2026, 9, 2), 0.25)]   # series sigue igual
+    assert r.needs_hilo_backfill("AAPL", date(2026, 8, 1)) is True
+    assert r.needs_hilo_backfill("AAPL", date(2026, 9, 2)) is False                    # ventana solo con la nueva
+    r.add("AAPL", [(date(2026, 9, 1), 0.20, 0.22, 0.19)])                              # se rehace con máx/mín
+    assert r.needs_hilo_backfill("AAPL", date(2026, 8, 1)) is False
+
+
+def test_migration_from_v2_keeps_iv_history(tmp_path):
+    import sqlite3
+
+    from scanner_opciones.storage.db import MIGRATIONS
+
+    path = tmp_path / "v2.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(MIGRATIONS[0])
+    conn.executescript(MIGRATIONS[1])
+    conn.execute("PRAGMA user_version = 2")
+    conn.execute("INSERT INTO iv_history (ticker, day, iv) VALUES ('AAPL', '2026-09-01', 0.2)")
+    conn.commit()
+    conn.close()
+    db = Database(path)
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert IVHistoryRepo(db).bars("AAPL") == [(date(2026, 9, 1), 0.2, None, None)]

@@ -3,19 +3,20 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.enums import OperationType
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, OptionQuote
+from scanner_opciones.metrics.iv_stats import iv_percentile, iv_rank
 from scanner_opciones.metrics.spread import spread_pct
 from scanner_opciones.metrics.yields import annualized_yield_pct, gross_yield_pct
 from scanner_opciones.metrics.yields import strike_distance_pct
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.filters import reject_reason
-from scanner_opciones.storage.repositories import ContractRepo, SnapshotRepo, TickerInfoRepo
+from scanner_opciones.storage.repositories import ContractRepo, IVHistoryRepo, SnapshotRepo, TickerInfoRepo
 from typing import Callable, Optional, Sequence
 
 log = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class RefreshReport:
     stored: int = 0        # contratos guardados en total
     in_scope: int = 0      # contratos que se cotizaron en este ciclo
     prices_updated: int = 0   # subyacentes con precio actualizado en este ciclo
+    iv_updated: int = 0       # subyacentes con IV Rank / Percentile recalculados con la IV en directo
     refreshed: int = 0
     without_quote: int = 0
     margins_requested: int = 0
@@ -41,7 +43,9 @@ class RefreshJob:
         ticker_info: TickerInfoRepo,
         settings: Settings,
         now: Callable[[], datetime] = datetime.now,
+        iv_history: Optional[IVHistoryRepo] = None,
     ) -> None:
+        self.iv_history = iv_history
         self.gateway = gateway
         self.contracts = contracts
         self.snapshots = snapshots
@@ -78,7 +82,7 @@ class RefreshJob:
         infos = self.ticker_info.all()
         stored = self.contracts.list()
         today = self.now().date()
-        infos = await self._refresh_prices(sorted({c.ticker for c in stored}), infos, report)
+        infos = await self._refresh_underlyings(sorted({c.ticker for c in stored}), infos, report)
         all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), criteria, today)]
         report.stored, report.in_scope = len(stored), len(all_contracts)
         size = self.settings.refresh.batch_size
@@ -104,23 +108,38 @@ class RefreshJob:
                     report.refreshed += 1
         return report
 
-    async def _refresh_prices(self, tickers: list[str], infos: dict, report: RefreshReport) -> dict:
-        """Actualiza el precio del subyacente de cada ticker antes de calcular distancias y alcance."""
+    async def _refresh_underlyings(self, tickers: list[str], infos: dict, report: RefreshReport) -> dict:
+        """Actualiza precio e IV en directo de cada subyacente y recalcula IV Rank / Percentile con
+        la IV actual (no con la última barra diaria guardada). Se hace antes de calcular alcance."""
         if not tickers:
             return infos
         try:
-            prices = await self.gateway.get_underlying_prices(tickers)
+            quotes = await self.gateway.get_underlying_quotes(tickers)
         except BrokerDisconnectedError:
             raise
         except BrokerError as exc:
-            log.warning("No se pudieron actualizar los precios de los subyacentes: %s", exc)
+            log.warning("No se pudieron actualizar precio/IV de los subyacentes: %s", exc)
             return infos
         infos = dict(infos)
-        for ticker, price in prices.items():
-            if ticker in infos:
-                self.ticker_info.update_price(ticker, price)
-                infos[ticker] = replace(infos[ticker], underlying_price=price)
+        window_start = self.now().date() - timedelta(days=self.settings.iv.lookback_days)
+        for ticker, q in quotes.items():
+            info = infos.get(ticker)
+            if info is None:
+                continue
+            if q.price is not None:
+                self.ticker_info.update_price(ticker, q.price)
+                info = replace(info, underlying_price=q.price)
                 report.prices_updated += 1
+            if q.iv is not None and self.iv_history is not None:
+                bars = self.iv_history.bars(ticker, since=window_start)
+                values = [b[1] for b in bars]
+                rank = iv_rank(q.iv, values, [b[2] for b in bars], [b[3] for b in bars])
+                pct = iv_percentile(q.iv, values)
+                if rank is not None or pct is not None:
+                    self.ticker_info.update_iv_stats(ticker, rank, pct)
+                    info = replace(info, iv_rank=rank, iv_percentile=pct)
+                    report.iv_updated += 1
+            infos[ticker] = info
         return infos
 
     def _build_snapshot(self, contract: OptionContract, q: OptionQuote, info) -> ContractSnapshot:

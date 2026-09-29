@@ -101,3 +101,28 @@ class TestIvStats:
     def test_percentile_empty(self):
         assert iv_percentile(0.3, []) is None
         assert iv_percentile(None, self.HIST) is None
+
+
+class TestIvRankHighLow:
+    CLOSES = [0.30, 0.40, 0.35]
+    HIGHS = [0.32, 0.50, 0.36]
+    LOWS = [0.25, 0.38, 0.33]
+
+    def test_range_uses_daily_high_and_low(self):
+        # rango 0.25 .. 0.50 (no 0.30 .. 0.40 de los cierres)
+        assert iv_rank(0.375, self.CLOSES, self.HIGHS, self.LOWS) == pytest.approx(50)
+        assert iv_rank(0.375, self.CLOSES) == pytest.approx(75)     # sin máx/mín: solo cierres
+
+    def test_missing_high_low_falls_back_to_close(self):
+        # la barra 1 no tiene máx/mín: cuenta su cierre; el resto amplía el rango
+        highs = [None, 0.50, None]
+        lows = [None, None, 0.20]
+        assert iv_rank(0.35, self.CLOSES, highs, lows) == pytest.approx((0.35 - 0.20) / (0.50 - 0.20) * 100)
+
+    def test_nan_high_low_ignored_and_clamped(self):
+        assert iv_rank(0.35, self.CLOSES, [math.nan, math.nan, math.nan], [None, None, None]) == pytest.approx(50)
+        assert iv_rank(0.90, self.CLOSES, self.HIGHS, self.LOWS) == 100      # acotado
+        assert iv_rank(0.10, self.CLOSES, self.HIGHS, self.LOWS) == 0
+
+    def test_percentile_still_uses_closes(self):
+        assert iv_percentile(0.375, self.CLOSES) == pytest.approx(2 / 3 * 100)
