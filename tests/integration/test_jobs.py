@@ -191,3 +191,41 @@ async def test_refresh_only_quotes_contracts_in_scope_unless_criteria_given(env)
     wide = criteria_from_settings(env.settings, OperationType.REGULAR).with_filters(dte_max=60)
     report = await env.refresh.run([wide])                # rango ampliado desde el formulario
     assert (report.in_scope, report.refreshed) == (2, 2)
+
+
+async def test_refresh_updates_underlying_price_each_cycle(env):
+    c75, c80 = await _prepare_refresh(env)
+    assert env.info.get("AAPL").underlying_price == 100.0
+    env.gw.prices["AAPL"] = 96.0                      # la acción se mueve entre ciclos
+    report = await env.refresh.run()
+    assert report.prices_updated == 1
+    info = env.info.get("AAPL")
+    assert info.underlying_price == 96.0 and info.updated_daily_at == NOW   # no cuenta como actualización diaria
+    # con el precio nuevo, el strike 80 pasa a estar a 16,7 % (ya no cumple 20 %): sale del alcance
+    assert report.in_scope == 1
+
+
+async def test_refresh_keeps_previous_price_when_no_live_price(env):
+    await _prepare_refresh(env)
+    del env.gw.prices["AAPL"]                         # sin precio disponible
+    report = await env.refresh.run()
+    assert report.prices_updated == 0 and env.info.get("AAPL").underlying_price == 100.0
+
+
+async def test_refresh_survives_price_errors(env):
+    await _prepare_refresh(env)
+
+    async def boom(tickers):
+        from scanner_opciones.domain.errors import DataUnavailableError
+        raise DataUnavailableError("sin datos")
+    env.gw.get_underlying_prices = boom
+    report = await env.refresh.run()
+    assert report.prices_updated == 0 and report.refreshed == 2
+
+
+async def test_refresh_stores_bid_size(env):
+    c75, c80 = await _prepare_refresh(env)
+    env.gw.quotes[c75] = OptionQuote(bid=1.0, ask=1.2, open_interest=300, bid_size=42)
+    await env.refresh.run()
+    by = {s.contract.strike: s for s in env.snaps.all("AAPL")}
+    assert by[75.0].bid_size == 42 and by[80.0].bid_size is None

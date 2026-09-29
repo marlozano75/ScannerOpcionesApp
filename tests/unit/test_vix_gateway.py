@@ -89,3 +89,50 @@ async def test_historical_timeout_becomes_data_unavailable(monkeypatch):
     gw.HISTORICAL_TIMEOUT = 0.05
     with pytest.raises(DataUnavailableError):
         await gw.get_vix_data(5, 3)
+
+
+class QuoteIB:
+    """IB falso para cotizaciones y precios: reqMktData devuelve tickers con los campos de ib_async."""
+
+    def __init__(self):
+        self.cancelled = []
+        self.prices = {"AAPL": 210.5, "KO": float("nan")}
+
+    def isConnected(self):
+        return True
+
+    async def qualifyContractsAsync(self, *contracts):
+        for c in contracts:
+            c.conId = 42
+        return list(contracts)
+
+    def reqMktData(self, contract, generic, snapshot, regulatory):
+        symbol = contract.symbol
+        if contract.secType == "STK":
+            px = self.prices.get(symbol, float("nan"))
+            return NS(marketPrice=lambda px=px: px)
+        return NS(
+            bid=1.0, ask=1.2, last=1.1, bidSize=37.0, putOpenInterest=500.0, callOpenInterest=float("nan"),
+            modelGreeks=NS(delta=-0.12, impliedVol=0.31),
+        )
+
+    def cancelMktData(self, contract):
+        self.cancelled.append(contract.symbol)
+
+
+async def test_get_quotes_includes_bid_size():
+    from scanner_opciones.domain.models import OptionContract
+
+    gw = IBKRGateway(IbkrSettings(quote_wait_seconds=0.05))
+    gw.ib = QuoteIB()
+    c = OptionContract("AAPL", date(2026, 10, 30), 150.0)
+    q = (await gw.get_quotes([c]))[c]
+    assert q.bid == 1.0 and q.ask == 1.2 and q.bid_size == 37 and q.open_interest == 500
+
+
+async def test_get_underlying_prices_batches_and_skips_missing():
+    gw = IBKRGateway(IbkrSettings(quote_wait_seconds=0.3))
+    gw.ib = QuoteIB()
+    prices = await gw.get_underlying_prices(["AAPL", "KO"])
+    assert prices == {"AAPL": 210.5}                       # KO sin precio: no aparece
+    assert sorted(gw.ib.cancelled) == ["AAPL", "KO"]       # las líneas de mercado se liberan

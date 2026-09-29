@@ -49,6 +49,8 @@ MIGRATIONS: list[str] = [
         initial_margin REAL
     );
     """,
+    # v2: tamaño del bid
+    "ALTER TABLE snapshots ADD COLUMN bid_size INTEGER;",
 ]
 
 

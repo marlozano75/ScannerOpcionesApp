@@ -211,3 +211,11 @@ def test_remove_route_deletes_contracts_and_forced_daily_runs_in_background(clie
     svc.watchlist.add(["AAPL"], NOW)
     r = client.post("/daily", follow_redirects=True)
     assert r.status_code == 200 and "Actualización diaria de 1 tickers" in r.text
+
+
+def test_scanner_shows_desc_and_bid_size_columns(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    r = client.get("/scanner")
+    assert "<th>Desc.</th>" in r.text and "<th>Dist.</th>" not in r.text
+    assert "<th>Bid size</th>" in r.text

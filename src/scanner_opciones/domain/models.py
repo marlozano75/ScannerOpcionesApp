@@ -49,6 +49,7 @@ class ContractSnapshot:
     iv_rank: Optional[float] = None
     iv_percentile: Optional[float] = None
     initial_margin: Optional[float] = None
+    bid_size: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ class OptionQuote:
     delta: Optional[float] = None
     iv: Optional[float] = None
     open_interest: Optional[int] = None
+    bid_size: Optional[int] = None
 
 
 @dataclass(frozen=True)

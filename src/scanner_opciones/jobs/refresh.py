@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from scanner_opciones.broker.base import BrokerGateway
@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 class RefreshReport:
     stored: int = 0        # contratos guardados en total
     in_scope: int = 0      # contratos que se cotizaron en este ciclo
+    prices_updated: int = 0   # subyacentes con precio actualizado en este ciclo
     refreshed: int = 0
     without_quote: int = 0
     margins_requested: int = 0
@@ -77,6 +78,7 @@ class RefreshJob:
         infos = self.ticker_info.all()
         stored = self.contracts.list()
         today = self.now().date()
+        infos = await self._refresh_prices(sorted({c.ticker for c in stored}), infos, report)
         all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), criteria, today)]
         report.stored, report.in_scope = len(stored), len(all_contracts)
         size = self.settings.refresh.batch_size
@@ -102,12 +104,32 @@ class RefreshJob:
                     report.refreshed += 1
         return report
 
+    async def _refresh_prices(self, tickers: list[str], infos: dict, report: RefreshReport) -> dict:
+        """Actualiza el precio del subyacente de cada ticker antes de calcular distancias y alcance."""
+        if not tickers:
+            return infos
+        try:
+            prices = await self.gateway.get_underlying_prices(tickers)
+        except BrokerDisconnectedError:
+            raise
+        except BrokerError as exc:
+            log.warning("No se pudieron actualizar los precios de los subyacentes: %s", exc)
+            return infos
+        infos = dict(infos)
+        for ticker, price in prices.items():
+            if ticker in infos:
+                self.ticker_info.update_price(ticker, price)
+                infos[ticker] = replace(infos[ticker], underlying_price=price)
+                report.prices_updated += 1
+        return infos
+
     def _build_snapshot(self, contract: OptionContract, q: OptionQuote, info) -> ContractSnapshot:
         y = gross_yield_pct(q.bid, q.ask, contract.strike)
         dte = contract.dte(self.now().date())
         return ContractSnapshot(
             contract=contract, updated_at=self.now(),
             bid=q.bid, ask=q.ask, last=q.last, delta=q.delta, iv=q.iv, open_interest=q.open_interest,
+            bid_size=q.bid_size,
             spread_pct=spread_pct(q.bid, q.ask), yield_pct=y,
             yield_annualized_pct=annualized_yield_pct(y, dte),
             iv_rank=info.iv_rank if info else None,
@@ -132,5 +154,4 @@ class RefreshJob:
         except BrokerError as exc:
             log.warning("what-if fallido para %s: %s", snap.contract, exc)
             return snap
-        from dataclasses import replace
         return replace(snap, initial_margin=margin)

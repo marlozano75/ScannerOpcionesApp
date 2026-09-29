@@ -20,9 +20,9 @@ def db():
 
 
 def test_migration_sets_version_and_is_idempotent(db):
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 2
     db.migrate()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 2
 
 
 def test_file_database_persists(tmp_path):
@@ -129,3 +129,37 @@ class TestContractsAndSnapshots:
         snaps.upsert(ContractSnapshot(c, NOW, bid=1.0, ask=1.2))
         contracts.replace_for_ticker("AAPL", [self._c(145)])
         assert snaps.all() == []
+
+
+def test_migration_from_v1_keeps_existing_snapshots(tmp_path):
+    """Una base de datos creada con la versión 1 (sin bid_size) se migra sin perder datos."""
+    import sqlite3
+
+    from scanner_opciones.storage.db import MIGRATIONS
+
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(MIGRATIONS[0])
+    conn.execute("PRAGMA user_version = 1")
+    conn.execute("INSERT INTO contracts (ticker, expiry, strike, right, multiplier) VALUES ('AAPL','2026-10-30',150,'P',100)")
+    conn.execute("INSERT INTO snapshots (contract_id, updated_at, bid, ask) VALUES (1, '2026-09-29T10:00:00', 1.0, 1.2)")
+    conn.commit()
+    conn.close()
+    db = Database(path)
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    snaps = SnapshotRepo(db).all()
+    assert len(snaps) == 1 and snaps[0].bid == 1.0 and snaps[0].bid_size is None
+
+
+def test_snapshot_bid_size_roundtrip_and_price_update(db):
+    contracts, snaps, infos = ContractRepo(db), SnapshotRepo(db), TickerInfoRepo(db)
+    c = OptionContract("AAPL", date(2026, 10, 30), 150.0)
+    contracts.replace_for_ticker("AAPL", [c])
+    snaps.upsert(ContractSnapshot(c, NOW, bid=1.0, ask=1.2, bid_size=37))
+    assert snaps.all("AAPL")[0].bid_size == 37
+    infos.upsert(TickerInfo("AAPL", sector="Tech", underlying_price=100.0, updated_daily_at=NOW))
+    infos.update_price("AAPL", 91.5)
+    got = infos.get("AAPL")
+    assert got.underlying_price == 91.5 and got.updated_daily_at == NOW and got.sector == "Tech"
+    infos.update_price("NOPE", 1.0)   # ticker sin ficha: no falla ni crea filas
+    assert infos.get("NOPE") is None

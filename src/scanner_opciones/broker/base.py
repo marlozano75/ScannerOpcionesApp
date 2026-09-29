@@ -27,6 +27,9 @@ class BrokerGateway(Protocol):
 
     async def get_underlying_price(self, ticker: str) -> Optional[float]: ...
 
+    async def get_underlying_prices(self, tickers: Sequence[str]) -> dict[str, float]:
+        """Precio actual de varios subyacentes de una vez. Los que no tengan precio no aparecen."""
+
     async def get_option_chain(self, ticker: str) -> OptionChain: ...
 
     async def get_days_to_ex_dividend(self, ticker: str) -> Optional[int]:

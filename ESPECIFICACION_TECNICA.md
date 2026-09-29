@@ -50,6 +50,8 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-23 | La actualización diaria guarda los contratos con strike de −10 % a −45 % y DTE hasta 60 días (configurable en `scanner.candidates`). Cada ciclo automático solo cotiza los que encajan con los valores iniciales de Regular/Táctica; un botón cotiza el rango elegido en el formulario. | Petición del usuario 2026-09-29 |
 | RF-24 | Al quitar un ticker de la watchlist se borran sus contratos (con sus cotizaciones) y su ficha; el historial de IV se conserva. Al arrancar y antes de cada refresco se eliminan los datos de tickers que ya no están en la watchlist. | Petición del usuario 2026-09-29 |
 | RF-25 | La actualización diaria forzada se ejecuta en segundo plano y espera su turno si hay otra tarea en curso (no se omite en silencio); la interfaz muestra la tarea en curso y su progreso. | Petición del usuario 2026-09-29 |
+| RF-26 | El precio del subyacente se actualiza en cada ciclo de refresco (no solo en la actualización diaria); las distancias y el filtro de descuento usan ese precio. La columna se llama **Desc.** | Petición del usuario 2026-09-29 |
+| RF-27 | Por contrato se trae y muestra también el **Bid size** (tamaño del bid). | Petición del usuario 2026-09-29 |
 | RF-22 | En el scanner, OI mín., spread máx., IV Rank mín. e IV Percentile mín. son **opcionales**: se aplican solo si el usuario marca su casilla. El descuento del strike (mín./máx.) y el yield bruto mínimo son editables en el formulario (valores iniciales de la configuración). | Petición del usuario 2026-09-29 |
 
 ## 3. Requisitos técnicos / no funcionales

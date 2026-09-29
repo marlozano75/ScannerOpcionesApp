@@ -59,6 +59,10 @@ class FakeGateway:
         self._check(ticker)
         return self.prices.get(ticker)
 
+    async def get_underlying_prices(self, tickers: Sequence[str]) -> dict[str, float]:
+        self._check()
+        return {t: self.prices[t] for t in tickers if t in self.prices and t not in self.failing_tickers}
+
     async def get_option_chain(self, ticker: str) -> OptionChain:
         self._check(ticker)
         return self.chains.get(ticker, OptionChain(ticker))

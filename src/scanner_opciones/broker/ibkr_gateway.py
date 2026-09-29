@@ -165,6 +165,39 @@ class IBKRGateway:
             price = await self._last_close(stock)
         return price
 
+    PRICE_BATCH = 50
+
+    async def get_underlying_prices(self, tickers: Sequence[str]) -> dict[str, float]:
+        """Precios de varios subyacentes con una sola espera acotada por lote. Sin precio en
+        directo (p. ej. sin suscripción) el ticker no aparece y se conserva el anterior."""
+        self._require()
+        stocks: dict[str, Stock] = {}
+        for t in tickers:
+            try:
+                stocks[t] = await self._stock(t)
+            except DataUnavailableError:
+                continue
+        out: dict[str, float] = {}
+        items = list(stocks.items())
+        for i in range(0, len(items), self.PRICE_BATCH):
+            chunk = items[i : i + self.PRICE_BATCH]
+            ticks = {t: self.ib.reqMktData(s, "", False, False) for t, s in chunk}
+            try:
+                waited, step = 0.0, 0.25
+                while waited < self.s.quote_wait_seconds:
+                    if all(m.num(tk.marketPrice()) is not None for tk in ticks.values()):
+                        break
+                    await asyncio.sleep(step)
+                    waited += step
+            finally:
+                for _, s in chunk:
+                    self.ib.cancelMktData(s)
+            for t, tk in ticks.items():
+                price = m.num(tk.marketPrice())
+                if price is not None:
+                    out[t] = price
+        return out
+
     async def get_option_chain(self, ticker: str) -> OptionChain:
         stock = await self._stock(ticker)
         chains = await self.ib.reqSecDefOptParamsAsync(stock.symbol, "", stock.secType, stock.conId)
@@ -250,8 +283,10 @@ class IBKRGateway:
             g = t.modelGreeks
             oi = t.putOpenInterest if c.right.value == "P" else t.callOpenInterest
             oi = m.num(oi)
+            bid_size = m.num(t.bidSize)
             out[c] = OptionQuote(
                 bid=m.num(t.bid), ask=m.num(t.ask), last=m.num(t.last),
+                bid_size=int(bid_size) if bid_size is not None else None,
                 delta=m.num(g.delta) if g else None,
                 iv=m.num(g.impliedVol) if g else None,
                 open_interest=int(oi) if oi is not None else None,

@@ -90,6 +90,13 @@ class TickerInfoRepo:
         with self.db.conn:
             self.db.conn.execute("DELETE FROM ticker_info WHERE ticker = ?", (ticker,))
 
+    def update_price(self, ticker: str, price: float) -> None:
+        """Actualiza solo el precio del subyacente (no toca la fecha de la actualización diaria)."""
+        with self.db.conn:
+            self.db.conn.execute(
+                "UPDATE ticker_info SET underlying_price = ? WHERE ticker = ?", (price, ticker)
+            )
+
     def purge_except(self, keep: Iterable[str]) -> int:
         """Borra la información de tickers que ya no están en la watchlist. Devuelve cuántos."""
         return _delete_not_in(self.db, "ticker_info", "ticker", keep)
@@ -210,11 +217,11 @@ class SnapshotRepo:
             self.db.conn.execute(
                 "INSERT OR REPLACE INTO snapshots (contract_id, updated_at, bid, ask, last, delta, iv, "
                 "open_interest, spread_pct, yield_pct, yield_annualized_pct, iv_rank, iv_percentile, "
-                "initial_margin) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "initial_margin, bid_size) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     r["id"], snap.updated_at.isoformat(), snap.bid, snap.ask, snap.last, snap.delta,
                     snap.iv, snap.open_interest, snap.spread_pct, snap.yield_pct,
-                    snap.yield_annualized_pct, snap.iv_rank, snap.iv_percentile, snap.initial_margin,
+                    snap.yield_annualized_pct, snap.iv_rank, snap.iv_percentile, snap.initial_margin, snap.bid_size,
                 ),
             )
         return True
@@ -234,7 +241,7 @@ class SnapshotRepo:
                 bid=r["bid"], ask=r["ask"], last=r["last"], delta=r["delta"], iv=r["iv"],
                 open_interest=r["open_interest"], spread_pct=r["spread_pct"], yield_pct=r["yield_pct"],
                 yield_annualized_pct=r["yield_annualized_pct"], iv_rank=r["iv_rank"],
-                iv_percentile=r["iv_percentile"], initial_margin=r["initial_margin"],
+                iv_percentile=r["iv_percentile"], initial_margin=r["initial_margin"], bid_size=r["bid_size"],
             )
             for r in rows
         ]
