@@ -176,3 +176,66 @@ async def test_switch_gateway_resets_account_state():
     assert not gw.connected and gw2.connected
     assert svc.state.account.account_id == "DU2"
     assert svc.state.risk.current.light is TrafficLight.RED
+
+
+async def _two_ticker_service():
+    svc, gw = await started_service()          # AAPL con contratos y cotizaciones
+    gw.prices["MU"] = 100.0
+    gw.chains["MU"] = OptionChain("MU", [TODAY + timedelta(days=30)], [70.0, 75.0])
+    gw.iv_history["MU"] = [(TODAY - timedelta(days=n), 0.3 + 0.01 * n) for n in range(5, 0, -1)]
+    svc.watchlist.add(["MU"], NOW)
+    await svc.run_daily(["MU"])
+    for c in svc.contracts.list("MU"):
+        gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=100)
+    await svc.refresh_all()
+    return svc, gw
+
+
+async def test_removing_a_ticker_deletes_its_contracts_snapshots_and_info():
+    svc, gw = await _two_ticker_service()
+    assert svc.contracts.list("MU") and svc.snapshots.all("MU") and svc.ticker_info.get("MU")
+    removed = svc.remove_ticker("MU")
+    assert removed["contracts"] == 2 and removed["ticker_info"] == 1
+    assert "MU" not in svc.watchlist.list()
+    assert svc.contracts.list("MU") == [] and svc.snapshots.all("MU") == [] and svc.ticker_info.get("MU") is None
+    assert svc.contracts.list("AAPL") and svc.snapshots.all("AAPL")      # el resto intacto
+    assert svc.iv_history.series("MU")                                  # el historial de IV se conserva
+
+
+async def test_cleanup_orphans_removes_data_of_tickers_not_in_watchlist():
+    svc, gw = await _two_ticker_service()
+    svc.watchlist.remove("MU")                # como si se hubiera quitado con la versión anterior
+    assert svc.contracts.list("MU")           # quedan huérfanos
+    removed = svc.cleanup_orphans()
+    assert removed == {"contracts": 2, "ticker_info": 1}
+    assert svc.contracts.list("MU") == [] and svc.contracts.list("AAPL")
+
+
+async def test_orphans_are_purged_on_start_and_never_quoted():
+    svc, gw = await _two_ticker_service()
+    svc.watchlist.remove("MU")
+    await svc.refresh_all()                   # el refresco limpia antes de cotizar
+    assert svc.contracts.list("MU") == [] and gw.calls.count(("get_iv_history", "MU", None)) <= 1
+
+
+async def test_manual_daily_update_waits_for_its_turn_instead_of_being_skipped():
+    svc, gw = await started_service()
+    gate = asyncio.Event()
+    original = gw.get_account_summary
+
+    async def slow():
+        await gate.wait()
+        return await original()
+    gw.get_account_summary = slow
+    running = asyncio.create_task(svc.refresh_all())     # el refresco ocupa el bloqueo
+    await asyncio.sleep(0)
+    assert svc.busy
+    assert await svc.run_daily(["AAPL"]) is None         # automático: se omite
+    svc.launch(svc.run_daily(["AAPL"], wait=True))       # manual: se pone en cola
+    await asyncio.sleep(0)
+    assert svc.state.activity                            # la interfaz puede mostrar que hay algo en curso
+    gate.set()
+    await running
+    await svc.wait_idle()
+    assert svc.state.last_daily_report.updated == ["AAPL"] and svc.state.activity is None
+

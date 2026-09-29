@@ -44,13 +44,17 @@ class DailyUpdater:
         self.settings = settings
         self.now = now
 
-    async def run_pending(self) -> DailyUpdateReport:
+    async def run_pending(self, on_progress=None) -> DailyUpdateReport:
         """Actualiza los tickers que no se han actualizado hoy (incluye los añadidos después)."""
-        return await self.run(self.watchlist.pending_daily_update(self.now().date()))
+        return await self.run(self.watchlist.pending_daily_update(self.now().date()), on_progress)
 
-    async def run(self, tickers: list[str]) -> DailyUpdateReport:
+    async def run(
+        self, tickers: list[str], on_progress: Optional[Callable[[int, int, str], None]] = None
+    ) -> DailyUpdateReport:
         report = DailyUpdateReport()
-        for ticker in tickers:
+        for i, ticker in enumerate(tickers, start=1):
+            if on_progress:
+                on_progress(i, len(tickers), ticker)
             try:
                 await self._update_ticker(ticker)
                 report.updated.append(ticker)

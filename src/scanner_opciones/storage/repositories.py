@@ -13,6 +13,15 @@ def _dt(value: Optional[str]) -> Optional[datetime]:
     return datetime.fromisoformat(value) if value else None
 
 
+def _delete_not_in(db: Database, table: str, column: str, keep: Iterable[str]) -> int:
+    keep = list(keep)
+    with db.conn:
+        if not keep:
+            return db.conn.execute(f"DELETE FROM {table}").rowcount
+        marks = ",".join("?" * len(keep))
+        return db.conn.execute(f"DELETE FROM {table} WHERE {column} NOT IN ({marks})", keep).rowcount
+
+
 class WatchlistRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
@@ -76,6 +85,14 @@ class TickerInfoRepo:
                     info.updated_daily_at.isoformat() if info.updated_daily_at else None,
                 ),
             )
+
+    def delete(self, ticker: str) -> None:
+        with self.db.conn:
+            self.db.conn.execute("DELETE FROM ticker_info WHERE ticker = ?", (ticker,))
+
+    def purge_except(self, keep: Iterable[str]) -> int:
+        """Borra la información de tickers que ya no están en la watchlist. Devuelve cuántos."""
+        return _delete_not_in(self.db, "ticker_info", "ticker", keep)
 
     @staticmethod
     def _row(r) -> TickerInfo:
@@ -147,6 +164,15 @@ class ContractRepo:
                     for c in contracts
                 ],
             )
+
+    def delete_for_ticker(self, ticker: str) -> int:
+        """Borra los contratos del ticker (sus snapshots caen en cascada). Devuelve cuántos."""
+        with self.db.conn:
+            return self.db.conn.execute("DELETE FROM contracts WHERE ticker = ?", (ticker,)).rowcount
+
+    def purge_except(self, keep: Iterable[str]) -> int:
+        """Borra los contratos de tickers que ya no están en la watchlist. Devuelve cuántos."""
+        return _delete_not_in(self.db, "contracts", "ticker", keep)
 
     def list(self, ticker: Optional[str] = None) -> list[OptionContract]:
         sql = "SELECT * FROM contracts"

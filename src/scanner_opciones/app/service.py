@@ -52,6 +52,7 @@ class AppState:
     last_daily_report: Optional[DailyUpdateReport] = None
     last_refresh_report: Optional[RefreshReport] = None
     errors: dict[str, str] = field(default_factory=dict)  # área -> último error
+    activity: Optional[str] = None   # tarea en curso (se muestra en la interfaz)
 
 
 class AppService:
@@ -75,6 +76,7 @@ class AppService:
         self.refresh_job = RefreshJob(gateway, self.contracts, self.snapshots, self.ticker_info, settings, now)
         self.state = AppState()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas
+        self._background: set = set()
 
     @property
     def busy(self) -> bool:
@@ -90,6 +92,7 @@ class AppService:
             return
         self.state.connected = True
         self.state.errors.pop("connection", None)
+        self.cleanup_orphans()
         if self.settings.daily_update.run_on_startup:
             await self.run_daily()
         await self.refresh_all()
@@ -117,20 +120,66 @@ class AppService:
             await self.run_daily(new)
         return new
 
-    def remove_ticker(self, ticker: str) -> None:
+    def remove_ticker(self, ticker: str) -> dict[str, int]:
+        """Quita el ticker de la watchlist y borra sus contratos (con sus cotizaciones) y su ficha.
+        Se conserva el historial de IV: ahorra descargarlo si se vuelve a añadir."""
         self.watchlist.remove(ticker)
+        had_info = self.ticker_info.get(ticker) is not None
+        self.ticker_info.delete(ticker)
+        return {"contracts": self.contracts.delete_for_ticker(ticker), "ticker_info": int(had_info)}
+
+    def cleanup_orphans(self) -> dict[str, int]:
+        """Borra contratos y fichas de tickers que ya no están en la watchlist (p. ej. quitados
+        con una versión anterior). Barato: se llama al arrancar y antes de cada refresco."""
+        keep = self.watchlist.list()
+        removed = {
+            "contracts": self.contracts.purge_except(keep),
+            "ticker_info": self.ticker_info.purge_except(keep),
+        }
+        if any(removed.values()):
+            log.info("Limpieza de tickers fuera de la watchlist: %s", removed)
+        return removed
+
+    def launch(self, coro) -> None:
+        """Ejecuta una corrutina en segundo plano (acciones manuales largas)."""
+        task = asyncio.ensure_future(coro)
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    async def wait_idle(self) -> None:
+        """Espera a que terminen las tareas lanzadas con `launch` (útil en tests)."""
+        while True:
+            pending = [t for t in self._background if not t.done()]
+            if not pending:
+                return
+            await asyncio.gather(*pending, return_exceptions=True)
 
     # ---- jobs ------------------------------------------------------------------------------
-    async def run_daily(self, tickers: Optional[list[str]] = None) -> Optional[DailyUpdateReport]:
-        if self.busy:
+    def _progress(self, i: int, total: int, ticker: str) -> None:
+        self.state.activity = f"Actualización diaria: {ticker} ({i}/{total})"
+
+    async def run_daily(
+        self, tickers: Optional[list[str]] = None, wait: bool = False
+    ) -> Optional[DailyUpdateReport]:
+        """`wait=False`: se omite si hay otra tarea en curso (uso automático).
+        `wait=True`: espera su turno (acciones manuales: no se pierden en silencio)."""
+        if self.busy and not wait:
             log.info("Actualización diaria omitida: hay otra ejecución en curso")
             return None
+        if self.busy:
+            self.state.activity = self.state.activity or "En cola: actualización diaria"
         async with self._lock:
             try:
-                report = (await self.daily.run(tickers)) if tickers is not None else await self.daily.run_pending()
+                self.cleanup_orphans()
+                if tickers is not None:
+                    report = await self.daily.run(tickers, self._progress)
+                else:
+                    report = await self.daily.run_pending(self._progress)
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return None
+            finally:
+                self.state.activity = None
             self.state.last_daily_report = report
             return report
 
@@ -141,12 +190,16 @@ class AppService:
             return False
         async with self._lock:
             try:
+                self.state.activity = "Refrescando cartera, VIX y cotizaciones"
+                self.cleanup_orphans()
                 await self._refresh_portfolio()
                 await self._refresh_vix()
                 self.state.last_refresh_report = await self.refresh_job.run()
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return False
+            finally:
+                self.state.activity = None
             self.state.last_refresh = self.now()
             return True
 

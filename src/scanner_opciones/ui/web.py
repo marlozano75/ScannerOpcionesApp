@@ -107,8 +107,14 @@ def create_app(
 
     @app.post("/daily")
     async def daily():
-        await service.run_daily(service.watchlist.list())  # fuerza todos, no solo pendientes
-        return RedirectResponse("/watchlist", status_code=303)
+        """Fuerza la actualización de todos los tickers en segundo plano. Espera su turno si hay
+        otra tarea en curso (antes se omitía en silencio)."""
+        if not service.state.connected:
+            return RedirectResponse("/watchlist?message=Sin conexión con TWS: no se puede actualizar", status_code=303)
+        tickers = service.watchlist.list()
+        service.launch(service.run_daily(tickers, wait=True))
+        note = "en cola: hay otra tarea en curso" if service.busy else "en curso"
+        return RedirectResponse(f"/watchlist?message=Actualización diaria de {len(tickers)} tickers {note}", status_code=303)
 
     @app.post("/connection")
     async def connection(mode: str = Form(...)):
@@ -160,7 +166,7 @@ def create_app(
     @app.post("/watchlist/remove")
     async def watchlist_remove(ticker: str = Form(...)):
         service.remove_ticker(ticker)
-        return RedirectResponse("/watchlist", status_code=303)
+        return RedirectResponse(f"/watchlist?message={ticker} quitado, con sus contratos", status_code=303)
 
     # ---- scanner y simulador ---------------------------------------------------------------
     def parse_scan(qp) -> dict:

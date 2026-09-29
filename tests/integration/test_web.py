@@ -199,3 +199,15 @@ def test_switch_mode_swaps_gateway(client_and_service):
     assert svc.settings.ibkr.mode is AccountMode.LIVE
     bad = client.post("/connection", data={"mode": "demo"})
     assert bad.status_code == 400
+
+
+def test_remove_route_deletes_contracts_and_forced_daily_runs_in_background(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    assert svc.contracts.list("AAPL")
+    r = client.post("/watchlist/remove", data={"ticker": "AAPL"}, follow_redirects=True)
+    assert "AAPL quitado, con sus contratos" in r.text
+    assert svc.contracts.list("AAPL") == [] and svc.snapshots.all("AAPL") == []
+    svc.watchlist.add(["AAPL"], NOW)
+    r = client.post("/daily", follow_redirects=True)
+    assert r.status_code == 200 and "Actualización diaria de 1 tickers" in r.text

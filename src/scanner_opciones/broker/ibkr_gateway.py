@@ -265,7 +265,7 @@ class IBKRGateway:
         if not opt.conId:
             return None
         # whatIfOrderAsync fuerza whatIf=True: IBKR calcula el margen SIN enviar la orden.
-        state = await self.ib.whatIfOrderAsync(opt, MarketOrder("SELL", quantity))
+        state = await self.ib.whatIfOrderAsync(opt, MarketOrder("SELL", quantity, tif="DAY"))  # tif explícito: evita el aviso 10349
         return m.parse_margin_change(getattr(state, "initMarginChange", None))
 
     # ---- VIX ------------------------------------------------------------------------------
