@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<p><a href="/scanner">&larr; Volver al scanner</a></p>
+{% if error %}<div class="banner err">{{ error }}</div>{% endif %}
+{% if result %}
+<div class="card">
+  <h2>Contratos simulados (venta y asignación al strike)</h2>
+  <ul>{% for s in selected %}<li>{{ s.ticker }} {{ s.expiry }} · strike {{ s.strike|num }} · {{ s.quantity }} contrato(s)</li>{% endfor %}</ul>
+  <p>Nominal añadido: <strong>{{ result.added_nominal|money }}</strong> ·
+     Margen inicial añadido (<em>aproximado</em>, suma de what-if): <strong>{{ result.added_margin|money }}</strong>
+     {% if not result.margin_complete %}<span class="banner err">Falta el margen de algún contrato: el total está incompleto.</span>{% endif %}</p>
+</div>
+<div class="card">
+  <h2>Riesgo: actual vs. simulado</h2>
+  {% if result.cushion_before %}
+  <div class="grid">
+    <div class="metric"><div class="label">Cushion actual</div>
+      <div class="value"><span class="dot {{ result.cushion_before.light.value }}"></span>{{ result.cushion_before.cushion_pct|pct }}</div></div>
+    <div class="metric"><div class="label">Cushion simulado (aprox.)</div>
+      <div class="value"><span class="dot {{ result.cushion_after.light.value }}"></span>{{ result.cushion_after.cushion_pct|pct }}</div>
+      <div class="muted">{{ result.cushion_after.light|light_label }}</div></div>
+  </div>
+  {% else %}<p class="muted">Sin datos de cuenta.</p>{% endif %}
+</div>
+{% if result.assignment_before %}
+<div class="card">
+  <h2>Apalancamiento por asignación: actual vs. simulado</h2>
+  <div class="grid">
+    <div class="metric"><div class="label">Nominal Assignment Exposure</div>
+      <div>Actual: <strong>{{ result.assignment_before.nominal_assignment_exposure|money }}</strong></div>
+      <div>Simulado: <strong>{{ result.assignment_after.nominal_assignment_exposure|money }}</strong></div></div>
+    <div class="metric"><div class="label">Leverage Assignment</div>
+      <div>Actual: <strong>{{ result.assignment_before.leverage_assignment|x }}</strong></div>
+      <div>Simulado: <strong>{{ result.assignment_after.leverage_assignment|x }}</strong></div></div>
+  </div>
+</div>
+{% endif %}
+<div class="card">
+  <h2>Diversificación sectorial: actual vs. simulada</h2>
+  <div class="scroll"><table>
+    <tr><th>Sector</th><th>Actual</th><th>Simulada</th><th>Cambio (pp)</th></tr>
+    {% for s in sectors %}
+      <tr><td>{{ s }}</td><td>{{ result.before.weights_pct.get(s, 0)|pct }}</td><td>{{ result.after.weights_pct.get(s, 0)|pct }}</td>
+        <td>{{ '%+.1f'|format(result.delta_pct.get(s, 0)) }}</td></tr>
+    {% endfor %}
+    <tr><td><strong>Exposición total</strong></td><td>{{ result.before.total_exposure|money }}</td><td>{{ result.after.total_exposure|money }}</td><td></td></tr>
+  </table></div>
+</div>
+<div class="card">
+  <h2>Puts vendidas por semana (nominal)</h2>
+  <div class="scroll"><table>
+    <tr><th>Semana</th><th>Actual</th><th>Simulado</th></tr>
+    {% for b, a in result.weeks_before|zip(result.weeks_after) %}
+      <tr><td>{{ a.week_start }}</td><td>{{ b.total|money }}</td><td>{{ a.total|money }}</td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endif %}
+{% endblock %}

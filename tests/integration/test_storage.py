@@ -1,0 +1,131 @@
+from datetime import date, datetime, timedelta
+
+import pytest
+
+from scanner_opciones.domain.models import ContractSnapshot, OptionContract, TickerInfo
+from scanner_opciones.storage.db import Database
+from scanner_opciones.storage.repositories import (
+    ContractRepo, IVHistoryRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
+)
+
+NOW = datetime(2026, 9, 29, 10, 0)
+TODAY = NOW.date()
+
+
+@pytest.fixture
+def db():
+    d = Database(":memory:")
+    yield d
+    d.close()
+
+
+def test_migration_sets_version_and_is_idempotent(db):
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    db.migrate()
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 1
+
+
+def test_file_database_persists(tmp_path):
+    p = tmp_path / "sub" / "app.db"
+    d = Database(p)
+    WatchlistRepo(d).add(["AAPL"], NOW)
+    d.close()
+    assert WatchlistRepo(Database(p)).list() == ["AAPL"]
+
+
+class TestWatchlistRepo:
+    def test_add_returns_only_new(self, db):
+        r = WatchlistRepo(db)
+        assert r.add(["AAPL", "MSFT"], NOW) == ["AAPL", "MSFT"]
+        assert r.add(["MSFT", "KO"], NOW) == ["KO"]
+        assert r.list() == ["AAPL", "KO", "MSFT"]
+
+    def test_remove(self, db):
+        r = WatchlistRepo(db)
+        r.add(["AAPL", "KO"], NOW)
+        r.remove("AAPL")
+        assert r.list() == ["KO"]
+
+    def test_pending_daily_update(self, db):
+        r = WatchlistRepo(db)
+        r.add(["AAPL", "KO", "PEP"], NOW)
+        r.mark_daily_updated("AAPL", NOW)
+        r.mark_daily_updated("KO", NOW - timedelta(days=1))
+        # AAPL actualizado hoy; KO ayer; PEP nunca
+        assert r.pending_daily_update(TODAY) == ["KO", "PEP"]
+
+    def test_ticker_added_after_daily_run_is_pending(self, db):
+        r = WatchlistRepo(db)
+        r.add(["AAPL"], NOW)
+        r.mark_daily_updated("AAPL", NOW)
+        assert r.pending_daily_update(TODAY) == []
+        r.add(["NVDA"], NOW + timedelta(hours=2))
+        assert r.pending_daily_update(TODAY) == ["NVDA"]
+
+
+def test_ticker_info_upsert_and_get(db):
+    r = TickerInfoRepo(db)
+    assert r.get("AAPL") is None
+    r.upsert(TickerInfo("AAPL", sector="Technology", underlying_price=200.0, iv_rank=40.0, updated_daily_at=NOW))
+    r.upsert(TickerInfo("AAPL", sector="Technology", underlying_price=210.0, days_to_ex_dividend=5))
+    got = r.get("AAPL")
+    assert got.underlying_price == 210.0 and got.days_to_ex_dividend == 5 and got.iv_rank is None
+    assert set(r.all()) == {"AAPL"}
+
+
+class TestIVHistoryRepo:
+    def test_incremental(self, db):
+        r = IVHistoryRepo(db)
+        assert r.last_day("AAPL") is None
+        r.add("AAPL", [(date(2026, 9, 1), 0.2), (date(2026, 9, 2), 0.25)])
+        assert r.last_day("AAPL") == date(2026, 9, 2)
+        r.add("AAPL", [(date(2026, 9, 2), 0.26), (date(2026, 9, 3), 0.3)])  # reemplaza el 2
+        assert r.series("AAPL") == [
+            (date(2026, 9, 1), 0.2), (date(2026, 9, 2), 0.26), (date(2026, 9, 3), 0.3)
+        ]
+
+    def test_series_since_and_isolation(self, db):
+        r = IVHistoryRepo(db)
+        r.add("AAPL", [(date(2026, 9, 1), 0.2), (date(2026, 9, 5), 0.3)])
+        r.add("KO", [(date(2026, 9, 5), 0.1)])
+        assert r.series("AAPL", since=date(2026, 9, 2)) == [(date(2026, 9, 5), 0.3)]
+
+    def test_prune(self, db):
+        r = IVHistoryRepo(db)
+        r.add("AAPL", [(date(2025, 1, 1), 0.2), (date(2026, 9, 5), 0.3)])
+        r.prune("AAPL", date(2025, 9, 29))
+        assert len(r.series("AAPL")) == 1
+
+
+class TestContractsAndSnapshots:
+    def _c(self, strike, expiry=date(2026, 10, 30)):
+        return OptionContract("AAPL", expiry, strike)
+
+    def test_replace_for_ticker(self, db):
+        r = ContractRepo(db)
+        r.replace_for_ticker("AAPL", [self._c(150), self._c(155), self._c(155)])  # duplicado ignorado
+        assert [c.strike for c in r.list("AAPL")] == [150, 155]
+        r.replace_for_ticker("AAPL", [self._c(140)])
+        assert [c.strike for c in r.list()] == [140]
+
+    def test_snapshot_roundtrip_and_update(self, db):
+        contracts = ContractRepo(db)
+        snaps = SnapshotRepo(db)
+        c = self._c(150)
+        contracts.replace_for_ticker("AAPL", [c])
+        assert snaps.upsert(ContractSnapshot(c, NOW, bid=1.0, ask=1.2, open_interest=500, spread_pct=18.2))
+        assert snaps.upsert(ContractSnapshot(c, NOW + timedelta(minutes=5), bid=1.1, ask=1.3))
+        got = snaps.all("AAPL")
+        assert len(got) == 1 and got[0].bid == 1.1 and got[0].updated_at == NOW + timedelta(minutes=5)
+        assert got[0].contract == c
+
+    def test_snapshot_for_unknown_contract(self, db):
+        assert SnapshotRepo(db).upsert(ContractSnapshot(self._c(150), NOW)) is False
+
+    def test_replacing_contracts_drops_snapshots(self, db):
+        contracts, snaps = ContractRepo(db), SnapshotRepo(db)
+        c = self._c(150)
+        contracts.replace_for_ticker("AAPL", [c])
+        snaps.upsert(ContractSnapshot(c, NOW, bid=1.0, ask=1.2))
+        contracts.replace_for_ticker("AAPL", [self._c(145)])
+        assert snaps.all() == []

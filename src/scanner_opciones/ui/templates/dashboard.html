@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+{% macro light(m, title) %}
+  <div class="metric">
+    <div class="label">{{ title }}</div>
+    <div class="value"><span class="dot {{ m.light.value }}"></span>{{ m.cushion_pct|pct }}</div>
+    <div class="muted">{{ m.light|light_label }} · Excess {{ m.excess_liquidity|money }}</div>
+  </div>
+{% endmacro %}
+
+<div class="card">
+  <h2>Riesgo por apalancamiento (Reg T)</h2>
+  {% if state.risk %}
+  <div class="grid">
+    {{ light(state.risk.current, "Cushion actual") }}
+    {{ light(state.risk.look_ahead, "Look Ahead") }}
+    {{ light(state.risk.post_expiration, "Post-Expiration") }}
+    <div class="metric">
+      <div class="label">Severidad IBKR (HighestSeverity)</div>
+      <div class="value"><span class="dot {{ state.risk.severity.light.value }}"></span>{{ state.risk.severity.level if state.risk.severity.level is not none else '—' }}</div>
+      <div class="muted">{{ state.risk.severity.label }}</div>
+    </div>
+  </div>
+  <p class="muted">&gt; 40% Normal · 30–40% Preocupación · &le; 30% Riesgo alto.
+    Net Liquidation: {{ state.account.net_liquidation|money }}.
+    {% if state.risk.updated_at %}Actualizado {{ state.risk.updated_at.strftime('%H:%M:%S') }}.{% endif %}</p>
+  {% else %}<p class="muted">Sin datos de cuenta (¿TWS conectado?).</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Exposición y apalancamiento por asignación</h2>
+  <div class="grid">
+    <div class="metric"><div class="label">Gross Position Value</div><div class="value">{{ assignment.gross_position_value|money }}</div>
+      <div class="muted">IBKR</div></div>
+    <div class="metric"><div class="label">Nominal Assignment Exposure</div><div class="value">{{ assignment.nominal_assignment_exposure|money }}</div>
+      <div class="muted">Short puts {{ assignment.short_put_exposure|money }} − Long puts {{ assignment.long_put_protection|money }}</div></div>
+    <div class="metric"><div class="label">Leverage Assignment</div><div class="value">{{ assignment.leverage_assignment|x }}</div>
+      <div class="muted">NAE / NLV ({{ assignment.net_liquidation|money }})</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>VIX</h2>
+  {% if state.vix %}
+  <div class="grid">
+    <div class="metric"><div class="label">VIX actual</div><div class="value">{{ state.vix.current|num }}</div></div>
+    <div class="metric"><div class="label">Últimos cierres</div>
+      {% for d, v in state.vix.last_closes %}<div>{{ d }} — {{ v|num }}</div>{% else %}<div class="muted">—</div>{% endfor %}</div>
+    <div class="metric"><div class="label">Futuros</div>
+      {% for d, v in state.vix.futures %}<div>{{ d }} — {{ v|num }}</div>{% else %}<div class="muted">—</div>{% endfor %}</div>
+  </div>
+  {% else %}<p class="muted">Sin datos de VIX.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Diversificación sectorial actual</h2>
+  <p class="muted">Base: exposición potencial total = acciones + nominal de puts vendidas ({{ sectors.total_exposure|money }}).</p>
+  <div class="scroll"><table>
+    <tr><th>Sector</th><th>Peso</th><th></th></tr>
+    {% for s, w in sectors.weights_pct.items()|sort(attribute='1', reverse=True) %}
+      <tr><td>{{ s }}</td><td>{{ w|pct }}</td><td style="width:40%"><div class="bar" style="width:{{ w }}%"></div></td></tr>
+    {% else %}<tr><td colspan="3" class="muted">Sin posiciones.</td></tr>{% endfor %}
+  </table></div>
+</div>
+
+<div class="card">
+  <h2>Puts vendidas por semana de vencimiento (nominal por sector)</h2>
+  <div class="scroll"><table>
+    <tr><th>Semana</th>{% for s in all_sectors %}<th>{{ s }}</th>{% endfor %}<th>Total</th></tr>
+    {% for w in weeks %}
+      <tr><td>{{ w.week_start }}</td>
+        {% for s in all_sectors %}<td>{{ (w.weights_pct.get(s))|pct(0) if w.total else '—' }}</td>{% endfor %}
+        <td>{{ w.total|money }}</td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endblock %}

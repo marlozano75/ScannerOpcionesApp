@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>Scanner de puts vendidas</h2>
+  <form method="get" action="/scanner" id="scan-form">
+    <input type="hidden" name="submitted" value="1">
+    <div class="filters">
+      <label>Operación
+        <select name="op" id="op">
+          <option value="regular" {{ 'selected' if form.op == 'regular' }}>Regular</option>
+          <option value="tactical" {{ 'selected' if form.op == 'tactical' }}>Táctica</option>
+        </select></label>
+      <label>Descuento mín. del strike (%) <input name="discount" id="discount" size="6" value="{{ form.discount }}"></label>
+      <label id="dte_min_label" {{ 'hidden' if form.op == 'tactical' }}>DTE mín. <input name="dte_min" id="dte_min" size="5" value="{{ form.dte_min }}"></label>
+      <label>DTE máx. <input name="dte_max" id="dte_max" size="5" value="{{ form.dte_max }}"></label>
+      <label>Yield bruto mín. (%) <input name="min_yield" id="min_yield" size="6" value="{{ form.min_yield }}"></label>
+    </div>
+    <p class="muted" style="margin:10px 0 4px">Filtros opcionales — márcalos para aplicarlos:</p>
+    <div class="filters">
+      <label class="opt"><span><input type="checkbox" name="use_oi" {{ 'checked' if form.use_oi }}> OI mínimo</span>
+        <input name="oi" size="7" value="{{ form.oi }}"></label>
+      <label class="opt"><span><input type="checkbox" name="use_spread" {{ 'checked' if form.use_spread }}> Spread máx. (%)</span>
+        <input name="spread" size="7" value="{{ form.spread }}"></label>
+      <label class="opt"><span><input type="checkbox" name="use_ivr" {{ 'checked' if form.use_ivr }}> IV Rank mín.</span>
+        <input name="ivr" size="7" value="{{ form.ivr }}"></label>
+      <label class="opt"><span><input type="checkbox" name="use_ivp" {{ 'checked' if form.use_ivp }}> IV Percentile mín.</span>
+        <input name="ivp" size="7" value="{{ form.ivp }}"></label>
+      <button>Escanear</button>
+      <button class="secondary" formaction="/scanner/refresh" formmethod="post"
+              title="Pide cotizaciones a IBKR de los contratos de este rango y luego escanea">Actualizar cotizaciones de este rango y escanear</button>
+    </div>
+  </form>
+  <p class="muted">Guardado en la actualización diaria: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }}% por debajo,
+    DTE {{ candidates.dte_min }}–{{ candidates.dte_max }}. Cada {{ refresh_minutes|round|int }} min solo se cotizan los contratos que encajan con los
+    valores iniciales de Regular o Táctica; si cambias el rango, usa «Actualizar cotizaciones».</p>
+  {% if criteria %}
+  <p class="muted">Aplicado: strike ≥ {{ criteria.strike_below_pct_min|num(1) }}% por debajo ·
+    yield bruto ≥ {{ criteria.min_yield_pct|num(1) }}% · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
+    {% if report %}· última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados){% endif %}.</p>
+  {% endif %}
+  {% for w in warnings %}<div class="banner info">{{ w }}</div>{% endfor %}
+</div>
+<script>
+  // Al cambiar de operación se rellenan los valores iniciales de esa operación.
+  // En Táctica solo se edita el DTE máximo.
+  const DEFAULTS = {{ defaults|tojson }};
+  document.getElementById('op').addEventListener('change', function () {
+    const d = DEFAULTS[this.value];
+    document.getElementById('discount').value = d.discount;
+    document.getElementById('dte_min').value = d.dte_min;
+    document.getElementById('dte_max').value = d.dte_max;
+    document.getElementById('min_yield').value = d.min_yield;
+    document.getElementById('dte_min_label').hidden = (this.value === 'tactical');
+  });
+  document.querySelectorAll('label.opt').forEach(function (l) {
+    const cb = l.querySelector('input[type=checkbox]'), tx = l.querySelector('input:not([type=checkbox])');
+    const sync = function () { tx.style.opacity = cb.checked ? 1 : .45; };
+    cb.addEventListener('change', sync); sync();
+  });
+</script>
+{% if error %}<div class="banner err">{{ error }}</div>{% endif %}
+{% if out %}
+<form method="post" action="/simulate" class="card">
+  <h2>{{ out.results|length }} contratos cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></h2>
+  <div class="scroll"><table>
+    <tr><th></th><th>Ticker</th><th>Sector</th><th>Vence</th><th>DTE</th><th>Strike</th><th>Dist.</th><th>Bid</th><th>Ask</th><th>Last</th>
+        <th>Delta</th><th>IV</th><th>OI</th><th>Spread</th><th>Yield</th><th>Yield anual</th><th>IV Rank</th><th>IV Pctl</th>
+        <th>Margen ini.</th><th>Ex-div (d)</th><th>+Peso sector</th><th>Peso semana</th><th>% cartera si asignado</th><th>Cant.</th><th>Actualizado</th></tr>
+    {% for r in out.results %}{% set s = r.snapshot %}{% set c = s.contract %}
+      {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
+      <tr><td><input type="checkbox" name="sel" value="{{ key }}"></td>
+        <td>{{ c.ticker }}</td><td>{{ r.impact.sector }}</td><td>{{ c.expiry }}</td><td>{{ r.dte }}</td><td>{{ c.strike|num }}</td>
+        <td>{{ r.strike_distance_pct|pct }}</td><td>{{ s.bid|num }}</td><td>{{ s.ask|num }}</td><td>{{ s.last|num }}</td>
+        <td>{{ s.delta|num }}</td><td>{{ (s.iv * 100)|pct if s.iv is not none else '—' }}</td><td>{{ s.open_interest if s.open_interest is not none else '—' }}</td>
+        <td>{{ s.spread_pct|pct }}</td><td>{{ s.yield_pct|pct }}</td><td>{{ s.yield_annualized_pct|pct }}</td>
+        <td>{{ s.iv_rank|pct(0) }}</td><td>{{ s.iv_percentile|pct(0) }}</td><td>{{ s.initial_margin|money }}</td>
+        <td>{{ r.info.days_to_ex_dividend if r.info and r.info.days_to_ex_dividend is not none else '—' }}</td>
+        <td>{{ r.impact.sector_weight_increase_pct|pct }}</td><td>{{ r.impact.week_weight_pct|pct }}</td>
+        <td>{{ r.impact.assignment_pct_of_portfolio|pct }}</td>
+        <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px"></td>
+        <td>{{ s.updated_at.strftime('%H:%M:%S') }}</td></tr>
+    {% else %}<tr><td colspan="25" class="muted">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
+  </table></div>
+  {% if out.results %}<p><button>Simular seleccionados</button></p>{% endif %}
+</form>
+{% endif %}
+{% endblock %}

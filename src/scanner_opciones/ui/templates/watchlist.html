@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+{% if message %}<div class="banner info">{{ message }}</div>{% endif %}
+<div class="card">
+  <h2>Añadir tickers</h2>
+  <form method="post" action="/watchlist/paste">
+    <textarea name="text" placeholder="AAPL, MSFT, KO ... (separados por comas, espacios o saltos de línea)"></textarea>
+    <p><button>Añadir</button></p>
+  </form>
+  <form method="post" action="/watchlist/upload" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".txt,.csv,.xlsx" required>
+    <button class="secondary">Cargar archivo (.txt, .csv, .xlsx)</button>
+  </form>
+</div>
+<div class="card">
+  <h2>Watchlist ({{ tickers|length }})</h2>
+  <form method="post" action="/daily"><button class="secondary">Forzar actualización diaria</button></form>
+  {% if state.last_daily_report and state.last_daily_report.errors %}
+    <div class="banner err">Errores en la última actualización:
+      {% for t, e in state.last_daily_report.errors.items() %}<div><strong>{{ t }}</strong>: {{ e }}</div>{% endfor %}</div>
+  {% endif %}
+  <div class="scroll"><table>
+    <tr><th>Ticker</th><th>Sector</th><th>Categoría</th><th>Precio</th><th>Días ex-div.</th><th>IV Rank</th><th>IV Pctl</th><th>Actualizado</th><th></th></tr>
+    {% for t in tickers %}{% set i = infos.get(t) %}
+      <tr><td>{{ t }}</td><td>{{ i.sector if i and i.sector else '—' }}</td><td>{{ i.category if i and i.category else '—' }}</td>
+        <td>{{ i.underlying_price|num if i else '—' }}</td>
+        <td>{{ i.days_to_ex_dividend if i and i.days_to_ex_dividend is not none else '—' }}</td>
+        <td>{{ i.iv_rank|pct(0) if i else '—' }}</td><td>{{ i.iv_percentile|pct(0) if i else '—' }}</td>
+        <td>{{ i.updated_daily_at.strftime('%Y-%m-%d %H:%M') if i and i.updated_daily_at else 'pendiente' }}</td>
+        <td><form class="inline" method="post" action="/watchlist/remove"><input type="hidden" name="ticker" value="{{ t }}"><button class="secondary">Quitar</button></form></td></tr>
+    {% else %}<tr><td colspan="9" class="muted">Watchlist vacía.</td></tr>{% endfor %}
+  </table></div>
+</div>
+{% endblock %}

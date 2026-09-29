@@ -1,0 +1,57 @@
+# Copiar a config/config.yaml y ajustar. Ningún valor de negocio está en el código.
+ibkr:
+  host: 127.0.0.1
+  ports: { live: 7496, paper: 7497 }
+  client_id: 1
+  mode: paper            # paper | live
+  market_data_type: 1    # 1 = live, 3 = diferido
+
+refresh:
+  interval_minutes: 5
+  batch_size: 50
+
+daily_update:
+  run_on_startup: true   # sin hora fija (Q-09)
+
+scanner:
+  candidates:              # contratos que se GUARDAN en la actualización diaria
+    strike_below_pct_min: 10   # strikes desde un 10 % ...
+    strike_below_pct_max: 45   # ... hasta un 45 % por debajo del precio
+    dte_min: 1
+    dte_max: 60                # vencimientos hasta 60 días
+  regular:                 # valores iniciales del formulario (editables allí)
+    strike_below_pct: 20       # descuento mínimo del strike (%)
+    min_yield_pct: 1.0
+    dte_min: 25
+    dte_max: 35
+  tactical:
+    strike_below_pct: 10
+    min_yield_pct: 1.0
+    dte_min: 1                 # en el formulario solo se edita el máximo
+    dte_max: 15
+  filters:                       # null = filtro desactivado
+    min_oi: null
+    max_spread_pct: null
+    min_iv_rank: null
+    min_iv_percentile: null
+
+risk:
+  cushion_thresholds:
+    normal_above: 40     # > 40 verde; 30-40 ámbar; < 30 rojo
+    concern_above: 30
+
+diversification:
+  weeks_ahead: 5
+
+vix:
+  history_days: 5
+  futures_ahead: 3
+
+iv:
+  lookback_days: 365
+
+storage:
+  path: data/app.db
+
+logging:
+  level: INFO
