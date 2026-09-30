@@ -220,6 +220,9 @@ class TestScanEngine:
         assert out.rejected_count == 2 and len(out.rejections) == 2
         first = out.results[0]
         assert first.dte == 31 and first.strike_distance_pct == pytest.approx(23)
+        # yield al bid y su anualización lineal (x365/DTE)
+        assert first.yield_bid_pct == pytest.approx(1.5)
+        assert first.yield_bid_annualized_pct == pytest.approx(1.5 * 365 / 31)
         assert first.impact.assignment_pct_of_portfolio == 100
 
     def test_no_results(self):

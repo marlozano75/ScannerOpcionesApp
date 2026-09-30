@@ -26,6 +26,7 @@ class ScanResult:
     yield_ref_pct: Optional[float] = None         # yield con el precio de referencia
     yield_ref_annualized_pct: Optional[float] = None
     yield_bid_pct: Optional[float] = None         # yield vendiendo al bid (para comparar)
+    yield_bid_annualized_pct: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -62,11 +63,12 @@ def run_scan(
         dte = c.dte(today)
         ref = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct)
         y_ref = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)
+        y_bid = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, PriceReference.BID)
         results.append(ScanResult(
             snap, info, dte, strike_distance_pct(price, c.strike), impact,
             reference_price=ref, yield_ref_pct=y_ref,
             yield_ref_annualized_pct=annualized_yield_pct(y_ref, dte),
-            yield_bid_pct=gross_yield_ref_pct(snap.bid, snap.ask, c.strike, PriceReference.BID),
+            yield_bid_pct=y_bid, yield_bid_annualized_pct=annualized_yield_pct(y_bid, dte),
         ))
     results.sort(key=lambda r: r.yield_ref_annualized_pct or 0.0, reverse=True)
     return ScanOutput(results, rejected, rejections)
