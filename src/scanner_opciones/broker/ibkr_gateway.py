@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import Optional, Sequence
@@ -25,6 +26,30 @@ from scanner_opciones.domain.models import (
 )
 
 log = logging.getLogger(__name__)
+
+
+class _DropUnknownContract(logging.Filter):
+    """Descarta los avisos ESPERADOS de ib_async al validar combinaciones que no existen:
+    «Error 200 ... No se encuentra definición» (wrapper) y «Unknown contract» (ib)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not (msg.startswith("Error 200,") or msg.startswith("Unknown contract"))
+
+
+@contextmanager
+def _quiet_unknown_contracts():
+    """Mientras se valida una lista de contratos, los inexistentes no llenan el log: la lista
+    devuelta ya dice cuáles existen y quien llama registra un único resumen."""
+    flt = _DropUnknownContract()
+    loggers = [logging.getLogger("ib_async.wrapper"), logging.getLogger("ib_async.ib")]
+    for lg in loggers:
+        lg.addFilter(flt)
+    try:
+        yield
+    finally:
+        for lg in loggers:
+            lg.removeFilter(flt)
 
 
 class IBKRGateway:
@@ -262,7 +287,8 @@ class IBKRGateway:
             opts = [self._ib_option(c) for c in batch]
             todo = [o for o in opts if not o.conId]
             if todo:
-                await self.ib.qualifyContractsAsync(*todo)
+                with _quiet_unknown_contracts():
+                    await self.ib.qualifyContractsAsync(*todo)
             for c, o in zip(batch, opts):
                 if o.conId:
                     out.append(replace(c, con_id=o.conId))
@@ -273,7 +299,8 @@ class IBKRGateway:
         pairs = [(c, self._ib_option(c)) for c in contracts]
         todo = [o for _, o in pairs if not o.conId]  # normalmente vacío: se validaron en la actualización diaria
         if todo:
-            await self.ib.qualifyContractsAsync(*todo)
+            with _quiet_unknown_contracts():
+                await self.ib.qualifyContractsAsync(*todo)
         valid = [(c, o) for c, o in pairs if o.conId]
         tickers = {c: self.ib.reqMktData(o, "101", False, False) for c, o in valid}  # 101 = open interest
         try:

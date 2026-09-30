@@ -94,7 +94,12 @@ class DailyUpdater:
             candidate_contracts(chain, price, today, self.settings.scanner.candidates) if price else []
         )
         if candidates:  # descarta strikes que no existen para ese vencimiento y guarda el conId
+            generated = len(candidates)
             candidates = await gw.qualify_contracts(candidates)
+            log.info(
+                "%s: %d de %d combinaciones strike/vencimiento existen en IBKR (las demás no están listadas; es normal)",
+                ticker, len(candidates), generated,
+            )
 
         self.contracts.replace_for_ticker(ticker, candidates)
         self.ticker_info.upsert(

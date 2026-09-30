@@ -158,3 +158,53 @@ async def test_get_iv_history_returns_close_high_low():
     assert out == [(date(2026, 9, 28), 0.30, 0.33, 0.28), (date(2026, 9, 29), 0.31, None, None)]
     since = await gw.get_iv_history("AAPL", date(2026, 9, 29))
     assert [p[0] for p in since] == [date(2026, 9, 29)]                  # incluye el día indicado
+
+
+class NoisyIB(QuoteIB):
+    """qualifyContractsAsync que imita a ib_async: por cada contrato inexistente registra Error 200 + Unknown contract."""
+
+    EXIST = {150.0, 155.0}
+
+    async def qualifyContractsAsync(self, *contracts):
+        import logging as _l
+        for c in contracts:
+            if getattr(c, "strike", None) in self.EXIST or c.secType == "STK":
+                c.conId = 7
+            else:
+                _l.getLogger("ib_async.wrapper").error(
+                    "Error 200, reqId 9: No se encuentra definición del activo solicitado, contract: %s", c)
+                _l.getLogger("ib_async.ib").warning("Unknown contract: %s", c)
+        return list(contracts)
+
+
+async def test_qualify_contracts_hides_expected_unknown_contract_noise(caplog):
+    import logging as _l
+    from scanner_opciones.domain.models import OptionContract
+
+    gw = IBKRGateway(IbkrSettings())
+    gw.ib = NoisyIB()
+    contracts = [OptionContract("BAC", date(2026, 10, 2), k) for k in (32.0, 150.0, 155.0, 33.0)]
+    with caplog.at_level(_l.DEBUG):
+        valid = await gw.qualify_contracts(contracts)
+    assert [c.strike for c in valid] == [150.0, 155.0] and all(c.con_id == 7 for c in valid)
+    assert not [r for r in caplog.records if "Error 200" in r.getMessage() or "Unknown contract" in r.getMessage()]
+
+
+async def test_other_errors_still_logged_and_filter_is_removed_afterwards(caplog):
+    import logging as _l
+    from scanner_opciones.domain.models import OptionContract
+
+    class MixedIB(NoisyIB):
+        async def qualifyContractsAsync(self, *contracts):
+            _l.getLogger("ib_async.wrapper").error("Error 354, reqId 3: No está suscrito a los datos de mercado")
+            return await super().qualifyContractsAsync(*contracts)
+
+    gw = IBKRGateway(IbkrSettings())
+    gw.ib = MixedIB()
+    with caplog.at_level(_l.DEBUG):
+        await gw.qualify_contracts([OptionContract("BAC", date(2026, 10, 2), 32.0)])
+        assert any("Error 354" in r.getMessage() for r in caplog.records)      # los demás errores se conservan
+        caplog.clear()
+        # fuera de la validación el filtro ya no está: un Error 200 real se vería
+        _l.getLogger("ib_async.wrapper").error("Error 200, reqId 1: fuera de la validación")
+        assert any("Error 200" in r.getMessage() for r in caplog.records)

@@ -292,3 +292,13 @@ async def test_old_bars_without_high_low_trigger_one_full_download(env):
     env.gw.calls.clear()
     await env.daily.run(["AAPL"])
     assert env.gw.calls[0][2] is not None                               # ya incremental
+
+
+async def test_daily_update_logs_one_summary_per_ticker(env, caplog):
+    import logging
+    env.add_aapl()
+    env.gw.invalid_contracts.add(OptionContract("AAPL", TODAY + timedelta(days=30), 75.0))
+    with caplog.at_level(logging.INFO, logger="scanner_opciones.jobs.daily_update"):
+        await env.daily.run(["AAPL"])
+    msgs = [r.getMessage() for r in caplog.records if "combinaciones" in r.getMessage()]
+    assert msgs == ["AAPL: 1 de 2 combinaciones strike/vencimiento existen en IBKR (las demás no están listadas; es normal)"]
