@@ -21,7 +21,7 @@ from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_e
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
-from scanner_opciones.scanner.engine import ScanOutput, run_scan
+from scanner_opciones.scanner.engine import ScanOutput, ScanResult, list_stored, run_scan
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     ContractRepo, IVHistoryRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
@@ -270,6 +270,13 @@ class AppService:
         return run_scan(
             self.snapshots.all(), self.ticker_info.all(), self.state.positions, criteria,
             self.now().date(), include_rejections,
+        )
+
+    def stored_contracts(self) -> list[ScanResult]:
+        """Todos los contratos guardados (con o sin cotización), sin aplicar filtros del scanner."""
+        return list_stored(
+            self.contracts.list(), self.snapshots.all(), self.ticker_info.all(), self.state.positions,
+            self.criteria(OperationType.REGULAR), self.now().date(),
         )
 
     def assignment(self) -> AssignmentExposure:

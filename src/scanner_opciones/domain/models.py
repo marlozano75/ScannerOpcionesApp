@@ -36,7 +36,7 @@ class OptionContract:
 @dataclass(frozen=True)
 class ContractSnapshot:
     contract: OptionContract
-    updated_at: datetime
+    updated_at: Optional[datetime]   # None: contrato guardado que aún no se ha cotizado
     bid: Optional[float] = None
     ask: Optional[float] = None
     last: Optional[float] = None

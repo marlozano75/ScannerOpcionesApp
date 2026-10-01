@@ -36,7 +36,7 @@ o 7496 (real). La app arranca aunque TWS no esté disponible y lo indica en pant
 
 ## Rango guardado y cotizaciones
 
-La actualización diaria guarda los contratos con strike de −10 % a −40 % y DTE hasta 45 días (`scanner.candidates`; si tu `config/config.yaml` es anterior, ajusta esos valores). Cotizarlos todos cada 5 minutos sería demasiado (y toparía con los límites de IBKR), así que el refresco automático solo cotiza los que encajan con los valores iniciales de Regular o Táctica. Si cambias el rango en el formulario, pulsa **Actualizar cotizaciones de este rango y escanear**.
+La actualización diaria guarda los contratos con strike de −10 % a −40 % y DTE hasta 45 días (`scanner.candidates`; si tu `config/config.yaml` es anterior, ajusta esos valores). Cotizarlos todos cada 5 minutos sería demasiado (y toparía con los límites de IBKR), así que el refresco automático solo cotiza los que encajan con los valores iniciales de Regular o Táctica. Si cambias el rango en el formulario, pulsa **Actualizar cotizaciones de este rango y escanear**. La pestaña **Contratos** (o el enlace «Ver todos los contratos guardados» del scanner, que se abre en otra pestaña) muestra todos los contratos guardados con las mismas columnas, incluidos los que aún no tienen cotización.
 
 ## Configuración
 

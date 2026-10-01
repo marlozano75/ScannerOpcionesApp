@@ -295,3 +295,25 @@ def test_daily_revalidate_option_is_passed_to_the_service(client_and_service):
     client.post("/daily", data={"revalidate": "1"}, follow_redirects=False)
     client.portal.call(svc.wait_idle)
     assert seen == [False, True]
+
+
+def test_contracts_page_lists_every_stored_contract_with_scanner_columns(client_and_service):
+    client, svc, gw, _ = client_and_service
+    from datetime import timedelta
+    refresh(client)
+    far = OptionContract("AAPL", TODAY + timedelta(days=44), 70.0)     # guardado pero fuera de lo que se cotiza
+    svc.contracts.sync_for_ticker("AAPL", {svc.contracts.key(c) for c in svc.contracts.list()} | {svc.contracts.key(far)}, [far])
+    r = client.get("/contracts")
+    assert r.status_code == 200
+    stored = svc.contracts.list()
+    assert f"Contratos guardados ({len(stored)})" in r.text
+    assert "sin cotizar" in r.text                                       # el de DTE 44 no tiene snapshot
+    scan_header = client.get(BASE).text
+    for col in ("Bid size", "Prima ref.", "Yield bid anual", "IV Pctl", "Margen ini.", "% cartera si asignado"):
+        assert f"<th>{col}</th>" in r.text and f"<th>{col}</th>" in scan_header
+    assert 'href="/contracts"' in client.get("/").text                    # enlace en el menú
+
+
+def test_scanner_links_to_contracts_in_a_new_tab(client_and_service):
+    client, *_ = client_and_service
+    assert 'href="/contracts" target="_blank"' in client.get("/scanner").text

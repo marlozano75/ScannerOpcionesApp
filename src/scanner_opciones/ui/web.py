@@ -269,6 +269,20 @@ def create_app(
                       candidates=service.settings.scanner.candidates,
                       report=service.state.last_refresh_report, **parsed)
 
+    @app.get("/contracts", response_class=HTMLResponse)
+    async def contracts(request: Request):
+        """Todos los contratos almacenados, con las mismas columnas que el resultado del scanner."""
+        rows = service.stored_contracts()
+        c = service.criteria(OperationType.REGULAR)
+        ref_label = {
+            PriceReference.BID: "bid",
+            PriceReference.MID: "mid (media bid/ask)",
+            PriceReference.BID_PLUS_SPREAD: f"bid + {c.price_spread_pct:g}% del spread",
+        }[c.price_reference]
+        return render(request, "contracts.html", rows=rows, ref_label=ref_label,
+                      quoted=sum(1 for r in rows if r.snapshot.updated_at is not None),
+                      candidates=service.settings.scanner.candidates)
+
     @app.post("/scanner/refresh")
     async def scanner_refresh(request: Request):
         """Cotiza los contratos del rango pedido en el formulario y vuelve al scanner."""

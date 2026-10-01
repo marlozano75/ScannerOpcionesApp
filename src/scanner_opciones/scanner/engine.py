@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional, Sequence
 
-from scanner_opciones.domain.models import ContractSnapshot, Position, TickerInfo
+from scanner_opciones.domain.models import ContractSnapshot, OptionContract, Position, TickerInfo
 from scanner_opciones.domain.enums import PriceReference
 from scanner_opciones.metrics.yields import (
     annualized_yield_pct, gross_yield_ref_pct, reference_price, strike_distance_pct,
@@ -57,18 +57,44 @@ def run_scan(
             if include_rejections:
                 rejections[f"{c.ticker} {c.expiry} {c.strike}"] = why
             continue
-        impact = candidate_impact(
-            positions, info.sector if info else None, c.strike, c.multiplier, c.expiry
-        )
-        dte = c.dte(today)
-        ref = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct)
-        y_ref = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)
-        y_bid = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, PriceReference.BID)
-        results.append(ScanResult(
-            snap, info, dte, strike_distance_pct(price, c.strike), impact,
-            reference_price=ref, yield_ref_pct=y_ref,
-            yield_ref_annualized_pct=annualized_yield_pct(y_ref, dte),
-            yield_bid_pct=y_bid, yield_bid_annualized_pct=annualized_yield_pct(y_bid, dte),
-        ))
+        results.append(build_result(snap, info, positions, criteria, today))
     results.sort(key=lambda r: r.yield_ref_annualized_pct or 0.0, reverse=True)
     return ScanOutput(results, rejected, rejections)
+
+
+def build_result(
+    snap: ContractSnapshot, info: Optional[TickerInfo], positions: list[Position],
+    criteria: ScanCriteria, today: date,
+) -> ScanResult:
+    """Fila con las mismas columnas del scanner (precio de referencia, yields, impacto en cartera)."""
+    c = snap.contract
+    price = info.underlying_price if info else None
+    impact = candidate_impact(positions, info.sector if info else None, c.strike, c.multiplier, c.expiry)
+    dte = c.dte(today)
+    ref = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct)
+    y_ref = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)
+    y_bid = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, PriceReference.BID)
+    return ScanResult(
+        snap, info, dte, strike_distance_pct(price, c.strike), impact,
+        reference_price=ref, yield_ref_pct=y_ref,
+        yield_ref_annualized_pct=annualized_yield_pct(y_ref, dte),
+        yield_bid_pct=y_bid, yield_bid_annualized_pct=annualized_yield_pct(y_bid, dte),
+    )
+
+
+def list_stored(
+    contracts: Sequence[OptionContract],
+    snapshots: Sequence[ContractSnapshot],
+    infos: dict[str, TickerInfo],
+    positions: list[Position],
+    criteria: ScanCriteria,
+    today: date,
+) -> list[ScanResult]:
+    """TODOS los contratos guardados, sin filtrar, con las columnas del scanner. Los que aún no
+    tienen cotización llevan un snapshot vacío (`updated_at=None`). Orden: ticker, vencimiento, strike."""
+    snaps = {(s.contract.ticker, s.contract.expiry, s.contract.strike, s.contract.right): s for s in snapshots}
+    out: list[ScanResult] = []
+    for c in contracts:
+        snap = snaps.get((c.ticker, c.expiry, c.strike, c.right)) or ContractSnapshot(c, None)
+        out.append(build_result(snap, infos.get(c.ticker), positions, criteria, today))
+    return out

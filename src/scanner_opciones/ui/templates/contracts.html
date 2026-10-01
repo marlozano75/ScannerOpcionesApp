@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% import "_contract_cols.html" as cols %}
+{% block title %}Contratos guardados{% endblock %}
+{% block content %}
+<div class="card">
+  <h2>Contratos guardados ({{ rows|length }})</h2>
+  <p class="muted">Todos los contratos de la base de datos, sin filtrar, con las mismas columnas que el scanner
+    (precio de venta de referencia: {{ ref_label }}). {{ quoted }} tienen cotización; el resto («sin cotizar») están guardados pero
+    fuera de lo que se cotiza en cada ciclo (solo los que encajan con los valores iniciales de Regular o Táctica) hasta que uses
+    «Actualizar cotizaciones» en el scanner. Guardado: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }}% por debajo,
+    DTE {{ candidates.dte_min }}–{{ candidates.dte_max }}. Pulsa una cabecera para ordenar.</p>
+  <div class="scroll"><table class="sortable" id="stored-contracts">
+    <tr>{{ cols.head() }}<th>Actualizado</th></tr>
+    {% for r in rows %}
+      <tr>{{ cols.cells(r) }}{{ cols.updated(r.snapshot) }}</tr>
+    {% else %}<tr><td colspan="27" class="muted">No hay contratos guardados todavía: ejecuta la actualización diaria.</td></tr>{% endfor %}
+  </table></div>
+</div>
+{% endblock %}
