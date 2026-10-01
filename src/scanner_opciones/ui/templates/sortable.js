@@ -4,6 +4,11 @@
 (function (root) {
   'use strict';
 
+  // Texto con el que se ordena una celda: su atributo data-sort si lo tiene (p. ej. «$4.4B» -> 4400000000).
+  function cellText(c) {
+    return (c.dataset && c.dataset.sort !== undefined) ? c.dataset.sort : c.textContent;
+  }
+
   // "12.5%" -> 12.5, "1,234" -> 1234, "0.42x" -> 0.42, "—" -> vacío, resto -> texto
   function parseValue(text) {
     var t = (text || '').trim();
@@ -36,7 +41,7 @@
   // Ordena las filas por la columna `col`; dir = 'asc' | 'desc'. Los vacíos van siempre al final.
   function sortRows(rows, col, dir) {
     var items = rows.map(function (row, i) {
-      return { row: row, i: i, v: parseValue(row.children[col].textContent) };
+      return { row: row, i: i, v: parseValue(cellText(row.children[col])) };
     });
     var sign = dir === 'desc' ? -1 : 1;
     items.sort(function (x, y) {
@@ -65,7 +70,7 @@
   function defaultDir(table, col) {
     var all = Array.prototype.slice.call(table.querySelectorAll('tr'));
     var vals = all.slice(1).filter(function (r) { return r.children.length === all[0].children.length; })
-      .map(function (r) { return parseValue(r.children[col].textContent); });
+      .map(function (r) { return parseValue(cellText(r.children[col])); });
     return isNumericColumn(vals) ? 'desc' : 'asc';
   }
 
@@ -107,7 +112,7 @@
     } catch (e) { /* ignorar */ }
   }
 
-  var api = { parseValue: parseValue, compare: compare, isNumericColumn: isNumericColumn,
+  var api = { cellText: cellText, parseValue: parseValue, compare: compare, isNumericColumn: isNumericColumn,
               sortRows: sortRows, sortTable: sortTable, init: init };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SortableTables = api;

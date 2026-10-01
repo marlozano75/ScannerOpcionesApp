@@ -3,7 +3,11 @@ const assert = require('assert');
 const path = require('path');
 const S = require(path.resolve(process.argv[2]));
 
-function cell(text) { return { textContent: text }; }
+function cell(text) {
+  // «texto|valor»: la celda lleva data-sort con ese valor (como «$4.4B»|4400000000)
+  const [t, sort] = String(text).split('|');
+  return sort === undefined ? { textContent: t } : { textContent: t, dataset: { sort } };
+}
 function makeTable(header, data) {
   const tbody = { children: [], appendChild(r) { this.children = this.children.filter(x => x !== r); this.children.push(r); r.parentNode = this; } };
   const mk = (cells) => ({ children: cells.map(cell), parentNode: tbody });
@@ -77,3 +81,13 @@ assert.strictEqual(S.isNumericColumn([S.parseValue('1%'), S.parseValue('abc')]),
 assert.strictEqual(S.isNumericColumn([S.parseValue('—')]), false);
 
 console.log('OK');
+
+
+// --- data-sort: se ordena por el valor del atributo, se muestra el texto
+t = makeTable(['Ticker', 'Cap'], [['A', '$900M|900000000'], ['B', '$4.4B|4400000000'], ['C', '$12.0B|12000000000'], ['D', '$517.1M|517100000']]);
+S.sortTable(t, 1, 'desc');
+assert.deepStrictEqual(order(t), ['C', 'B', 'A', 'D']);          // por valor (sin data-sort «$4.4B» iría como texto)
+S.sortTable(t, 1, 'asc');
+assert.deepStrictEqual(order(t), ['D', 'A', 'B', 'C']);
+assert.strictEqual(S.cellText({ textContent: '$1M', dataset: { sort: '1000000' } }), '1000000');
+assert.strictEqual(S.cellText({ textContent: 'x' }), 'x');

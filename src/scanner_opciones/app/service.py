@@ -26,6 +26,7 @@ from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     ContractRepo, IVHistoryRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
+from scanner_opciones.rankedstocks.loader import RankedTable
 from scanner_opciones.watchlist.parser import ParseResult
 
 log = logging.getLogger(__name__)
@@ -81,6 +82,8 @@ class AppService:
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now, self.iv_history
         )
         self.state = AppState()
+        self.rankedstocks: Optional[RankedTable] = None   # fichero de RankedStocks elegido por el usuario (memoria)
+        self.rankedstocks_loaded_at: Optional[datetime] = None
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas
         self._background: set = set()
 

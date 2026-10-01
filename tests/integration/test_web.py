@@ -411,3 +411,106 @@ def test_watchlist_page_has_replace_buttons_with_confirmation(client_and_service
     page = client.get("/watchlist").text
     assert page.count('name="mode" value="replace"') == 2 and "confirmReplace()" in page
     assert 'name="mode" value="add"' in page
+
+
+# ---- pestaña RankedStocks (fichero xlsx elegido por el usuario) -----------------------------------
+
+RANK_HEADER = ["Símbolo", "Empresa", "Bolsa", "País", "Capitalización", "Precio", "RS ↓", "Al"]
+RANK_ROWS = [
+    ["🇺🇸DK", "Delek US Holdings", "NYSE", "US", "$4.4B", "$71.37", "95.6", "Oct 1, 2026"],
+    ["🇺🇸KO", "Coca-Cola", "NYSE", "US", "$270.0B", "$60.10", "90.1", "Oct 1, 2026"],
+    ["🇺🇸GCT", "GigaCloud", "NASDAQ", "US", "$2.0B", "$52.62", "88.0", "Oct 1, 2026"],
+    ["🇺🇸PAYS", "Paysign", "NASDAQ", "US", "$517.1M", "$9.25", "85.6", "Oct 1, 2026"],
+]
+
+
+def rank_xlsx(rows=None, header=None) -> bytes:
+    import io
+    wb = Workbook()
+    ws = wb.active
+    ws.append(header or RANK_HEADER)
+    for r in RANK_ROWS if rows is None else rows:
+        ws.append(r)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def load_rank(client, **kw):
+    return client.post("/rankedstocks/load", files={"file": ("RankedStocks_2026.10.01.xlsx", rank_xlsx(**kw))},
+                       follow_redirects=True)
+
+
+def test_rankedstocks_page_asks_for_a_file_until_one_is_loaded(client_and_service):
+    client, svc, gw, _ = client_and_service
+    r = client.get("/rankedstocks")
+    assert r.status_code == 200 and 'name="file"' in r.text and "rankedstocks-table" not in r.text
+    assert 'href="/rankedstocks"' in client.get("/").text                      # pestaña en el menú
+
+
+def test_load_shows_every_column_and_row_of_the_file(client_and_service):
+    client, svc, gw, _ = client_and_service
+    r = load_rank(client)
+    assert "4 filas cargadas de RankedStocks_2026.10.01.xlsx" in r.text
+    for col in ("Símbolo", "Empresa", "Bolsa", "País", "Capitalización", "Precio", "RS", "Al", "En watchlist"):
+        assert f"<th>{col}</th>" in r.text
+    assert "4 de 4 filas" in r.text and "Delek US Holdings" in r.text and "$4.4B" in r.text
+    assert 'name="sel" value="DK" checked' in r.text and "🇺🇸" not in r.text     # ticker limpio, sin bandera
+    assert 'data-sort="4400000000.0"' in r.text                                   # ordena por valor, muestra el texto
+    assert svc.rankedstocks is not None and svc.rankedstocks.source == "RankedStocks_2026.10.01.xlsx"
+
+
+def test_filters_reduce_rows_and_selection(client_and_service):
+    client, svc, gw, _ = client_and_service
+    load_rank(client)
+    r = client.get("/rankedstocks?c2=NASDAQ")
+    assert "2 de 4 filas" in r.text and 'value="GCT" checked' in r.text and 'value="DK"' not in r.text
+    r = client.get("/rankedstocks?c2=NYSE&max5=65")
+    assert "1 de 4 filas" in r.text and 'value="KO"' in r.text
+    r = client.get("/rankedstocks?min4=1B&t1=co")                                  # capitalización ≥ 1B y empresa contiene «co»
+    assert "1 de 4 filas" in r.text and 'value="KO"' in r.text
+    r = client.get("/rankedstocks?min5=1000")
+    assert "Ninguna fila cumple los filtros" in r.text
+    bad = client.get("/rankedstocks?min5=abc")
+    assert "Filtro no válido" in bad.text and "4 de 4 filas" in bad.text           # no filtra y avisa
+
+
+def test_apply_add_keeps_existing_and_adds_the_selection(client_and_service):
+    client, svc, gw, _ = client_and_service
+    load_rank(client)
+    gw.prices["GCT"] = 52.0
+    r = client.post("/rankedstocks/apply", data={"mode": "add", "sel": ["GCT", "PAYS"]}, follow_redirects=True)
+    assert set(svc.watchlist.list()) == {"AAPL", "GCT", "PAYS"}
+    assert "2 nuevos" in r.text
+    assert "✓" in client.get("/rankedstocks").text                                   # la columna «En watchlist» lo marca
+
+
+def test_apply_replace_swaps_the_whole_watchlist(client_and_service):
+    client, svc, gw, _ = client_and_service
+    load_rank(client)
+    r = client.post("/rankedstocks/apply", data={"mode": "replace", "sel": ["DK", "KO"]}, follow_redirects=True)
+    assert set(svc.watchlist.list()) == {"DK", "KO"}
+    assert "Watchlist sustituida: 2 nuevos, 0 conservados, 1 quitados (AAPL)" in r.text
+
+
+def test_apply_with_nothing_selected_does_not_wipe_the_watchlist(client_and_service):
+    client, svc, gw, _ = client_and_service
+    load_rank(client)
+    r = client.post("/rankedstocks/apply", data={"mode": "replace"}, follow_redirects=True)
+    assert svc.watchlist.list() == ["AAPL"] and "no se ha cambiado la watchlist" in r.text
+
+
+def test_page_has_replace_confirmation_and_select_all(client_and_service):
+    client, *_ = client_and_service
+    page = load_rank(client).text
+    assert 'name="mode" value="replace"' in page and "confirmReplace()" in page and 'id="rk-all"' in page
+
+
+def test_bad_rankedstocks_files_report_an_error_and_keep_the_previous_one(client_and_service):
+    client, svc, gw, _ = client_and_service
+    load_rank(client)
+    bad = client.post("/rankedstocks/load", files={"file": ("w.csv", b"AAPL")}, follow_redirects=True)
+    assert "Error" in bad.text and "Formato no soportado" in bad.text
+    no_symbol = load_rank(client, header=["Empresa", "Precio"], rows=[["X", "$1"]])
+    assert "Error" in no_symbol.text and "Símbolo" in no_symbol.text
+    assert svc.rankedstocks is not None and len(svc.rankedstocks.rows) == 4         # sigue el fichero anterior

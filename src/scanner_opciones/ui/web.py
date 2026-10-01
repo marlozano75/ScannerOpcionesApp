@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import tempfile
 from urllib.parse import urlencode
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
@@ -15,8 +16,10 @@ from scanner_opciones.app.service import AppService, SelectedContract
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
+from scanner_opciones.rankedstocks.filters import apply_filters, parse_filters
+from scanner_opciones.rankedstocks.loader import load_table
 from scanner_opciones.watchlist.loader import load_watchlist_file
-from scanner_opciones.watchlist.parser import parse_text
+from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 LIGHT_LABEL = {
@@ -174,6 +177,44 @@ def create_app(
         finally:
             path.unlink(missing_ok=True)
         msg = await apply_watchlist(parsed, mode)
+        return RedirectResponse(f"/watchlist?message={msg}", status_code=303)
+
+    # ---- RankedStocks (fichero .xlsx elegido por el usuario) ---------------------------------
+    @app.get("/rankedstocks", response_class=HTMLResponse)
+    async def rankedstocks(request: Request, message: str = ""):
+        table = service.rankedstocks
+        rows, error = [], None
+        if table is not None:
+            try:
+                rows = apply_filters(table, parse_filters(table, request.query_params))
+            except ValueError as exc:
+                error, rows = f"Filtro no válido: {exc}", list(table.rows)
+        return render(request, "rankedstocks.html", table=table, rows=rows, error=error, message=message,
+                      qp=request.query_params, loaded_at=service.rankedstocks_loaded_at,
+                      in_watchlist=set(service.watchlist.list()))
+
+    @app.post("/rankedstocks/load")
+    async def rankedstocks_load(file: UploadFile):
+        suffix = Path(file.filename or "").suffix
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(await file.read())
+            path = Path(tmp.name)
+        try:
+            table = load_table(path)
+        except WatchlistError as exc:
+            return RedirectResponse(f"/rankedstocks?message=Error: {exc}", status_code=303)
+        finally:
+            path.unlink(missing_ok=True)
+        table = replace(table, source=file.filename or table.source)   # el nombre real, no el del temporal
+        service.rankedstocks, service.rankedstocks_loaded_at = table, service.now()
+        return RedirectResponse(f"/rankedstocks?message={len(table.rows)} filas cargadas de {table.source}", status_code=303)
+
+    @app.post("/rankedstocks/apply")
+    async def rankedstocks_apply(request: Request):
+        """Añade a la watchlist (o la sustituye por) los tickers marcados."""
+        form = await request.form()
+        mode = str(form.get("mode", "add"))
+        msg = await apply_watchlist(parse_tokens([str(t) for t in form.getlist("sel")]), mode)
         return RedirectResponse(f"/watchlist?message={msg}", status_code=303)
 
     @app.post("/watchlist/remove")

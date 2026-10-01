@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}RankedStocks{% endblock %}
+{% block content %}
+{% if message %}<div class="banner info">{{ message }}</div>{% endif %}
+<div class="card">
+  <h2>RankedStocks</h2>
+  <p class="muted">Elige el fichero .xlsx que has descargado de RankedStocks. La app solo lee ese fichero (no se conecta a rankedstocks.com).
+    Se guarda en memoria: al reiniciar la app hay que volver a elegirlo.</p>
+  <form method="post" action="/rankedstocks/load" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".xlsx" required>
+    <button>Cargar fichero</button>
+  </form>
+</div>
+{% if table %}
+<div class="card">
+  <h2>Filtros <span class="muted">({{ table.source }}, cargado a las {{ loaded_at.strftime('%H:%M:%S') }})</span></h2>
+  {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
+  <form method="get" action="/rankedstocks" id="rk-filters">
+    <div class="filters">
+      {% for col in table.columns %}{% set i = loop.index0 %}
+        {% if col.kind == 'text' %}
+          <label>{{ col.name }} (contiene) <input name="t{{ i }}" size="12" value="{{ qp.get('t' ~ i, '') }}"></label>
+        {% elif col.kind == 'choice' %}
+          <label>{{ col.name }}
+            <select name="c{{ i }}" multiple size="{{ [col.choices|length, 4]|min }}">
+              {% set picked = qp.getlist('c' ~ i) %}
+              {% for v in col.choices %}<option value="{{ v }}" {{ 'selected' if v in picked }}>{{ v }}</option>{% endfor %}
+            </select></label>
+        {% else %}
+          <label>{{ col.name }} (mín. – máx.)
+            <span><input name="min{{ i }}" size="7" value="{{ qp.get('min' ~ i, '') }}"> – <input name="max{{ i }}" size="7" value="{{ qp.get('max' ~ i, '') }}"></span></label>
+        {% endif %}
+      {% endfor %}
+      <button>Filtrar</button>
+      <a class="btn secondary" href="/rankedstocks" style="background:#e8ebf0;color:var(--ink);text-decoration:none">Limpiar</a>
+    </div>
+    <p class="muted">Las listas admiten varios valores (Ctrl + clic). Los números aceptan $, comas y K/M/B/T (p. ej. 500M).</p>
+  </form>
+</div>
+<form method="post" action="/rankedstocks/apply" class="card" id="rk-apply">
+  <h2>{{ rows|length }} de {{ table.rows|length }} filas <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
+  <p>
+    <button name="mode" value="add">Añadir selección a la watchlist</button>
+    <button name="mode" value="replace" class="secondary" onclick="return confirmReplace()"
+            title="Quita de la watchlist (con sus contratos) los tickers que no estén en la selección">Sustituir watchlist con la selección</button>
+    <span class="muted">Las filas marcadas son las visibles tras el filtro; desmarca las que no quieras.</span>
+  </p>
+  <div class="scroll"><table class="sortable" id="rankedstocks-table">
+    <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th>
+      {% for col in table.columns %}<th>{{ col.name }}</th>{% endfor %}</tr>
+    {% for row in rows %}
+      <tr><td class="sel"><input type="checkbox" name="sel" value="{{ row.ticker }}" checked></td>
+        <td>{{ '✓' if row.ticker in in_watchlist else '—' }}</td>
+        {% for cell in row.cells %}
+          {% if cell.value is not none %}<td data-sort="{{ cell.value }}">{{ cell.text }}</td>
+          {% else %}<td>{{ loop.index0 == table.symbol_index and row.ticker or cell.text }}</td>{% endif %}
+        {% endfor %}</tr>
+    {% else %}<tr><td colspan="{{ table.columns|length + 2 }}" class="muted">Ninguna fila cumple los filtros.</td></tr>{% endfor %}
+  </table></div>
+</form>
+<script>
+  function confirmReplace() {
+    return confirm('Se quitarán de la watchlist, con sus contratos y cotizaciones, los tickers que no estén en la selección. ¿Sustituir la watchlist?');
+  }
+  (function () {
+    var boxes = function () { return document.querySelectorAll('#rk-apply input[name=sel]'); };
+    var count = document.getElementById('rk-count'), all = document.getElementById('rk-all');
+    function update() {
+      var n = 0; boxes().forEach(function (b) { if (b.checked) n++; });
+      count.textContent = n;
+      all.checked = n === boxes().length && n > 0;
+    }
+    all.addEventListener('change', function () { boxes().forEach(function (b) { b.checked = all.checked; }); update(); });
+    boxes().forEach(function (b) { b.addEventListener('change', update); });
+  })();
+</script>
+{% endif %}
+{% endblock %}
