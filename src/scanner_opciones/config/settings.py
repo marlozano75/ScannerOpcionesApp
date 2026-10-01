@@ -86,7 +86,7 @@ class InitialFilterSettings(_Model):
     """Valores iniciales del filtro del scanner (todos editables en el formulario)."""
     strike_below_pct_min: float = Field(10, ge=0, lt=100)  # descuento mínimo del strike (%)
     strike_below_pct_max: float = Field(30, ge=0, lt=100)  # descuento máximo del strike (%)
-    min_yield_pct: float = Field(1.0, ge=0)
+    min_annual_yield_pct: float = Field(12.0, ge=0)  # yield anualizado mínimo (≈ 1 % bruto a 30 días)
     dte_min: int = Field(1, ge=0)
     dte_max: int = Field(35, ge=0)
 
@@ -113,6 +113,7 @@ class OperationSettings(_Model):
 
 class FilterSettings(_Model):
     min_oi: Optional[int] = Field(None, ge=0)
+    min_bid_size: Optional[int] = Field(None, ge=0)
     max_spread_pct: Optional[float] = Field(None, ge=0)
     min_iv_rank: Optional[float] = Field(None, ge=0, le=100)
     min_iv_percentile: Optional[float] = Field(None, ge=0, le=100)

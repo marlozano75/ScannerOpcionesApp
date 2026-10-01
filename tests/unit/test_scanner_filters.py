@@ -28,7 +28,7 @@ def snap(strike=78.0, days=30, yield_pct=1.2, oi=500, spread=5.0, right=OptionRi
 def test_criteria_from_settings():
     # filtro único: descuento 10–30 %, DTE 1–35 (todo editable en el formulario)
     assert (BASE.strike_below_pct_min, BASE.strike_below_pct_max) == (10, 30)
-    assert (BASE.dte_min, BASE.dte_max) == (1, 35) and BASE.min_yield_pct == 1.0
+    assert (BASE.dte_min, BASE.dte_max) == (1, 35) and BASE.min_annual_yield_pct == 12.0
     assert (BASE.regular_dte_min, BASE.regular_dte_max) == (25, 35)
 
 
@@ -52,7 +52,7 @@ def test_regular_passes():
         (dict(strike=76.0), "strike"),   # 24% -> pasa, ver abajo
         (dict(strike=90.0), "strike"),   # 10% < 20% mínimo
         (dict(strike=50.0), "strike"),   # 50% > 40% máximo guardado
-        (dict(yield_pct=0.99), "yield"),
+        (dict(yield_pct=0.9), "yield"),
         (dict(yield_pct=None), "yield"),
         (dict(right=OptionRight.CALL), "put"),
     ],
@@ -65,8 +65,9 @@ def test_regular_rejections(kwargs, why):
 
 
 def test_boundaries_are_inclusive():
-    assert reject_reason(snap(strike=80.0, days=25, yield_pct=1.0), 100.0, TODAY, REGULAR) is None  # 20%, DTE min
-    assert reject_reason(snap(strike=60.0, days=35, yield_pct=1.0), 100.0, TODAY, REGULAR) is None  # 40%, DTE max
+    any_yield = REGULAR.with_filters(min_annual_yield_pct=0)
+    assert reject_reason(snap(strike=80.0, days=25, yield_pct=1.0), 100.0, TODAY, any_yield) is None  # 20%, DTE min
+    assert reject_reason(snap(strike=60.0, days=35, yield_pct=1.0), 100.0, TODAY, any_yield) is None  # 40%, DTE max
 
 
 def test_no_underlying_price():
@@ -87,6 +88,14 @@ class TestOptionalFilters:
         assert reject_reason(snap(oi=100), 100.0, TODAY, c) is None
         assert "OI" in reject_reason(snap(oi=99), 100.0, TODAY, c)
         assert "OI" in reject_reason(snap(oi=None), 100.0, TODAY, c)
+
+    def test_min_bid_size(self):
+        from dataclasses import replace
+        c = REGULAR.with_filters(min_bid_size=10)
+        assert reject_reason(replace(snap(), bid_size=10), 100.0, TODAY, c) is None
+        assert "Bid size" in reject_reason(replace(snap(), bid_size=9), 100.0, TODAY, c)
+        assert "Bid size" in reject_reason(replace(snap(), bid_size=None), 100.0, TODAY, c)
+        assert reject_reason(replace(snap(), bid_size=None), 100.0, TODAY, REGULAR) is None
 
     def test_max_spread(self):
         c = REGULAR.with_filters(max_spread_pct=10)
@@ -138,7 +147,7 @@ class TestPriceReference:
         return ContractSnapshot(c, NOW, bid=0.50, ask=1.10, open_interest=500, spread_pct=75.0)
 
     def with_ref(self, mode, x=25.0):
-        return REGULAR.with_filters(price_reference=mode, price_spread_pct=x, min_yield_pct=1.0)
+        return REGULAR.with_filters(price_reference=mode, price_spread_pct=x, min_annual_yield_pct=365 / 30)
 
     def test_only_mid_reaches_one_percent(self):
         s = self.wide()

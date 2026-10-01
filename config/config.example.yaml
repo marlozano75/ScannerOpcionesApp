@@ -29,7 +29,7 @@ scanner:
   initial:                 # valores iniciales del filtro del scanner (todos editables en el formulario)
     strike_below_pct_min: 10   # descuento mínimo del strike (%)
     strike_below_pct_max: 30   # descuento máximo del strike (%)
-    min_yield_pct: 1.0
+    min_annual_yield_pct: 12.0   # yield anualizado mínimo (prima / strike × 365 / DTE)
     dte_min: 1
     dte_max: 35
   operation:               # columna «Operación» del resultado: Regular dentro de este DTE, Táctica fuera
@@ -37,6 +37,7 @@ scanner:
     regular_dte_max: 35
   filters:                       # null = filtro desactivado
     min_oi: null
+    min_bid_size: null
     max_spread_pct: null
     min_iv_rank: null
     min_iv_percentile: null

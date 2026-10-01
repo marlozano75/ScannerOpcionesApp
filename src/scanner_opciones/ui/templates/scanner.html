@@ -12,7 +12,7 @@
       <label>Descuento máx. del strike (%) <input name="discount_max" id="discount_max" size="6" value="{{ form.discount_max }}"></label>
       <label>DTE mín. <input name="dte_min" id="dte_min" size="5" value="{{ form.dte_min }}"></label>
       <label>DTE máx. <input name="dte_max" id="dte_max" size="5" value="{{ form.dte_max }}"></label>
-      <label>Yield bruto mín. (%) <input name="min_yield" id="min_yield" size="6" value="{{ form.min_yield }}"></label>
+      <label>Yield anual mín. (%) <input name="min_yield" id="min_yield" size="6" value="{{ form.min_yield }}"></label>
       <label>Precio de venta de referencia
         <select name="ref" id="ref">
           <option value="bid" {{ 'selected' if form.ref == 'bid' }}>Bid</option>
@@ -25,6 +25,8 @@
     <div class="filters">
       <label class="opt"><span><input type="checkbox" name="use_oi" {{ 'checked' if form.use_oi }}> OI mínimo</span>
         <input name="oi" size="7" value="{{ form.oi }}"></label>
+      <label class="opt"><span><input type="checkbox" name="use_bidsize" {{ 'checked' if form.use_bidsize }}> Bid size mínimo</span>
+        <input name="bidsize" size="7" value="{{ form.bidsize }}"></label>
       <label class="opt"><span><input type="checkbox" name="use_spread" {{ 'checked' if form.use_spread }}> Spread máx. (%)</span>
         <input name="spread" size="7" value="{{ form.spread }}"></label>
       <label class="opt"><span><input type="checkbox" name="use_ivr" {{ 'checked' if form.use_ivr }}> IV Rank mín.</span>
@@ -41,7 +43,7 @@
     valores iniciales del filtro; si cambias el rango, usa «Actualizar cotizaciones».</p>
   {% if criteria %}
   <p class="muted">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
-    yield bruto ≥ {{ criteria.min_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
+    yield anual ≥ {{ criteria.min_annual_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
     {% if report %}· última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados){% endif %}.</p>
   {% endif %}
   {% for w in warnings %}<div class="banner info">{{ w }}</div>{% endfor %}

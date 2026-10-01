@@ -138,7 +138,7 @@ def test_discount_dte_and_yield_are_editable(client_and_service):
     assert "Ningún contrato cumple" in client.get(
         "/scanner?submitted=1&discount=20&discount_max=40&dte_min=25&dte_max=35&min_yield=50").text
     wide = client.get("/scanner?submitted=1&discount=15&discount_max=40&dte_min=1&dte_max=60&min_yield=0.1")
-    assert "contratos cumplen" in wide.text and "yield bruto ≥ 0.1%" in wide.text and "DTE 1–60" in wide.text
+    assert "contratos cumplen" in wide.text and "yield anual ≥ 0.1%" in wide.text and "DTE 1–60" in wide.text
 
 
 def test_warning_when_outside_stored_range(client_and_service):
@@ -274,7 +274,7 @@ def test_price_reference_changes_which_contracts_pass(client_and_service):
     for c in svc.contracts.list("AAPL"):          # spread muy ancho: bid 0.40 / ask 1.60 (mid 1.00)
         gw.quotes[c] = OptionQuote(bid=0.40, ask=1.60, open_interest=500)
     refresh(client)
-    url = "/scanner?submitted=1&discount=20&discount_max=40&dte_min=25&dte_max=35&min_yield=1.2"
+    url = "/scanner?submitted=1&discount=20&discount_max=40&dte_min=25&dte_max=35&min_yield=15"
     assert "Ningún contrato cumple" in client.get(url + "&ref=bid&ref_x=25").text          # 0.40/75 = 0.53 %
     assert "Ningún contrato cumple" in client.get(url + "&ref=bid_plus_spread&ref_x=25").text   # 0.70/75 = 0.93 %
     assert "contratos cumplen" in client.get(url + "&ref=mid&ref_x=25").text              # 1.00/75 = 1.33 %
@@ -531,3 +531,4 @@ def test_activity_banner_shows_the_ibkr_pacing_wait(client_and_service):
         svc._lock = real_lock
     assert "esperando el límite de peticiones históricas de IBKR" in page and "≈ 3.0 min" in page
     svc.state.activity = None
+

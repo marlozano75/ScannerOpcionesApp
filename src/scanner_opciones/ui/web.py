@@ -233,11 +233,12 @@ def create_app(
         form = {
             "discount": _fmt(base.strike_below_pct_min), "discount_max": _fmt(base.strike_below_pct_max),
             "dte_min": str(base.dte_min), "dte_max": str(base.dte_max),
-            "min_yield": _fmt(base.min_yield_pct),
+            "min_yield": _fmt(base.min_annual_yield_pct),
             "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
         }
         optional = {
             "oi": ("min_oi", int, base.min_oi),
+            "bidsize": ("min_bid_size", int, base.min_bid_size),
             "spread": ("max_spread_pct", float, base.max_spread_pct),
             "ivr": ("min_iv_rank", float, base.min_iv_rank),
             "ivp": ("min_iv_percentile", float, base.min_iv_percentile),
@@ -259,7 +260,7 @@ def create_app(
                     form[key] = qp.get(key, "").strip()
                 overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento mín. del strike")
                 overrides["strike_below_pct_max"] = _required(form["discount_max"], float, "Descuento máx. del strike")
-                overrides["min_yield_pct"] = _required(form["min_yield"], float, "Yield bruto mín.")
+                overrides["min_annual_yield_pct"] = _required(form["min_yield"], float, "Yield anual mín.")
                 overrides["dte_min"] = _required(form["dte_min"], int, "DTE mín.")
                 overrides["dte_max"] = _required(form["dte_max"], int, "DTE máx.")
                 try:
@@ -275,7 +276,7 @@ def create_app(
                     raise ValueError("el descuento del strike debe estar entre 0 y 100")
                 if lo > hi:
                     raise ValueError("el descuento mínimo no puede superar el máximo")
-                if overrides["min_yield_pct"] < 0:
+                if overrides["min_annual_yield_pct"] < 0:
                     raise ValueError("el yield mínimo no puede ser negativo")
                 if overrides["dte_min"] < 0 or overrides["dte_min"] > overrides["dte_max"]:
                     raise ValueError("los DTE deben cumplir 0 ≤ mín. ≤ máx.")

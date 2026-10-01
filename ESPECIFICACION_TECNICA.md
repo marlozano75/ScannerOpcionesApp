@@ -33,7 +33,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-05 | Los tickers añadidos **después** de la ejecución diaria se actualizan (bloque diario) en el momento de añadirse. | L12 |
 | RF-06 | El historial de IV se **persiste** y en actualizaciones posteriores solo se descargan las entradas no guardadas (optimización). | L20 |
 | RF-07 | Cada **X minutos** (configurable) refrescar por contrato: Bid, Ask, Delta, IV, Last, OI, timestamp de última actualización; calcular Spread %, Yield, Yield anualizado, IV Rank, IV Percentile, margen inicial si se ejecuta. | L21-34 |
-| RF-08 | Scanner de puts vendidas con **un único filtro** (sin selector Regular/Táctica; ver RF-35): descuento mínimo (inicial **10 %**) y máximo (inicial **30 %**) del strike respecto al precio, yield bruto mínimo (inicial 1 %), DTE mín. y máx. (inicial **1 y 35**). Todo editable en el formulario. | L6 + decisión del usuario 2026-10-01 |
+| RF-08 | Scanner de puts vendidas con **un único filtro** (sin selector Regular/Táctica; ver RF-35): descuento mínimo (inicial **10 %**) y máximo (inicial **30 %**) del strike respecto al precio, **yield anual** mínimo (inicial **12 %**; antes yield bruto 1 %, cambio del 2026-10-01), DTE mín. y máx. (inicial **1 y 35**). Todo editable en el formulario. | L6 + decisión del usuario 2026-10-01 |
 | RF-09 | Scanner **Táctico**: descuento mínimo del strike (inicial **10 %**), yield bruto mínimo (inicial 1 %) y **solo DTE máx.** (inicial **15**; el mínimo es 1 y no se muestra). Todo editable. | L7 + decisión del usuario 2026-09-29 |
 | RF-10 | Filtros adicionales: OI mínimo, Spread máximo, IV Rank, IV Percentile. | L8 |
 | RF-11 | Al ejecutar el escaneo se muestran **solo** contratos que cumplen los criterios. | L36 |
@@ -67,7 +67,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-30 | Las tablas de la watchlist y de resultados del scanner se ordenan pulsando el título de la columna: primer clic de mayor a menor (números) o de A a Z (texto), segundo clic al revés; los vacíos («—») quedan al final; el orden elegido se recuerda en la sesión. | Petición del usuario 2026-09-29 |
 | RF-31 | El yield se calcula con un **precio de venta de referencia** seleccionable en el scanner: **Bid**, **Mid** o **Bid + X % del spread** (por defecto Bid + 25 %; `scanner.price_reference`). El filtro del yield mínimo y el yield anualizado usan esa referencia; se muestra también la prima usada («Prima ref.»), el «Yield bid» y el «Yield bid anual» (lineal, ×365/DTE) para comparar. Sustituye a la prima = mid de Q-06. | Petición del usuario 2026-09-29 |
 | RF-32 | Al validar contratos candidatos contra IBKR no deben llenarse los logs con un error por cada combinación inexistente: los avisos esperados («Error 200», «Unknown contract») se filtran durante la validación y se registra un resumen por ticker («N de M combinaciones existen»). Se descartó listar todas las opciones con `reqContractDetails` por lentitud (BAC 32 s frente a 5 s; MU > 100 s). | Petición del usuario 2026-09-30 |
-| RF-22 | En el scanner, OI mín., spread máx., IV Rank mín. e IV Percentile mín. son **opcionales**: se aplican solo si el usuario marca su casilla. El descuento del strike (mín./máx.) y el yield bruto mínimo son editables en el formulario (valores iniciales de la configuración). | Petición del usuario 2026-09-29 |
+| RF-22 | En el scanner, OI mín., Bid size mín. (2026-10-01), spread máx., IV Rank mín. e IV Percentile mín. son **opcionales**: se aplican solo si el usuario marca su casilla. El descuento del strike (mín./máx.) y el yield anual mínimo son editables en el formulario (valores iniciales de la configuración). | Petición del usuario 2026-09-29 |
 
 ## 3. Requisitos técnicos / no funcionales
 
@@ -222,10 +222,10 @@ ScannerOpcionesApp/
 | `refresh.margin_max_age_minutes` | `60` | Antigüedad máxima del margen (what-if) guardado que se reutiliza sin volver a pedirlo |
 | `scanner.candidates.*` | strikes `5`–`40` % por debajo, DTE `1`–`45` | **Rango que se GUARDA** en la actualización diaria; el scanner solo ve contratos dentro de él |
 | `scanner.initial.strike_below_pct_min` / `_max` | `10` / `30` | descuento mínimo y máximo del strike; valores iniciales editables |
-| `scanner.initial.min_yield_pct` | `1.0` | valor inicial editable |
+| `scanner.initial.min_annual_yield_pct` | `12.0` | valor inicial editable |
 | `scanner.initial.dte_min` / `dte_max` | `1` / `35` | valores iniciales editables (Q-03) |
 | `scanner.operation.regular_dte_min` / `_max` | `25` / `35` | la columna «Operación» marca Regular dentro de este DTE y Táctica fuera |
-| `scanner.filters.min_oi` / `max_spread_pct` / `min_iv_rank` / `min_iv_percentile` | sin valor (filtro desactivado) | |
+| `scanner.filters.min_oi` / `min_bid_size` / `max_spread_pct` / `min_iv_rank` / `min_iv_percentile` | sin valor (filtro desactivado) | |
 | `risk.cushion_thresholds` | `normal_above: 40`, `concern_above: 30` | verde >40 / ámbar 30-40 / rojo <30 (Q-05) |
 | `diversification.weeks_ahead` | `5` | |
 | `vix.history_days` / `vix.futures_ahead` | `5` / `3` | |
