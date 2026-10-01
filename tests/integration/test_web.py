@@ -544,3 +544,16 @@ def test_scanner_remembers_last_filters_when_returning_from_the_menu(client_and_
     reset = client.get("/scanner?reset=1")
     assert 'name="discount" id="discount" size="6" value="10"' in reset.text
     assert 'value="10"' in client.get("/scanner").text                             # y se olvida lo anterior
+
+
+def test_simulation_page_does_not_autoreload_and_get_redirects(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    c = svc.contracts.list()[0]
+    key = f"AAPL|{c.expiry}|{c.strike}"
+    svc.state.activity = "Refrescando"                      # con un refresco en curso otras páginas se recargan solas...
+    assert 'http-equiv="refresh"' in client.get("/scanner").text
+    r = client.post("/simulate", data={"sel": key, f"qty_{key}": "1"})
+    assert r.status_code == 200 and 'http-equiv="refresh"' not in r.text    # ...la simulación no (perdería el resultado)
+    g = client.get("/simulate", follow_redirects=False)                     # y un GET ya no da «Method Not Allowed»
+    assert g.status_code == 303 and g.headers["location"] == "/scanner"

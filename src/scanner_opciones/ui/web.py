@@ -359,6 +359,11 @@ def create_app(
         query = urlencode([(k, str(v)) for k, v in data.multi_items()])
         return RedirectResponse(f"/scanner?{query}", status_code=303)
 
+    @app.get("/simulate")
+    async def simulate_get():
+        """La simulación es un POST: un GET (recargar, volver atrás) lleva de nuevo al scanner."""
+        return RedirectResponse("/scanner", status_code=303)
+
     @app.post("/simulate", response_class=HTMLResponse)
     async def simulate(request: Request):
         form = await request.form()
@@ -368,12 +373,12 @@ def create_app(
             qty = int(str(form.get(f"qty_{raw}", "1")) or 1)
             selected.append(SelectedContract(ticker, date.fromisoformat(expiry), float(strike), max(1, qty)))
         if not selected:
-            return render(request, "simulation.html", result=None, selected=[], error="Selecciona al menos un contrato")
+            return render(request, "simulation.html", no_autorefresh=True, result=None, selected=[], error="Selecciona al menos un contrato")
         try:
             result = await service.simulate(selected)
         except ValueError as exc:
-            return render(request, "simulation.html", result=None, selected=selected, error=str(exc))
-        return render(request, "simulation.html", result=result, selected=selected, error=None,
+            return render(request, "simulation.html", no_autorefresh=True, result=None, selected=selected, error=str(exc))
+        return render(request, "simulation.html", no_autorefresh=True, result=result, selected=selected, error=None,
                       sectors=sorted(set(result.before.weights_pct) | set(result.after.weights_pct)))
 
     return app

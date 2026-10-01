@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-{% if state.activity %}<meta http-equiv="refresh" content="5">{% endif %}
+{% if state.activity and not no_autorefresh %}<meta http-equiv="refresh" content="5">{% endif %}
 <title>{% block title %}Scanner de Opciones{% endblock %}</title>
 <style>
   :root { --bg:#f6f7f9; --card:#fff; --ink:#1c2430; --mute:#6b7685; --line:#e2e6ec;
