@@ -41,7 +41,7 @@ Hexagonal ligera. El dominio y los jobs solo conocen el puerto `BrokerGateway` (
 
 **RankedStocks** (`rankedstocks/`): `loader.py` lee el .xlsx que el usuario elige en la pestaña (cabecera, símbolo sin bandera, tipos de columna inferidos) y `filters.py` aplica los filtros por columna; el fichero vive en memoria (`AppService.rankedstocks`). No hay scraping ni acceso a rankedstocks.com: sus términos lo prohíben sin permiso escrito.
 
-**UI** (`ui/`): FastAPI + Jinja2 sin lógica de negocio. El formulario del scanner se interpreta en `web.py::parse_scan` (GET y POST comparten parser). La ordenación de columnas es JS cliente (`templates/sortable.js`, incluido inline en `base.html`). Al añadir `.js`/`.html` nuevos, revisa `package-data` en `pyproject.toml`.
+**UI** (`ui/`): FastAPI + Jinja2 sin lógica de negocio. El formulario del scanner se interpreta en `web.py::parse_scan` (GET y POST comparten parser). Los filtros de Scanner y RankedStocks viajan en la URL; `web.py::recall` guarda en memoria la última consulta de cada pestaña y la recupera al volver desde el menú (`?reset=1` la descarta). La ordenación de columnas es JS cliente (`templates/sortable.js`, incluido inline en `base.html`). Al añadir `.js`/`.html` nuevos, revisa `package-data` en `pyproject.toml`.
 
 ## Particularidades de IBKR (verificadas contra TWS, no las des por supuestas)
 

@@ -532,3 +532,15 @@ def test_activity_banner_shows_the_ibkr_pacing_wait(client_and_service):
     assert "esperando el límite de peticiones históricas de IBKR" in page and "≈ 3.0 min" in page
     svc.state.activity = None
 
+
+def test_scanner_remembers_last_filters_when_returning_from_the_menu(client_and_service):
+    client = client_and_service[0]
+    first = client.get("/scanner")
+    assert 'name="discount" id="discount" size="6" value="10"' in first.text      # valores iniciales
+    client.get(BASE + "&use_oi=on&oi=77")
+    back = client.get("/scanner")                                                  # clic en la pestaña
+    assert 'name="discount" id="discount" size="6" value="20"' in back.text and 'value="77"' in back.text
+    assert 'name="use_oi" checked' in back.text
+    reset = client.get("/scanner?reset=1")
+    assert 'name="discount" id="discount" size="6" value="10"' in reset.text
+    assert 'value="10"' in client.get("/scanner").text                             # y se olvida lo anterior

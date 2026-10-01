@@ -89,6 +89,23 @@ def create_app(
 
     app = FastAPI(title="ScannerOpcionesApp", lifespan=lifespan)
 
+    remembered: dict[str, str] = {}   # última consulta con filtros de cada pestaña (en memoria)
+
+    def recall(request: Request, page: str, ignore: tuple[str, ...] = ("message", "debug")) -> Optional[RedirectResponse]:
+        """Los filtros viajan en la URL, así que al volver a una pestaña desde el menú (sin parámetros)
+        se recuperan los últimos usados. `?reset=1` los descarta y muestra los valores iniciales."""
+        qp = request.query_params
+        if "reset" in qp:
+            remembered.pop(page, None)
+            return None
+        kept = [(k, v) for k, v in qp.multi_items() if k not in ignore]
+        if kept:
+            remembered[page] = urlencode(kept)
+            return None
+        if page in remembered and not qp:
+            return RedirectResponse(f"/{page}?{remembered[page]}", status_code=303)
+        return None
+
     def render(request: Request, name: str, **ctx) -> HTMLResponse:
         base = dict(
             state=service.state, mode=service.settings.ibkr.mode.value, busy=service.busy,
@@ -184,6 +201,8 @@ def create_app(
     # ---- RankedStocks (fichero .xlsx elegido por el usuario) ---------------------------------
     @app.get("/rankedstocks", response_class=HTMLResponse)
     async def rankedstocks(request: Request, message: str = ""):
+        if (back := recall(request, "rankedstocks")) is not None:
+            return back
         table = service.rankedstocks
         rows, error = [], None
         if table is not None:
@@ -209,6 +228,7 @@ def create_app(
             path.unlink(missing_ok=True)
         table = replace(table, source=file.filename or table.source)   # el nombre real, no el del temporal
         service.rankedstocks, service.rankedstocks_loaded_at = table, service.now()
+        remembered.pop("rankedstocks", None)   # otro fichero, otras columnas: los filtros anteriores no valen
         return RedirectResponse(f"/rankedstocks?message={len(table.rows)} filas cargadas de {table.source}", status_code=303)
 
     @app.post("/rankedstocks/apply")
@@ -299,6 +319,8 @@ def create_app(
 
     @app.get("/scanner", response_class=HTMLResponse)
     async def scanner(request: Request, debug: int = 0):
+        if (back := recall(request, "scanner")) is not None:
+            return back
         parsed = parse_scan(request.query_params)
         out = service.scan(parsed["criteria"], include_rejections=bool(debug)) if parsed["criteria"] else None
         c = parsed["criteria"]

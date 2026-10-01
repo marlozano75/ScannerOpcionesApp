@@ -34,6 +34,7 @@
       <label class="opt"><span><input type="checkbox" name="use_ivp" {{ 'checked' if form.use_ivp }}> IV Percentile mín.</span>
         <input name="ivp" size="7" value="{{ form.ivp }}"></label>
       <button>Escanear</button>
+      <a href="/scanner?reset=1" title="Vuelve a los valores iniciales de la configuración">Restablecer</a>
       <button class="secondary" formaction="/scanner/refresh" formmethod="post"
               title="Pide cotizaciones a IBKR de los contratos de este rango y luego escanea">Actualizar cotizaciones de este rango y escanear</button>
     </div>
