@@ -73,21 +73,27 @@ class RefreshJob:
             for c in criteria
         )
 
-    async def run(self, criteria: Optional[Sequence[ScanCriteria]] = None) -> RefreshReport:
+    async def run(
+        self, criteria: Optional[Sequence[ScanCriteria]] = None, only_unquoted: bool = False
+    ) -> RefreshReport:
         """Cotiza los contratos guardados que encajan con `criteria` (por defecto, los valores
-        iniciales del filtro del scanner)."""
+        iniciales del filtro del scanner). `only_unquoted=True`: solo los que nunca se han cotizado
+        (contratos nuevos), sin volver a pedir precio/IV de los subyacentes."""
         report = RefreshReport()
         started = time.monotonic()
         criteria = list(criteria) if criteria else self.default_scope()
         infos = self.ticker_info.all()
         stored = self.contracts.list()
         today = self.now().date()
-        infos = await self._refresh_underlyings(sorted({c.ticker for c in stored}), infos, report)
+        if not only_unquoted:
+            infos = await self._refresh_underlyings(sorted({c.ticker for c in stored}), infos, report)
         t_underlyings = time.monotonic() - started
         all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), criteria, today)]
-        report.stored, report.in_scope = len(stored), len(all_contracts)
         # snapshots anteriores: de ellos se reutiliza el margen mientras sea reciente
         prev = {self._snap_key(s.contract): s for s in self.snapshots.all()} if all_contracts else {}
+        if only_unquoted:
+            all_contracts = [c for c in all_contracts if self._snap_key(c) not in prev]
+        report.stored, report.in_scope = len(stored), len(all_contracts)
         size = self.settings.refresh.batch_size
         for i in range(0, len(all_contracts), size):
             batch = all_contracts[i : i + size]

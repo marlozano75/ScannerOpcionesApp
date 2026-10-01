@@ -78,7 +78,9 @@ class IBKRGateway:
         self._stocks: dict[str, Stock] = {}
         self._sector_cache: dict[str, tuple[Optional[str], Optional[str]]] = {}
         self._vix_futures_cache: Optional[tuple[date, list]] = None
-        self._historical_limiter = AsyncRateLimiter(settings.historical_requests_per_10min, 600)
+        self._historical_limiter = AsyncRateLimiter(
+            settings.historical_requests_per_10min, 600, on_wait=self._log_pacing
+        )
 
     # ---- conexión -------------------------------------------------------------------------
     async def connect(self) -> None:
@@ -98,6 +100,16 @@ class IBKRGateway:
 
     def is_connected(self) -> bool:
         return self.ib.isConnected()
+
+    @staticmethod
+    def _log_pacing(delay: float) -> None:
+        log.info(
+            "Límite de peticiones históricas de IBKR alcanzado: se espera ~%.0f s (es normal al cargar muchos "
+            "tickers nuevos; cada uno descarga un año de histórico de IV)", delay,
+        )
+
+    def pacing_wait_seconds(self) -> float:
+        return self._historical_limiter.wait_remaining()
 
     def _require(self) -> None:
         if not self.ib.isConnected():

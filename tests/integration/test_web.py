@@ -514,3 +514,20 @@ def test_bad_rankedstocks_files_report_an_error_and_keep_the_previous_one(client
     no_symbol = load_rank(client, header=["Empresa", "Precio"], rows=[["X", "$1"]])
     assert "Error" in no_symbol.text and "Símbolo" in no_symbol.text
     assert svc.rankedstocks is not None and len(svc.rankedstocks.rows) == 4         # sigue el fichero anterior
+
+
+def test_activity_banner_shows_the_ibkr_pacing_wait(client_and_service):
+    client, svc, gw, _ = client_and_service
+    svc.state.activity = "Actualización diaria: 46/73 tickers (último: SLDE)"
+    gw.pacing_wait = 0
+    assert "esperando el límite" not in client.get("/").text
+    gw.pacing_wait = 180                                     # 3 min de espera
+    class Busy:
+        locked = staticmethod(lambda: True)
+    real_lock, svc._lock = svc._lock, Busy()
+    try:
+        page = client.get("/").text
+    finally:
+        svc._lock = real_lock
+    assert "esperando el límite de peticiones históricas de IBKR" in page and "≈ 3.0 min" in page
+    svc.state.activity = None

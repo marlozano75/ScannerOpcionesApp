@@ -193,12 +193,12 @@ class AppService:
         self, tickers: Optional[list[str]] = None, wait: bool = False, revalidate: bool = False
     ) -> Optional[DailyUpdateReport]:
         """Actualización diaria y, si ha actualizado algo, un refresco para cotizar los contratos nuevos
-        sin esperar al siguiente ciclo periódico. Con el mercado cerrado no se cotiza: los contratos
-        nuevos quedan sin cotizar hasta la apertura."""
+        sin esperar al siguiente ciclo periódico. Con el mercado cerrado solo se cotizan los contratos
+        que nunca se habían cotizado (con datos congelados), no el resto."""
         report = await self.run_daily(tickers, wait=wait, revalidate=revalidate)
         if report is not None and report.updated and self.state.connected:
             if self._paused():
-                log.info("Mercado cerrado: los contratos nuevos se cotizarán tras la apertura")
+                await self.refresh_new_contracts()   # mercado cerrado: solo los contratos que nunca se cotizaron
             else:
                 await self.refresh_all()
         return report
@@ -277,6 +277,26 @@ class AppService:
                 self.state.activity = None
             self.state.last_refresh = self.now()
             return True
+
+    async def refresh_new_contracts(self) -> bool:
+        """Cotiza (datos congelados del último cierre) solo los contratos guardados que nunca se han
+        cotizado y encajan con el filtro inicial. No toca el marcador del último refresco completo."""
+        if self.busy:
+            log.info("Cotización de contratos nuevos omitida: hay otra ejecución en curso")
+            return False
+        async with self._lock:
+            try:
+                self.state.activity = "Cotizando los contratos nuevos (mercado cerrado)"
+                self.state.last_refresh_report = await self.refresh_job.run(only_unquoted=True)
+            except BrokerDisconnectedError as exc:
+                self._disconnected(exc)
+                return False
+            finally:
+                self.state.activity = None
+            return True
+
+    def pacing_wait_seconds(self) -> float:
+        return self.gateway.pacing_wait_seconds()
 
     async def refresh_scoped(self, criteria: ScanCriteria) -> Optional[RefreshReport]:
         """Cotiza los contratos que encajan con `criteria` (p. ej. un rango distinto del inicial)."""

@@ -296,11 +296,11 @@ def make_market_service(open_: bool):
     seed_market(gw)
     svc.watchlist.add(["AAPL"], NOW)
     svc.market = FixedMarket(open_)
-    runs = {"quotes": 0}
+    runs = {"quotes": 0, "new": 0}        # refrescos completos / cotizaciones solo de contratos nuevos
     real = svc.refresh_job.run
 
     async def counting(*a, **k):
-        runs["quotes"] += 1
+        runs["new" if k.get("only_unquoted") else "quotes"] += 1
         return await real(*a, **k)
 
     svc.refresh_job.run = counting
@@ -316,14 +316,29 @@ async def test_periodic_refresh_is_complete_while_market_is_open():
     assert runs["quotes"] == before + 2
 
 
-async def test_start_closed_without_a_stored_capture_quotes_once_and_not_after_the_daily_update():
+async def test_start_closed_without_a_stored_capture_does_one_full_capture_and_one_for_new_contracts():
     svc, gw, runs = make_market_service(False)
-    await svc.start()                                 # nunca se cotizó: hace la captura
-    await svc.wait_idle()                             # la diaria NO cotiza los contratos nuevos (mercado cerrado)
-    assert runs["quotes"] == 1
-    assert svc.meta.get("last_full_refresh_at") == NOW.isoformat()
+    await svc.start()                                 # nunca se cotizó: captura completa
+    await svc.wait_idle()                             # y la diaria cotiza solo los contratos nuevos (mercado cerrado)
+    assert runs["quotes"] == 1 and runs["new"] == 1
+    assert svc.meta.get("last_full_refresh_at") == NOW.isoformat()      # la parcial no toca el marcador
     assert svc.state.last_daily_report.updated == ["AAPL"]
-    assert svc.snapshots.all() == []                  # los contratos nuevos siguen sin cotizar
+
+
+async def test_closed_market_quotes_only_new_contracts_after_the_daily_update():
+    svc, gw, runs = make_market_service(False)
+    svc.meta.set("last_full_refresh_at", datetime(2026, 9, 28, 16, 30, tzinfo=NY).isoformat())   # captura ya hecha
+    await svc.start()
+    await svc.wait_idle()
+    assert runs["quotes"] == 0 and runs["new"] == 1                      # ni refresco completo ni subyacentes
+    assert svc.state.last_refresh_report is not None and svc.state.last_refresh_report.prices_updated == 0
+
+
+async def test_open_market_still_does_a_full_refresh_after_the_daily_update():
+    svc, gw, runs = make_market_service(True)
+    await svc.start()
+    await svc.wait_idle()
+    assert runs["quotes"] == 2 and runs["new"] == 0                      # el inicial y el posterior a la diaria
 
 
 async def test_restart_closed_with_capture_after_last_close_does_not_quote():

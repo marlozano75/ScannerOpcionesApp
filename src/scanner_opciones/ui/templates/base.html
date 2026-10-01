@@ -71,7 +71,7 @@
 </header>
 <main>
   {% if market_closed %}<div class="banner info">🌙 Mercado cerrado: el refresco automático solo actualiza cartera y VIX (abre {{ next_open.strftime('%d/%m %H:%M') }} hora de Nueva York). «Refrescar ahora» cotiza igualmente.</div>{% endif %}
-  {% if state.activity %}<div class="banner info">⏳ {{ state.activity }} — la página se actualiza sola.</div>{% endif %}
+  {% if state.activity %}<div class="banner info">⏳ {{ state.activity }}{% if pacing_wait >= 1 %} — esperando el límite de peticiones históricas de IBKR (≈ {{ (pacing_wait / 60)|round(1) }} min; es normal al cargar muchos tickers nuevos){% endif %} — la página se actualiza sola.</div>{% endif %}
   {% for area, msg in state.errors.items() %}
     <div class="banner err"><strong>{{ area }}:</strong> {{ msg }}</div>
   {% endfor %}

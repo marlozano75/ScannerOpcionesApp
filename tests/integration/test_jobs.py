@@ -517,3 +517,28 @@ async def test_empty_quote_without_previous_data_stays_empty(env):
     await env.refresh.run()
     s = {x.contract.strike: x for x in env.snaps.all("AAPL")}[75.0]
     assert s.bid is None and s.ask is None and s.updated_at == NOW
+
+
+async def test_only_unquoted_quotes_just_the_contracts_that_never_had_a_snapshot(env):
+    c75, c80 = await _prepare_refresh(env)
+    await env.refresh.run()                                   # ambos cotizados
+    env.gw.chains["AAPL"] = OptionChain("AAPL", [TODAY + timedelta(days=30), TODAY + timedelta(days=20)], [75.0, 80.0])
+    await env.daily.run(["AAPL"])                             # aparecen 2 contratos nuevos (DTE 20)
+    new = [c for c in env.contracts.list("AAPL") if (c.expiry - TODAY).days == 20]
+    assert len(new) == 2
+    for c in new:
+        env.gw.quotes[c] = OptionQuote(bid=0.9, ask=1.0, open_interest=10)
+    calls = []
+    real = env.gw.get_underlying_quotes
+
+    async def spy(tickers):
+        calls.append(tickers)
+        return await real(tickers)
+
+    env.gw.get_underlying_quotes = spy
+    report = await env.refresh.run(only_unquoted=True)
+    assert (report.in_scope, report.refreshed) == (2, 2)      # solo los nuevos
+    assert calls == []                                        # sin pedir precio/IV de los subyacentes
+    assert len(env.snaps.all("AAPL")) == 4
+    again = await env.refresh.run(only_unquoted=True)
+    assert again.in_scope == 0                                # ya no queda ninguno sin cotizar

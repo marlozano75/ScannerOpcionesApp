@@ -93,6 +93,7 @@ def create_app(
         base = dict(
             state=service.state, mode=service.settings.ibkr.mode.value, busy=service.busy,
             refresh_minutes=service.settings.refresh.interval_minutes,
+            pacing_wait=service.pacing_wait_seconds() if service.busy else 0,
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()),
         )

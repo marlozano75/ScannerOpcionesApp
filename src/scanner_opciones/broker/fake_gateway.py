@@ -26,6 +26,7 @@ class FakeGateway:
     vix: VixData = field(default_factory=VixData)
     failing_tickers: set[str] = field(default_factory=set)
     invalid_contracts: set[OptionContract] = field(default_factory=set)  # no existen en el 'broker'
+    pacing_wait: float = 0.0   # espera simulada por el límite de peticiones históricas
     connected: bool = False
     calls: list[tuple] = field(default_factory=list)  # registro para asserts en tests
 
@@ -37,6 +38,9 @@ class FakeGateway:
 
     def is_connected(self) -> bool:
         return self.connected
+
+    def pacing_wait_seconds(self) -> float:
+        return self.pacing_wait
 
     def _check(self, ticker: Optional[str] = None) -> None:
         if not self.connected:

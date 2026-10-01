@@ -53,3 +53,6 @@ class BrokerGateway(Protocol):
         """Cambio de margen inicial al vender `quantity` contratos (what-if; nunca envía orden)."""
 
     async def get_vix_data(self, history_days: int, futures_ahead: int) -> VixData: ...
+
+    def pacing_wait_seconds(self) -> float:
+        """Segundos que lleva por delante la espera por el límite de peticiones históricas de IBKR (0 si no hay)."""
