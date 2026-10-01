@@ -5,9 +5,11 @@ ibkr:
   client_id: 1
   mode: paper            # paper | live
   market_data_type: 2    # 1 = live, 2 = congelado (live; con el mercado cerrado, el último bid/ask del cierre), 3 = diferido
+                         # (3 no ocupa la suscripción en tiempo real: la app móvil de IBKR conserva sus datos en vivo)
+  delayed_minutes: 15    # retraso de los datos diferidos (solo con market_data_type 3 o 4)
 
 refresh:
-  interval_minutes: 5
+  interval_minutes: 5    # con datos diferidos se usa como mínimo delayed_minutes (no hay datos nuevos antes)
   batch_size: 50
   margin_max_age_minutes: 60   # reutiliza el margen (what-if) guardado hasta esta edad
 

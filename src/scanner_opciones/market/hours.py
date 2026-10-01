@@ -15,14 +15,20 @@ class MarketCalendar:
     open: time = time(9, 30)
     close: time = time(16, 0)
     holidays: frozenset[date] = field(default_factory=frozenset)
+    delay_minutes: float = 0   # datos diferidos: apertura y cierre «llegan» con este retraso
 
     @classmethod
-    def from_settings(cls, s) -> "MarketCalendar":
-        return cls(ZoneInfo(s.timezone), s.open, s.close, frozenset(s.holidays))
+    def from_settings(cls, s, delay_minutes: float = 0) -> "MarketCalendar":
+        return cls(ZoneInfo(s.timezone), s.open, s.close, frozenset(s.holidays), delay_minutes)
+
+    @property
+    def _delay(self) -> timedelta:
+        return timedelta(minutes=self.delay_minutes)
 
     def _local(self, now: datetime) -> datetime:
-        """Hora en la zona del mercado. Un `datetime` naive es hora local del sistema (como `datetime.now`)."""
-        return now.astimezone(self.tz)
+        """Hora en la zona del mercado, retrasada `delay_minutes`: con datos diferidos la sesión
+        «visible» va esos minutos por detrás. Un `datetime` naive es hora local del sistema."""
+        return now.astimezone(self.tz) - self._delay
 
     def _is_session_day(self, d: date) -> bool:
         return d.weekday() < 5 and d not in self.holidays
@@ -39,7 +45,7 @@ class MarketCalendar:
             day -= timedelta(days=1)
             while not self._is_session_day(day):
                 day -= timedelta(days=1)
-        return datetime.combine(day, self.close, tzinfo=self.tz)
+        return datetime.combine(day, self.close, tzinfo=self.tz) + self._delay
 
     def next_open(self, now: datetime) -> datetime:
         """Próxima apertura (aware, en la zona del mercado); la de hoy si aún no ha abierto."""
@@ -49,4 +55,4 @@ class MarketCalendar:
             day += timedelta(days=1)
             while not self._is_session_day(day):
                 day += timedelta(days=1)
-        return datetime.combine(day, self.open, tzinfo=self.tz)
+        return datetime.combine(day, self.open, tzinfo=self.tz) + self._delay

@@ -73,3 +73,12 @@ def test_last_close_during_and_after_the_session_weekend_and_holiday():
     assert CAL.last_close(ny(2026, 10, 5, 8)) == ny(2026, 10, 2, 16)       # lunes antes de abrir: el del viernes
     assert CAL.last_close(ny(2026, 10, 3, 12)) == ny(2026, 10, 2, 16)      # sábado
     assert CAL.last_close(ny(2026, 11, 27, 9)) == ny(2026, 11, 25, 16)     # tras el festivo del 26
+
+
+def test_delayed_calendar_shifts_open_and_close_by_the_delay():
+    cal = MarketCalendar(NY, delay_minutes=15)
+    assert not cal.is_open(ny(2026, 10, 1, 9, 44)) and cal.is_open(ny(2026, 10, 1, 9, 45))
+    assert cal.is_open(ny(2026, 10, 1, 16, 14)) and not cal.is_open(ny(2026, 10, 1, 16, 15))
+    assert cal.last_close(ny(2026, 10, 1, 16, 10)) == ny(2026, 9, 30, 16, 15)   # aún llegan datos del día
+    assert cal.last_close(ny(2026, 10, 1, 16, 15)) == ny(2026, 10, 1, 16, 15)
+    assert cal.next_open(ny(2026, 10, 1, 4, 0)) == ny(2026, 10, 1, 9, 45)

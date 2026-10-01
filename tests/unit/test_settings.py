@@ -97,3 +97,12 @@ def test_market_and_logging_defaults_and_yaml_times(tmp_path):
     assert s.market.open == time(9, 45) and s.market.close == time(16, 0)
     assert s.market.holidays == [date(2026, 11, 26)] and s.market.pause_when_closed is True
     assert s.logging.ib_async_level == "ERROR" and Settings().logging.ib_async_level == "WARNING"
+
+
+def test_delayed_data_sets_delay_and_minimum_refresh_interval():
+    assert Settings().ibkr.delay_minutes == 0
+    assert Settings().refresh_interval_minutes == 5
+    s = Settings.model_validate({"ibkr": {"market_data_type": 3}})
+    assert s.ibkr.delay_minutes == 15 and s.refresh_interval_minutes == 15
+    s = Settings.model_validate({"ibkr": {"market_data_type": 3}, "refresh": {"interval_minutes": 20}})
+    assert s.refresh_interval_minutes == 20

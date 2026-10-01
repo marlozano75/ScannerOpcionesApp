@@ -211,6 +211,7 @@ ScannerOpcionesApp/
 | `ibkr.client_id` | `1` | |
 | `ibkr.mode` | `paper` | Por defecto **simulada** por seguridad [PROPUESTA] |
 | `ibkr.market_data_type` | `2` (congelado: datos en vivo y, con el mercado cerrado, el último bid/ask del cierre; con `1` fuera de horario llegan vacíos) o `3` (diferido) | Q-11 resuelta; cambiado de `1` a `2` el 2026-10-01 |
+| `ibkr.delayed_minutes` | `15` | Solo con `market_data_type` 3/4: el calendario de mercado se retrasa ese tiempo y el refresco automático no baja de ese intervalo (2026-10-01) |
 | `refresh.interval_minutes` (X) | `5` | Q-08 resuelta |
 | `daily_update.run_on_startup` | `true` | Al arrancar la app se ejecuta, **en segundo plano tras el primer refresco**, la actualización diaria si aún no se hizo hoy. **Sin hora fija** (Q-09) |
 | `market.timezone` / `open` / `close` | `America/New_York`, `"09:30"`, `"16:00"` | Sesión regular de las opciones (la hora entre comillas en el YAML) |

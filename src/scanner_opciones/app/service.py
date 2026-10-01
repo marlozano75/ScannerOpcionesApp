@@ -69,7 +69,7 @@ class AppService:
         self.gateway = gateway
         self.settings = settings
         self.now = now
-        self.market = market or MarketCalendar.from_settings(settings.market)
+        self.market = market or MarketCalendar.from_settings(settings.market, settings.ibkr.delay_minutes)
         self.watchlist = WatchlistRepo(db)
         self.ticker_info = TickerInfoRepo(db)
         self.iv_history = IVHistoryRepo(db)

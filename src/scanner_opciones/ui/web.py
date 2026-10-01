@@ -92,7 +92,8 @@ def create_app(
     def render(request: Request, name: str, **ctx) -> HTMLResponse:
         base = dict(
             state=service.state, mode=service.settings.ibkr.mode.value, busy=service.busy,
-            refresh_minutes=service.settings.refresh.interval_minutes,
+            refresh_minutes=service.settings.refresh_interval_minutes,
+            delay_minutes=service.settings.ibkr.delay_minutes,
             pacing_wait=service.pacing_wait_seconds() if service.busy else 0,
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()),

@@ -31,7 +31,7 @@ def build_app(settings: Settings):
         return IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
 
     service = AppService(factory(settings.ibkr.mode), db, settings)
-    runner = PeriodicRunner(service.refresh_periodic, settings.refresh.interval_minutes * 60)
+    runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     startup_task: list[asyncio.Task] = []
 
     async def on_startup() -> None:

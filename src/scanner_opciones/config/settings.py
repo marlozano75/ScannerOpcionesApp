@@ -39,6 +39,7 @@ class IbkrSettings(_Model):
     client_id: int = 1
     mode: AccountMode = AccountMode.PAPER
     market_data_type: int = Field(2, ge=1, le=4)  # 2 = congelado: live, y con el mercado cerrado el último cierre
+    delayed_minutes: float = Field(15, ge=0)  # retraso de los datos diferidos (tipos 3 y 4)
     connect_timeout_seconds: float = Field(10, gt=0)
     quote_wait_seconds: float = Field(4, gt=0)  # espera de ticks tras pedir cotizaciones
     historical_requests_per_10min: int = Field(50, ge=1)  # límite de pacing de IBKR: 60
@@ -47,6 +48,11 @@ class IbkrSettings(_Model):
     @property
     def port(self) -> int:
         return self.ports.live if self.mode is AccountMode.LIVE else self.ports.paper
+
+    @property
+    def delay_minutes(self) -> float:
+        """Retraso de los datos de mercado: `delayed_minutes` con datos diferidos (3/4), 0 si no."""
+        return self.delayed_minutes if self.market_data_type in (3, 4) else 0.0
 
 
 class RefreshSettings(_Model):
@@ -194,6 +200,12 @@ class Settings(_Model):
     storage: StorageSettings = StorageSettings()
     logging: LoggingSettings = LoggingSettings()
     market: MarketSettings = MarketSettings()
+
+    @property
+    def refresh_interval_minutes(self) -> float:
+        """Intervalo real del refresco: con datos diferidos no tiene sentido pedir más a menudo
+        que el retraso (las cotizaciones no habrían cambiado)."""
+        return max(self.refresh.interval_minutes, self.ibkr.delay_minutes)
 
 
 def load_settings(path: str | Path) -> Settings:
