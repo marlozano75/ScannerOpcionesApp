@@ -53,6 +53,17 @@ MIGRATIONS: list[str] = [
     "ALTER TABLE snapshots ADD COLUMN bid_size INTEGER;",
     # v3: máximo y mínimo diarios de la IV (para el rango del IV Rank)
     "ALTER TABLE iv_history ADD COLUMN high REAL; ALTER TABLE iv_history ADD COLUMN low REAL;",
+    # v4: combinaciones strike/vencimiento que IBKR no lista (no se revalidan cada día) y fecha del margen
+    """
+    CREATE TABLE contract_misses (
+        ticker TEXT NOT NULL,
+        expiry TEXT NOT NULL,
+        strike REAL NOT NULL,
+        right TEXT NOT NULL,
+        PRIMARY KEY (ticker, expiry, strike, right)
+    );
+    ALTER TABLE snapshots ADD COLUMN margin_at TEXT;
+    """,
 ]
 
 

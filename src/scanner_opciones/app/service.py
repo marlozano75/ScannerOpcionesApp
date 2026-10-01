@@ -95,9 +95,11 @@ class AppService:
         self.state.connected = True
         self.state.errors.pop("connection", None)
         self.cleanup_orphans()
-        if self.settings.daily_update.run_on_startup:
-            await self.run_daily()
+        # Primero se refresca con lo ya guardado (la pantalla tiene datos enseguida); la actualización
+        # diaria va después en segundo plano y, al acabar, cotiza lo que haya cambiado.
         await self.refresh_all()
+        if self.settings.daily_update.run_on_startup:
+            self.launch(self.run_daily_then_refresh())
 
     async def stop(self) -> None:
         await self.gateway.disconnect()
@@ -158,10 +160,20 @@ class AppService:
 
     # ---- jobs ------------------------------------------------------------------------------
     def _progress(self, i: int, total: int, ticker: str) -> None:
-        self.state.activity = f"Actualización diaria: {ticker} ({i}/{total})"
+        self.state.activity = f"Actualización diaria: {i}/{total} tickers (último: {ticker})"
+
+    async def run_daily_then_refresh(
+        self, tickers: Optional[list[str]] = None, wait: bool = False, revalidate: bool = False
+    ) -> Optional[DailyUpdateReport]:
+        """Actualización diaria y, si ha actualizado algo, un refresco para cotizar los contratos nuevos
+        sin esperar al siguiente ciclo periódico."""
+        report = await self.run_daily(tickers, wait=wait, revalidate=revalidate)
+        if report is not None and report.updated and self.state.connected:
+            await self.refresh_all()
+        return report
 
     async def run_daily(
-        self, tickers: Optional[list[str]] = None, wait: bool = False
+        self, tickers: Optional[list[str]] = None, wait: bool = False, revalidate: bool = False
     ) -> Optional[DailyUpdateReport]:
         """`wait=False`: se omite si hay otra tarea en curso (uso automático).
         `wait=True`: espera su turno (acciones manuales: no se pierden en silencio)."""
@@ -174,7 +186,7 @@ class AppService:
             try:
                 self.cleanup_orphans()
                 if tickers is not None:
-                    report = await self.daily.run(tickers, self._progress)
+                    report = await self.daily.run(tickers, self._progress, revalidate=revalidate)
                 else:
                     report = await self.daily.run_pending(self._progress)
             except BrokerDisconnectedError as exc:

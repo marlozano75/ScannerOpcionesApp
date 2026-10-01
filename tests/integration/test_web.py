@@ -24,6 +24,8 @@ def client_and_service():
 
     app = create_app(svc, factory, on_startup=svc.start, on_shutdown=svc.stop)
     with TestClient(app) as client:
+        client.svc = svc
+        client.portal.call(svc.wait_idle)   # la actualización diaria del arranque va en segundo plano
         # tras el arranque, damos cotizaciones a los contratos candidatos
         return_value = (client, svc, gw, created)
         from scanner_opciones.domain.models import OptionQuote
@@ -35,6 +37,7 @@ def client_and_service():
 
 def refresh(client):
     assert client.post("/refresh", follow_redirects=False).status_code == 303
+    client.portal.call(client.svc.wait_idle)   # el refresco va en segundo plano
 
 
 def test_dashboard_renders_risk_and_vix(client_and_service):
@@ -276,3 +279,19 @@ def test_invalid_price_reference(client_and_service, qs):
     client, *_ = client_and_service
     r = client.get(BASE + "&" + qs)
     assert r.status_code == 200 and "Parámetro no válido" in r.text
+
+
+def test_daily_revalidate_option_is_passed_to_the_service(client_and_service):
+    client, svc, gw, _ = client_and_service
+    seen = []
+    real = svc.run_daily
+
+    async def spy(tickers=None, wait=False, revalidate=False):
+        seen.append(revalidate)
+        return await real(tickers, wait=wait, revalidate=revalidate)
+
+    svc.run_daily = spy
+    client.post("/daily", follow_redirects=False)
+    client.post("/daily", data={"revalidate": "1"}, follow_redirects=False)
+    client.portal.call(svc.wait_idle)
+    assert seen == [False, True]

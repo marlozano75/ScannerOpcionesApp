@@ -49,6 +49,10 @@ class Env:
         self.watch.add(["AAPL"], NOW)
 
 
+def _iv_calls(env):
+    return [c for c in env.gw.calls if c[0] == "get_iv_history"]
+
+
 @pytest.fixture
 def env():
     return Env()
@@ -73,7 +77,7 @@ async def test_iv_history_is_incremental(env):
     env.gw.calls.clear()
     env.gw.iv_history["AAPL"].append((TODAY, 0.5, 0.5, 0.5))
     await env.daily.run(["AAPL"])
-    assert env.gw.calls == [("get_iv_history", "AAPL", TODAY - timedelta(days=1))]
+    assert _iv_calls(env) == [("get_iv_history", "AAPL", TODAY - timedelta(days=1))]
     assert len(env.iv.series("AAPL")) == 11
 
 
@@ -160,19 +164,19 @@ async def test_daily_update_drops_contracts_that_do_not_exist(env):
     assert [c.strike for c in env.contracts.list("AAPL")] == [80.0]
 
 
-async def test_stored_range_is_15_to_45_pct_and_up_to_60_dte(env):
+async def test_stored_range_is_15_to_40_pct_and_up_to_45_dte(env):
     env.gw.prices["AAPL"] = 100.0
     env.gw.chains["AAPL"] = OptionChain(
         "AAPL",
-        [TODAY + timedelta(days=n) for n in (0, 1, 30, 60, 61)],
-        [50.0, 55.0, 70.0, 85.0, 86.0],
+        [TODAY + timedelta(days=n) for n in (0, 1, 30, 45, 46)],
+        [50.0, 60.0, 70.0, 85.0, 86.0],
     )
     env.watch.add(["AAPL"], NOW)
     await env.daily.run(["AAPL"])
     stored = {(c.expiry - TODAY).days: sorted(x.strike for x in env.contracts.list("AAPL") if x.expiry == c.expiry)
               for c in env.contracts.list("AAPL")}
-    assert set(stored) == {1, 30, 60}            # DTE 0 y 61 fuera
-    assert stored[30] == [55.0, 70.0, 85.0]      # -45 %, -30 %, -15 %; 50 (-50 %) y 86 (-14 %) fuera
+    assert set(stored) == {1, 30, 45}            # DTE 0 y 46 fuera
+    assert stored[30] == [60.0, 70.0, 85.0]      # -40 %, -30 %, -15 %; 50 (-50 %) y 86 (-14 %) fuera
 
 
 async def test_refresh_only_quotes_contracts_in_scope_unless_criteria_given(env):
@@ -180,7 +184,7 @@ async def test_refresh_only_quotes_contracts_in_scope_unless_criteria_given(env)
     from scanner_opciones.scanner.criteria import criteria_from_settings
     env.gw.prices["AAPL"] = 100.0
     env.gw.chains["AAPL"] = OptionChain(
-        "AAPL", [TODAY + timedelta(days=30), TODAY + timedelta(days=50)], [70.0]
+        "AAPL", [TODAY + timedelta(days=30), TODAY + timedelta(days=44)], [70.0]
     )
     env.watch.add(["AAPL"], NOW)
     await env.daily.run(["AAPL"])
@@ -189,7 +193,7 @@ async def test_refresh_only_quotes_contracts_in_scope_unless_criteria_given(env)
         env.gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=100)
     report = await env.refresh.run()                      # valores iniciales: Regular 25-35 DTE
     assert (report.stored, report.in_scope, report.refreshed) == (2, 1, 1)
-    wide = criteria_from_settings(env.settings, OperationType.REGULAR).with_filters(dte_max=60)
+    wide = criteria_from_settings(env.settings, OperationType.REGULAR).with_filters(dte_max=45)
     report = await env.refresh.run([wide])                # rango ampliado desde el formulario
     assert (report.in_scope, report.refreshed) == (2, 2)
 
@@ -288,10 +292,10 @@ async def test_old_bars_without_high_low_trigger_one_full_download(env):
     env.db.conn.commit()
     env.gw.calls.clear()
     await env.daily.run(["AAPL"])
-    assert env.gw.calls == [("get_iv_history", "AAPL", None)]           # descarga completa (una vez)
+    assert _iv_calls(env) == [("get_iv_history", "AAPL", None)]           # descarga completa (una vez)
     env.gw.calls.clear()
     await env.daily.run(["AAPL"])
-    assert env.gw.calls[0][2] is not None                               # ya incremental
+    assert _iv_calls(env)[0][2] is not None                               # ya incremental
 
 
 async def test_daily_update_logs_one_summary_per_ticker(env, caplog):
@@ -301,4 +305,181 @@ async def test_daily_update_logs_one_summary_per_ticker(env, caplog):
     with caplog.at_level(logging.INFO, logger="scanner_opciones.jobs.daily_update"):
         await env.daily.run(["AAPL"])
     msgs = [r.getMessage() for r in caplog.records if "combinaciones" in r.getMessage()]
-    assert msgs == ["AAPL: 1 de 2 combinaciones strike/vencimiento existen en IBKR (las demás no están listadas; es normal)"]
+    assert msgs == ["AAPL: 1 de 2 combinaciones nuevas existen en IBKR (las demás no están listadas; es normal)"]
+
+
+# ---- catálogo incremental, caché de margen y lotes ----------------------------------------------
+
+class CountingGateway(FakeGateway):
+    """Cuenta los contratos que se validan y las llamadas por ticker."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.qualified: list[OptionContract] = []
+
+    async def qualify_contracts(self, contracts):
+        self.qualified += list(contracts)
+        return await super().qualify_contracts(contracts)
+
+
+async def test_second_daily_update_only_validates_new_combinations(env):
+    env.gw = CountingGateway(connected=True)
+    env.daily.gateway = env.gw
+    env.add_aapl()
+    env.gw.invalid_contracts.add(OptionContract("AAPL", TODAY + timedelta(days=30), 75.0))
+    await env.daily.run(["AAPL"])
+    assert len(env.gw.qualified) == 2                       # 75 y 80 (50 y 90 fuera de la ventana)
+    assert [c.strike for c in env.contracts.list("AAPL")] == [80.0]
+    env.gw.qualified.clear()
+    await env.daily.run(["AAPL"])
+    assert env.gw.qualified == []                           # ni las guardadas ni la inexistente se repiten
+    # una expiración nueva solo valida las combinaciones de esa expiración
+    env.gw.chains["AAPL"] = OptionChain(
+        "AAPL", [TODAY + timedelta(days=30), TODAY + timedelta(days=37)], [75.0, 80.0]
+    )
+    await env.daily.run(["AAPL"])
+    assert {c.expiry for c in env.gw.qualified} == {TODAY + timedelta(days=37)}
+    assert len(env.contracts.list("AAPL")) == 3
+
+
+async def test_revalidate_retries_combinations_known_as_missing(env):
+    env.gw = CountingGateway(connected=True)
+    env.daily.gateway = env.gw
+    env.add_aapl()
+    bad = OptionContract("AAPL", TODAY + timedelta(days=30), 75.0)
+    env.gw.invalid_contracts.add(bad)
+    await env.daily.run(["AAPL"])
+    env.gw.invalid_contracts.clear()                        # IBKR lista ahora ese strike
+    await env.daily.run(["AAPL"])
+    assert [c.strike for c in env.contracts.list("AAPL")] == [80.0]    # sin revalidar no se entera
+    env.gw.qualified.clear()
+    await env.daily.run(["AAPL"], revalidate=True)
+    assert [c.strike for c in env.contracts.list("AAPL")] == [75.0, 80.0]
+    assert [c.strike for c in env.gw.qualified] == [75.0]   # solo reintenta la que faltaba
+
+
+async def test_daily_update_keeps_snapshots_of_contracts_that_stay(env):
+    c75, c80 = await _prepare_refresh(env)
+    await env.refresh.run()
+    assert len(env.snaps.all("AAPL")) == 2
+    await env.daily.run(["AAPL"])                           # antes borraba y recreaba todo
+    assert len(env.snaps.all("AAPL")) == 2
+
+
+async def test_contracts_leaving_the_window_are_removed_with_their_snapshots(env):
+    c75, c80 = await _prepare_refresh(env)
+    await env.refresh.run()
+    env.gw.prices["AAPL"] = 90.0                            # 75 pasa a -16.7 % (dentro), 80 a -11.1 % (fuera de 15-40 %)
+    await env.daily.run(["AAPL"])
+    assert [c.strike for c in env.contracts.list("AAPL")] == [75.0]
+    assert [s.contract.strike for s in env.snaps.all("AAPL")] == [75.0]
+
+
+async def test_expired_misses_are_purged_and_removed_with_ticker(env):
+    env.add_aapl()
+    env.gw.invalid_contracts.add(OptionContract("AAPL", TODAY + timedelta(days=30), 75.0))
+    await env.daily.run(["AAPL"])
+    assert len(env.contracts.miss_keys("AAPL")) == 1
+    env.contracts.purge_expired_misses(TODAY + timedelta(days=31))
+    assert env.contracts.miss_keys("AAPL") == set()
+    env.contracts.add_misses("AAPL", [OptionContract("AAPL", TODAY + timedelta(days=30), 75.0)])
+    env.contracts.delete_for_ticker("AAPL")
+    assert env.contracts.miss_keys("AAPL") == set()
+
+
+async def test_known_sector_is_not_requested_again(env):
+    env.add_aapl()
+    calls = []
+    real = env.gw.get_sector_info
+
+    async def sector(t):
+        calls.append(t)
+        return await real(t)
+
+    env.gw.get_sector_info = sector
+    await env.daily.run(["AAPL"])
+    await env.daily.run(["AAPL"])
+    assert calls == ["AAPL"]
+
+
+async def test_prices_and_dividends_are_requested_in_one_batch(env):
+    env.add_aapl()
+    env.gw.prices["KO"] = 60.0
+    env.gw.chains["KO"] = OptionChain("KO", [TODAY + timedelta(days=30)], [50.0])
+    env.watch.add(["KO"], NOW)
+    batches, singles = [], []
+    real_q, real_p = env.gw.get_underlying_quotes, env.gw.get_underlying_price
+
+    async def quotes(tickers):
+        batches.append(list(tickers))
+        return await real_q(tickers)
+
+    async def price(t):
+        singles.append(t)
+        return await real_p(t)
+
+    env.gw.get_underlying_quotes, env.gw.get_underlying_price = quotes, price
+    report = await env.daily.run(["AAPL", "KO"])
+    assert batches == [["AAPL", "KO"]] and singles == []
+    assert report.updated == ["AAPL", "KO"]
+    assert ("get_days_to_ex_dividend_many", ("AAPL", "KO")) in env.gw.calls
+    assert env.info.get("AAPL").days_to_ex_dividend == 12
+
+
+async def test_daily_update_runs_tickers_concurrently_and_isolates_failures(env):
+    import asyncio
+    env.add_aapl()
+    for t in ("KO", "PEP", "BAD"):
+        env.gw.prices[t] = 60.0
+        env.gw.chains[t] = OptionChain(t, [TODAY + timedelta(days=30)], [50.0])
+    env.watch.add(["KO", "PEP", "BAD"], NOW)
+    env.gw.failing_tickers.add("BAD")
+    running, peak = 0, 0
+    real = env.gw.get_option_chain
+
+    async def chain(t):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.01)
+        running -= 1
+        return await real(t)
+
+    env.gw.get_option_chain = chain
+    progress = []
+    report = await env.daily.run(["AAPL", "KO", "PEP", "BAD"], lambda i, n, t: progress.append((i, n)))
+    assert peak > 1                                         # hay solapamiento
+    assert report.updated == ["AAPL", "KO", "PEP"] and list(report.errors) == ["BAD"]
+    assert [i for i, _ in progress] == [1, 2, 3, 4]
+
+
+async def test_disconnection_aborts_the_whole_daily_run(env):
+    env.add_aapl()
+    env.gw.chains["KO"] = OptionChain("KO", [TODAY + timedelta(days=30)], [50.0])
+    env.gw.prices["KO"] = 60.0
+    env.watch.add(["KO"], NOW)
+    real = env.gw.get_option_chain
+
+    async def chain(t):
+        if t == "KO":
+            raise BrokerDisconnectedError("TWS cayó")
+        return await real(t)
+
+    env.gw.get_option_chain = chain
+    with pytest.raises(BrokerDisconnectedError):
+        await env.daily.run(["AAPL", "KO"])
+
+
+async def test_recent_margin_is_reused_and_old_one_is_requested_again(env):
+    c75, c80 = await _prepare_refresh(env)
+    r1 = await env.refresh.run()
+    assert (r1.margins_requested, r1.margins_reused) == (1, 0)
+    env.clock = NOW + timedelta(minutes=5)
+    env.gw.margins[c75] = 9999.0                            # cambia en el broker, pero aún no toca pedirlo
+    r2 = await env.refresh.run()
+    assert (r2.margins_requested, r2.margins_reused) == (0, 1)
+    assert {s.contract.strike: s.initial_margin for s in env.snaps.all("AAPL")}[75.0] == 1500.0
+    env.clock = NOW + timedelta(minutes=61)                 # supera margin_max_age_minutes (60)
+    r3 = await env.refresh.run()
+    assert (r3.margins_requested, r3.margins_reused) == (1, 0)
+    assert {s.contract.strike: s.initial_margin for s in env.snaps.all("AAPL")}[75.0] == 9999.0

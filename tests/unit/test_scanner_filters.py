@@ -24,10 +24,10 @@ def snap(strike=78.0, days=30, yield_pct=1.2, oi=500, spread=5.0, right=OptionRi
 
 
 def test_criteria_from_settings():
-    # descuento mínimo del strike = valor inicial; máximo = límite de lo guardado (45)
-    assert (REGULAR.strike_below_pct_min, REGULAR.strike_below_pct_max) == (20, 45)
+    # descuento mínimo del strike = valor inicial; máximo = límite de lo guardado (40)
+    assert (REGULAR.strike_below_pct_min, REGULAR.strike_below_pct_max) == (20, 40)
     assert (REGULAR.dte_min, REGULAR.dte_max) == (25, 35)
-    assert (TACTICAL.strike_below_pct_min, TACTICAL.strike_below_pct_max) == (10, 45)
+    assert (TACTICAL.strike_below_pct_min, TACTICAL.strike_below_pct_max) == (10, 40)
     assert (TACTICAL.dte_min, TACTICAL.dte_max) == (1, 15)
 
 
@@ -42,7 +42,7 @@ def test_regular_passes():
         (dict(days=36), "DTE"),
         (dict(strike=76.0), "strike"),   # 24% -> pasa, ver abajo
         (dict(strike=90.0), "strike"),   # 10% < 20% mínimo
-        (dict(strike=50.0), "strike"),   # 50% > 45% máximo guardado
+        (dict(strike=50.0), "strike"),   # 50% > 40% máximo guardado
         (dict(yield_pct=0.99), "yield"),
         (dict(yield_pct=None), "yield"),
         (dict(right=OptionRight.CALL), "put"),
@@ -57,7 +57,7 @@ def test_regular_rejections(kwargs, why):
 
 def test_boundaries_are_inclusive():
     assert reject_reason(snap(strike=80.0, days=25, yield_pct=1.0), 100.0, TODAY, REGULAR) is None  # 20%, DTE min
-    assert reject_reason(snap(strike=55.0, days=35, yield_pct=1.0), 100.0, TODAY, REGULAR) is None  # 45%, DTE max
+    assert reject_reason(snap(strike=60.0, days=35, yield_pct=1.0), 100.0, TODAY, REGULAR) is None  # 40%, DTE max
 
 
 def test_no_underlying_price():
@@ -104,9 +104,9 @@ class TestCandidates:
     )
 
     def test_stored_range(self):
-        got = candidate_contracts(self.CHAIN, 100.0, TODAY, CandidateRange())   # 15-45 %, DTE 1-60
+        got = candidate_contracts(self.CHAIN, 100.0, TODAY, CandidateRange())   # 15-40 %, DTE 1-45
         pairs = {(c.expiry, c.strike) for c in got}
-        expected_strikes = {55, 70, 75, 85}                                    # -45, -30, -25, -15 %
+        expected_strikes = {70, 75, 85}                                        # -30, -25, -15 %
         assert pairs == {(e, k) for e in (date(2026, 10, 9), date(2026, 10, 30)) for k in expected_strikes}
         assert all(c.right is OptionRight.PUT for c in got)                    # DTE 80 queda fuera
 

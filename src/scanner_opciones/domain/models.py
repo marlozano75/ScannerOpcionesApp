@@ -50,6 +50,7 @@ class ContractSnapshot:
     iv_percentile: Optional[float] = None
     initial_margin: Optional[float] = None
     bid_size: Optional[int] = None
+    margin_at: Optional[datetime] = None  # cuándo se pidió el margen (para reutilizarlo)
 
 
 @dataclass(frozen=True)

@@ -35,6 +35,10 @@ class BrokerGateway(Protocol):
     async def get_days_to_ex_dividend(self, ticker: str) -> Optional[int]:
         """None si no aplica / no hay dividendo próximo."""
 
+    async def get_days_to_ex_dividend_many(self, tickers: Sequence[str]) -> dict[str, Optional[int]]:
+        """Como `get_days_to_ex_dividend` para varios tickers a la vez (una sola espera). Los que
+        fallan no aparecen; los que no tienen dividendo próximo traen None."""
+
     async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple]:
         """IV diaria del subyacente: tuplas (día, cierre) o (día, cierre, máximo, mínimo).
         Si `since` no es None, solo desde esa fecha (incluida: la barra del último día se rehace)."""

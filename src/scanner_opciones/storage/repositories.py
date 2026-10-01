@@ -204,13 +204,68 @@ class ContractRepo:
                 ],
             )
 
+    @staticmethod
+    def key(c: OptionContract) -> tuple:
+        return (c.expiry.isoformat(), c.strike, c.right.value)
+
+    def sync_for_ticker(
+        self, ticker: str, wanted: set[tuple], new: Iterable[OptionContract]
+    ) -> tuple[int, int]:
+        """Sincroniza los contratos del ticker SIN reconstruirlos: borra los que ya no están en
+        `wanted` (vencidos o fuera de la ventana) e inserta `new`. Los que siguen conservan su
+        snapshot. `wanted` son claves `key(c)`. Devuelve (borrados, insertados)."""
+        with self.db.conn:
+            rows = self.db.conn.execute(
+                "SELECT id, expiry, strike, right FROM contracts WHERE ticker = ?", (ticker,)
+            ).fetchall()
+            stale = [r["id"] for r in rows if (r["expiry"], r["strike"], r["right"]) not in wanted]
+            self.db.conn.executemany("DELETE FROM contracts WHERE id = ?", [(i,) for i in stale])
+            inserted = self.db.conn.executemany(
+                "INSERT OR IGNORE INTO contracts (ticker, expiry, strike, right, multiplier, con_id) "
+                "VALUES (?,?,?,?,?,?)",
+                [(c.ticker, c.expiry.isoformat(), c.strike, c.right.value, c.multiplier, c.con_id) for c in new],
+            ).rowcount
+        return len(stale), max(inserted, 0)
+
+    def keys(self, ticker: str) -> set[tuple]:
+        rows = self.db.conn.execute(
+            "SELECT expiry, strike, right FROM contracts WHERE ticker = ?", (ticker,)
+        ).fetchall()
+        return {(r["expiry"], r["strike"], r["right"]) for r in rows}
+
+    # combinaciones que IBKR no lista: se recuerdan para no volver a validarlas cada día
+    def miss_keys(self, ticker: str) -> set[tuple]:
+        rows = self.db.conn.execute(
+            "SELECT expiry, strike, right FROM contract_misses WHERE ticker = ?", (ticker,)
+        ).fetchall()
+        return {(r["expiry"], r["strike"], r["right"]) for r in rows}
+
+    def add_misses(self, ticker: str, misses: Iterable[OptionContract]) -> None:
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT OR IGNORE INTO contract_misses (ticker, expiry, strike, right) VALUES (?,?,?,?)",
+                [(ticker, c.expiry.isoformat(), c.strike, c.right.value) for c in misses],
+            )
+
+    def clear_misses(self, ticker: str) -> None:
+        with self.db.conn:
+            self.db.conn.execute("DELETE FROM contract_misses WHERE ticker = ?", (ticker,))
+
+    def purge_expired_misses(self, today: date) -> int:
+        with self.db.conn:
+            return self.db.conn.execute(
+                "DELETE FROM contract_misses WHERE expiry < ?", (today.isoformat(),)
+            ).rowcount
+
     def delete_for_ticker(self, ticker: str) -> int:
         """Borra los contratos del ticker (sus snapshots caen en cascada). Devuelve cuántos."""
         with self.db.conn:
+            self.db.conn.execute("DELETE FROM contract_misses WHERE ticker = ?", (ticker,))
             return self.db.conn.execute("DELETE FROM contracts WHERE ticker = ?", (ticker,)).rowcount
 
     def purge_except(self, keep: Iterable[str]) -> int:
         """Borra los contratos de tickers que ya no están en la watchlist. Devuelve cuántos."""
+        _delete_not_in(self.db, "contract_misses", "ticker", keep)
         return _delete_not_in(self.db, "contracts", "ticker", keep)
 
     def list(self, ticker: Optional[str] = None) -> list[OptionContract]:
@@ -249,11 +304,12 @@ class SnapshotRepo:
             self.db.conn.execute(
                 "INSERT OR REPLACE INTO snapshots (contract_id, updated_at, bid, ask, last, delta, iv, "
                 "open_interest, spread_pct, yield_pct, yield_annualized_pct, iv_rank, iv_percentile, "
-                "initial_margin, bid_size) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "initial_margin, bid_size, margin_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     r["id"], snap.updated_at.isoformat(), snap.bid, snap.ask, snap.last, snap.delta,
                     snap.iv, snap.open_interest, snap.spread_pct, snap.yield_pct,
                     snap.yield_annualized_pct, snap.iv_rank, snap.iv_percentile, snap.initial_margin, snap.bid_size,
+                    snap.margin_at.isoformat() if snap.margin_at else None,
                 ),
             )
         return True
@@ -274,6 +330,7 @@ class SnapshotRepo:
                 open_interest=r["open_interest"], spread_pct=r["spread_pct"], yield_pct=r["yield_pct"],
                 yield_annualized_pct=r["yield_annualized_pct"], iv_rank=r["iv_rank"],
                 iv_percentile=r["iv_percentile"], initial_margin=r["initial_margin"], bid_size=r["bid_size"],
+                margin_at=_dt(r["margin_at"]),
             )
             for r in rows
         ]

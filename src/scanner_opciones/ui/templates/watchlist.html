@@ -15,6 +15,7 @@
 <div class="card">
   <h2>Watchlist ({{ tickers|length }})</h2>
   <form method="post" action="/daily"><button class="secondary">Forzar actualización diaria</button></form>
+  <form method="post" action="/daily" title="Vuelve a validar con IBKR las combinaciones strike/vencimiento que se descartaron como inexistentes (más lento)"><input type="hidden" name="revalidate" value="1"><button class="secondary">Revalidar contratos</button></form>
   {% if state.last_daily_report and state.last_daily_report.errors %}
     <div class="banner err">Errores en la última actualización:
       {% for t, e in state.last_daily_report.errors.items() %}<div><strong>{{ t }}</strong>: {{ e }}</div>{% endfor %}</div>

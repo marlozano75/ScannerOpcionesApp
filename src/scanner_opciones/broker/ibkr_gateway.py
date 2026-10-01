@@ -37,19 +37,27 @@ class _DropUnknownContract(logging.Filter):
         return not (msg.startswith("Error 200,") or msg.startswith("Unknown contract"))
 
 
+_UNKNOWN_FILTER = _DropUnknownContract()
+_quiet_depth = 0
+
+
 @contextmanager
 def _quiet_unknown_contracts():
     """Mientras se valida una lista de contratos, los inexistentes no llenan el log: la lista
     devuelta ya dice cuáles existen y quien llama registra un único resumen."""
-    flt = _DropUnknownContract()
+    global _quiet_depth
     loggers = [logging.getLogger("ib_async.wrapper"), logging.getLogger("ib_async.ib")]
-    for lg in loggers:
-        lg.addFilter(flt)
+    if _quiet_depth == 0:
+        for lg in loggers:
+            lg.addFilter(_UNKNOWN_FILTER)
+    _quiet_depth += 1  # varios tickers se validan a la vez: el filtro se quita al salir el último
     try:
         yield
     finally:
-        for lg in loggers:
-            lg.removeFilter(flt)
+        _quiet_depth -= 1
+        if _quiet_depth == 0:
+            for lg in loggers:
+                lg.removeFilter(_UNKNOWN_FILTER)
 
 
 class IBKRGateway:
@@ -59,6 +67,7 @@ class IBKRGateway:
         self.now = now
         self._stocks: dict[str, Stock] = {}
         self._sector_cache: dict[str, tuple[Optional[str], Optional[str]]] = {}
+        self._vix_futures_cache: Optional[tuple[date, list]] = None
         self._historical_limiter = AsyncRateLimiter(settings.historical_requests_per_10min, 600)
 
     # ---- conexión -------------------------------------------------------------------------
@@ -247,6 +256,35 @@ class IBKRGateway:
             return None
         return (div.nextDate - self.now().date()).days
 
+    async def get_days_to_ex_dividend_many(self, tickers: Sequence[str]) -> dict[str, Optional[int]]:
+        """Una sola espera acotada para todos (los ticks 456 llegan a la vez); termina antes si
+        ya han llegado todos."""
+        self._require()
+        stocks: dict[str, Stock] = {}
+        for t in tickers:
+            try:
+                stocks[t] = await self._stock(t)
+            except DataUnavailableError:
+                continue
+        out: dict[str, Optional[int]] = {}
+        items = list(stocks.items())
+        for i in range(0, len(items), self.PRICE_BATCH):
+            chunk = items[i : i + self.PRICE_BATCH]
+            ticks = {t: self.ib.reqMktData(s, "456", False, False) for t, s in chunk}  # 456 = IB Dividends
+            try:
+                waited, step, limit = 0.0, 0.25, min(2.0, self.s.quote_wait_seconds)
+                while waited < limit and not all(tk.dividends is not None for tk in ticks.values()):
+                    await asyncio.sleep(step)
+                    waited += step
+            finally:
+                for _, s in chunk:
+                    self.ib.cancelMktData(s)
+            today = self.now().date()
+            for t, tk in ticks.items():
+                div = tk.dividends
+                out[t] = None if div is None or div.nextDate is None else (div.nextDate - today).days
+        return out
+
     async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple]:
         stock = await self._stock(ticker)
         if since is None:
@@ -294,6 +332,14 @@ class IBKRGateway:
                     out.append(replace(c, con_id=o.conId))
         return out
 
+    @staticmethod
+    def _quote_ready(c: OptionContract, t) -> bool:
+        oi = t.putOpenInterest if c.right.value == "P" else t.callOpenInterest
+        return (
+            m.num(t.bid) is not None and m.num(t.ask) is not None
+            and t.modelGreeks is not None and m.num(oi) is not None
+        )
+
     async def get_quotes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, OptionQuote]:
         self._require()
         pairs = [(c, self._ib_option(c)) for c in contracts]
@@ -304,7 +350,11 @@ class IBKRGateway:
         valid = [(c, o) for c, o in pairs if o.conId]
         tickers = {c: self.ib.reqMktData(o, "101", False, False) for c, o in valid}  # 101 = open interest
         try:
-            await asyncio.sleep(self.s.quote_wait_seconds)
+            # espera hasta `quote_wait_seconds`, pero sale en cuanto todos tienen sus datos
+            waited, step = 0.0, 0.25
+            while waited < self.s.quote_wait_seconds and not all(self._quote_ready(c, t) for c, t in tickers.items()):
+                await asyncio.sleep(step)
+                waited += step
         finally:
             for _, o in valid:
                 self.ib.cancelMktData(o)
@@ -326,7 +376,8 @@ class IBKRGateway:
     async def what_if_margin(self, contract: OptionContract, quantity: int = 1) -> Optional[float]:
         self._require()
         opt = self._ib_option(contract)
-        await self.ib.qualifyContractsAsync(opt)
+        if not opt.conId:  # los contratos guardados ya traen conId: no hace falta cualificar de nuevo
+            await self.ib.qualifyContractsAsync(opt)
         if not opt.conId:
             return None
         # whatIfOrderAsync fuerza whatIf=True: IBKR calcula el margen SIN enviar la orden.
@@ -348,10 +399,14 @@ class IBKRGateway:
 
         futures: list[tuple[date, float]] = []
         try:
-            details = await asyncio.wait_for(
-                self.ib.reqContractDetailsAsync(Future("VIX", exchange="CFE", currency="USD")), timeout=20
-            )
             today = self.now().date()
+            if self._vix_futures_cache is not None and self._vix_futures_cache[0] == today:
+                details = self._vix_futures_cache[1]  # la lista de vencimientos no cambia en el día
+            else:
+                details = await asyncio.wait_for(
+                    self.ib.reqContractDetailsAsync(Future("VIX", exchange="CFE", currency="USD")), timeout=20
+                )
+                self._vix_futures_cache = (today, details)
             by_expiry = {}
             for d in details:
                 k = d.contract.lastTradeDateOrContractMonth

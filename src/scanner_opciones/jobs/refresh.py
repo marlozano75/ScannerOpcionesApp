@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 
@@ -31,6 +32,7 @@ class RefreshReport:
     refreshed: int = 0
     without_quote: int = 0
     margins_requested: int = 0
+    margins_reused: int = 0   # márgenes recientes reutilizados sin pedir un what-if nuevo
     errors: dict[str, str] = field(default_factory=dict)  # ticker -> motivo
 
 
@@ -78,13 +80,17 @@ class RefreshJob:
         """Cotiza los contratos guardados que encajan con `criteria` (por defecto, los valores
         iniciales de Regular y Táctica)."""
         report = RefreshReport()
+        started = time.monotonic()
         criteria = list(criteria) if criteria else self.default_scope()
         infos = self.ticker_info.all()
         stored = self.contracts.list()
         today = self.now().date()
         infos = await self._refresh_underlyings(sorted({c.ticker for c in stored}), infos, report)
+        t_underlyings = time.monotonic() - started
         all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), criteria, today)]
         report.stored, report.in_scope = len(stored), len(all_contracts)
+        # snapshots anteriores: de ellos se reutiliza el margen mientras sea reciente
+        prev = {self._snap_key(s.contract): s for s in self.snapshots.all()} if all_contracts else {}
         size = self.settings.refresh.batch_size
         for i in range(0, len(all_contracts), size):
             batch = all_contracts[i : i + size]
@@ -103,10 +109,22 @@ class RefreshJob:
                     report.without_quote += 1
                     continue
                 snap = self._build_snapshot(contract, quote, infos.get(contract.ticker))
-                snap = await self._maybe_add_margin(snap, infos.get(contract.ticker), criteria, report)
+                snap = await self._maybe_add_margin(
+                    snap, infos.get(contract.ticker), criteria, report, prev.get(self._snap_key(contract))
+                )
                 if self.snapshots.upsert(snap):
                     report.refreshed += 1
+        log.info(
+            "Refresco: %d contratos cotizados (de %d guardados) en %.1f s (subyacentes %.1f s); "
+            "márgenes pedidos %d, reutilizados %d",
+            report.in_scope, report.stored, time.monotonic() - started, t_underlyings,
+            report.margins_requested, report.margins_reused,
+        )
         return report
+
+    @staticmethod
+    def _snap_key(c: OptionContract) -> tuple:
+        return (c.ticker, c.expiry, c.strike, c.right)
 
     async def _refresh_underlyings(self, tickers: list[str], infos: dict, report: RefreshReport) -> dict:
         """Actualiza precio e IV en directo de cada subyacente y recalcula IV Rank / Percentile con
@@ -155,8 +173,11 @@ class RefreshJob:
             iv_percentile=info.iv_percentile if info else None,
         )
 
-    async def _maybe_add_margin(self, snap, info, criteria, report: RefreshReport) -> ContractSnapshot:
-        """Solo pide what-if para contratos que pasan algún escaneo (limita las peticiones)."""
+    async def _maybe_add_margin(
+        self, snap, info, criteria, report: RefreshReport, previous: Optional[ContractSnapshot] = None
+    ) -> ContractSnapshot:
+        """Solo pide what-if para contratos que pasan algún escaneo (limita las peticiones) y
+        reutiliza el margen del snapshot anterior si es más reciente que `margin_max_age_minutes`."""
         price = info.underlying_price if info else None
         today = self.now().date()
         passes = any(
@@ -165,6 +186,13 @@ class RefreshJob:
         )
         if not passes:
             return snap
+        max_age = timedelta(minutes=self.settings.refresh.margin_max_age_minutes)
+        if (
+            previous is not None and previous.initial_margin is not None and previous.margin_at is not None
+            and self.now() - previous.margin_at < max_age
+        ):
+            report.margins_reused += 1
+            return replace(snap, initial_margin=previous.initial_margin, margin_at=previous.margin_at)
         try:
             report.margins_requested += 1
             margin = await self.gateway.what_if_margin(snap.contract, 1)
@@ -173,4 +201,4 @@ class RefreshJob:
         except BrokerError as exc:
             log.warning("what-if fallido para %s: %s", snap.contract, exc)
             return snap
-        return replace(snap, initial_margin=margin)
+        return replace(snap, initial_margin=margin, margin_at=self.now() if margin is not None else None)

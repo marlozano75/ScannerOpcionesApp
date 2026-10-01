@@ -102,17 +102,19 @@ def create_app(
 
     @app.post("/refresh")
     async def refresh():
-        await service.refresh_all()
+        """Refresca en segundo plano (no bloquea la petición); la pantalla muestra la actividad."""
+        service.launch(service.refresh_all())
         return RedirectResponse("/", status_code=303)
 
     @app.post("/daily")
-    async def daily():
+    async def daily(revalidate: str = Form("")):
         """Fuerza la actualización de todos los tickers en segundo plano. Espera su turno si hay
-        otra tarea en curso (antes se omitía en silencio)."""
+        otra tarea en curso (antes se omitía en silencio). `revalidate`: vuelve a validar también
+        las combinaciones strike/vencimiento que IBKR no listaba."""
         if not service.state.connected:
             return RedirectResponse("/watchlist?message=Sin conexión con TWS: no se puede actualizar", status_code=303)
         tickers = service.watchlist.list()
-        service.launch(service.run_daily(tickers, wait=True))
+        service.launch(service.run_daily_then_refresh(tickers, wait=True, revalidate=bool(revalidate)))
         note = "en cola: hay otra tarea en curso" if service.busy else "en curso"
         return RedirectResponse(f"/watchlist?message=Actualización diaria de {len(tickers)} tickers {note}", status_code=303)
 

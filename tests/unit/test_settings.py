@@ -22,7 +22,7 @@ def test_example_config_loads_with_agreed_defaults():
     assert s.scanner.regular.strike_below_pct == 20 and s.scanner.tactical.strike_below_pct == 10
     assert s.scanner.tactical.dte_max == 15
     c = s.scanner.candidates
-    assert (c.strike_below_pct_min, c.strike_below_pct_max, c.dte_max) == (10, 45, 60)
+    assert (c.strike_below_pct_min, c.strike_below_pct_max, c.dte_max) == (10, 40, 45)
     assert s.risk.cushion_thresholds.normal_above == 40
     assert s.risk.cushion_thresholds.concern_above == 30
     assert s.diversification.weeks_ahead == 5

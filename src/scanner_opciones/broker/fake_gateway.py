@@ -79,6 +79,11 @@ class FakeGateway:
         self._check(ticker)
         return self.ex_dividend_days.get(ticker)
 
+    async def get_days_to_ex_dividend_many(self, tickers: Sequence[str]) -> dict[str, Optional[int]]:
+        self._check()
+        self.calls.append(("get_days_to_ex_dividend_many", tuple(tickers)))
+        return {t: self.ex_dividend_days.get(t) for t in tickers if t not in self.failing_tickers}
+
     async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple]:
         self._check(ticker)
         self.calls.append(("get_iv_history", ticker, since))

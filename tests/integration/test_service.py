@@ -44,6 +44,7 @@ async def started_service():
     seed_market(gw)
     svc.watchlist.add(["AAPL"], NOW)
     await svc.start()
+    await svc.wait_idle()                      # la actualización diaria del arranque va en segundo plano
     for c in svc.contracts.list():
         gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=500)
         gw.margins[c] = 1_500.0
@@ -239,3 +240,26 @@ async def test_manual_daily_update_waits_for_its_turn_instead_of_being_skipped()
     await svc.wait_idle()
     assert svc.state.last_daily_report.updated == ["AAPL"] and svc.state.activity is None
 
+
+
+async def test_start_refreshes_first_and_runs_daily_in_background():
+    svc, gw = make_service()
+    seed_market(gw)
+    svc.watchlist.add(["AAPL"], NOW)
+    order = []
+    real_refresh, real_daily = svc.refresh_job.run, svc.daily.run
+
+    async def refresh(*a, **k):
+        order.append("refresh")
+        return await real_refresh(*a, **k)
+
+    async def daily(*a, **k):
+        order.append("daily")
+        return await real_daily(*a, **k)
+
+    svc.refresh_job.run, svc.daily.run = refresh, daily
+    await svc.start()
+    assert order == ["refresh"]                # al volver start() solo se ha refrescado
+    await svc.wait_idle()
+    assert order == ["refresh", "daily", "refresh"]   # y al acabar la diaria se cotiza lo nuevo
+    assert svc.state.last_daily_report.updated == ["AAPL"]

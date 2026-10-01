@@ -50,18 +50,20 @@ class IbkrSettings(_Model):
 class RefreshSettings(_Model):
     interval_minutes: float = Field(5, gt=0)
     batch_size: int = Field(50, ge=1)  # contratos por petición de cotizaciones
+    margin_max_age_minutes: float = Field(60, ge=0)  # reutiliza el margen (what-if) guardado hasta esta edad
 
 
 class DailyUpdateSettings(_Model):
     run_on_startup: bool = True
+    concurrency: int = Field(4, ge=1)  # tickers que se actualizan a la vez
 
 
 class CandidateRange(_Model):
     """Rango de contratos que se GUARDAN en la actualización diaria (el scanner trabaja dentro de él)."""
     strike_below_pct_min: float = Field(15, ge=0, lt=100)
-    strike_below_pct_max: float = Field(45, ge=0, lt=100)
+    strike_below_pct_max: float = Field(40, ge=0, lt=100)
     dte_min: int = Field(1, ge=0)
-    dte_max: int = Field(60, ge=1)
+    dte_max: int = Field(45, ge=1)
 
     @model_validator(mode="after")
     def _check(self) -> "CandidateRange":

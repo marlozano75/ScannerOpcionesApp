@@ -20,9 +20,9 @@ def db():
 
 
 def test_migration_sets_version_and_is_idempotent(db):
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 4
     db.migrate()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 4
 
 
 def test_file_database_persists(tmp_path):
@@ -146,7 +146,7 @@ def test_migration_from_v1_keeps_existing_snapshots(tmp_path):
     conn.commit()
     conn.close()
     db = Database(path)
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 4
     snaps = SnapshotRepo(db).all()
     assert len(snaps) == 1 and snaps[0].bid == 1.0 and snaps[0].bid_size is None
 
@@ -192,5 +192,26 @@ def test_migration_from_v2_keeps_iv_history(tmp_path):
     conn.commit()
     conn.close()
     db = Database(path)
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 4
     assert IVHistoryRepo(db).bars("AAPL") == [(date(2026, 9, 1), 0.2, None, None)]
+
+
+def test_migration_from_v3_adds_misses_and_margin_date(tmp_path):
+    import sqlite3
+
+    from scanner_opciones.storage.db import MIGRATIONS
+
+    path = tmp_path / "v3.db"
+    conn = sqlite3.connect(path)
+    for script in MIGRATIONS[:3]:
+        conn.executescript(script)
+    conn.execute("PRAGMA user_version = 3")
+    conn.execute("INSERT INTO contracts (ticker, expiry, strike, right, multiplier) VALUES ('AAPL','2026-10-30',75,'P',100)")
+    conn.execute("INSERT INTO snapshots (contract_id, updated_at, initial_margin) VALUES (1, '2026-09-29T10:00:00', 1500)")
+    conn.commit()
+    conn.close()
+    db = Database(path)
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    snap = SnapshotRepo(db).all("AAPL")[0]
+    assert snap.initial_margin == 1500 and snap.margin_at is None      # sin fecha: el margen se pedirá de nuevo
+    assert db.conn.execute("SELECT COUNT(*) FROM contract_misses").fetchone()[0] == 0
