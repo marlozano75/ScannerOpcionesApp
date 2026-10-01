@@ -78,3 +78,19 @@ def test_invalid_values(tmp_path, text):
 def test_settings_are_immutable():
     with pytest.raises(Exception):
         Settings().refresh.interval_minutes = 1
+
+
+def test_market_and_logging_defaults_and_yaml_times(tmp_path):
+    from datetime import date, time
+    yaml_text = "\n".join([
+        "market:",
+        "  open: \"09:45\"",
+        "  holidays: [2026-11-26]",
+        "logging:",
+        "  ib_async_level: ERROR",
+        "",
+    ])
+    s = load_settings(write(tmp_path, yaml_text))
+    assert s.market.open == time(9, 45) and s.market.close == time(16, 0)
+    assert s.market.holidays == [date(2026, 11, 26)] and s.market.pause_when_closed is True
+    assert s.logging.ib_async_level == "ERROR" and Settings().logging.ib_async_level == "WARNING"

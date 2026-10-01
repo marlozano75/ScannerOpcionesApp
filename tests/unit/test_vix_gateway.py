@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from types import SimpleNamespace as NS
 
 import pytest
+from eventkit import Event
 
 from scanner_opciones.broker.ibkr_gateway import IBKRGateway
 from scanner_opciones.config.settings import IbkrSettings
@@ -96,6 +97,7 @@ class QuoteIB:
 
     def __init__(self):
         self.cancelled = []
+        self.errorEvent = Event()
         self.prices = {"AAPL": 210.5, "KO": float("nan"), "MU": 90.0}
         self.ivs = {"AAPL": 0.31, "KO": float("nan"), "MU": float("nan")}
 

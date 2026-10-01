@@ -58,5 +58,13 @@ iv:
 storage:
   path: data/app.db
 
+market:                    # fuera de este horario solo se refrescan cartera y VIX (tras una captura al cerrar)
+  timezone: America/New_York
+  open: "09:30"            # entre comillas
+  close: "16:00"
+  holidays: [2026-11-26, 2026-12-25]   # festivos de EE. UU. (a mano); los cierres anticipados no se modelan
+  pause_when_closed: true  # false = refrescar siempre
+
 logging:
   level: INFO
+  ib_async_level: WARNING  # INFO escribe una línea por cada actualización de la cartera

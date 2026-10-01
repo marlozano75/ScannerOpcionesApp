@@ -16,6 +16,7 @@ dependencies = [
     "uvicorn>=0.29",
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
+    "tzdata>=2024.1",   # base de zonas horarias (Windows no la trae)
 ]
 
 [project.optional-dependencies]

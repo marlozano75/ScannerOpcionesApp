@@ -1,8 +1,10 @@
 """Carga y validación de la configuración externa (YAML)."""
 from __future__ import annotations
 
+from datetime import date, time
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -155,6 +157,26 @@ class StorageSettings(_Model):
 
 class LoggingSettings(_Model):
     level: str = "INFO"
+    ib_async_level: str = "WARNING"  # nivel del log de ib_async (INFO escribe cada updatePortfolio)
+
+
+class MarketSettings(_Model):
+    """Horario del mercado de opciones: fuera de él el refresco automático no cotiza (no hay datos nuevos)."""
+    timezone: str = "America/New_York"
+    open: time = time(9, 30)        # entre comillas en el YAML ("09:30"): sin ellas YAML lo lee como número
+    close: time = time(16, 0)
+    holidays: list[date] = Field(default_factory=list)  # festivos de EE. UU. (se mantienen a mano)
+    pause_when_closed: bool = True  # False: refrescar siempre, como antes
+
+    @model_validator(mode="after")
+    def _check(self) -> "MarketSettings":
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"zona horaria desconocida: {self.timezone}") from exc
+        if self.open >= self.close:
+            raise ValueError("market.open debe ser anterior a market.close")
+        return self
 
 
 class Settings(_Model):
@@ -168,6 +190,7 @@ class Settings(_Model):
     iv: IvSettings = IvSettings()
     storage: StorageSettings = StorageSettings()
     logging: LoggingSettings = LoggingSettings()
+    market: MarketSettings = MarketSettings()
 
 
 def load_settings(path: str | Path) -> Settings:

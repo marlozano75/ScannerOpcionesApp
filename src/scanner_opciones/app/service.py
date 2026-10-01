@@ -16,6 +16,7 @@ from scanner_opciones.domain.models import (
 )
 from scanner_opciones.jobs.daily_update import DailyUpdater, DailyUpdateReport
 from scanner_opciones.jobs.refresh import RefreshJob, RefreshReport
+from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
@@ -62,10 +63,13 @@ class AppService:
         db: Database,
         settings: Settings,
         now: Callable[[], datetime] = datetime.now,
+        market: Optional[MarketCalendar] = None,
     ) -> None:
         self.gateway = gateway
         self.settings = settings
         self.now = now
+        self.market = market or MarketCalendar.from_settings(settings.market)
+        self._closed_capture_done = False  # con el mercado cerrado, ya se hizo la captura completa
         self.watchlist = WatchlistRepo(db)
         self.ticker_info = TickerInfoRepo(db)
         self.iv_history = IVHistoryRepo(db)
@@ -98,6 +102,7 @@ class AppService:
         # Primero se refresca con lo ya guardado (la pantalla tiene datos enseguida); la actualización
         # diaria va después en segundo plano y, al acabar, cotiza lo que haya cambiado.
         await self.refresh_all()
+        self._closed_capture_done = not self.market.is_open(self.now())  # arrancar cerrado = ya es la captura
         if self.settings.daily_update.run_on_startup:
             self.launch(self.run_daily_then_refresh())
 
@@ -197,18 +202,41 @@ class AppService:
             self.state.last_daily_report = report
             return report
 
-    async def refresh_all(self) -> bool:
-        """Cartera, riesgo, VIX y contratos. False si se omitió por solapamiento o falta de conexión."""
+    def market_open(self) -> bool:
+        return self.market.is_open(self.now())
+
+    async def refresh_periodic(self) -> bool:
+        """Refresco automático según el horario del mercado. Abierto: completo. Cerrado: una única
+        captura completa (con datos congelados, para tener el cierre) y después solo cartera y VIX,
+        porque precios, IV, cotizaciones y márgenes no pueden cambiar hasta la apertura."""
+        if not self.settings.market.pause_when_closed or self.market_open():
+            self._closed_capture_done = False
+            return await self.refresh_all()
+        if not self._closed_capture_done:
+            if await self.refresh_all():
+                self._closed_capture_done = True
+                return True
+            return False
+        log.info("Mercado cerrado: se refrescan solo cartera y VIX")
+        return await self.refresh_all(include_market=False)
+
+    async def refresh_all(self, include_market: bool = True) -> bool:
+        """Cartera, riesgo, VIX y contratos (`include_market=False`: sin cotizaciones de subyacentes,
+        opciones ni márgenes). False si se omitió por solapamiento o falta de conexión."""
         if self.busy:
             log.info("Refresco omitido: hay otra ejecución en curso")
             return False
         async with self._lock:
             try:
-                self.state.activity = "Refrescando cartera, VIX y cotizaciones"
+                self.state.activity = (
+                    "Refrescando cartera, VIX y cotizaciones" if include_market
+                    else "Refrescando cartera y VIX (mercado cerrado)"
+                )
                 self.cleanup_orphans()
                 await self._refresh_portfolio()
                 await self._refresh_vix()
-                self.state.last_refresh_report = await self.refresh_job.run()
+                if include_market:
+                    self.state.last_refresh_report = await self.refresh_job.run()
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return False

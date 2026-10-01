@@ -317,3 +317,22 @@ def test_contracts_page_lists_every_stored_contract_with_scanner_columns(client_
 def test_scanner_links_to_contracts_in_a_new_tab(client_and_service):
     client, *_ = client_and_service
     assert 'href="/contracts" target="_blank"' in client.get("/scanner").text
+
+
+def test_banner_when_market_is_closed_and_not_when_open(client_and_service):
+    client, svc, gw, _ = client_and_service
+
+    class Fixed:
+        def __init__(self, o):
+            self.o = o
+
+        def is_open(self, now):
+            return self.o
+
+        def next_open(self, now):
+            return datetime(2026, 10, 2, 9, 30)
+
+    svc.market = Fixed(False)
+    assert "Mercado cerrado" in client.get("/").text and "02/10 09:30" in client.get("/").text
+    svc.market = Fixed(True)
+    assert "Mercado cerrado" not in client.get("/").text

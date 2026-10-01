@@ -28,36 +28,46 @@ from scanner_opciones.domain.models import (
 log = logging.getLogger(__name__)
 
 
-class _DropUnknownContract(logging.Filter):
-    """Descarta los avisos ESPERADOS de ib_async al validar combinaciones que no existen:
-    «Error 200 ... No se encuentra definición» (wrapper) y «Unknown contract» (ib)."""
+class _DropMessages(logging.Filter):
+    """Descarta líneas de log de ib_async cuyo mensaje empieza por alguno de `prefixes`."""
+
+    def __init__(self, *prefixes: str) -> None:
+        super().__init__()
+        self.prefixes = prefixes
+        self.depth = 0  # varios usos a la vez: el filtro se quita al salir el último
 
     def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        return not (msg.startswith("Error 200,") or msg.startswith("Unknown contract"))
+        return not record.getMessage().startswith(self.prefixes)
 
 
-_UNKNOWN_FILTER = _DropUnknownContract()
-_quiet_depth = 0
+# avisos ESPERADOS al validar combinaciones que no existen: «Error 200 ... No se encuentra definición»
+# (wrapper) y «Unknown contract» (ib)
+_UNKNOWN_FILTER = _DropMessages("Error 200,", "Unknown contract")
+# 10197: se resume en un único aviso por lote de cotizaciones (ver `IBKRGateway.get_quotes`)
+_COMPETING_FILTER = _DropMessages("Error 10197,")
+COMPETING_SESSION = 10197
 
 
 @contextmanager
-def _quiet_unknown_contracts():
-    """Mientras se valida una lista de contratos, los inexistentes no llenan el log: la lista
-    devuelta ya dice cuáles existen y quien llama registra un único resumen."""
-    global _quiet_depth
+def _quiet(flt: _DropMessages):
     loggers = [logging.getLogger("ib_async.wrapper"), logging.getLogger("ib_async.ib")]
-    if _quiet_depth == 0:
+    if flt.depth == 0:
         for lg in loggers:
-            lg.addFilter(_UNKNOWN_FILTER)
-    _quiet_depth += 1  # varios tickers se validan a la vez: el filtro se quita al salir el último
+            lg.addFilter(flt)
+    flt.depth += 1
     try:
         yield
     finally:
-        _quiet_depth -= 1
-        if _quiet_depth == 0:
+        flt.depth -= 1
+        if flt.depth == 0:
             for lg in loggers:
-                lg.removeFilter(_UNKNOWN_FILTER)
+                lg.removeFilter(flt)
+
+
+def _quiet_unknown_contracts():
+    """Mientras se valida una lista de contratos, los inexistentes no llenan el log: la lista
+    devuelta ya dice cuáles existen y quien llama registra un único resumen."""
+    return _quiet(_UNKNOWN_FILTER)
 
 
 class IBKRGateway:
@@ -348,16 +358,38 @@ class IBKRGateway:
             with _quiet_unknown_contracts():
                 await self.ib.qualifyContractsAsync(*todo)
         valid = [(c, o) for c, o in pairs if o.conId]
-        tickers = {c: self.ib.reqMktData(o, "101", False, False) for c, o in valid}  # 101 = open interest
+        competing: dict[str, int] = {}   # ticker -> contratos con el error 10197
+
+        def on_error(req_id, code, message, contract=None) -> None:
+            if code == COMPETING_SESSION:
+                name = getattr(contract, "symbol", None) or "?"
+                competing[name] = competing.get(name, 0) + 1
+
+        self.ib.errorEvent += on_error
         try:
-            # espera hasta `quote_wait_seconds`, pero sale en cuanto todos tienen sus datos
-            waited, step = 0.0, 0.25
-            while waited < self.s.quote_wait_seconds and not all(self._quote_ready(c, t) for c, t in tickers.items()):
-                await asyncio.sleep(step)
-                waited += step
+            with _quiet(_COMPETING_FILTER):
+                tickers = {c: self.ib.reqMktData(o, "101", False, False) for c, o in valid}  # 101 = open interest
+                try:
+                    # espera hasta `quote_wait_seconds`, pero sale en cuanto todos tienen sus datos
+                    waited, step = 0.0, 0.25
+                    while waited < self.s.quote_wait_seconds and not all(
+                        self._quote_ready(c, t) for c, t in tickers.items()
+                    ):
+                        await asyncio.sleep(step)
+                        waited += step
+                finally:
+                    for _, o in valid:
+                        self.ib.cancelMktData(o)
         finally:
-            for _, o in valid:
-                self.ib.cancelMktData(o)
+            self.ib.errorEvent -= on_error
+        if competing:
+            log.warning(
+                "Error 10197 (IBKR cree que otra sesión recibe datos en directo) en %d de %d contratos del lote: %s. "
+                "Esos contratos conservan su última cotización. Si no hay otra sesión abierta con este usuario "
+                "(TWS, IBKR Mobile, Client Portal, la cuenta real en otro equipo) suele ser pasajero.",
+                sum(competing.values()), len(valid),
+                ", ".join(f"{t}({n})" for t, n in sorted(competing.items())),
+            )
         out: dict[OptionContract, OptionQuote] = {}
         for c, t in tickers.items():
             g = t.modelGreeks

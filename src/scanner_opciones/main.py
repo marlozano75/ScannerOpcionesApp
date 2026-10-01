@@ -31,7 +31,7 @@ def build_app(settings: Settings):
         return IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
 
     service = AppService(factory(settings.ibkr.mode), db, settings)
-    runner = PeriodicRunner(service.refresh_all, settings.refresh.interval_minutes * 60)
+    runner = PeriodicRunner(service.refresh_periodic, settings.refresh.interval_minutes * 60)
     startup_task: list[asyncio.Task] = []
 
     async def on_startup() -> None:
@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         level=getattr(logging, settings.logging.level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    logging.getLogger("ib_async").setLevel(getattr(logging, settings.logging.ib_async_level.upper(), logging.WARNING))
     uvicorn.run(build_app(settings), host=args.host, port=args.port, log_level="info")
     return 0
 

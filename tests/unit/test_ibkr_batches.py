@@ -1,8 +1,11 @@
 """IBKRGateway con un IB falso: esperas que terminan antes, dividendos en lote y sin recualificar."""
 import asyncio
+import logging
 import time
 from datetime import date, datetime
 from types import SimpleNamespace as NS
+
+from eventkit import Event
 
 from scanner_opciones.broker.ibkr_gateway import IBKRGateway
 from scanner_opciones.config.settings import IbkrSettings
@@ -19,8 +22,10 @@ def _tick(**kw):
 
 
 class FakeIB:
-    def __init__(self, ticks=None):
+    def __init__(self, ticks=None, errors=None):
         self.ticks = ticks or {}
+        self.errorEvent = Event()
+        self.errors = errors or {}      # strike -> código de error que IBKR devuelve al pedir ese contrato
         self.qualified = 0
         self.whatif = 0
 
@@ -35,6 +40,10 @@ class FakeIB:
 
     def reqMktData(self, contract, generic, *a):
         key = getattr(contract, "strike", None) or contract.symbol
+        if key in self.errors:
+            code = self.errors[key]
+            logging.getLogger("ib_async.wrapper").error(f"Error {code}, reqId 1: No hay datos de mercado")
+            self.errorEvent.emit(1, code, "No hay datos de mercado", contract)
         return self.ticks[key]
 
     def cancelMktData(self, contract):
@@ -101,3 +110,24 @@ async def test_concurrent_quiet_contexts_keep_the_filter_until_the_last_exits():
             assert g._UNKNOWN_FILTER in lg.filters
         assert g._UNKNOWN_FILTER in lg.filters              # el primero sigue dentro
     assert g._UNKNOWN_FILTER not in lg.filters
+
+
+async def test_competing_session_errors_are_summarised_in_one_warning(caplog):
+    ticks = {75.0: _tick(bid=float("nan")), 80.0: _tick(bid=float("nan")), 85.0: _tick()}
+    gw = make(FakeIB(ticks, errors={75.0: 10197, 80.0: 10197}), wait=0.3)
+    with caplog.at_level(logging.INFO):
+        await gw.get_quotes([put(75.0, 1), put(80.0, 2), put(85.0, 3)])
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert errors == []                                     # sin una línea ERROR por contrato
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1 and "10197" in warnings[0]
+    assert "2 de 3 contratos" in warnings[0] and "AAPL(2)" in warnings[0]
+
+
+async def test_other_errors_are_not_hidden_and_no_warning_without_10197(caplog):
+    gw = make(FakeIB({75.0: _tick()}, errors={75.0: 354}), wait=0.3)
+    with caplog.at_level(logging.INFO):
+        await gw.get_quotes([put(75.0, 1)])
+    assert any("Error 354" in r.getMessage() for r in caplog.records)      # otros errores siguen visibles
+    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(gw.ib.errorEvent) == 0                       # no deja el manejador suscrito
