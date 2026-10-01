@@ -39,7 +39,7 @@ class Env:
         self.gw.sectors["AAPL"] = ("Technology", "Consumer Electronics")
         self.gw.prices["AAPL"] = 100.0
         self.gw.chains["AAPL"] = OptionChain(
-            "AAPL", [TODAY + timedelta(days=30)], [50.0, 75.0, 80.0, 90.0]
+            "AAPL", [TODAY + timedelta(days=30)], [50.0, 75.0, 80.0, 96.0]
         )
         self.gw.ex_dividend_days["AAPL"] = 12
         self.gw.iv_history["AAPL"] = [
@@ -67,7 +67,7 @@ async def test_daily_update_populates_everything(env):
     assert info.underlying_price == 100.0 and info.days_to_ex_dividend == 12
     assert info.iv_rank == 100.0  # última IV = máxima de la serie
     assert info.iv_percentile == pytest.approx(90.0)
-    assert [c.strike for c in env.contracts.list("AAPL")] == [75.0, 80.0]  # guardado 15-45 % a DTE 30 (50 y 90 quedan fuera)
+    assert [c.strike for c in env.contracts.list("AAPL")] == [75.0, 80.0]  # guardado 5-40 % a DTE 30 (50 y 96 quedan fuera)
     assert env.watch.pending_daily_update(TODAY) == []
 
 
@@ -164,23 +164,22 @@ async def test_daily_update_drops_contracts_that_do_not_exist(env):
     assert [c.strike for c in env.contracts.list("AAPL")] == [80.0]
 
 
-async def test_stored_range_is_15_to_40_pct_and_up_to_45_dte(env):
+async def test_stored_range_is_5_to_40_pct_and_up_to_45_dte(env):
     env.gw.prices["AAPL"] = 100.0
     env.gw.chains["AAPL"] = OptionChain(
         "AAPL",
         [TODAY + timedelta(days=n) for n in (0, 1, 30, 45, 46)],
-        [50.0, 60.0, 70.0, 85.0, 86.0],
+        [50.0, 60.0, 70.0, 85.0, 96.0],
     )
     env.watch.add(["AAPL"], NOW)
     await env.daily.run(["AAPL"])
     stored = {(c.expiry - TODAY).days: sorted(x.strike for x in env.contracts.list("AAPL") if x.expiry == c.expiry)
               for c in env.contracts.list("AAPL")}
     assert set(stored) == {1, 30, 45}            # DTE 0 y 46 fuera
-    assert stored[30] == [60.0, 70.0, 85.0]      # -40 %, -30 %, -15 %; 50 (-50 %) y 86 (-14 %) fuera
+    assert stored[30] == [60.0, 70.0, 85.0]      # -40 %, -30 %, -15 %; 50 (-50 %) y 96 (-4 %) fuera
 
 
 async def test_refresh_only_quotes_contracts_in_scope_unless_criteria_given(env):
-    from scanner_opciones.domain.enums import OperationType
     from scanner_opciones.scanner.criteria import criteria_from_settings
     env.gw.prices["AAPL"] = 100.0
     env.gw.chains["AAPL"] = OptionChain(
@@ -191,9 +190,9 @@ async def test_refresh_only_quotes_contracts_in_scope_unless_criteria_given(env)
     near, far = env.contracts.list("AAPL")
     for c in (near, far):
         env.gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=100)
-    report = await env.refresh.run()                      # valores iniciales: Regular 25-35 DTE
+    report = await env.refresh.run()                      # valores iniciales del filtro: DTE 1-35
     assert (report.stored, report.in_scope, report.refreshed) == (2, 1, 1)
-    wide = criteria_from_settings(env.settings, OperationType.REGULAR).with_filters(dte_max=45)
+    wide = criteria_from_settings(env.settings).with_filters(dte_max=45)
     report = await env.refresh.run([wide])                # rango ampliado desde el formulario
     assert (report.in_scope, report.refreshed) == (2, 2)
 
@@ -201,12 +200,12 @@ async def test_refresh_only_quotes_contracts_in_scope_unless_criteria_given(env)
 async def test_refresh_updates_underlying_price_each_cycle(env):
     c75, c80 = await _prepare_refresh(env)
     assert env.info.get("AAPL").underlying_price == 100.0
-    env.gw.prices["AAPL"] = 96.0                      # la acción se mueve entre ciclos
+    env.gw.prices["AAPL"] = 88.0                      # la acción se mueve entre ciclos
     report = await env.refresh.run()
     assert report.prices_updated == 1
     info = env.info.get("AAPL")
-    assert info.underlying_price == 96.0 and info.updated_daily_at == NOW   # no cuenta como actualización diaria
-    # con el precio nuevo, el strike 80 pasa a estar a 16,7 % (ya no cumple 20 %): sale del alcance
+    assert info.underlying_price == 88.0 and info.updated_daily_at == NOW   # no cuenta como actualización diaria
+    # con el precio nuevo, el strike 80 pasa a estar a 9,1 % (ya no cumple el 10 % mínimo): sale del alcance
     assert report.in_scope == 1
 
 
@@ -369,7 +368,7 @@ async def test_daily_update_keeps_snapshots_of_contracts_that_stay(env):
 async def test_contracts_leaving_the_window_are_removed_with_their_snapshots(env):
     c75, c80 = await _prepare_refresh(env)
     await env.refresh.run()
-    env.gw.prices["AAPL"] = 90.0                            # 75 pasa a -16.7 % (dentro), 80 a -11.1 % (fuera de 15-40 %)
+    env.gw.prices["AAPL"] = 84.0                            # 75 pasa a -10.7 % (dentro); 80 (-4.8 %) y 50 (-40.5 %) quedan fuera de 5-40 %
     await env.daily.run(["AAPL"])
     assert [c.strike for c in env.contracts.list("AAPL")] == [75.0]
     assert [s.contract.strike for s in env.snaps.all("AAPL")] == [75.0]

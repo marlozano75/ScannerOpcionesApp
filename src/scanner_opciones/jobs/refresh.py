@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.domain.enums import OperationType
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, OptionQuote
 from scanner_opciones.metrics.iv_stats import iv_percentile, iv_rank
@@ -57,13 +56,10 @@ class RefreshJob:
         self.now = now
 
     def default_scope(self) -> list[ScanCriteria]:
-        """Por defecto se cotizan solo los contratos que encajan con los valores iniciales de
-        Regular o Táctica: el rango guardado (hasta -45 % / 60 DTE) es demasiado grande para
+        """Por defecto se cotizan solo los contratos que encajan con los valores iniciales del
+        filtro del scanner: el rango guardado (hasta -40 % / 45 DTE) es demasiado grande para
         cotizarlo entero cada pocos minutos. Para el resto, ver `run(criteria=...)`."""
-        return [
-            criteria_from_settings(self.settings, OperationType.REGULAR),
-            criteria_from_settings(self.settings, OperationType.TACTICAL),
-        ]
+        return [criteria_from_settings(self.settings)]
 
     @staticmethod
     def _in_scope(contract: OptionContract, info, criteria: Sequence[ScanCriteria], today) -> bool:
@@ -79,7 +75,7 @@ class RefreshJob:
 
     async def run(self, criteria: Optional[Sequence[ScanCriteria]] = None) -> RefreshReport:
         """Cotiza los contratos guardados que encajan con `criteria` (por defecto, los valores
-        iniciales de Regular y Táctica)."""
+        iniciales del filtro del scanner)."""
         report = RefreshReport()
         started = time.monotonic()
         criteria = list(criteria) if criteria else self.default_scope()

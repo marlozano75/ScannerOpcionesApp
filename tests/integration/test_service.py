@@ -113,10 +113,11 @@ async def test_add_watchlist_triggers_daily_update_for_new_only():
 
 async def test_scan_returns_enriched_results():
     svc, gw = await started_service()
-    out = svc.scan(svc.criteria(OperationType.REGULAR))
+    out = svc.scan(svc.criteria())
     assert sorted(r.snapshot.contract.strike for r in out.results) == [75.0, 80.0]
     assert all(r.impact.sector == "Technology" for r in out.results)
-    strict = svc.scan(svc.criteria(OperationType.REGULAR, min_oi=1000))
+    assert all(r.operation is OperationType.REGULAR for r in out.results)     # DTE 30: dentro de 25-35
+    strict = svc.scan(svc.criteria(min_oi=1000))
     assert strict.results == [] and strict.rejected_count == 2
 
 

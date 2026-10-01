@@ -18,11 +18,11 @@ def write(tmp_path, text):
 def test_example_config_loads_with_agreed_defaults():
     s = load_settings(EXAMPLE)
     assert s.refresh.interval_minutes == 5
-    assert (s.scanner.regular.dte_min, s.scanner.regular.dte_max) == (25, 35)
-    assert s.scanner.regular.strike_below_pct == 20 and s.scanner.tactical.strike_below_pct == 10
-    assert s.scanner.tactical.dte_max == 15
+    ini = s.scanner.initial
+    assert (ini.strike_below_pct_min, ini.strike_below_pct_max, ini.dte_min, ini.dte_max) == (10, 30, 1, 35)
+    assert (s.scanner.operation.regular_dte_min, s.scanner.operation.regular_dte_max) == (25, 35)
     c = s.scanner.candidates
-    assert (c.strike_below_pct_min, c.strike_below_pct_max, c.dte_max) == (10, 40, 45)
+    assert (c.strike_below_pct_min, c.strike_below_pct_max, c.dte_max) == (5, 40, 45)
     assert s.risk.cushion_thresholds.normal_above == 40
     assert s.risk.cushion_thresholds.concern_above == 30
     assert s.diversification.weeks_ahead == 5
@@ -62,7 +62,10 @@ def test_unknown_key_rejected(tmp_path):
     "text",
     [
         "refresh:\n  interval_minutes: 0\n",
-        "scanner:\n  regular:\n    dte_min: 40\n    dte_max: 30\n",
+        "scanner:\n  initial:\n    dte_min: 40\n    dte_max: 30\n",
+        "scanner:\n  initial:\n    strike_below_pct_min: 30\n    strike_below_pct_max: 10\n",
+        "scanner:\n  operation:\n    regular_dte_min: 40\n    regular_dte_max: 30\n",
+        "scanner:\n  regular:\n    dte_min: 25\n",   # clave antigua: ya no existe
         "scanner:\n  candidates:\n    strike_below_pct_min: 30\n    strike_below_pct_max: 20\n",
         "scanner:\n  candidates:\n    dte_min: 70\n    dte_max: 60\n",
         "scanner:\n  filters:\n    min_iv_rank: 150\n",

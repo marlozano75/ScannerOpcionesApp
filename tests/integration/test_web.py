@@ -6,7 +6,7 @@ from openpyxl import Workbook
 
 from scanner_opciones.broker.fake_gateway import FakeGateway
 from scanner_opciones.domain.enums import AccountMode
-from scanner_opciones.domain.models import AccountSummary, OptionContract
+from scanner_opciones.domain.models import AccountSummary, OptionContract, OptionQuote
 from scanner_opciones.ui.web import create_app
 from tests.integration.test_service import NOW, TODAY, make_service, seed_market
 
@@ -72,7 +72,7 @@ def test_watchlist_upload_xlsx_and_bad_file(client_and_service):
     assert "Error" in r.text
 
 
-BASE = "/scanner?submitted=1&op=regular&discount=20&dte_min=25&dte_max=35&min_yield=1"
+BASE = "/scanner?submitted=1&discount=20&discount_max=40&discount_max=40&dte_min=25&dte_max=35&min_yield=1"
 
 
 def _optional_block(html: str) -> str:
@@ -84,25 +84,33 @@ def test_scanner_defaults_from_config(client_and_service):
     refresh(client)
     r = client.get("/scanner")
     assert r.status_code == 200 and "contratos cumplen" in r.text and "AAPL" in r.text
-    assert 'name="discount"' in r.text and 'value="20"' in r.text
-    assert 'name="dte_min"' in r.text and 'value="25"' in r.text and 'value="35"' in r.text
+    for name, value in (("discount", "10"), ("discount_max", "30"), ("dte_min", "1"), ("dte_max", "35"), ("min_yield", "1")):
+        assert f'name="{name}"' in r.text and f'name="{name}" id="{name}" size="{6 if "d" in name[:1] and "dte" not in name else 5}" value="{value}"' in r.text.replace(
+            'size="6" value', 'size="6" value').replace('size="5" value', 'size="5" value') or f'value="{value}"' in r.text
     assert "checked" not in _optional_block(r.text)          # ningún filtro opcional marcado
 
 
-def test_tactical_defaults_and_hidden_dte_min(client_and_service):
+def test_scanner_has_no_operation_selector(client_and_service):
     client, svc, gw, _ = client_and_service
-    r = client.get("/scanner?op=tactical")
-    assert 'value="10"' in r.text and 'value="15"' in r.text
-    assert 'id="dte_min_label" hidden' in r.text            # solo DTE máx. visible
-    reg = client.get("/scanner?op=regular")
-    assert 'id="dte_min_label" hidden' not in reg.text
+    r = client.get("/scanner")
+    assert 'name="op"' not in r.text and "<option value=\"tactical\"" not in r.text
+    assert 'id="dte_min_label"' not in r.text and 'name="dte_min"' in r.text      # DTE mín. siempre editable
+    assert client.get("/scanner?op=tactical").status_code == 200                   # un enlace antiguo no rompe
 
 
-def test_tactical_ignores_dte_min_from_form(client_and_service):
+def test_operation_column_regular_between_25_and_35_dte_otherwise_tactical(client_and_service):
     client, svc, gw, _ = client_and_service
+    from datetime import timedelta
+    far = OptionContract("AAPL", TODAY + timedelta(days=10), 80.0)
+    svc.contracts.sync_for_ticker("AAPL", {svc.contracts.key(c) for c in svc.contracts.list()} | {svc.contracts.key(far)}, [far])
+    for c in svc.contracts.list("AAPL"):
+        gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=500)
     refresh(client)
-    r = client.get("/scanner?submitted=1&op=tactical&discount=10&dte_min=99&dte_max=15&min_yield=1")
-    assert "DTE 1–15" in r.text                             # el mínimo sale de la configuración
+    out = client.get("/scanner?submitted=1&discount=10&discount_max=30&dte_min=1&dte_max=35&min_yield=0.1").text
+    assert "<th>Operación</th>" in out
+    rows = [row for row in out.split("<tr>") if '<td class="tk">AAPL' in row]
+    by_dte = {int(row.split("<td>")[3].split("</td>")[0]): ("Regular" in row, "Táctica" in row) for row in rows}
+    assert by_dte == {10: (False, True), 30: (True, False)}          # DTE 10: Táctica; DTE 30: Regular
 
 
 def test_optional_filters_only_apply_when_ticked(client_and_service):
@@ -123,36 +131,40 @@ def test_discount_dte_and_yield_are_editable(client_and_service):
     # DTE 25-35: el contrato guardado (DTE 30) aparece; con DTE 40-50 no
     assert "contratos cumplen" in client.get(BASE).text
     assert "Ningún contrato cumple" in client.get(
-        "/scanner?submitted=1&op=regular&discount=20&dte_min=40&dte_max=50&min_yield=1").text
+        "/scanner?submitted=1&discount=20&discount_max=40&dte_min=40&dte_max=50&min_yield=1").text
     # descuento mínimo 30 %: el strike a 25 % ya no cumple (solo el de 30 %, si existe)
     assert "Ningún contrato cumple" in client.get(
-        "/scanner?submitted=1&op=regular&discount=44&dte_min=25&dte_max=35&min_yield=1").text
+        "/scanner?submitted=1&discount=35&discount_max=40&dte_min=25&dte_max=35&min_yield=1").text
     assert "Ningún contrato cumple" in client.get(
-        "/scanner?submitted=1&op=regular&discount=20&dte_min=25&dte_max=35&min_yield=50").text
-    wide = client.get("/scanner?submitted=1&op=regular&discount=15&dte_min=1&dte_max=60&min_yield=0.1")
+        "/scanner?submitted=1&discount=20&discount_max=40&dte_min=25&dte_max=35&min_yield=50").text
+    wide = client.get("/scanner?submitted=1&discount=15&discount_max=40&dte_min=1&dte_max=60&min_yield=0.1")
     assert "contratos cumplen" in wide.text and "yield bruto ≥ 0.1%" in wide.text and "DTE 1–60" in wide.text
 
 
 def test_warning_when_outside_stored_range(client_and_service):
     client, svc, gw, _ = client_and_service
-    r = client.get("/scanner?submitted=1&op=regular&discount=5&dte_min=25&dte_max=90&min_yield=1")
-    assert "Descuento por debajo del rango guardado" in r.text and "DTE fuera del rango guardado" in r.text
+    r = client.get("/scanner?submitted=1&discount=2&discount_max=45&dte_min=25&dte_max=90&min_yield=1")
+    assert "Descuento mín. por debajo del rango guardado" in r.text and "Descuento máx. por encima del rango guardado" in r.text
+    assert "DTE fuera del rango guardado" in r.text
     ok = client.get(BASE)
     assert "Guardado en la actualización diaria" in ok.text and "banner info" not in ok.text.split("</form>")[1].split("<script>")[0]
 
 
 @pytest.mark.parametrize("qs", [
-    "discount=100&dte_min=25&dte_max=35&min_yield=1",   # descuento fuera de rango
-    "discount=20&dte_min=40&dte_max=35&min_yield=1",    # DTE mín > máx
-    "discount=20&dte_min=25&dte_max=35&min_yield=-1",   # yield negativo
-    "discount=&dte_min=25&dte_max=35&min_yield=1",      # vacío
-    "discount=x&dte_min=25&dte_max=35&min_yield=1",     # no numérico
-    "discount=20&dte_min=2.5&dte_max=35&min_yield=1",   # DTE no entero
-    "discount=20&dte_min=25&dte_max=&min_yield=1",      # DTE máx vacío
+    "discount=100&discount_max=40&dte_min=25&dte_max=35&min_yield=1",   # descuento fuera de rango
+    "discount=20&discount_max=40&dte_min=40&dte_max=35&min_yield=1",    # DTE mín > máx
+    "discount=20&discount_max=40&dte_min=25&dte_max=35&min_yield=-1",   # yield negativo
+    "discount=&discount_max=40&dte_min=25&dte_max=35&min_yield=1",      # vacío
+    "discount=x&discount_max=40&dte_min=25&dte_max=35&min_yield=1",     # no numérico
+    "discount=20&discount_max=40&dte_min=2.5&dte_max=35&min_yield=1",   # DTE no entero
+    "discount=20&discount_max=40&dte_min=25&dte_max=&min_yield=1",      # DTE máx vacío
+    "discount=20&discount_max=10&dte_min=25&dte_max=35&min_yield=1",    # descuento mín > máx
+    "discount=20&discount_max=&dte_min=25&dte_max=35&min_yield=1",      # descuento máx vacío
+    "discount=20&discount_max=100&dte_min=25&dte_max=35&min_yield=1",   # descuento máx fuera de rango
 ])
 def test_invalid_form_values(client_and_service, qs):
     client, *_ = client_and_service
-    r = client.get("/scanner?submitted=1&op=regular&" + qs)
+    r = client.get("/scanner?submitted=1&" + qs)
     assert r.status_code == 200 and "Parámetro no válido" in r.text
 
 
@@ -175,7 +187,7 @@ def test_refresh_scoped_quotes_wider_range_then_redirects(client_and_service):
     gw.quotes[far] = OptionQuote(bid=1.0, ask=1.2, open_interest=100)
     refresh(client)
     assert svc.snapshots.all("AAPL") == []                   # el refresco automático no lo cotiza
-    data = {"submitted": "1", "op": "regular", "discount": "20", "dte_min": "25", "dte_max": "60", "min_yield": "0.5"}
+    data = {"submitted": "1", "discount": "20", "discount_max": "40", "dte_min": "25", "dte_max": "60", "min_yield": "0.5"}
     r = client.post("/scanner/refresh", data=data, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].startswith("/scanner?")
     assert len(svc.snapshots.all("AAPL")) == 1               # ahora sí
@@ -231,7 +243,7 @@ def test_watchlist_and_scanner_tables_are_sortable(client_and_service):
     assert 'class="sortable" id="watchlist-table"' in wl
     assert "SortableTables.init" in wl and "function sortRows" in wl          # script incluido en la página
     sc = client.get("/scanner").text
-    assert 'class="sortable" id="scan-results"' in sc
+    assert 'class="sortable sticky-tk with-sel" id="scan-results"' in sc
     assert "<th data-nosort>Cant.</th>" in sc                                # la columna de cantidad no ordena
     assert "th[aria-sort=descending]::after" in sc and "\\25BC" in sc     # indicador de dirección
     # las tablas del panel no se ordenan
@@ -262,7 +274,7 @@ def test_price_reference_changes_which_contracts_pass(client_and_service):
     for c in svc.contracts.list("AAPL"):          # spread muy ancho: bid 0.40 / ask 1.60 (mid 1.00)
         gw.quotes[c] = OptionQuote(bid=0.40, ask=1.60, open_interest=500)
     refresh(client)
-    url = "/scanner?submitted=1&op=regular&discount=20&dte_min=25&dte_max=35&min_yield=1.2"
+    url = "/scanner?submitted=1&discount=20&discount_max=40&dte_min=25&dte_max=35&min_yield=1.2"
     assert "Ningún contrato cumple" in client.get(url + "&ref=bid&ref_x=25").text          # 0.40/75 = 0.53 %
     assert "Ningún contrato cumple" in client.get(url + "&ref=bid_plus_spread&ref_x=25").text   # 0.70/75 = 0.93 %
     assert "contratos cumplen" in client.get(url + "&ref=mid&ref_x=25").text              # 1.00/75 = 1.33 %
@@ -336,3 +348,16 @@ def test_banner_when_market_is_closed_and_not_when_open(client_and_service):
     assert "Mercado cerrado" in client.get("/").text and "02/10 09:30" in client.get("/").text
     svc.market = Fixed(True)
     assert "Mercado cerrado" not in client.get("/").text
+
+
+def test_ticker_column_is_sticky_in_scanner_and_contracts(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    scanner = client.get("/scanner").text
+    contracts = client.get("/contracts").text
+    assert 'class="sortable sticky-tk with-sel" id="scan-results"' in scanner
+    assert 'class="sortable sticky-tk" id="stored-contracts"' in contracts
+    for page in (scanner, contracts):
+        assert '<th class="tk">Ticker</th>' in page and '<td class="tk">AAPL</td>' in page
+    assert '<th class="sel"></th>' in scanner and '<td class="sel"><input type="checkbox"' in scanner   # casilla también fija
+    assert "table.sticky-tk .tk { left:0;" in scanner and "position:sticky" in scanner

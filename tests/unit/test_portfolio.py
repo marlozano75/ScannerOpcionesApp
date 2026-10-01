@@ -3,7 +3,7 @@ from datetime import date, datetime
 import pytest
 
 from scanner_opciones.config.settings import CushionThresholds, Settings
-from scanner_opciones.domain.enums import OperationType, OptionRight, TrafficLight
+from scanner_opciones.domain.enums import OptionRight, TrafficLight
 from scanner_opciones.domain.models import (
     AccountSummary, ContractSnapshot, OptionContract, Position, TickerInfo,
 )
@@ -206,7 +206,7 @@ class TestScanEngine:
                                 open_interest=100, spread_pct=5)
 
     def test_filters_enriches_and_sorts(self):
-        crit = criteria_from_settings(Settings(), OperationType.REGULAR)
+        crit = criteria_from_settings(Settings()).with_filters(strike_below_pct_min=20, dte_min=25, dte_max=35)
         infos = {"AAPL": TickerInfo("AAPL", sector="Tech", underlying_price=100.0),
                  "KO": TickerInfo("KO", sector="Staples", underlying_price=100.0)}
         snaps = [
@@ -226,6 +226,6 @@ class TestScanEngine:
         assert first.impact.assignment_pct_of_portfolio == 100
 
     def test_no_results(self):
-        crit = criteria_from_settings(Settings(), OperationType.TACTICAL)
+        crit = criteria_from_settings(Settings()).with_filters(strike_below_pct_min=10, dte_min=1, dte_max=15)
         out = run_scan([self.snap("AAPL", 78, 2, 20)], {"AAPL": TickerInfo("AAPL", underlying_price=100.0)}, [], crit, TODAY)
         assert out.results == [] and out.rejected_count == 1

@@ -11,8 +11,10 @@ from scanner_opciones.scanner.filters import reject_reason
 
 TODAY = date(2026, 9, 29)
 NOW = datetime(2026, 9, 29, 12, 0)
-REGULAR = criteria_from_settings(Settings(), OperationType.REGULAR)
-TACTICAL = criteria_from_settings(Settings(), OperationType.TACTICAL)
+BASE = criteria_from_settings(Settings())
+# los antiguos perfiles Regular y Táctica, ahora solo rangos concretos del mismo filtro
+REGULAR = BASE.with_filters(strike_below_pct_min=20, strike_below_pct_max=40, dte_min=25, dte_max=35)
+TACTICAL = BASE.with_filters(strike_below_pct_min=10, strike_below_pct_max=40, dte_min=1, dte_max=15)
 
 
 def snap(strike=78.0, days=30, yield_pct=1.2, oi=500, spread=5.0, right=OptionRight.PUT):
@@ -24,11 +26,18 @@ def snap(strike=78.0, days=30, yield_pct=1.2, oi=500, spread=5.0, right=OptionRi
 
 
 def test_criteria_from_settings():
-    # descuento mínimo del strike = valor inicial; máximo = límite de lo guardado (40)
-    assert (REGULAR.strike_below_pct_min, REGULAR.strike_below_pct_max) == (20, 40)
-    assert (REGULAR.dte_min, REGULAR.dte_max) == (25, 35)
-    assert (TACTICAL.strike_below_pct_min, TACTICAL.strike_below_pct_max) == (10, 40)
-    assert (TACTICAL.dte_min, TACTICAL.dte_max) == (1, 15)
+    # filtro único: descuento 10–30 %, DTE 1–35 (todo editable en el formulario)
+    assert (BASE.strike_below_pct_min, BASE.strike_below_pct_max) == (10, 30)
+    assert (BASE.dte_min, BASE.dte_max) == (1, 35) and BASE.min_yield_pct == 1.0
+    assert (BASE.regular_dte_min, BASE.regular_dte_max) == (25, 35)
+
+
+@pytest.mark.parametrize("dte, expected", [
+    (1, OperationType.TACTICAL), (24, OperationType.TACTICAL), (25, OperationType.REGULAR),
+    (30, OperationType.REGULAR), (35, OperationType.REGULAR), (36, OperationType.TACTICAL), (60, OperationType.TACTICAL),
+])
+def test_operation_is_regular_between_25_and_35_dte_and_tactical_otherwise(dte, expected):
+    assert BASE.operation_for(dte) is expected
 
 
 def test_regular_passes():
@@ -104,9 +113,9 @@ class TestCandidates:
     )
 
     def test_stored_range(self):
-        got = candidate_contracts(self.CHAIN, 100.0, TODAY, CandidateRange())   # 15-40 %, DTE 1-45
+        got = candidate_contracts(self.CHAIN, 100.0, TODAY, CandidateRange())   # 5-40 %, DTE 1-45
         pairs = {(c.expiry, c.strike) for c in got}
-        expected_strikes = {70, 75, 85}                                        # -30, -25, -15 %
+        expected_strikes = {70, 75, 85, 86, 90}                                # -30, -25, -15, -14, -10 %
         assert pairs == {(e, k) for e in (date(2026, 10, 9), date(2026, 10, 30)) for k in expected_strikes}
         assert all(c.right is OptionRight.PUT for c in got)                    # DTE 80 queda fuera
 

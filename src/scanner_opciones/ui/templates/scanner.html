@@ -8,13 +8,9 @@
   <form method="get" action="/scanner" id="scan-form">
     <input type="hidden" name="submitted" value="1">
     <div class="filters">
-      <label>Operación
-        <select name="op" id="op">
-          <option value="regular" {{ 'selected' if form.op == 'regular' }}>Regular</option>
-          <option value="tactical" {{ 'selected' if form.op == 'tactical' }}>Táctica</option>
-        </select></label>
       <label>Descuento mín. del strike (%) <input name="discount" id="discount" size="6" value="{{ form.discount }}"></label>
-      <label id="dte_min_label" {{ 'hidden' if form.op == 'tactical' }}>DTE mín. <input name="dte_min" id="dte_min" size="5" value="{{ form.dte_min }}"></label>
+      <label>Descuento máx. del strike (%) <input name="discount_max" id="discount_max" size="6" value="{{ form.discount_max }}"></label>
+      <label>DTE mín. <input name="dte_min" id="dte_min" size="5" value="{{ form.dte_min }}"></label>
       <label>DTE máx. <input name="dte_max" id="dte_max" size="5" value="{{ form.dte_max }}"></label>
       <label>Yield bruto mín. (%) <input name="min_yield" id="min_yield" size="6" value="{{ form.min_yield }}"></label>
       <label>Precio de venta de referencia
@@ -42,26 +38,15 @@
   </form>
   <p class="muted">Guardado en la actualización diaria: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }}% por debajo,
     DTE {{ candidates.dte_min }}–{{ candidates.dte_max }}. Cada {{ refresh_minutes|round|int }} min solo se cotizan los contratos que encajan con los
-    valores iniciales de Regular o Táctica; si cambias el rango, usa «Actualizar cotizaciones».</p>
+    valores iniciales del filtro; si cambias el rango, usa «Actualizar cotizaciones».</p>
   {% if criteria %}
-  <p class="muted">Aplicado: strike ≥ {{ criteria.strike_below_pct_min|num(1) }}% por debajo ·
+  <p class="muted">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
     yield bruto ≥ {{ criteria.min_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
     {% if report %}· última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados){% endif %}.</p>
   {% endif %}
   {% for w in warnings %}<div class="banner info">{{ w }}</div>{% endfor %}
 </div>
 <script>
-  // Al cambiar de operación se rellenan los valores iniciales de esa operación.
-  // En Táctica solo se edita el DTE máximo.
-  const DEFAULTS = {{ defaults|tojson }};
-  document.getElementById('op').addEventListener('change', function () {
-    const d = DEFAULTS[this.value];
-    document.getElementById('discount').value = d.discount;
-    document.getElementById('dte_min').value = d.dte_min;
-    document.getElementById('dte_max').value = d.dte_max;
-    document.getElementById('min_yield').value = d.min_yield;
-    document.getElementById('dte_min_label').hidden = (this.value === 'tactical');
-  });
   // X solo se muestra con «Bid + X % del spread»
   document.getElementById('ref').addEventListener('change', function () {
     document.getElementById('ref_x_label').hidden = (this.value !== 'bid_plus_spread');
@@ -76,15 +61,15 @@
 {% if out %}
 <form method="post" action="/simulate" class="card">
   <h2>{{ out.results|length }} contratos cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></h2>
-  <div class="scroll"><table class="sortable" id="scan-results">
-    <tr><th></th>{{ cols.head() }}<th data-nosort>Cant.</th><th>Actualizado</th></tr>
+  <div class="scroll"><table class="sortable sticky-tk with-sel" id="scan-results">
+    <tr><th class="sel"></th>{{ cols.head() }}<th data-nosort>Cant.</th><th>Actualizado</th></tr>
     {% for r in out.results %}{% set c = r.snapshot.contract %}
       {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
-      <tr><td><input type="checkbox" name="sel" value="{{ key }}"></td>
+      <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
         {{ cols.cells(r) }}
         <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px"></td>
         {{ cols.updated(r.snapshot) }}</tr>
-    {% else %}<tr><td colspan="30" class="muted">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="31" class="muted">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
   </table></div>
   {% if out.results %}<p><button>Simular seleccionados</button></p>{% endif %}
 </form>

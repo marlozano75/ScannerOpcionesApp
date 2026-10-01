@@ -9,7 +9,6 @@ from typing import Callable, Optional
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.domain.enums import OperationType
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError
 from scanner_opciones.domain.models import (
     AccountSummary, OptionContract, Position, RiskStatus, SectorExposure, VixData,
@@ -306,8 +305,8 @@ class AppService:
             self.state.errors["vix"] = "Timeout obteniendo el VIX"
 
     # ---- casos de uso de lectura -------------------------------------------------------------
-    def criteria(self, operation: OperationType, **overrides) -> ScanCriteria:
-        return criteria_from_settings(self.settings, operation).with_filters(**overrides)
+    def criteria(self, **overrides) -> ScanCriteria:
+        return criteria_from_settings(self.settings).with_filters(**overrides)
 
     def scan(self, criteria: ScanCriteria, include_rejections: bool = False) -> ScanOutput:
         return run_scan(
@@ -319,7 +318,7 @@ class AppService:
         """Todos los contratos guardados (con o sin cotización), sin aplicar filtros del scanner."""
         return list_stored(
             self.contracts.list(), self.snapshots.all(), self.ticker_info.all(), self.state.positions,
-            self.criteria(OperationType.REGULAR), self.now().date(),
+            self.criteria(), self.now().date(),
         )
 
     def assignment(self) -> AssignmentExposure:

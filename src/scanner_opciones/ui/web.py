@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from scanner_opciones.app.service import AppService, SelectedContract
 from scanner_opciones.broker.base import BrokerGateway
-from scanner_opciones.domain.enums import AccountMode, OperationType, PriceReference, TrafficLight
+from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.watchlist.loader import load_watchlist_file
 from scanner_opciones.watchlist.parser import parse_text
@@ -174,18 +174,12 @@ def create_app(
 
     # ---- scanner y simulador ---------------------------------------------------------------
     def parse_scan(qp) -> dict:
-        """Lee el formulario del scanner (GET o POST). Devuelve op, form, criteria, error y avisos."""
+        """Lee el formulario del scanner (GET o POST). Devuelve form, criteria, error y avisos."""
         submitted = "submitted" in qp
-        try:
-            operation = OperationType(qp.get("op", "regular"))
-        except ValueError:
-            operation = OperationType.REGULAR
-        op = operation.value
-        base = service.criteria(operation)
+        base = service.criteria()
         cand = service.settings.scanner.candidates
         form = {
-            "op": op,
-            "discount": _fmt(base.strike_below_pct_min),
+            "discount": _fmt(base.strike_below_pct_min), "discount_max": _fmt(base.strike_below_pct_max),
             "dte_min": str(base.dte_min), "dte_max": str(base.dte_max),
             "min_yield": _fmt(base.min_yield_pct),
             "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
@@ -204,21 +198,18 @@ def create_app(
         try:
             overrides: dict = {}
             if submitted:
-                for key in ("discount", "dte_max", "min_yield"):
+                for key in ("discount", "discount_max", "dte_min", "dte_max", "min_yield"):
                     form[key] = qp.get(key, "").strip()
                 form["ref"] = qp.get("ref", form["ref"])
                 form["ref_x"] = qp.get("ref_x", form["ref_x"]).strip()   # ausente = valor de la configuración
-                if operation is OperationType.REGULAR:   # en Táctica solo se edita el DTE máximo
-                    form["dte_min"] = qp.get("dte_min", "").strip()
                 for key in optional:
                     form[f"use_{key}"] = f"use_{key}" in qp
                     form[key] = qp.get(key, "").strip()
-                overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento del strike")
+                overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento mín. del strike")
+                overrides["strike_below_pct_max"] = _required(form["discount_max"], float, "Descuento máx. del strike")
                 overrides["min_yield_pct"] = _required(form["min_yield"], float, "Yield bruto mín.")
+                overrides["dte_min"] = _required(form["dte_min"], int, "DTE mín.")
                 overrides["dte_max"] = _required(form["dte_max"], int, "DTE máx.")
-                overrides["dte_min"] = (
-                    _required(form["dte_min"], int, "DTE mín.") if operation is OperationType.REGULAR else base.dte_min
-                )
                 try:
                     overrides["price_reference"] = PriceReference(form["ref"])
                 except ValueError:
@@ -227,8 +218,11 @@ def create_app(
                     overrides["price_spread_pct"] = _required(form["ref_x"], float, "X (% del spread)")
                     if not (0 <= overrides["price_spread_pct"] <= 100):
                         raise ValueError("X (% del spread) debe estar entre 0 y 100")
-                if not (0 <= overrides["strike_below_pct_min"] < 100):
+                lo, hi = overrides["strike_below_pct_min"], overrides["strike_below_pct_max"]
+                if not (0 <= lo < 100 and 0 <= hi < 100):
                     raise ValueError("el descuento del strike debe estar entre 0 y 100")
+                if lo > hi:
+                    raise ValueError("el descuento mínimo no puede superar el máximo")
                 if overrides["min_yield_pct"] < 0:
                     raise ValueError("el yield mínimo no puede ser negativo")
                 if overrides["dte_min"] < 0 or overrides["dte_min"] > overrides["dte_max"]:
@@ -238,22 +232,17 @@ def create_app(
                 overrides[field_name] = _required(form[key], cast, field_name) if form[f"use_{key}"] else None
             criteria = base.with_filters(**overrides)
             if criteria.strike_below_pct_min < cand.strike_below_pct_min:
-                warnings.append(f"Descuento por debajo del rango guardado ({cand.strike_below_pct_min:g}%): "
+                warnings.append(f"Descuento mín. por debajo del rango guardado ({cand.strike_below_pct_min:g}%): "
                                 "no hay contratos con menos descuento.")
+            if criteria.strike_below_pct_max > cand.strike_below_pct_max:
+                warnings.append(f"Descuento máx. por encima del rango guardado ({cand.strike_below_pct_max:g}%): "
+                                "no hay contratos con más descuento.")
             if criteria.dte_max > cand.dte_max or criteria.dte_min < cand.dte_min:
                 warnings.append(f"DTE fuera del rango guardado ({cand.dte_min}–{cand.dte_max} días): "
                                 "no hay contratos fuera de él.")
         except ValueError as exc:
             error = f"Parámetro no válido: {exc}"
-        return dict(op=op, form=form, criteria=criteria, error=error, warnings=warnings)
-
-    def scan_defaults() -> dict:
-        out = {}
-        for o in OperationType:
-            c = service.criteria(o)
-            out[o.value] = {"discount": c.strike_below_pct_min, "dte_min": c.dte_min,
-                            "dte_max": c.dte_max, "min_yield": c.min_yield_pct}
-        return out
+        return dict(form=form, criteria=criteria, error=error, warnings=warnings)
 
     @app.get("/scanner", response_class=HTMLResponse)
     async def scanner(request: Request, debug: int = 0):
@@ -267,7 +256,7 @@ def create_app(
                 PriceReference.MID: "mid (media bid/ask)",
                 PriceReference.BID_PLUS_SPREAD: f"bid + {c.price_spread_pct:g}% del spread",
             }[c.price_reference]
-        return render(request, "scanner.html", out=out, defaults=scan_defaults(), ref_label=ref_label,
+        return render(request, "scanner.html", out=out, ref_label=ref_label,
                       candidates=service.settings.scanner.candidates,
                       report=service.state.last_refresh_report, **parsed)
 
@@ -275,7 +264,7 @@ def create_app(
     async def contracts(request: Request):
         """Todos los contratos almacenados, con las mismas columnas que el resultado del scanner."""
         rows = service.stored_contracts()
-        c = service.criteria(OperationType.REGULAR)
+        c = service.criteria()
         ref_label = {
             PriceReference.BID: "bid",
             PriceReference.MID: "mid (media bid/ask)",

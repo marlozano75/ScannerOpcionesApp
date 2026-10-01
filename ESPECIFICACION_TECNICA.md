@@ -13,7 +13,7 @@
 
 Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cuenta de margen Reg T, Irlanda; real o simulada), ofrece:
 
-1. **Scanner de opciones** sobre una watchlist (operaciones "Regular" y "Táctica" + filtros).
+1. **Scanner de opciones** sobre una watchlist (un único filtro editable; cada resultado se clasifica como "Regular" o "Táctica" según su DTE).
 2. **Panel de riesgo** por apalancamiento (Cushion, semáforo, Look Ahead / Post-Expiration / Severidad IBKR, VIX).
 3. **Panel de diversificación** sectorial (actual y próximas 5 semanas).
 4. **Simulador** de cartera si se ejercen contratos seleccionados.
@@ -33,7 +33,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-05 | Los tickers añadidos **después** de la ejecución diaria se actualizan (bloque diario) en el momento de añadirse. | L12 |
 | RF-06 | El historial de IV se **persiste** y en actualizaciones posteriores solo se descargan las entradas no guardadas (optimización). | L20 |
 | RF-07 | Cada **X minutos** (configurable) refrescar por contrato: Bid, Ask, Delta, IV, Last, OI, timestamp de última actualización; calcular Spread %, Yield, Yield anualizado, IV Rank, IV Percentile, margen inicial si se ejecuta. | L21-34 |
-| RF-08 | Scanner **Regular** (puts vendidas): descuento mínimo del strike respecto al precio (inicial **20 %**), yield bruto mínimo (inicial 1 %), DTE mín. y máx. (inicial **25 y 35**). Todo editable en el formulario. | L6 + decisión del usuario 2026-09-29 |
+| RF-08 | Scanner de puts vendidas con **un único filtro** (sin selector Regular/Táctica; ver RF-35): descuento mínimo (inicial **10 %**) y máximo (inicial **30 %**) del strike respecto al precio, yield bruto mínimo (inicial 1 %), DTE mín. y máx. (inicial **1 y 35**). Todo editable en el formulario. | L6 + decisión del usuario 2026-10-01 |
 | RF-09 | Scanner **Táctico**: descuento mínimo del strike (inicial **10 %**), yield bruto mínimo (inicial 1 %) y **solo DTE máx.** (inicial **15**; el mínimo es 1 y no se muestra). Todo editable. | L7 + decisión del usuario 2026-09-29 |
 | RF-10 | Filtros adicionales: OI mínimo, Spread máximo, IV Rank, IV Percentile. | L8 |
 | RF-11 | Al ejecutar el escaneo se muestran **solo** contratos que cumplen los criterios. | L36 |
@@ -47,7 +47,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-19 | Diversificación sectorial para las próximas 5 semanas con contratos abiertos. | L57 |
 | RF-20 | Panel de riesgo: mostrar **Gross Position Value** (tag `GrossPositionValue` de IBKR), **Nominal Assignment Exposure** = Short Put Exposure − Long Put Protection (nominal = strike × multiplicador × contratos) y **Leverage Assignment** = NAE / NLV. También antes/después en el simulador. | Petición del usuario 2026-09-29 |
 | RF-21 | VIX y futuros VIX solo con barras históricas diarias (sin suscripción en tiempo real; futuros CFE con `useRTH=False`). Ningún paso de red puede colgarse: timeouts. | Petición del usuario 2026-09-29 |
-| RF-23 | La actualización diaria guarda los contratos con strike de −10 % a −40 % y DTE hasta 45 días (configurable en `scanner.candidates`; antes −45 % y 60 días: casi nunca se filtraba por encima de 40 DTE). Cada ciclo automático solo cotiza los que encajan con los valores iniciales de Regular/Táctica; un botón cotiza el rango elegido en el formulario. | Petición del usuario 2026-09-29 |
+| RF-23 | La actualización diaria guarda los contratos con strike de −5 % a −40 % y DTE hasta 45 días (configurable en `scanner.candidates`; antes −45 % y 60 días: casi nunca se filtraba por encima de 40 DTE). Cada ciclo automático solo cotiza los que encajan con los valores iniciales de Regular/Táctica; un botón cotiza el rango elegido en el formulario. | Petición del usuario 2026-09-29 |
 | RF-24 | Al quitar un ticker de la watchlist se borran sus contratos (con sus cotizaciones) y su ficha; el historial de IV se conserva. Al arrancar y antes de cada refresco se eliminan los datos de tickers que ya no están en la watchlist. | Petición del usuario 2026-09-29 |
 | RF-25 | La actualización diaria forzada se ejecuta en segundo plano y espera su turno si hay otra tarea en curso (no se omite en silencio); la interfaz muestra la tarea en curso y su progreso. | Petición del usuario 2026-09-29 |
 | RF-26 | El precio del subyacente se actualiza en cada ciclo de refresco (no solo en la actualización diaria); las distancias y el filtro de descuento usan ese precio. La columna se llama **Desc.** | Petición del usuario 2026-09-29 |
@@ -58,6 +58,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-32 | Un refresco que no recibe ni bid ni ask de un contrato (mercado cerrado o fallo puntual) **no pisa** su última cotización válida: conserva bid, ask, last y bid size con su hora original en «Actualizado»; igual con las griegas y el OI. | Petición del usuario 2026-10-01 |
 | RF-33 | **Refresco según el horario del mercado** (`market.*`, por defecto 9:30–16:00 hora de Nueva York, sin fines de semana ni festivos configurados). Con el mercado abierto el refresco automático es completo. Con el mercado cerrado hace **una captura completa** (datos congelados, para guardar el cierre) y después solo cartera y VIX hasta la apertura. La captura solo hace falta si el último refresco completo (marca persistente `meta.last_full_refresh_at`, sobrevive a reinicios) es anterior al último cierre de sesión: **si al abrir la app con el mercado cerrado las cotizaciones guardadas ya son del cierre, no se cotiza nada** y tampoco se cotizan los contratos nuevos de la actualización diaria hasta la apertura; «Refrescar ahora», «Actualizar cotizaciones de este rango» y el arranque siguen siendo completos. La actualización diaria no depende del horario. Cabecera: aviso «Mercado cerrado». | Petición del usuario 2026-10-01 |
 | RF-34 | El error 10197 de IBKR (sesión competidora de datos en directo) se resume en **un aviso por lote** con los tickers afectados (en vez de una línea ERROR por contrato); esos contratos conservan su última cotización (RF-32). El log INFO de `ib_async` (una línea por cada actualización de cartera) se oculta con `logging.ib_async_level: WARNING`. | Petición del usuario 2026-10-01 |
+| RF-35 | Columna **Operación** en el resultado del scanner y en Contratos: **Regular** si el DTE está entre 25 y 35 (`scanner.operation`), **Táctica** en el resto. Es solo una etiqueta, no filtra. La columna **Ticker** (y la casilla de selección del scanner) quedan fijas al desplazar la tabla a la derecha. Los contratos guardados pasan a strike −5 %…−40 %. | Petición del usuario 2026-10-01 |
 | RF-28 | IV Rank e IV Percentile se recalculan en cada ciclo con la IV en directo del subyacente (tick 106) frente al historial diario guardado; la barra del último día se rehace en cada actualización diaria. Diferencias conocidas con TWS: ±5 puntos en general; mayores donde el historial de IBKR trae picos (p. ej. FSLY). | Petición del usuario 2026-09-29 |
 | RF-29 | El **IV Rank** usa como rango el mayor máximo y el menor mínimo **diarios** de la IV de los últimos 365 días (barras `OPTION_IMPLIED_VOLATILITY` de IBKR), no los cierres; el **IV Percentile** sigue usando los cierres. IBKR no expone IV High/Low de 52 semanas por la API (verificado). Las barras antiguas sin máx/mín se rellenan con una descarga completa única. | Petición del usuario 2026-09-29 |
 | RF-30 | Las tablas de la watchlist y de resultados del scanner se ordenan pulsando el título de la columna: primer clic de mayor a menor (números) o de A a Z (texto), segundo clic al revés; los vacíos («—») quedan al final; el orden elegido se recuerda en la sesión. | Petición del usuario 2026-09-29 |
@@ -117,7 +118,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 - **Entrada:** números; **Salida:** números o `None` si no computable.
 
 ### M8 — Scanner (`scanner`)
-- **Entrada:** snapshots + `ScanCriteria` (tipo Regular/Táctica, % strike, yield mín., DTE min/max, OI mín., spread máx., IV Rank mín., IV Percentile mín.).
+- **Entrada:** snapshots + `ScanCriteria` (% strike mín./máx., yield mín., DTE min/max, OI mín., spread máx., IV Rank mín., IV Percentile mín.).
 - **Proceso:** filtrado con predicados componibles; enriquecimiento con M10 (peso sector, % si asignación).
 - **Salida:** lista ordenable de `ScanResult`, más un motivo de descarte disponible en modo debug.
 
@@ -215,13 +216,11 @@ ScannerOpcionesApp/
 | `logging.ib_async_level` | `WARNING` | Nivel del log de `ib_async` |
 | `daily_update.concurrency` | `4` | Tickers que se actualizan a la vez en la actualización diaria |
 | `refresh.margin_max_age_minutes` | `60` | Antigüedad máxima del margen (what-if) guardado que se reutiliza sin volver a pedirlo |
-| `scanner.candidates.*` | strikes `10`–`40` % por debajo, DTE `1`–`45` | **Rango que se GUARDA** en la actualización diaria; el scanner solo ve contratos dentro de él |
-| `scanner.regular.strike_below_pct` | `20` | descuento **mínimo** del strike; valor inicial editable |
-| `scanner.regular.min_yield_pct` | `1.0` | |
-| `scanner.regular.dte_min` / `dte_max` | `25` / `35` | configurable (Q-03) |
-| `scanner.tactical.strike_below_pct` | `10` | descuento **mínimo**; valor inicial editable |
-| `scanner.tactical.min_yield_pct` | `1.0` | |
-| `scanner.tactical.dte_min` / `dte_max` | `1` / `15` | en el formulario solo se edita el máximo |
+| `scanner.candidates.*` | strikes `5`–`40` % por debajo, DTE `1`–`45` | **Rango que se GUARDA** en la actualización diaria; el scanner solo ve contratos dentro de él |
+| `scanner.initial.strike_below_pct_min` / `_max` | `10` / `30` | descuento mínimo y máximo del strike; valores iniciales editables |
+| `scanner.initial.min_yield_pct` | `1.0` | valor inicial editable |
+| `scanner.initial.dte_min` / `dte_max` | `1` / `35` | valores iniciales editables (Q-03) |
+| `scanner.operation.regular_dte_min` / `_max` | `25` / `35` | la columna «Operación» marca Regular dentro de este DTE y Táctica fuera |
 | `scanner.filters.min_oi` / `max_spread_pct` / `min_iv_rank` / `min_iv_percentile` | sin valor (filtro desactivado) | |
 | `risk.cushion_thresholds` | `normal_above: 40`, `concern_above: 30` | verde >40 / ámbar 30-40 / rojo <30 (Q-05) |
 | `diversification.weeks_ahead` | `5` | |
@@ -299,8 +298,8 @@ ScannerOpcionesApp/
 |----|-------|---------------------------|-------------------|---------------------|
 | Q-01 | Tipo de operación | **RESUELTA**: solo puts vendidas; la app nunca envía órdenes (solo what-if). | — | — |
 | Q-02 | Plataforma/UI | No se indica tipo de aplicación. | ¿Web local, escritorio o Excel/terminal? ¿Preferencia de lenguaje? | Python + FastAPI/HTMX local — **ACEPTADO por el usuario** |
-| Q-03 | DTE | **RESUELTA**: Regular 25-35 (configurable). Táctica: máximo 15 días, configurable. Se interpreta como DTE ≤ 15 (inclusive) y sin mínimo salvo DTE ≥ 1, salvo que se indique lo contrario. | — | — |
-| Q-04 | % strike | **RESUELTA (2026-09-29)**: el descuento es un valor **mínimo** (strike al menos X % por debajo): Regular 20 %, Táctica 10 %, ambos editables. El máximo es el límite de lo guardado (40 %). Se guardan strikes de −10 % a −40 % (−45 % hasta 2026-10-01; antes −15 %, cambiado para que la Táctica al 10 % tenga datos) y DTE hasta 45 (60 hasta 2026-10-01). | — | — |
+| Q-03 | DTE | **RESUELTA** (matizada el 2026-10-01: ya no hay perfiles; el DTE inicial es 1–35 y la columna «Operación» marca Regular 25–35 y Táctica el resto):  Regular 25-35 (configurable). Táctica: máximo 15 días, configurable. Se interpreta como DTE ≤ 15 (inclusive) y sin mínimo salvo DTE ≥ 1, salvo que se indique lo contrario. | — | — |
+| Q-04 | % strike | **RESUELTA (2026-09-29; el 2026-10-01 pasa a un único filtro con descuento mín. 10 % y máx. 30 % editables)**: el descuento es un valor **mínimo** (strike al menos X % por debajo): Regular 20 %, Táctica 10 %, ambos editables. El máximo es el límite de lo guardado (40 %). Se guardan strikes de −10 % a −40 % (−45 % hasta 2026-10-01; antes −15 %, cambiado para que la Táctica al 10 % tenga datos) y DTE hasta 45 (60 hasta 2026-10-01). | — | — |
 | Q-05 | Semáforo Cushion | **RESUELTA**: >40% Normal (verde); 30%-40% Preocupación (ámbar); <30% Riesgo alto (rojo). Fronteras confirmadas: 40% exacto → ámbar, 30% exacto → rojo. | — | — |
 | Q-05b | Look Ahead / Overnight / Post-Expiration | **RESUELTA (2026-09-29)**: Overnight no existe en la API, se sustituye por `HighestSeverity` (0 Normal verde, 1 Advertencia/margen bajo ámbar, 2 Riesgo elevado/cerca del límite naranja, 3 Liquidación/margen crítico rojo; el usuario escribió "0 Normal rojo", se interpreta como verde, y no indicó color para 2 y 3). Cushion actual = tag `Cushion` de IBKR. Look Ahead y Post-Expiration = `Excess / NetLiquidation`. **Regla**: `PostExpirationExcess` = 0 se trata como "Sin datos" (gris). **Observado**: en la cuenta simulada `HighestSeverity` no llega (se muestra "Sin datos") y `PostExpirationExcess` vale 0. | — | — |
 | Q-06 | Definición de yield | **Parcialmente resuelta**: prima = mid (bid+ask)/2. Se mantienen provisionales: anualizado lineal (×365/DTE); spread % sobre mid; "Max Spread" en %. | ¿Confirmas los tres provisionales? | lineal; mid; % — **ACEPTADO por el usuario** |

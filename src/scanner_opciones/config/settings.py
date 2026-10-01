@@ -62,7 +62,7 @@ class DailyUpdateSettings(_Model):
 
 class CandidateRange(_Model):
     """Rango de contratos que se GUARDAN en la actualización diaria (el scanner trabaja dentro de él)."""
-    strike_below_pct_min: float = Field(15, ge=0, lt=100)
+    strike_below_pct_min: float = Field(5, ge=0, lt=100)
     strike_below_pct_max: float = Field(40, ge=0, lt=100)
     dte_min: int = Field(1, ge=0)
     dte_max: int = Field(45, ge=1)
@@ -76,29 +76,32 @@ class CandidateRange(_Model):
         return self
 
 
-class RegularSettings(_Model):
-    strike_below_pct: float = Field(20, ge=0, lt=100)  # descuento mínimo del strike (valor inicial)
+class InitialFilterSettings(_Model):
+    """Valores iniciales del filtro del scanner (todos editables en el formulario)."""
+    strike_below_pct_min: float = Field(10, ge=0, lt=100)  # descuento mínimo del strike (%)
+    strike_below_pct_max: float = Field(30, ge=0, lt=100)  # descuento máximo del strike (%)
     min_yield_pct: float = Field(1.0, ge=0)
-    dte_min: int = Field(25, ge=0)
+    dte_min: int = Field(1, ge=0)
     dte_max: int = Field(35, ge=0)
 
     @model_validator(mode="after")
-    def _check(self) -> "RegularSettings":
+    def _check(self) -> "InitialFilterSettings":
+        if self.strike_below_pct_min > self.strike_below_pct_max:
+            raise ValueError("strike_below_pct_min no puede superar strike_below_pct_max")
         if self.dte_min > self.dte_max:
             raise ValueError("dte_min no puede superar dte_max")
         return self
 
 
-class TacticalSettings(_Model):
-    strike_below_pct: float = Field(10, ge=0, lt=100)  # descuento mínimo del strike (valor inicial)
-    min_yield_pct: float = Field(1.0, ge=0)
-    dte_min: int = Field(1, ge=0)
-    dte_max: int = Field(15, ge=0)  # en la UI solo se edita el máximo
+class OperationSettings(_Model):
+    """Clasificación de la columna «Operación»: Regular dentro de este DTE, Táctica fuera de él."""
+    regular_dte_min: int = Field(25, ge=0)
+    regular_dte_max: int = Field(35, ge=0)
 
     @model_validator(mode="after")
-    def _check(self) -> "TacticalSettings":
-        if self.dte_min > self.dte_max:
-            raise ValueError("dte_min no puede superar dte_max")
+    def _check(self) -> "OperationSettings":
+        if self.regular_dte_min > self.regular_dte_max:
+            raise ValueError("regular_dte_min no puede superar regular_dte_max")
         return self
 
 
@@ -118,8 +121,8 @@ class PriceReferenceSettings(_Model):
 class ScannerSettings(_Model):
     price_reference: PriceReferenceSettings = PriceReferenceSettings()
     candidates: CandidateRange = CandidateRange()
-    regular: RegularSettings = RegularSettings()
-    tactical: TacticalSettings = TacticalSettings()
+    initial: InitialFilterSettings = InitialFilterSettings()
+    operation: OperationSettings = OperationSettings()
     filters: FilterSettings = FilterSettings()
 
 

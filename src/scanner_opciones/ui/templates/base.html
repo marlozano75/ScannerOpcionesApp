@@ -28,6 +28,12 @@
   th:first-child, td:first-child { text-align:left; }
   th { color:var(--mute); font-weight:600; font-size:12px; }
   .scroll { overflow-x:auto; }
+  /* columna Ticker (y la casilla de selección) fijas al desplazar la tabla a la derecha */
+  table.sticky-tk th.tk, table.sticky-tk td.tk, table.sticky-tk th.sel, table.sticky-tk td.sel
+    { position:sticky; background:var(--card); z-index:1; }
+  table.sticky-tk .tk { left:0; text-align:left; font-weight:600; box-shadow:inset -1px 0 0 var(--line); }
+  table.sticky-tk.with-sel .sel { left:0; width:34px; min-width:34px; text-align:center; padding-left:6px; padding-right:6px; }
+  table.sticky-tk.with-sel .tk { left:34px; }
   .banner { padding:10px 14px; border-radius:6px; margin-bottom:12px; }
   .banner.err { background:#fdeaea; border:1px solid #f3b7b7; } .banner.info { background:#e9f0ff; border:1px solid #bcd0ff; }
   button, .btn { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:7px 14px; cursor:pointer; font:inherit; }
