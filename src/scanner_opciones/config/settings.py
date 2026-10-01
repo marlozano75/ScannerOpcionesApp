@@ -36,7 +36,7 @@ class IbkrSettings(_Model):
     ports: Ports = Ports()
     client_id: int = 1
     mode: AccountMode = AccountMode.PAPER
-    market_data_type: int = Field(1, ge=1, le=4)
+    market_data_type: int = Field(2, ge=1, le=4)  # 2 = congelado: live, y con el mercado cerrado el último cierre
     connect_timeout_seconds: float = Field(10, gt=0)
     quote_wait_seconds: float = Field(4, gt=0)  # espera de ticks tras pedir cotizaciones
     historical_requests_per_10min: int = Field(50, ge=1)  # límite de pacing de IBKR: 60

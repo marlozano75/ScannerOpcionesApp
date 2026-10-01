@@ -4,7 +4,7 @@ ibkr:
   ports: { live: 7496, paper: 7497 }
   client_id: 1
   mode: paper            # paper | live
-  market_data_type: 1    # 1 = live, 3 = diferido
+  market_data_type: 2    # 1 = live, 2 = congelado (live; con el mercado cerrado, el último bid/ask del cierre), 3 = diferido
 
 refresh:
   interval_minutes: 5

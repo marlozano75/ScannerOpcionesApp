@@ -32,6 +32,7 @@ class RefreshReport:
     refreshed: int = 0
     without_quote: int = 0
     margins_requested: int = 0
+    quotes_kept: int = 0      # contratos sin precio nuevo (mercado cerrado): se conserva la última cotización
     margins_reused: int = 0   # márgenes recientes reutilizados sin pedir un what-if nuevo
     errors: dict[str, str] = field(default_factory=dict)  # ticker -> motivo
 
@@ -108,17 +109,18 @@ class RefreshJob:
                 if quote is None:
                     report.without_quote += 1
                     continue
-                snap = self._build_snapshot(contract, quote, infos.get(contract.ticker))
-                snap = await self._maybe_add_margin(
-                    snap, infos.get(contract.ticker), criteria, report, prev.get(self._snap_key(contract))
-                )
+                previous = prev.get(self._snap_key(contract))
+                snap = self._build_snapshot(contract, quote, infos.get(contract.ticker), previous)
+                if snap.updated_at != self.now():
+                    report.quotes_kept += 1
+                snap = await self._maybe_add_margin(snap, infos.get(contract.ticker), criteria, report, previous)
                 if self.snapshots.upsert(snap):
                     report.refreshed += 1
         log.info(
             "Refresco: %d contratos cotizados (de %d guardados) en %.1f s (subyacentes %.1f s); "
-            "márgenes pedidos %d, reutilizados %d",
+            "márgenes pedidos %d, reutilizados %d; sin precio nuevo (se conserva el anterior): %d",
             report.in_scope, report.stored, time.monotonic() - started, t_underlyings,
-            report.margins_requested, report.margins_reused,
+            report.margins_requested, report.margins_reused, report.quotes_kept,
         )
         return report
 
@@ -160,14 +162,31 @@ class RefreshJob:
             infos[ticker] = info
         return infos
 
-    def _build_snapshot(self, contract: OptionContract, q: OptionQuote, info) -> ContractSnapshot:
-        y = gross_yield_pct(q.bid, q.ask, contract.strike)
+    def _build_snapshot(
+        self, contract: OptionContract, q: OptionQuote, info, previous: Optional[ContractSnapshot] = None
+    ) -> ContractSnapshot:
+        """Si IBKR no devuelve ni bid ni ask (mercado cerrado, fallo puntual) NO se pisa la última
+        cotización válida con vacíos: se conserva el bloque de precios (bid, ask, last, bid size) y
+        `updated_at` sigue siendo el de esa cotización, para que se vea su antigüedad. Lo mismo con
+        las griegas (delta, IV) y, campo a campo, con el open interest."""
+        updated_at = self.now()
+        bid, ask, last, bid_size = q.bid, q.ask, q.last, q.bid_size
+        delta, iv, oi = q.delta, q.iv, q.open_interest
+        if previous is not None:
+            if bid is None and ask is None and (previous.bid is not None or previous.ask is not None):
+                bid, ask, last, bid_size = previous.bid, previous.ask, previous.last, previous.bid_size
+                updated_at = previous.updated_at or updated_at
+            if delta is None and iv is None:
+                delta, iv = previous.delta, previous.iv
+            if oi is None:
+                oi = previous.open_interest
+        y = gross_yield_pct(bid, ask, contract.strike)
         dte = contract.dte(self.now().date())
         return ContractSnapshot(
-            contract=contract, updated_at=self.now(),
-            bid=q.bid, ask=q.ask, last=q.last, delta=q.delta, iv=q.iv, open_interest=q.open_interest,
-            bid_size=q.bid_size,
-            spread_pct=spread_pct(q.bid, q.ask), yield_pct=y,
+            contract=contract, updated_at=updated_at,
+            bid=bid, ask=ask, last=last, delta=delta, iv=iv, open_interest=oi,
+            bid_size=bid_size,
+            spread_pct=spread_pct(bid, ask), yield_pct=y,
             yield_annualized_pct=annualized_yield_pct(y, dte),
             iv_rank=info.iv_rank if info else None,
             iv_percentile=info.iv_percentile if info else None,

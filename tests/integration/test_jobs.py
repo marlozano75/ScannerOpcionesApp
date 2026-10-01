@@ -483,3 +483,38 @@ async def test_recent_margin_is_reused_and_old_one_is_requested_again(env):
     r3 = await env.refresh.run()
     assert (r3.margins_requested, r3.margins_reused) == (1, 0)
     assert {s.contract.strike: s.initial_margin for s in env.snaps.all("AAPL")}[75.0] == 9999.0
+
+
+# ---- mercado cerrado: no se pisa la última cotización válida --------------------------------------
+
+async def test_empty_quote_keeps_last_valid_prices_and_their_timestamp(env):
+    c75, c80 = await _prepare_refresh(env)
+    await env.refresh.run()                                  # con mercado abierto: bid/ask válidos
+    env.clock = NOW + timedelta(hours=14)                    # mercado cerrado: llega todo vacío salvo el OI
+    env.gw.quotes[c75] = OptionQuote(open_interest=310)
+    report = await env.refresh.run()
+    s = {x.contract.strike: x for x in env.snaps.all("AAPL")}[75.0]
+    assert (s.bid, s.ask, s.last, s.delta, s.iv) == (1.0, 1.2, 1.1, -0.1, 0.3)
+    assert s.updated_at == NOW                               # se ve que la cotización es antigua
+    assert s.open_interest == 310                            # lo nuevo sí se actualiza
+    assert s.spread_pct == pytest.approx(0.2 / 1.1 * 100)    # métricas recalculadas con los precios conservados
+    assert report.quotes_kept >= 1
+
+
+async def test_valid_new_quote_replaces_the_previous_one(env):
+    c75, c80 = await _prepare_refresh(env)
+    await env.refresh.run()
+    env.clock = NOW + timedelta(minutes=5)
+    env.gw.quotes[c75] = OptionQuote(bid=0.9, ask=1.0, open_interest=300)
+    await env.refresh.run()
+    s = {x.contract.strike: x for x in env.snaps.all("AAPL")}[75.0]
+    assert (s.bid, s.ask) == (0.9, 1.0) and s.updated_at == NOW + timedelta(minutes=5)
+    assert s.delta == -0.1                                   # sin griegas nuevas se conservan las anteriores
+
+
+async def test_empty_quote_without_previous_data_stays_empty(env):
+    c75, c80 = await _prepare_refresh(env)
+    env.gw.quotes[c75] = OptionQuote(open_interest=300)      # primera cotización ya vacía
+    await env.refresh.run()
+    s = {x.contract.strike: x for x in env.snaps.all("AAPL")}[75.0]
+    assert s.bid is None and s.ask is None and s.updated_at == NOW
