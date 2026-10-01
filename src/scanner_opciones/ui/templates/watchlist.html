@@ -2,15 +2,24 @@
 {% block content %}
 {% if message %}<div class="banner info">{{ message }}</div>{% endif %}
 <div class="card">
-  <h2>Añadir tickers</h2>
+  <h2>Añadir o sustituir tickers</h2>
   <form method="post" action="/watchlist/paste">
     <textarea name="text" placeholder="AAPL, MSFT, KO ... (separados por comas, espacios o saltos de línea)"></textarea>
-    <p><button>Añadir</button></p>
+    <p><button name="mode" value="add">Añadir</button>
+      <button name="mode" value="replace" class="secondary" onclick="return confirmReplace()"
+              title="Quita los tickers que no estén en la lista (con sus contratos) y deja solo los pegados">Sustituir watchlist</button></p>
   </form>
   <form method="post" action="/watchlist/upload" enctype="multipart/form-data">
     <input type="file" name="file" accept=".txt,.csv,.xlsx" required>
-    <button class="secondary">Cargar archivo (.txt, .csv, .xlsx)</button>
+    <button class="secondary" name="mode" value="add">Cargar archivo (.txt, .csv, .xlsx)</button>
+    <button class="secondary" name="mode" value="replace" onclick="return confirmReplace()"
+            title="Quita los tickers que no estén en el archivo (con sus contratos) y deja solo los del archivo">Sustituir watchlist con el archivo</button>
   </form>
+  <script>
+    function confirmReplace() {
+      return confirm('Se quitarán de la watchlist, con sus contratos y cotizaciones, los tickers que no estén en la nueva lista. ¿Sustituir la watchlist?');
+    }
+  </script>
 </div>
 <div class="card">
   <h2>Watchlist ({{ tickers|length }})</h2>

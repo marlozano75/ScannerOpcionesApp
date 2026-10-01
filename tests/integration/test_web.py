@@ -361,3 +361,53 @@ def test_ticker_column_is_sticky_in_scanner_and_contracts(client_and_service):
         assert '<th class="tk">Ticker</th>' in page and '<td class="tk">AAPL</td>' in page
     assert '<th class="sel"></th>' in scanner and '<td class="sel"><input type="checkbox"' in scanner   # casilla también fija
     assert "table.sticky-tk .tk { left:0;" in scanner and "position:sticky" in scanner
+
+
+def test_replace_watchlist_from_pasted_text_keeps_common_and_removes_the_rest(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    svc.watchlist.add(["KO", "PEP"], NOW)
+    gw.prices["MSFT"] = 300.0
+    assert svc.snapshots.all("AAPL") and svc.contracts.list("AAPL")
+    r = client.post("/watchlist/paste", data={"text": "aapl msft 123", "mode": "replace"}, follow_redirects=True)
+    assert set(svc.watchlist.list()) == {"AAPL", "MSFT"}
+    assert "Watchlist sustituida: 1 nuevos, 1 conservados, 2 quitados (KO, PEP)" in r.text and "1 rechazados: 123" in r.text
+    assert svc.snapshots.all("AAPL") and svc.contracts.list("AAPL")            # el que se queda conserva sus datos
+    assert svc.ticker_info.get("KO") is None and svc.contracts.list("KO") == []
+
+
+def test_add_mode_still_keeps_existing_tickers(client_and_service):
+    client, svc, gw, _ = client_and_service
+    client.post("/watchlist/paste", data={"text": "KO", "mode": "add"})
+    assert set(svc.watchlist.list()) == {"AAPL", "KO"}
+    client.post("/watchlist/paste", data={"text": "PEP"})                          # sin modo: añadir
+    assert set(svc.watchlist.list()) == {"AAPL", "KO", "PEP"}
+
+
+def test_replace_with_no_valid_tickers_does_not_wipe_the_watchlist(client_and_service):
+    client, svc, gw, _ = client_and_service
+    r = client.post("/watchlist/paste", data={"text": "123 ??? ", "mode": "replace"}, follow_redirects=True)
+    assert svc.watchlist.list() == ["AAPL"]
+    assert "ningún ticker válido" in r.text and "no se ha cambiado la watchlist" in r.text
+    r = client.post("/watchlist/paste", data={"text": "", "mode": "replace"}, follow_redirects=True)
+    assert svc.watchlist.list() == ["AAPL"]
+
+
+def test_replace_watchlist_from_uploaded_file(client_and_service):
+    client, svc, gw, _ = client_and_service
+    gw.prices["NVDA"] = 120.0
+    r = client.post("/watchlist/upload", data={"mode": "replace"},
+                    files={"file": ("w.txt", b"NVDA\nAMD\n")}, follow_redirects=True)
+    assert set(svc.watchlist.list()) == {"NVDA", "AMD"}
+    assert "Watchlist sustituida: 2 nuevos, 0 conservados, 1 quitados (AAPL)" in r.text
+    client.post("/watchlist/upload", files={"file": ("w.txt", b"KO")})              # sin modo: añadir
+    assert set(svc.watchlist.list()) == {"NVDA", "AMD", "KO"}
+    bad = client.post("/watchlist/upload", data={"mode": "replace"}, files={"file": ("w.pdf", b"x")}, follow_redirects=True)
+    assert "Error" in bad.text and set(svc.watchlist.list()) == {"NVDA", "AMD", "KO"}
+
+
+def test_watchlist_page_has_replace_buttons_with_confirmation(client_and_service):
+    client, *_ = client_and_service
+    page = client.get("/watchlist").text
+    assert page.count('name="mode" value="replace"') == 2 and "confirmReplace()" in page
+    assert 'name="mode" value="add"' in page

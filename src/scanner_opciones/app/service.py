@@ -132,6 +132,22 @@ class AppService:
             await self.run_daily(new)
         return new
 
+    async def replace_watchlist(self, parsed: ParseResult) -> tuple[list[str], list[str], list[str]]:
+        """Sustituye la watchlist por la lista dada: quita (con sus contratos) los tickers que no
+        están en ella, conserva los que siguen (con sus datos) y añade los nuevos con su actualización
+        diaria. Devuelve (nuevos, conservados, quitados). Una lista sin tickers válidos NO vacía la
+        watchlist: lanza ValueError."""
+        if not parsed.tickers:
+            raise ValueError("la lista no contiene ningún ticker válido")
+        current = self.watchlist.list()
+        wanted = set(parsed.tickers)
+        removed = [t for t in current if t not in wanted]
+        for ticker in removed:
+            self.remove_ticker(ticker)
+        kept = [t for t in current if t in wanted]
+        new = await self.add_watchlist(parsed)
+        return new, kept, removed
+
     def remove_ticker(self, ticker: str) -> dict[str, int]:
         """Quita el ticker de la watchlist y borra sus contratos (con sus cotizaciones) y su ficha.
         Se conserva el historial de IV: ahorra descargarlo si se vuelve a añadir."""

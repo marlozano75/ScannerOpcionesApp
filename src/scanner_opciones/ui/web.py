@@ -140,17 +140,29 @@ def create_app(
         return render(request, "watchlist.html", tickers=service.watchlist.list(),
                       infos=service.ticker_info.all(), message=message)
 
-    @app.post("/watchlist/paste")
-    async def watchlist_paste(request: Request, text: str = Form("")):
-        parsed = parse_text(text)
-        new = await service.add_watchlist(parsed)
-        msg = f"{len(new)} nuevos, {parsed.duplicates} repetidos, {len(parsed.rejected)} rechazados"
+    async def apply_watchlist(parsed, mode: str) -> str:
+        """Añade los tickers a la watchlist o, con mode='replace', la sustituye por ellos."""
+        rejected = f", {len(parsed.rejected)} rechazados" if parsed.rejected else ""
         if parsed.rejected:
-            msg += ": " + ", ".join(t for t, _ in parsed.rejected)
+            rejected += ": " + ", ".join(t for t, _ in parsed.rejected)
+        if mode == "replace":
+            try:
+                new, kept, removed = await service.replace_watchlist(parsed)
+            except ValueError as exc:
+                return f"Error: {exc}; no se ha cambiado la watchlist"
+            gone = f" ({', '.join(removed)})" if removed else ""
+            return (f"Watchlist sustituida: {len(new)} nuevos, {len(kept)} conservados, "
+                    f"{len(removed)} quitados{gone}, {parsed.duplicates} repetidos{rejected}")
+        new = await service.add_watchlist(parsed)
+        return f"{len(new)} nuevos, {parsed.duplicates} repetidos{rejected or ', 0 rechazados'}"
+
+    @app.post("/watchlist/paste")
+    async def watchlist_paste(request: Request, text: str = Form(""), mode: str = Form("add")):
+        msg = await apply_watchlist(parse_text(text), mode)
         return RedirectResponse(f"/watchlist?message={msg}", status_code=303)
 
     @app.post("/watchlist/upload")
-    async def watchlist_upload(request: Request, file: UploadFile):
+    async def watchlist_upload(request: Request, file: UploadFile, mode: str = Form("add")):
         suffix = Path(file.filename or "").suffix
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(await file.read())
@@ -161,11 +173,8 @@ def create_app(
             return RedirectResponse(f"/watchlist?message=Error: {exc}", status_code=303)
         finally:
             path.unlink(missing_ok=True)
-        new = await service.add_watchlist(parsed)
-        return RedirectResponse(
-            f"/watchlist?message={len(new)} nuevos, {parsed.duplicates} repetidos, {len(parsed.rejected)} rechazados",
-            status_code=303,
-        )
+        msg = await apply_watchlist(parsed, mode)
+        return RedirectResponse(f"/watchlist?message={msg}", status_code=303)
 
     @app.post("/watchlist/remove")
     async def watchlist_remove(ticker: str = Form(...)):
