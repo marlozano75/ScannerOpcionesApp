@@ -63,3 +63,13 @@ def test_from_settings_and_validation():
         MarketSettings(timezone="Marte/Olimpo")
     with pytest.raises(ValueError, match="anterior"):
         MarketSettings(open=time(16, 0), close=time(9, 30))
+
+
+def test_last_close_during_and_after_the_session_weekend_and_holiday():
+    assert CAL.last_close(ny(2026, 10, 1, 12)) == ny(2026, 9, 30, 16)      # en sesión: el de ayer
+    assert CAL.last_close(ny(2026, 10, 1, 4, 56)) == ny(2026, 9, 30, 16)   # antes de abrir
+    assert CAL.last_close(ny(2026, 10, 1, 16, 0)) == ny(2026, 10, 1, 16)   # justo al cerrar: el de hoy
+    assert CAL.last_close(ny(2026, 10, 1, 23)) == ny(2026, 10, 1, 16)
+    assert CAL.last_close(ny(2026, 10, 5, 8)) == ny(2026, 10, 2, 16)       # lunes antes de abrir: el del viernes
+    assert CAL.last_close(ny(2026, 10, 3, 12)) == ny(2026, 10, 2, 16)      # sábado
+    assert CAL.last_close(ny(2026, 11, 27, 9)) == ny(2026, 11, 25, 16)     # tras el festivo del 26

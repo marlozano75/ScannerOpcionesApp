@@ -20,9 +20,9 @@ def db():
 
 
 def test_migration_sets_version_and_is_idempotent(db):
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 5
     db.migrate()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 5
 
 
 def test_file_database_persists(tmp_path):
@@ -146,7 +146,7 @@ def test_migration_from_v1_keeps_existing_snapshots(tmp_path):
     conn.commit()
     conn.close()
     db = Database(path)
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 5
     snaps = SnapshotRepo(db).all()
     assert len(snaps) == 1 and snaps[0].bid == 1.0 and snaps[0].bid_size is None
 
@@ -192,7 +192,7 @@ def test_migration_from_v2_keeps_iv_history(tmp_path):
     conn.commit()
     conn.close()
     db = Database(path)
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 5
     assert IVHistoryRepo(db).bars("AAPL") == [(date(2026, 9, 1), 0.2, None, None)]
 
 
@@ -211,7 +211,31 @@ def test_migration_from_v3_adds_misses_and_margin_date(tmp_path):
     conn.commit()
     conn.close()
     db = Database(path)
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 4
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 5
     snap = SnapshotRepo(db).all("AAPL")[0]
     assert snap.initial_margin == 1500 and snap.margin_at is None      # sin fecha: el margen se pedirá de nuevo
     assert db.conn.execute("SELECT COUNT(*) FROM contract_misses").fetchone()[0] == 0
+
+
+def test_meta_repo_and_migration_from_v4(tmp_path):
+    import sqlite3
+
+    from scanner_opciones.storage.db import MIGRATIONS
+    from scanner_opciones.storage.repositories import MetaRepo
+
+    path = tmp_path / "v4.db"
+    conn = sqlite3.connect(path)
+    for script in MIGRATIONS[:4]:
+        conn.executescript(script)
+    conn.execute("PRAGMA user_version = 4")
+    conn.commit()
+    conn.close()
+    db = Database(path)
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 5
+    meta = MetaRepo(db)
+    assert meta.get("k") is None
+    meta.set("k", "a")
+    meta.set("k", "b")                                  # reemplaza
+    assert meta.get("k") == "b"
+    db.close()
+    assert MetaRepo(Database(path)).get("k") == "b"     # sobrevive al reinicio

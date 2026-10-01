@@ -25,12 +25,13 @@ from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settin
 from scanner_opciones.scanner.engine import ScanOutput, ScanResult, list_stored, run_scan
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
-    ContractRepo, IVHistoryRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
+    ContractRepo, IVHistoryRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 from scanner_opciones.watchlist.parser import ParseResult
 
 log = logging.getLogger(__name__)
 
+LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco completo
 STEP_TIMEOUT_SECONDS = 90  # un paso de red colgado no debe bloquear el refresco para siempre
 
 
@@ -69,12 +70,12 @@ class AppService:
         self.settings = settings
         self.now = now
         self.market = market or MarketCalendar.from_settings(settings.market)
-        self._closed_capture_done = False  # con el mercado cerrado, ya se hizo la captura completa
         self.watchlist = WatchlistRepo(db)
         self.ticker_info = TickerInfoRepo(db)
         self.iv_history = IVHistoryRepo(db)
         self.contracts = ContractRepo(db)
         self.snapshots = SnapshotRepo(db)
+        self.meta = MetaRepo(db)
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.iv_history,
                                   self.contracts, settings, now)
         self.refresh_job = RefreshJob(
@@ -101,8 +102,11 @@ class AppService:
         self.cleanup_orphans()
         # Primero se refresca con lo ya guardado (la pantalla tiene datos enseguida); la actualización
         # diaria va después en segundo plano y, al acabar, cotiza lo que haya cambiado.
-        await self.refresh_all()
-        self._closed_capture_done = not self.market.is_open(self.now())  # arrancar cerrado = ya es la captura
+        if self._paused() and not self._capture_needed():
+            log.info("Mercado cerrado y cotizaciones ya posteriores al último cierre: solo cartera y VIX")
+            await self.refresh_all(include_market=False)
+        else:
+            await self.refresh_all()
         if self.settings.daily_update.run_on_startup:
             self.launch(self.run_daily_then_refresh())
 
@@ -171,10 +175,14 @@ class AppService:
         self, tickers: Optional[list[str]] = None, wait: bool = False, revalidate: bool = False
     ) -> Optional[DailyUpdateReport]:
         """Actualización diaria y, si ha actualizado algo, un refresco para cotizar los contratos nuevos
-        sin esperar al siguiente ciclo periódico."""
+        sin esperar al siguiente ciclo periódico. Con el mercado cerrado no se cotiza: los contratos
+        nuevos quedan sin cotizar hasta la apertura."""
         report = await self.run_daily(tickers, wait=wait, revalidate=revalidate)
         if report is not None and report.updated and self.state.connected:
-            await self.refresh_all()
+            if self._paused():
+                log.info("Mercado cerrado: los contratos nuevos se cotizarán tras la apertura")
+            else:
+                await self.refresh_all()
         return report
 
     async def run_daily(
@@ -205,18 +213,24 @@ class AppService:
     def market_open(self) -> bool:
         return self.market.is_open(self.now())
 
+    def _paused(self) -> bool:
+        """True si el mercado está cerrado y la configuración pide no cotizar entonces."""
+        return self.settings.market.pause_when_closed and not self.market_open()
+
+    def _capture_needed(self) -> bool:
+        """¿Falta la captura del cierre? Sí si el último refresco completo (guardado en la base de
+        datos, así sobrevive a reinicios) es anterior al último cierre de sesión."""
+        raw = self.meta.get(LAST_FULL_REFRESH)
+        if raw is None:
+            return True
+        return datetime.fromisoformat(raw).astimezone() < self.market.last_close(self.now())
+
     async def refresh_periodic(self) -> bool:
         """Refresco automático según el horario del mercado. Abierto: completo. Cerrado: una única
-        captura completa (con datos congelados, para tener el cierre) y después solo cartera y VIX,
-        porque precios, IV, cotizaciones y márgenes no pueden cambiar hasta la apertura."""
-        if not self.settings.market.pause_when_closed or self.market_open():
-            self._closed_capture_done = False
+        captura completa tras el cierre (con datos congelados, para tener el cierre) y después solo
+        cartera y VIX, porque precios, IV, cotizaciones y márgenes no pueden cambiar hasta la apertura."""
+        if not self._paused() or self._capture_needed():
             return await self.refresh_all()
-        if not self._closed_capture_done:
-            if await self.refresh_all():
-                self._closed_capture_done = True
-                return True
-            return False
         log.info("Mercado cerrado: se refrescan solo cartera y VIX")
         return await self.refresh_all(include_market=False)
 
@@ -237,6 +251,7 @@ class AppService:
                 await self._refresh_vix()
                 if include_market:
                     self.state.last_refresh_report = await self.refresh_job.run()
+                    self.meta.set(LAST_FULL_REFRESH, self.now().isoformat())
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return False

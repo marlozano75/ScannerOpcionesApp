@@ -1,6 +1,8 @@
 import asyncio
 from datetime import date, datetime, timedelta
 
+from zoneinfo import ZoneInfo
+
 import pytest
 
 from scanner_opciones.app.service import AppService, SelectedContract
@@ -19,6 +21,24 @@ NOW = datetime(2026, 9, 29, 10, 0)
 TODAY = NOW.date()
 
 
+class FixedMarket:
+    """Calendario de pruebas (no depende de la zona horaria de la máquina): abierto o cerrado a voluntad.
+    `last_close_dt` es el último cierre de sesión que ve la aplicación."""
+
+    def __init__(self, open_: bool):
+        self.open_ = open_
+        self.last_close_dt = datetime(2026, 9, 28, 16, 0, tzinfo=ZoneInfo("America/New_York"))
+
+    def is_open(self, now):
+        return self.open_
+
+    def last_close(self, now):
+        return self.last_close_dt
+
+    def next_open(self, now):
+        return now
+
+
 def make_service(**gw_kwargs):
     gw = FakeGateway(
         account=AccountSummary("DU1", net_liquidation=100_000, excess_liquidity=45_000,
@@ -28,7 +48,7 @@ def make_service(**gw_kwargs):
                     [(TODAY + timedelta(days=20), 19.0)]),
         **gw_kwargs,
     )
-    svc = AppService(gw, Database(":memory:"), Settings(), lambda: NOW)
+    svc = AppService(gw, Database(":memory:"), Settings(), lambda: NOW, market=FixedMarket(True))
     return svc, gw
 
 
@@ -267,17 +287,7 @@ async def test_start_refreshes_first_and_runs_daily_in_background():
 
 # ---- refresco según el horario del mercado ----------------------------------------------------------
 
-class FixedMarket:
-    """Calendario de pruebas: abierto o cerrado a voluntad."""
-
-    def __init__(self, open_: bool):
-        self.open_ = open_
-
-    def is_open(self, now):
-        return self.open_
-
-    def next_open(self, now):
-        return now
+NY = ZoneInfo("America/New_York")
 
 
 def make_market_service(open_: bool):
@@ -305,50 +315,84 @@ async def test_periodic_refresh_is_complete_while_market_is_open():
     assert runs["quotes"] == before + 2
 
 
-async def test_closed_market_does_one_capture_then_only_portfolio_and_vix():
+async def test_start_closed_without_a_stored_capture_quotes_once_and_not_after_the_daily_update():
     svc, gw, runs = make_market_service(False)
-    await svc.start()                                 # arrancar cerrado: ese refresco ya es la captura
-    await svc.wait_idle()
-    before = runs["quotes"]
+    await svc.start()                                 # nunca se cotizó: hace la captura
+    await svc.wait_idle()                             # la diaria NO cotiza los contratos nuevos (mercado cerrado)
+    assert runs["quotes"] == 1
+    assert svc.meta.get("last_full_refresh_at") == NOW.isoformat()
+    assert svc.state.last_daily_report.updated == ["AAPL"]
+    assert svc.snapshots.all() == []                  # los contratos nuevos siguen sin cotizar
+
+
+async def test_restart_closed_with_capture_after_last_close_does_not_quote():
+    svc, gw, runs = make_market_service(False)
+    svc.meta.set("last_full_refresh_at", datetime(2026, 9, 28, 16, 30, tzinfo=NY).isoformat())   # tras el cierre
     svc.state.vix = None
-    assert await svc.refresh_periodic()
-    assert runs["quotes"] == before                   # no se cotiza nada
-    assert svc.state.vix is not None and svc.state.account is not None   # pero cartera y VIX sí
+    await svc.start()
+    await svc.wait_idle()
+    assert runs["quotes"] == 0                        # las cotizaciones guardadas ya son del cierre
+    assert svc.state.account is not None and svc.state.vix is not None    # pero cartera y VIX sí
     assert svc.state.last_refresh == NOW
 
 
-async def test_closed_market_captures_once_when_it_closes_during_the_session():
-    svc, gw, runs = make_market_service(True)
+async def test_restart_closed_with_capture_before_last_close_quotes_once():
+    svc, gw, runs = make_market_service(False)
+    svc.meta.set("last_full_refresh_at", datetime(2026, 9, 28, 15, 59, tzinfo=NY).isoformat())   # justo antes del cierre
     await svc.start()
     await svc.wait_idle()
+    assert runs["quotes"] == 1
+    assert datetime.fromisoformat(svc.meta.get("last_full_refresh_at")) == NOW
+
+
+async def test_periodic_closed_captures_once_after_the_close_then_only_portfolio_and_vix():
+    clock = {"now": datetime(2026, 9, 28, 15, 0, tzinfo=NY)}
+    svc, gw, runs = make_market_service(True)
+    svc.now = lambda: clock["now"]
+    await svc.start()
+    await svc.wait_idle()                             # abierto: refresco completo, marcador 15:00
     svc.market.open_ = False                          # cierra el mercado
+    svc.market.last_close_dt = datetime(2026, 9, 28, 16, 0, tzinfo=NY)
+    clock["now"] = datetime(2026, 9, 28, 16, 5, tzinfo=NY)
     before = runs["quotes"]
-    await svc.refresh_periodic()                      # primera captura tras el cierre
+    await svc.refresh_periodic()                      # el marcador es anterior al cierre: captura
+    clock["now"] = datetime(2026, 9, 28, 16, 10, tzinfo=NY)
     await svc.refresh_periodic()
     await svc.refresh_periodic()
-    assert runs["quotes"] == before + 1
-    svc.market.open_ = True                           # reabre: vuelve el ciclo completo y se rearma
+    assert runs["quotes"] == before + 1               # una sola
+    svc.market.open_ = True                           # reabre: ciclo completo
     await svc.refresh_periodic()
-    svc.market.open_ = False
-    await svc.refresh_periodic()
-    assert runs["quotes"] == before + 3
+    assert runs["quotes"] == before + 2
 
 
-async def test_manual_refresh_always_quotes_even_when_closed():
+async def test_capture_is_not_repeated_even_if_ibkr_returns_nothing():
     svc, gw, runs = make_market_service(False)
     await svc.start()
     await svc.wait_idle()
-    before = runs["quotes"]
+    assert runs["quotes"] == 1
+    for _ in range(3):
+        await svc.refresh_periodic()
+    assert runs["quotes"] == 1                        # sin cotizaciones nuevas no se reintenta cada ciclo
+
+
+async def test_manual_refresh_always_quotes_even_when_closed_and_updates_the_marker():
+    svc, gw, runs = make_market_service(False)
+    svc.meta.set("last_full_refresh_at", datetime(2026, 9, 28, 16, 30, tzinfo=NY).isoformat())
+    await svc.start()
+    await svc.wait_idle()
+    assert runs["quotes"] == 0
     assert await svc.refresh_all()
-    assert runs["quotes"] == before + 1
+    assert runs["quotes"] == 1 and datetime.fromisoformat(svc.meta.get("last_full_refresh_at")) == NOW
 
 
 async def test_pause_when_closed_can_be_disabled():
     svc, gw, runs = make_market_service(False)
     svc.settings = Settings.model_validate({"market": {"pause_when_closed": False}})
+    svc.meta.set("last_full_refresh_at", datetime(2026, 9, 28, 16, 30, tzinfo=NY).isoformat())
     await svc.start()
     await svc.wait_idle()
     before = runs["quotes"]
+    assert before >= 1                                # arranca cotizando como antes
     await svc.refresh_periodic()
     await svc.refresh_periodic()
     assert runs["quotes"] == before + 2
@@ -359,6 +403,7 @@ async def test_failed_capture_is_retried_next_cycle():
     await svc.start()
     await svc.wait_idle()
     svc.market.open_ = False
+    svc.market.last_close_dt = datetime(2026, 9, 30, 16, 0, tzinfo=NY)    # el cierre es posterior al último refresco
     gw.connected = False                              # se cae la conexión en el momento de la captura
     assert await svc.refresh_periodic() is False
     gw.connected = True

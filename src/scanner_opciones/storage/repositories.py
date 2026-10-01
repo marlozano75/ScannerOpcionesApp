@@ -22,6 +22,25 @@ def _delete_not_in(db: Database, table: str, column: str, keep: Iterable[str]) -
         return db.conn.execute(f"DELETE FROM {table} WHERE {column} NOT IN ({marks})", keep).rowcount
 
 
+class MetaRepo:
+    """Valores sueltos de la aplicación que deben sobrevivir a un reinicio."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def get(self, key: str) -> Optional[str]:
+        r = self.db.conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return r["value"] if r else None
+
+    def set(self, key: str, value: str) -> None:
+        with self.db.conn:
+            self.db.conn.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+
+
 class WatchlistRepo:
     def __init__(self, db: Database) -> None:
         self.db = db

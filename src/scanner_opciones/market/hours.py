@@ -31,6 +31,16 @@ class MarketCalendar:
         local = self._local(now)
         return self._is_session_day(local.date()) and self.open <= local.time() < self.close
 
+    def last_close(self, now: datetime) -> datetime:
+        """Último cierre de sesión ya ocurrido (aware, en la zona del mercado)."""
+        local = self._local(now)
+        day = local.date()
+        if not (self._is_session_day(day) and local.time() >= self.close):   # el cierre de hoy aún no ha llegado
+            day -= timedelta(days=1)
+            while not self._is_session_day(day):
+                day -= timedelta(days=1)
+        return datetime.combine(day, self.close, tzinfo=self.tz)
+
     def next_open(self, now: datetime) -> datetime:
         """Próxima apertura (aware, en la zona del mercado); la de hoy si aún no ha abierto."""
         local = self._local(now)

@@ -64,6 +64,8 @@ MIGRATIONS: list[str] = [
     );
     ALTER TABLE snapshots ADD COLUMN margin_at TEXT;
     """,
+    # v5: pares clave/valor de la aplicación (p. ej. cuándo se hizo el último refresco completo)
+    "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
 ]
 
 
