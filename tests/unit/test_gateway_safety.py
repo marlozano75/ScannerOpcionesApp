@@ -22,6 +22,9 @@ async def test_what_if_order_sets_tif_and_never_places_order():
     seen = {}
 
     class FakeIB:
+        def managedAccounts(self):
+            return ["U1"]
+
         def isConnected(self):
             return True
 

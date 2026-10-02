@@ -22,6 +22,9 @@ def _tick(**kw):
 
 
 class FakeIB:
+    def managedAccounts(self):
+        return ["U1"]
+
     def __init__(self, ticks=None, errors=None):
         self.ticks = ticks or {}
         self.errorEvent = Event()

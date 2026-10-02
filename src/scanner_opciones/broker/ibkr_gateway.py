@@ -120,6 +120,15 @@ class IBKRGateway:
         accounts = self.ib.managedAccounts()
         if not accounts:
             raise DataUnavailableError("TWS no devolvió ninguna cuenta gestionada")
+        if self.s.account:
+            if self.s.account not in accounts:
+                raise DataUnavailableError(
+                    f"La cuenta {self.s.account} (ibkr.account) no está entre las gestionadas: {', '.join(accounts)}"
+                )
+            return self.s.account
+        if len(accounts) > 1:
+            log.warning("TWS gestiona varias cuentas (%s) y ibkr.account no está fijado: se usa %s",
+                        ", ".join(accounts), accounts[0])
         return accounts[0]
 
     async def get_account_summary(self) -> AccountSummary:
@@ -425,7 +434,8 @@ class IBKRGateway:
         if not opt.conId:
             return None
         # whatIfOrderAsync fuerza whatIf=True: IBKR calcula el margen SIN enviar la orden.
-        state = await self.ib.whatIfOrderAsync(opt, MarketOrder("SELL", quantity, tif="DAY"))  # tif explícito: evita el aviso 10349
+        order = MarketOrder("SELL", quantity, tif="DAY", account=self._account_id())
+        state = await self.ib.whatIfOrderAsync(opt, order)  # tif explícito: evita el aviso 10349
         return m.parse_margin_change(getattr(state, "initMarginChange", None))
 
     # ---- VIX ------------------------------------------------------------------------------

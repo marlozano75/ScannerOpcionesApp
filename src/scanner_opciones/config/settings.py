@@ -37,6 +37,7 @@ class IbkrSettings(_Model):
     host: str = "127.0.0.1"
     ports: Ports = Ports()
     client_id: int = 1
+    account: Optional[str] = None  # id de cuenta (U1234567); obligatorio si el usuario gestiona varias
     mode: AccountMode = AccountMode.PAPER
     market_data_type: int = Field(2, ge=1, le=4)  # 2 = congelado: live, y con el mercado cerrado el último cierre
     delayed_minutes: float = Field(15, ge=0)  # retraso de los datos diferidos (tipos 3 y 4)
