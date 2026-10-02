@@ -557,3 +557,13 @@ def test_simulation_page_does_not_autoreload_and_get_redirects(client_and_servic
     assert r.status_code == 200 and 'http-equiv="refresh"' not in r.text    # ...la simulación no (perdería el resultado)
     g = client.get("/simulate", follow_redirects=False)                     # y un GET ya no da «Method Not Allowed»
     assert g.status_code == 303 and g.headers["location"] == "/scanner"
+
+
+def test_data_version_sube_al_refrescar_y_las_tablas_lo_vigilan(client_and_service):
+    client, svc, gw, _ = client_and_service
+    before = client.get("/data-version").json()["version"]
+    assert f"var current = {before}" in client.get("/scanner?reset=1").text
+    assert "/data-version" in client.get("/contracts").text
+    assert "/data-version" not in client.get("/").text   # el panel no vigila los datos del scanner
+    refresh(client)
+    assert client.get("/data-version").json()["version"] > before

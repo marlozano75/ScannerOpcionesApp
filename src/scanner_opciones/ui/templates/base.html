@@ -80,5 +80,26 @@
 </main>
 <script>{% include "sortable.js" %}</script>
 <script>document.querySelectorAll('table.sortable').forEach(function (t, i) { SortableTables.init(t, i); });</script>
+{% if watch_data %}<script>
+/* Recarga la tabla cuando termina un refresco (cambia data_version). Si has tocado el formulario
+   no recarga (perderías lo escrito): muestra un aviso con enlace para recargar. */
+(function () {
+  var current = {{ state.data_version }}, dirty = false, notified = false;
+  document.addEventListener('input', function () { dirty = true; });
+  function poll() {
+    fetch('/data-version', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.version === current || d.busy) return;
+      if (!dirty) { location.reload(); return; }
+      if (notified) return;
+      notified = true;
+      var b = document.createElement('div');
+      b.className = 'banner info';
+      b.innerHTML = 'Hay datos nuevos. <a href="" onclick="location.reload();return false">Recargar</a> (se perderán los cambios sin aplicar del formulario).';
+      document.querySelector('main').prepend(b);
+    }).catch(function () {});
+  }
+  setInterval(poll, 10000);
+})();
+</script>{% endif %}
 </body>
 </html>

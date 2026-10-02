@@ -55,6 +55,7 @@ class AppState:
     last_refresh_report: Optional[RefreshReport] = None
     errors: dict[str, str] = field(default_factory=dict)  # área -> último error
     activity: Optional[str] = None   # tarea en curso (se muestra en la interfaz)
+    data_version: int = 0            # sube al terminar un refresco: las páginas abiertas lo consultan para recargarse
 
 
 class AppService:
@@ -276,6 +277,7 @@ class AppService:
             finally:
                 self.state.activity = None
             self.state.last_refresh = self.now()
+            self.state.data_version += 1
             return True
 
     async def refresh_new_contracts(self) -> bool:
@@ -293,6 +295,7 @@ class AppService:
                 return False
             finally:
                 self.state.activity = None
+            self.state.data_version += 1
             return True
 
     def pacing_wait_seconds(self) -> float:
@@ -311,6 +314,7 @@ class AppService:
                 return None
             self.state.last_refresh_report = report
             self.state.last_refresh = self.now()
+            self.state.data_version += 1
             return report
 
     def _disconnected(self, exc: Exception) -> None:

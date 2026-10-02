@@ -331,9 +331,15 @@ def create_app(
                 PriceReference.MID: "mid (media bid/ask)",
                 PriceReference.BID_PLUS_SPREAD: f"bid + {c.price_spread_pct:g}% del spread",
             }[c.price_reference]
-        return render(request, "scanner.html", out=out, ref_label=ref_label,
+        return render(request, "scanner.html", out=out, ref_label=ref_label, watch_data=True,
                       candidates=service.settings.scanner.candidates,
                       report=service.state.last_refresh_report, **parsed)
+
+    @app.get("/data-version")
+    async def data_version():
+        """Versión de los datos guardados: las páginas Scanner y Contratos la consultan y se recargan
+        si cambia (RF: refresco automático de la tabla al terminar una cotización)."""
+        return {"version": service.state.data_version, "busy": service.busy}
 
     @app.get("/contracts", response_class=HTMLResponse)
     async def contracts(request: Request):
@@ -345,7 +351,7 @@ def create_app(
             PriceReference.MID: "mid (media bid/ask)",
             PriceReference.BID_PLUS_SPREAD: f"bid + {c.price_spread_pct:g}% del spread",
         }[c.price_reference]
-        return render(request, "contracts.html", rows=rows, ref_label=ref_label,
+        return render(request, "contracts.html", rows=rows, ref_label=ref_label, watch_data=True,
                       quoted=sum(1 for r in rows if r.snapshot.updated_at is not None),
                       candidates=service.settings.scanner.candidates)
 
