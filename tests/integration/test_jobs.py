@@ -164,19 +164,19 @@ async def test_daily_update_drops_contracts_that_do_not_exist(env):
     assert [c.strike for c in env.contracts.list("AAPL")] == [80.0]
 
 
-async def test_stored_range_is_5_to_40_pct_and_up_to_45_dte(env):
+async def test_stored_range_is_5_to_35_pct_and_up_to_45_dte(env):
     env.gw.prices["AAPL"] = 100.0
     env.gw.chains["AAPL"] = OptionChain(
         "AAPL",
         [TODAY + timedelta(days=n) for n in (0, 1, 30, 45, 46)],
-        [50.0, 60.0, 70.0, 85.0, 96.0],
+        [50.0, 60.0, 65.0, 70.0, 85.0, 96.0],
     )
     env.watch.add(["AAPL"], NOW)
     await env.daily.run(["AAPL"])
     stored = {(c.expiry - TODAY).days: sorted(x.strike for x in env.contracts.list("AAPL") if x.expiry == c.expiry)
               for c in env.contracts.list("AAPL")}
     assert set(stored) == {1, 30, 45}            # DTE 0 y 46 fuera
-    assert stored[30] == [60.0, 70.0, 85.0]      # -40 %, -30 %, -15 %; 50 (-50 %) y 96 (-4 %) fuera
+    assert stored[30] == [65.0, 70.0, 85.0]      # -35 %, -30 %, -15 %; 60 (-40 %), 50 (-50 %) y 96 (-4 %) fuera
 
 
 async def test_refresh_only_quotes_contracts_in_scope_unless_criteria_given(env):

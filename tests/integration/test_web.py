@@ -87,7 +87,7 @@ def test_scanner_defaults_from_config(client_and_service):
     for name, value in (("discount", "10"), ("dte_min", "1"), ("dte_max", "35"), ("min_yield", "1")):
         assert f'name="{name}"' in r.text and f'name="{name}" id="{name}" size="{6 if "d" in name[:1] and "dte" not in name else 5}" value="{value}"' in r.text.replace(
             'size="6" value', 'size="6" value').replace('size="5" value', 'size="5" value') or f'value="{value}"' in r.text
-    assert 'name="discount_max"' not in r.text and "40.0%" in r.text   # descuento máx. fijo = máx. del rango guardado
+    assert 'name="discount_max"' not in r.text and "35.0%" in r.text   # descuento máx. fijo = máx. del rango guardado
     assert "checked" not in _optional_block(r.text)          # ningún filtro opcional marcado
 
 

@@ -47,7 +47,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-19 | Diversificación sectorial para las próximas 5 semanas con contratos abiertos. | L57 |
 | RF-20 | Panel de riesgo: mostrar **Gross Position Value** (tag `GrossPositionValue` de IBKR), **Nominal Assignment Exposure** = Short Put Exposure − Long Put Protection (nominal = strike × multiplicador × contratos) y **Leverage Assignment** = NAE / NLV. También antes/después en el simulador. | Petición del usuario 2026-09-29 |
 | RF-21 | VIX y futuros VIX solo con barras históricas diarias (sin suscripción en tiempo real; futuros CFE con `useRTH=False`). Ningún paso de red puede colgarse: timeouts. | Petición del usuario 2026-09-29 |
-| RF-23 | La actualización diaria guarda los contratos con strike de −5 % a −40 % y DTE hasta 45 días (configurable en `scanner.candidates`; antes −45 % y 60 días: casi nunca se filtraba por encima de 40 DTE). Cada ciclo automático solo cotiza los que encajan con los valores iniciales de Regular/Táctica; un botón cotiza el rango elegido en el formulario. | Petición del usuario 2026-09-29 |
+| RF-23 | La actualización diaria guarda los contratos con strike de −5 % a −35 % y DTE hasta 45 días (configurable en `scanner.candidates`; antes −45 % y 60 días: casi nunca se filtraba por encima de 40 DTE). Cada ciclo automático solo cotiza los que encajan con los valores iniciales de Regular/Táctica; un botón cotiza el rango elegido en el formulario. | Petición del usuario 2026-09-29 |
 | RF-24 | Al quitar un ticker de la watchlist se borran sus contratos (con sus cotizaciones) y su ficha; el historial de IV se conserva. Al arrancar y antes de cada refresco se eliminan los datos de tickers que ya no están en la watchlist. | Petición del usuario 2026-09-29 |
 | RF-25 | La actualización diaria forzada se ejecuta en segundo plano y espera su turno si hay otra tarea en curso (no se omite en silencio); la interfaz muestra la tarea en curso y su progreso. | Petición del usuario 2026-09-29 |
 | RF-26 | El precio del subyacente se actualiza en cada ciclo de refresco (no solo en la actualización diaria); las distancias y el filtro de descuento usan ese precio. La columna se llama **Desc.** | Petición del usuario 2026-09-29 |
@@ -222,7 +222,7 @@ ScannerOpcionesApp/
 | `logging.ib_async_level` | `WARNING` | Nivel del log de `ib_async` |
 | `daily_update.concurrency` | `4` | Tickers que se actualizan a la vez en la actualización diaria |
 | `refresh.margin_max_age_minutes` | `60` | Antigüedad máxima del margen (what-if) guardado que se reutiliza sin volver a pedirlo |
-| `scanner.candidates.*` | strikes `5`–`40` % por debajo, DTE `1`–`45` | **Rango que se GUARDA** en la actualización diaria; el scanner solo ve contratos dentro de él |
+| `scanner.candidates.*` | strikes `5`–`35` % por debajo, DTE `1`–`45` | **Rango que se GUARDA** en la actualización diaria; el scanner solo ve contratos dentro de él |
 | `scanner.initial.strike_below_pct_min` / `_max` | `10` / `30` | descuento mínimo y máximo del strike; valores iniciales editables |
 | `scanner.initial.min_annual_yield_pct` | `12.0` | valor inicial editable |
 | `scanner.initial.dte_min` / `dte_max` | `1` / `35` | valores iniciales editables (Q-03) |

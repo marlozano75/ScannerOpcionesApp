@@ -22,7 +22,7 @@ daily_update:
 scanner:
   candidates:              # contratos que se GUARDAN en la actualización diaria
     strike_below_pct_min: 5    # strikes desde un 5 % ...
-    strike_below_pct_max: 40   # ... hasta un 40 % por debajo del precio
+    strike_below_pct_max: 35   # ... hasta un 35 % por debajo del precio
     dte_min: 1
     dte_max: 45                # vencimientos hasta 45 días
   price_reference:         # precio de venta con el que se calcula el yield

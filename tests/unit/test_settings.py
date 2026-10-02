@@ -22,7 +22,7 @@ def test_example_config_loads_with_agreed_defaults():
     assert (ini.strike_below_pct_min, ini.strike_below_pct_max, ini.dte_min, ini.dte_max) == (10, 30, 1, 35)
     assert (s.scanner.operation.regular_dte_min, s.scanner.operation.regular_dte_max) == (25, 35)
     c = s.scanner.candidates
-    assert (c.strike_below_pct_min, c.strike_below_pct_max, c.dte_max) == (5, 40, 45)
+    assert (c.strike_below_pct_min, c.strike_below_pct_max, c.dte_max) == (5, 35, 45)
     assert s.risk.cushion_thresholds.normal_above == 40
     assert s.risk.cushion_thresholds.concern_above == 30
     assert s.diversification.weeks_ahead == 5
