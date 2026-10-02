@@ -248,10 +248,11 @@ def create_app(
     def parse_scan(qp) -> dict:
         """Lee el formulario del scanner (GET o POST). Devuelve form, criteria, error y avisos."""
         submitted = "submitted" in qp
-        base = service.criteria()
         cand = service.settings.scanner.candidates
+        # el descuento máximo no es editable: es siempre el máximo del rango guardado (scanner.candidates)
+        base = service.criteria().with_filters(strike_below_pct_max=cand.strike_below_pct_max)
         form = {
-            "discount": _fmt(base.strike_below_pct_min), "discount_max": _fmt(base.strike_below_pct_max),
+            "discount": _fmt(base.strike_below_pct_min),
             "dte_min": str(base.dte_min), "dte_max": str(base.dte_max),
             "min_yield": _fmt(base.min_annual_yield_pct),
             "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
@@ -271,7 +272,7 @@ def create_app(
         try:
             overrides: dict = {}
             if submitted:
-                for key in ("discount", "discount_max", "dte_min", "dte_max", "min_yield"):
+                for key in ("discount", "dte_min", "dte_max", "min_yield"):
                     form[key] = qp.get(key, "").strip()
                 form["ref"] = qp.get("ref", form["ref"])
                 form["ref_x"] = qp.get("ref_x", form["ref_x"]).strip()   # ausente = valor de la configuración
@@ -279,7 +280,6 @@ def create_app(
                     form[f"use_{key}"] = f"use_{key}" in qp
                     form[key] = qp.get(key, "").strip()
                 overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento mín. del strike")
-                overrides["strike_below_pct_max"] = _required(form["discount_max"], float, "Descuento máx. del strike")
                 overrides["min_annual_yield_pct"] = _required(form["min_yield"], float, "Yield anual mín.")
                 overrides["dte_min"] = _required(form["dte_min"], int, "DTE mín.")
                 overrides["dte_max"] = _required(form["dte_max"], int, "DTE máx.")
@@ -291,11 +291,11 @@ def create_app(
                     overrides["price_spread_pct"] = _required(form["ref_x"], float, "X (% del spread)")
                     if not (0 <= overrides["price_spread_pct"] <= 100):
                         raise ValueError("X (% del spread) debe estar entre 0 y 100")
-                lo, hi = overrides["strike_below_pct_min"], overrides["strike_below_pct_max"]
-                if not (0 <= lo < 100 and 0 <= hi < 100):
+                lo, hi = overrides["strike_below_pct_min"], base.strike_below_pct_max
+                if not (0 <= lo < 100):
                     raise ValueError("el descuento del strike debe estar entre 0 y 100")
                 if lo > hi:
-                    raise ValueError("el descuento mínimo no puede superar el máximo")
+                    raise ValueError(f"el descuento mínimo no puede superar el máximo del rango guardado ({hi:g} %)")
                 if overrides["min_annual_yield_pct"] < 0:
                     raise ValueError("el yield mínimo no puede ser negativo")
                 if overrides["dte_min"] < 0 or overrides["dte_min"] > overrides["dte_max"]:
@@ -307,9 +307,6 @@ def create_app(
             if criteria.strike_below_pct_min < cand.strike_below_pct_min:
                 warnings.append(f"Descuento mín. por debajo del rango guardado ({cand.strike_below_pct_min:g}%): "
                                 "no hay contratos con menos descuento.")
-            if criteria.strike_below_pct_max > cand.strike_below_pct_max:
-                warnings.append(f"Descuento máx. por encima del rango guardado ({cand.strike_below_pct_max:g}%): "
-                                "no hay contratos con más descuento.")
             if criteria.dte_max > cand.dte_max or criteria.dte_min < cand.dte_min:
                 warnings.append(f"DTE fuera del rango guardado ({cand.dte_min}–{cand.dte_max} días): "
                                 "no hay contratos fuera de él.")

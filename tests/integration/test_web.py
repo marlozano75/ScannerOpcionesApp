@@ -72,7 +72,7 @@ def test_watchlist_upload_xlsx_and_bad_file(client_and_service):
     assert "Error" in r.text
 
 
-BASE = "/scanner?submitted=1&discount=20&discount_max=40&discount_max=40&dte_min=25&dte_max=35&min_yield=1"
+BASE = "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=1"
 
 
 def _optional_block(html: str) -> str:
@@ -84,9 +84,10 @@ def test_scanner_defaults_from_config(client_and_service):
     refresh(client)
     r = client.get("/scanner")
     assert r.status_code == 200 and "contratos cumplen" in r.text and "AAPL" in r.text
-    for name, value in (("discount", "10"), ("discount_max", "30"), ("dte_min", "1"), ("dte_max", "35"), ("min_yield", "1")):
+    for name, value in (("discount", "10"), ("dte_min", "1"), ("dte_max", "35"), ("min_yield", "1")):
         assert f'name="{name}"' in r.text and f'name="{name}" id="{name}" size="{6 if "d" in name[:1] and "dte" not in name else 5}" value="{value}"' in r.text.replace(
             'size="6" value', 'size="6" value').replace('size="5" value', 'size="5" value') or f'value="{value}"' in r.text
+    assert 'name="discount_max"' not in r.text and "40.0%" in r.text   # descuento máx. fijo = máx. del rango guardado
     assert "checked" not in _optional_block(r.text)          # ningún filtro opcional marcado
 
 
@@ -106,7 +107,7 @@ def test_operation_column_regular_between_25_and_35_dte_otherwise_tactical(clien
     for c in svc.contracts.list("AAPL"):
         gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=500)
     refresh(client)
-    out = client.get("/scanner?submitted=1&discount=10&discount_max=30&dte_min=1&dte_max=35&min_yield=0.1").text
+    out = client.get("/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1").text
     assert "<th>Operación</th>" in out
     rows = [row for row in out.split("<tr>") if '<td class="tk">AAPL' in row]
     by_dte = {int(row.split("<td>")[3].split("</td>")[0]): ("Regular" in row, "Táctica" in row) for row in rows}
@@ -131,36 +132,34 @@ def test_discount_dte_and_yield_are_editable(client_and_service):
     # DTE 25-35: el contrato guardado (DTE 30) aparece; con DTE 40-50 no
     assert "contratos cumplen" in client.get(BASE).text
     assert "Ningún contrato cumple" in client.get(
-        "/scanner?submitted=1&discount=20&discount_max=40&dte_min=40&dte_max=50&min_yield=1").text
+        "/scanner?submitted=1&discount=20&dte_min=40&dte_max=50&min_yield=1").text
     # descuento mínimo 30 %: el strike a 25 % ya no cumple (solo el de 30 %, si existe)
     assert "Ningún contrato cumple" in client.get(
-        "/scanner?submitted=1&discount=35&discount_max=40&dte_min=25&dte_max=35&min_yield=1").text
+        "/scanner?submitted=1&discount=35&dte_min=25&dte_max=35&min_yield=1").text
     assert "Ningún contrato cumple" in client.get(
-        "/scanner?submitted=1&discount=20&discount_max=40&dte_min=25&dte_max=35&min_yield=50").text
-    wide = client.get("/scanner?submitted=1&discount=15&discount_max=40&dte_min=1&dte_max=60&min_yield=0.1")
+        "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=50").text
+    wide = client.get("/scanner?submitted=1&discount=15&dte_min=1&dte_max=60&min_yield=0.1")
     assert "contratos cumplen" in wide.text and "yield anual ≥ 0.1%" in wide.text and "DTE 1–60" in wide.text
 
 
 def test_warning_when_outside_stored_range(client_and_service):
     client, svc, gw, _ = client_and_service
-    r = client.get("/scanner?submitted=1&discount=2&discount_max=45&dte_min=25&dte_max=90&min_yield=1")
-    assert "Descuento mín. por debajo del rango guardado" in r.text and "Descuento máx. por encima del rango guardado" in r.text
+    r = client.get("/scanner?submitted=1&discount=2&dte_min=25&dte_max=90&min_yield=1")
+    assert "Descuento mín. por debajo del rango guardado" in r.text and "Descuento máx." not in r.text
     assert "DTE fuera del rango guardado" in r.text
     ok = client.get(BASE)
     assert "Guardado en la actualización diaria" in ok.text and "banner info" not in ok.text.split("</form>")[1].split("<script>")[0]
 
 
 @pytest.mark.parametrize("qs", [
-    "discount=100&discount_max=40&dte_min=25&dte_max=35&min_yield=1",   # descuento fuera de rango
-    "discount=20&discount_max=40&dte_min=40&dte_max=35&min_yield=1",    # DTE mín > máx
-    "discount=20&discount_max=40&dte_min=25&dte_max=35&min_yield=-1",   # yield negativo
-    "discount=&discount_max=40&dte_min=25&dte_max=35&min_yield=1",      # vacío
-    "discount=x&discount_max=40&dte_min=25&dte_max=35&min_yield=1",     # no numérico
-    "discount=20&discount_max=40&dte_min=2.5&dte_max=35&min_yield=1",   # DTE no entero
-    "discount=20&discount_max=40&dte_min=25&dte_max=&min_yield=1",      # DTE máx vacío
-    "discount=20&discount_max=10&dte_min=25&dte_max=35&min_yield=1",    # descuento mín > máx
-    "discount=20&discount_max=&dte_min=25&dte_max=35&min_yield=1",      # descuento máx vacío
-    "discount=20&discount_max=100&dte_min=25&dte_max=35&min_yield=1",   # descuento máx fuera de rango
+    "discount=100&dte_min=25&dte_max=35&min_yield=1",   # descuento fuera de rango
+    "discount=20&dte_min=40&dte_max=35&min_yield=1",    # DTE mín > máx
+    "discount=20&dte_min=25&dte_max=35&min_yield=-1",   # yield negativo
+    "discount=&dte_min=25&dte_max=35&min_yield=1",      # vacío
+    "discount=x&dte_min=25&dte_max=35&min_yield=1",     # no numérico
+    "discount=20&dte_min=2.5&dte_max=35&min_yield=1",   # DTE no entero
+    "discount=20&dte_min=25&dte_max=&min_yield=1",      # DTE máx vacío
+    "discount=45&dte_min=25&dte_max=35&min_yield=1",                    # descuento mín > máx del rango guardado (40)
 ])
 def test_invalid_form_values(client_and_service, qs):
     client, *_ = client_and_service
@@ -187,7 +186,7 @@ def test_refresh_scoped_quotes_wider_range_then_redirects(client_and_service):
     gw.quotes[far] = OptionQuote(bid=1.0, ask=1.2, open_interest=100)
     refresh(client)
     assert svc.snapshots.all("AAPL") == []                   # el refresco automático no lo cotiza
-    data = {"submitted": "1", "discount": "20", "discount_max": "40", "dte_min": "25", "dte_max": "60", "min_yield": "0.5"}
+    data = {"submitted": "1", "discount": "20", "dte_min": "25", "dte_max": "60", "min_yield": "0.5"}
     r = client.post("/scanner/refresh", data=data, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].startswith("/scanner?")
     assert len(svc.snapshots.all("AAPL")) == 1               # ahora sí
@@ -274,7 +273,7 @@ def test_price_reference_changes_which_contracts_pass(client_and_service):
     for c in svc.contracts.list("AAPL"):          # spread muy ancho: bid 0.40 / ask 1.60 (mid 1.00)
         gw.quotes[c] = OptionQuote(bid=0.40, ask=1.60, open_interest=500)
     refresh(client)
-    url = "/scanner?submitted=1&discount=20&discount_max=40&dte_min=25&dte_max=35&min_yield=15"
+    url = "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=15"
     assert "Ningún contrato cumple" in client.get(url + "&ref=bid&ref_x=25").text          # 0.40/75 = 0.53 %
     assert "Ningún contrato cumple" in client.get(url + "&ref=bid_plus_spread&ref_x=25").text   # 0.70/75 = 0.93 %
     assert "contratos cumplen" in client.get(url + "&ref=mid&ref_x=25").text              # 1.00/75 = 1.33 %
