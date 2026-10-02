@@ -31,7 +31,7 @@ o 7496 (real). La app arranca aunque TWS no esté disponible y lo indica en pant
 - **RankedStocks:** la pestaña carga el .xlsx que tú descargas de rankedstocks.com (eliges el fichero; la app no se conecta a su web ni lee carpetas), muestra sus columnas, filtra por cada una (texto, lista de valores o rango numérico) y permite **añadir** la selección a la watchlist o **sustituirla**. El fichero queda en memoria hasta que reinicies la app. Los `.xlsx` de `watchlists/RankedStocks_*.xlsx` están en `.gitignore`.
 - **Scanner:** un único filtro editable (descuento del strike 10 %–30 %, DTE 1–35), con una columna **Operación** que marca **Regular** (DTE 25–35) o **Táctica** (el resto);
   yield anual ≥ 12 % (≈ 1 % bruto a 30 días; yield anual = prima ÷ strike × 365 ÷ DTE; prima = precio de venta de referencia ÷ strike: Bid, Mid o Bid + X % del spread; por defecto Bid + 25 %). El descuento del strike (mín./máx.) y el yield anual mínimo se editan en el propio formulario. Filtros opcionales (OI, Bid size, spread, IV Rank, IV Percentile): solo se aplican si marcas su casilla.
-- **Simulador:** marca contratos en el scanner y pulsa *Simular seleccionados*.
+- **Simulador:** marca contratos en el scanner y pulsa *Simular seleccionados*. Compara antes y después el cushion, el apalancamiento por asignación y la distribución por sector (total y por semana de vencimiento).
 - **Panel:** cushion de IBKR con semáforo (> 40 % verde, 30–40 % ámbar, ≤ 30 % rojo), Look Ahead, Post-Expiration y Severidad IBKR (0 verde, 1 ámbar, 2 naranja, 3 rojo), VIX y diversificación.
 - Exposición: **Gross Position Value**, **Nominal Assignment Exposure** (short puts − long puts) y **Leverage Assignment** (NAE / NLV).
 - Selector **cuenta real / simulada** en la cabecera.

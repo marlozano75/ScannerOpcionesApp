@@ -38,12 +38,26 @@
 <div class="card">
   <h2>Diversificación sectorial: actual vs. simulada</h2>
   <div class="scroll"><table>
-    <tr><th>Sector</th><th>Actual</th><th>Simulada</th><th>Cambio (pp)</th></tr>
+    <tr><th>Sector</th><th>Actual</th><th style="width:22%"></th><th>Simulada</th><th style="width:22%"></th><th>Cambio (pp)</th></tr>
     {% for s in sectors %}
-      <tr><td>{{ s }}</td><td>{{ result.before.weights_pct.get(s, 0)|pct }}</td><td>{{ result.after.weights_pct.get(s, 0)|pct }}</td>
+      {% set b = result.before.weights_pct.get(s, 0) %}{% set a = result.after.weights_pct.get(s, 0) %}
+      <tr><td>{{ s }}</td><td>{{ b|pct }}</td><td><div class="bar" style="width:{{ b }}%"></div></td>
+        <td>{{ a|pct }}</td><td><div class="bar" style="width:{{ a }}%"></div></td>
         <td>{{ '%+.1f'|format(result.delta_pct.get(s, 0)) }}</td></tr>
     {% endfor %}
-    <tr><td><strong>Exposición total</strong></td><td>{{ result.before.total_exposure|money }}</td><td>{{ result.after.total_exposure|money }}</td><td></td></tr>
+    <tr><td><strong>Exposición total</strong></td><td colspan="2">{{ result.before.total_exposure|money }}</td><td colspan="2">{{ result.after.total_exposure|money }}</td><td></td></tr>
+  </table></div>
+</div>
+<div class="card">
+  <h2>Puts vendidas por semana y sector (peso): actual vs. simulado</h2>
+  <div class="scroll"><table>
+    <tr><th>Semana</th><th></th>{% for s in week_sectors %}<th>{{ s }}</th>{% endfor %}<th>Total</th></tr>
+    {% for b, a in result.weeks_before|zip(result.weeks_after) %}
+      <tr><td rowspan="2">{{ a.week_start }}</td><td class="muted">Actual</td>
+        {% for s in week_sectors %}<td>{{ (b.weights_pct.get(s))|pct(0) if b.total else '—' }}</td>{% endfor %}<td>{{ b.total|money }}</td></tr>
+      <tr><td class="muted">Simulado</td>
+        {% for s in week_sectors %}<td>{{ (a.weights_pct.get(s))|pct(0) if a.total else '—' }}</td>{% endfor %}<td>{{ a.total|money }}</td></tr>
+    {% endfor %}
   </table></div>
 </div>
 <div class="card">

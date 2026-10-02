@@ -390,6 +390,8 @@ def create_app(
         except ValueError as exc:
             return render(request, "simulation.html", no_autorefresh=True, result=None, selected=selected, error=str(exc))
         return render(request, "simulation.html", no_autorefresh=True, result=result, selected=selected, error=None,
-                      sectors=sorted(set(result.before.weights_pct) | set(result.after.weights_pct)))
+                      sectors=sorted(set(result.before.weights_pct) | set(result.after.weights_pct),
+                                     key=lambda s: -result.after.weights_pct.get(s, 0.0)),
+                      week_sectors=sorted({s for w in result.weeks_before + result.weeks_after for s in w.amounts}))
 
     return app

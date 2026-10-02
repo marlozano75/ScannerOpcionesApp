@@ -39,7 +39,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-11 | Al ejecutar el escaneo se muestran **solo** contratos que cumplen los criterios. | L36 |
 | RF-12 | Cada contrato mostrado incluye: incremento del peso de su sector en la cartera si se toma; peso respecto al resto de contratos que expiran la misma semana. | L38 |
 | RF-13 | Cada contrato incluye el % de cartera que supondría si es asignado al precio de strike. | L39 |
-| RF-14 | Seleccionar varios contratos y simular diversificación y riesgo (cushion, márgenes, …). Mostrar cartera actual vs. futura si se ejercieran. | L42 |
+| RF-14 | Seleccionar varios contratos y simular diversificación y riesgo (cushion, márgenes, …). Mostrar cartera actual vs. futura si se ejercieran. | L42 | La simulación muestra el antes y el después de la distribución por sector (peso total con barras y peso por sector en cada semana de vencimiento).
 | RF-15 | Panel de riesgo: Cushion de cartera + semáforo. | L44-48 |
 | RF-16 | Mostrar Look Ahead y Post-Expiration con el semáforo de cushion, y la Severidad (`HighestSeverity` de IBKR) en lugar de Overnight (0 verde, 1 ámbar, 2 naranja, 3 rojo). | L50 + decisión del usuario |
 | RF-17 | Mostrar VIX últimos 5 días, VIX actual y futuros VIX previstos a 2-3 semanas. | L52 |
