@@ -1,24 +1,39 @@
 {% extends "base.html" %}
 {% import "_contract_cols.html" as cols %}
+{% macro num(name, size, value, max=none) -%}
+  <span class="stepper"><input name="{{ name }}" id="{{ name }}" size="{{ size }}" value="{{ value }}"{% if max is not none %} data-max="{{ max }}"{% endif %}>
+    <button type="button" class="step secondary" data-d="-1" title="Restar 1 y escanear">−</button><button type="button" class="step secondary" data-d="1" title="Sumar 1 y escanear">+</button></span>
+{%- endmacro %}
 {% block content %}
+<style>
+  .stepper { display:inline-flex; gap:2px; align-items:center; }
+  .stepper button.step { padding:4px 8px; line-height:1; }
+  .presets { margin:0 0 10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+</style>
 <div class="card">
   <h2>Scanner de puts vendidas
     <a href="/contracts" target="_blank" rel="noopener" class="muted" style="font-size:13px;font-weight:400;margin-left:12px"
        title="Todos los contratos guardados, en otra pestaña">Ver todos los contratos guardados ↗</a></h2>
   <form method="get" action="/scanner" id="scan-form">
     <input type="hidden" name="submitted" value="1">
+    {% if presets %}<div class="presets"><span class="muted">Configuraciones:</span>
+      {% for p in presets %}<button type="button" class="secondary preset" data-discount="{{ p.discount }}" data-dte-min="{{ p.dte_min }}"
+        data-dte-max="{{ p.dte_max }}" data-yield="{{ p.min_yield }}"
+        title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield anual mín. {{ p.min_yield }} %">{{ p.name }}
+        <span class="muted">({{ p.discount }}% · DTE {{ p.dte_min }}–{{ p.dte_max }} · {{ p.min_yield }}%)</span></button>{% endfor %}
+    </div>{% endif %}
     <div class="filters">
-      <label>Descuento mín. del strike (%) <input name="discount" id="discount" size="6" value="{{ form.discount }}"></label>
-      <label>DTE mín. <input name="dte_min" id="dte_min" size="5" value="{{ form.dte_min }}"></label>
-      <label>DTE máx. <input name="dte_max" id="dte_max" size="5" value="{{ form.dte_max }}"></label>
-      <label>Yield anual mín. (%) <input name="min_yield" id="min_yield" size="6" value="{{ form.min_yield }}"></label>
+      <label>Descuento mín. del strike (%) {{ num("discount", 6, form.discount, 99) }}</label>
+      <label>DTE mín. {{ num("dte_min", 5, form.dte_min) }}</label>
+      <label>DTE máx. {{ num("dte_max", 5, form.dte_max) }}</label>
+      <label>Yield anual mín. (%) {{ num("min_yield", 6, form.min_yield) }}</label>
       <label>Precio de venta de referencia
         <select name="ref" id="ref">
           <option value="bid" {{ 'selected' if form.ref == 'bid' }}>Bid</option>
           <option value="mid" {{ 'selected' if form.ref == 'mid' }}>Mid (media bid/ask)</option>
           <option value="bid_plus_spread" {{ 'selected' if form.ref == 'bid_plus_spread' }}>Bid + X % del spread</option>
         </select></label>
-      <label id="ref_x_label" {{ 'hidden' if form.ref != 'bid_plus_spread' }}>X (% del spread) <input name="ref_x" id="ref_x" size="5" value="{{ form.ref_x }}"></label>
+      <label id="ref_x_label" {{ 'hidden' if form.ref != 'bid_plus_spread' }}>X (% del spread) {{ num("ref_x", 5, form.ref_x, 100) }}</label>
     </div>
     <p class="muted" style="margin:10px 0 4px">Filtros opcionales — márcalos para aplicarlos:</p>
     <div class="filters">
@@ -53,10 +68,36 @@
   document.getElementById('ref').addEventListener('change', function () {
     document.getElementById('ref_x_label').hidden = (this.value !== 'bid_plus_spread');
   });
+  // Configuraciones preconfiguradas: cargan sus valores en el formulario (el resto de filtros se conserva) y escanean
+  const form = document.getElementById('scan-form');
+  document.querySelectorAll('button.preset').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.getElementById('discount').value = b.dataset.discount;
+      document.getElementById('dte_min').value = b.dataset.dteMin;
+      document.getElementById('dte_max').value = b.dataset.dteMax;
+      document.getElementById('min_yield').value = b.dataset.yield;
+      form.submit();
+    });
+  });
+  // Botones − / + de cada caja: suman o restan 1 y escanean (varios clics seguidos se acumulan en un solo escaneo)
+  let timer = null;
+  document.querySelectorAll('button.step').forEach(function (b) {
+    b.addEventListener('click', function () {
+      const input = b.parentElement.querySelector('input');
+      const cur = parseFloat(String(input.value).replace(',', '.'));
+      let v = (isNaN(cur) ? 0 : cur) + parseInt(b.dataset.d, 10);
+      const max = input.dataset.max !== undefined ? parseFloat(input.dataset.max) : Infinity;
+      v = Math.min(max, Math.max(0, Math.round(v * 10000) / 10000));
+      input.value = v;
+      clearTimeout(timer);
+      timer = setTimeout(function () { form.submit(); }, 400);
+    });
+  });
   document.querySelectorAll('label.opt').forEach(function (l) {
     const cb = l.querySelector('input[type=checkbox]'), tx = l.querySelector('input:not([type=checkbox])');
     const sync = function () { tx.style.opacity = cb.checked ? 1 : .45; };
     cb.addEventListener('change', sync); sync();
+    cb.addEventListener('change', function () { form.submit(); });   // marcar o desmarcar un filtro opcional escanea
   });
 </script>
 {% if error %}<div class="banner err">{{ error }}</div>{% endif %}

@@ -264,9 +264,13 @@ def create_app(
             "ivr": ("min_iv_rank", float, base.min_iv_rank),
             "ivp": ("min_iv_percentile", float, base.min_iv_percentile),
         }
+        fv = service.settings.scanner.filter_values
+        shown = {"oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
+                 "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile}
         for key, (_, _, cfg_value) in optional.items():   # estado inicial desde la configuración
             form[f"use_{key}"] = cfg_value is not None
-            form[key] = "" if cfg_value is None else _fmt(cfg_value)
+            # desmarcado: la caja muestra su valor por defecto (marcarlo lo aplica)
+            form[key] = _fmt(cfg_value if cfg_value is not None else shown[key])
 
         criteria, error, warnings = None, None, []
         try:
@@ -328,7 +332,11 @@ def create_app(
                 PriceReference.MID: "mid (media bid/ask)",
                 PriceReference.BID_PLUS_SPREAD: f"bid + {c.price_spread_pct:g}% del spread",
             }[c.price_reference]
-        return render(request, "scanner.html", out=out, ref_label=ref_label, watch_data=True,
+        cand = service.settings.scanner.candidates
+        presets = [dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
+                        dte_max=p.dte_max if p.dte_max is not None else cand.dte_max,
+                        min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
+        return render(request, "scanner.html", out=out, ref_label=ref_label, watch_data=True, presets=presets,
                       candidates=service.settings.scanner.candidates,
                       report=service.state.last_refresh_report, **parsed)
 

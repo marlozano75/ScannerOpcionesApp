@@ -123,12 +123,44 @@ class OperationSettings(_Model):
         return self
 
 
+class ScannerPreset(_Model):
+    """Botón del scanner que carga estos valores en el formulario y escanea. `dte_max` None = el máximo
+    de la ventana guardada (`candidates.dte_max`)."""
+    name: str
+    strike_below_pct_min: float = Field(ge=0, lt=100)
+    dte_min: int = Field(ge=0)
+    dte_max: Optional[int] = Field(None, ge=0)
+    min_annual_yield_pct: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _check(self) -> "ScannerPreset":
+        if self.dte_max is not None and self.dte_min > self.dte_max:
+            raise ValueError("dte_min no puede superar dte_max")
+        return self
+
+
+DEFAULT_PRESETS = (
+    ScannerPreset(name="Corto plazo", strike_below_pct_min=10, dte_min=1, dte_max=15, min_annual_yield_pct=20),
+    ScannerPreset(name="Largo plazo", strike_below_pct_min=20, dte_min=16, dte_max=None, min_annual_yield_pct=13),
+)
+
+
 class FilterSettings(_Model):
     min_oi: Optional[int] = Field(None, ge=0)
     min_bid_size: Optional[int] = Field(None, ge=0)
     max_spread_pct: Optional[float] = Field(None, ge=0)
     min_iv_rank: Optional[float] = Field(None, ge=0, le=100)
     min_iv_percentile: Optional[float] = Field(None, ge=0, le=100)
+
+
+class FilterValues(_Model):
+    """Valores que aparecen en las cajas de los filtros opcionales aunque estén desmarcados
+    (marcar el filtro los aplica). `scanner.filters` decide cuáles empiezan marcados."""
+    min_oi: int = Field(100, ge=0)
+    min_bid_size: int = Field(20, ge=0)
+    max_spread_pct: float = Field(35, ge=0)
+    min_iv_rank: float = Field(30, ge=0, le=100)
+    min_iv_percentile: float = Field(50, ge=0, le=100)
 
 
 class PriceReferenceSettings(_Model):
@@ -143,6 +175,8 @@ class ScannerSettings(_Model):
     initial: InitialFilterSettings = InitialFilterSettings()
     operation: OperationSettings = OperationSettings()
     filters: FilterSettings = FilterSettings()
+    filter_values: FilterValues = FilterValues()
+    presets: tuple[ScannerPreset, ...] = DEFAULT_PRESETS
 
 
 class CushionThresholds(_Model):

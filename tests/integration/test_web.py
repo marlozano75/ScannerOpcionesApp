@@ -566,3 +566,34 @@ def test_data_version_sube_al_refrescar_y_las_tablas_lo_vigilan(client_and_servi
     assert "/data-version" not in client.get("/").text   # el panel no vigila los datos del scanner
     refresh(client)
     assert client.get("/data-version").json()["version"] > before
+
+
+def test_scanner_presets_y_botones_de_paso(client_and_service):
+    client, svc, gw, _ = client_and_service
+    html = client.get("/scanner?reset=1").text
+    form = html.split('id="scan-form"')[1].split("</form>")[0]
+    # dos configuraciones; la segunda toma el DTE máx. de la ventana guardada (45)
+    assert form.count('class="secondary preset"') == 2
+    assert 'data-discount="10" data-dte-min="1"' in form and 'data-dte-max="15" data-yield="20"' in form
+    assert 'data-discount="20" data-dte-min="16"' in form and 'data-dte-max="45" data-yield="13"' in form
+    # − / + en las cajas principales, no en los filtros opcionales
+    for name in ("discount", "dte_min", "dte_max", "min_yield"):
+        box = form.split(f'name="{name}" id="{name}"')[1].split("</span>")[0]
+        assert 'data-d="-1"' in box and 'data-d="1"' in box
+    opt = _optional_block(html)
+    assert 'data-d=' not in opt and "checked" not in opt
+    # las cajas opcionales traen su valor por defecto aunque estén desmarcadas
+    for name, value in (("oi", "100"), ("bidsize", "20"), ("spread", "35"), ("ivr", "30"), ("ivp", "50")):
+        assert f'<input name="{name}" size="7" value="{value}">' in opt
+    # los valores de una configuración escanean sin error
+    r = client.get("/scanner?submitted=1&discount=20&dte_min=16&dte_max=45&min_yield=13")
+    assert r.status_code == 200 and "Parámetro no válido" not in r.text
+
+
+def test_filtro_opcional_marcado_se_aplica_con_el_valor_de_la_caja(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    base = BASE.replace("min_yield=1", "min_yield=0.1")
+    sin = client.get(base + "&oi=100000").text                  # caja con valor pero desmarcada: no filtra
+    con = client.get(base + "&oi=100000&use_oi=on").text        # marcada: OI mínimo 100000 deja fuera todo
+    assert "AAPL" in sin and '<td class="tk">AAPL' not in con
