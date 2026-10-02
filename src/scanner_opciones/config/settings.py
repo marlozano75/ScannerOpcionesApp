@@ -22,6 +22,12 @@ class Ports(_Model):
     paper: int = Field(7497, ge=1, le=65535)
 
 
+class Accounts(_Model):
+    """Id de cuenta IBKR por modo (None = la primera que gestione TWS)."""
+    live: Optional[str] = None
+    paper: Optional[str] = None
+
+
 class AccountTags(_Model):
     """Nombres de los valores de cuenta de IBKR (verificados contra TWS el 2026-09-29)."""
     net_liquidation: str = "NetLiquidation"
@@ -37,7 +43,8 @@ class IbkrSettings(_Model):
     host: str = "127.0.0.1"
     ports: Ports = Ports()
     client_id: int = 1
-    account: Optional[str] = None  # id de cuenta (U1234567); obligatorio si el usuario gestiona varias
+    accounts: Accounts = Accounts()  # imprescindible en el modo cuyo usuario gestione varias cuentas
+    auto_detect_mode: bool = True    # al arrancar, elige live/paper según el puerto que responda
     mode: AccountMode = AccountMode.PAPER
     market_data_type: int = Field(2, ge=1, le=4)  # 2 = congelado: live, y con el mercado cerrado el último cierre
     delayed_minutes: float = Field(15, ge=0)  # retraso de los datos diferidos (tipos 3 y 4)
@@ -45,6 +52,10 @@ class IbkrSettings(_Model):
     quote_wait_seconds: float = Field(4, gt=0)  # espera de ticks tras pedir cotizaciones
     historical_requests_per_10min: int = Field(50, ge=1)  # límite de pacing de IBKR: 60
     account_tags: AccountTags = AccountTags()
+
+    @property
+    def account(self) -> Optional[str]:
+        return self.accounts.live if self.mode is AccountMode.LIVE else self.accounts.paper
 
     @property
     def port(self) -> int:

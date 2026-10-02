@@ -123,11 +123,11 @@ class IBKRGateway:
         if self.s.account:
             if self.s.account not in accounts:
                 raise DataUnavailableError(
-                    f"La cuenta {self.s.account} (ibkr.account) no está entre las gestionadas: {', '.join(accounts)}"
+                    f"La cuenta {self.s.account} (ibkr.accounts) no está entre las gestionadas: {', '.join(accounts)}"
                 )
             return self.s.account
         if len(accounts) > 1:
-            log.warning("TWS gestiona varias cuentas (%s) y ibkr.account no está fijado: se usa %s",
+            log.warning("TWS gestiona varias cuentas (%s) y ibkr.accounts no está fijado: se usa %s",
                         ", ".join(accounts), accounts[0])
         return accounts[0]
 

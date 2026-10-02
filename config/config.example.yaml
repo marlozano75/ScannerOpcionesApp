@@ -3,7 +3,8 @@ ibkr:
   host: 127.0.0.1
   ports: { live: 7496, paper: 7497 }
   client_id: 1
-  account: U1234567     # opcional; imprescindible si TWS gestiona varias cuentas (si no, se usa la primera)
+  accounts: { live: null, paper: null }   # id por modo (U1234567); imprescindible si TWS gestiona varias cuentas
+  auto_detect_mode: true   # al arrancar elige live/paper según el puerto que responda (7496/7497); false = usa `mode`
   mode: paper            # paper | live
   market_data_type: 2    # 1 = live, 2 = congelado (live; con el mercado cerrado, el último bid/ask del cierre), 3 = diferido
                          # (3 no ocupa la suscripción en tiempo real: la app móvil de IBKR conserva sus datos en vivo)

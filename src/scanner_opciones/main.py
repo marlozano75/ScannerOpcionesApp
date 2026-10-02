@@ -14,6 +14,7 @@ import uvicorn
 
 from scanner_opciones.app.service import AppService
 from scanner_opciones.broker.ibkr_gateway import IBKRGateway
+from scanner_opciones.broker.probe import detect_mode
 from scanner_opciones.config.settings import Settings, load_settings
 from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.errors import ConfigError
@@ -25,6 +26,9 @@ DEFAULT_CONFIG = Path("config/config.yaml")
 
 
 def build_app(settings: Settings):
+    if settings.ibkr.auto_detect_mode:
+        mode = detect_mode(settings.ibkr)
+        settings = settings.model_copy(update={"ibkr": settings.ibkr.model_copy(update={"mode": mode})})
     db = Database(settings.storage.path)
 
     def factory(mode: AccountMode) -> IBKRGateway:

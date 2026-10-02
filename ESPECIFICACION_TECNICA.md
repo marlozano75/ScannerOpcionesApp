@@ -209,7 +209,8 @@ ScannerOpcionesApp/
 | `ibkr.host` | `127.0.0.1` | |
 | `ibkr.ports.live` / `paper` | `7496` / `7497` | Puertos habituales TWS; Gateway usa 4001/4002 |
 | `ibkr.client_id` | `1` | |
-| `ibkr.account` | — | id de cuenta; obligatorio si TWS gestiona varias (si no, se usa la primera) |
+| `ibkr.accounts.live` / `paper` | — | id de cuenta por modo; obligatorio si TWS gestiona varias (si no, la primera) |
+| `ibkr.auto_detect_mode` | `true` | al arrancar elige live/paper según el puerto que responda; si responden los dos o ninguno, usa `ibkr.mode` |
 | `ibkr.mode` | `paper` | Por defecto **simulada** por seguridad [PROPUESTA] |
 | `ibkr.market_data_type` | `2` (congelado: datos en vivo y, con el mercado cerrado, el último bid/ask del cierre; con `1` fuera de horario llegan vacíos) o `3` (diferido) | Q-11 resuelta; cambiado de `1` a `2` el 2026-10-01 |
 | `ibkr.delayed_minutes` | `15` | Solo con `market_data_type` 3/4: el calendario de mercado se retrasa ese tiempo y el refresco automático no baja de ese intervalo (2026-10-01) |
