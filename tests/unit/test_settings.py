@@ -121,3 +121,9 @@ def test_presets_por_defecto_y_validacion(tmp_path):
     )
     with pytest.raises(ConfigError):
         load_settings(bad)
+
+
+def test_logging_file_defaults_and_can_be_disabled(tmp_path):
+    assert Settings().logging.file == "logs/scanner.log"
+    s = load_settings(write(tmp_path, "logging:\n  file: null\n"))
+    assert s.logging.file is None

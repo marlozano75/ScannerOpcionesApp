@@ -81,3 +81,6 @@ market:                    # fuera de este horario solo se refrescan cartera y V
 logging:
   level: INFO
   ib_async_level: WARNING  # INFO escribe una línea por cada actualización de la cartera
+  file: logs/scanner.log   # además de la consola; null = solo consola (rotación: file_max_mb x file_backups)
+  file_max_mb: 5
+  file_backups: 3

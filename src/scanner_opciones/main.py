@@ -8,6 +8,7 @@ import argparse
 import asyncio
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import uvicorn
@@ -65,9 +66,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error de configuración: {exc}\n"
               f"Copia config/config.example.yaml a config/config.yaml y ajústalo.", file=sys.stderr)
         return 2
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if settings.logging.file:
+        log_path = Path(settings.logging.file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(RotatingFileHandler(
+            log_path, maxBytes=settings.logging.file_max_mb * 1024 * 1024,
+            backupCount=settings.logging.file_backups, encoding="utf-8",
+        ))
     logging.basicConfig(
         level=getattr(logging, settings.logging.level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        handlers=handlers,
     )
     logging.getLogger("ib_async").setLevel(getattr(logging, settings.logging.ib_async_level.upper(), logging.WARNING))
     uvicorn.run(build_app(settings), host=args.host, port=args.port, log_level="info")

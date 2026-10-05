@@ -39,6 +39,9 @@ class FakeGateway:
     def is_connected(self) -> bool:
         return self.connected
 
+    def historical_request_counts(self) -> dict[str, int]:
+        return {}
+
     def pacing_wait_seconds(self) -> float:
         return self.pacing_wait
 

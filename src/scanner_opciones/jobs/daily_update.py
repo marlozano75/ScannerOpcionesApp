@@ -71,6 +71,7 @@ class DailyUpdater:
         if not tickers:
             return report
         started = time.monotonic()
+        counts_before = self.gateway.historical_request_counts()
         timings: dict[str, float] = defaultdict(float)  # segundos acumulados por paso (suma de tickers)
         shared = await self._prefetch(tickers, timings)
         sem = asyncio.Semaphore(self.settings.daily_update.concurrency)
@@ -104,6 +105,11 @@ class DailyUpdater:
             "Actualización diaria: %d tickers en %.1f s (suma por paso: %s)", len(tickers),
             time.monotonic() - started, ", ".join(f"{k} {v:.1f}s" for k, v in timings.items()),
         )
+        counts_after = self.gateway.historical_request_counts()
+        used = {k: v - counts_before.get(k, 0) for k, v in counts_after.items() if v > counts_before.get(k, 0)}
+        if used:
+            log.info("Peticiones históricas de la actualización diaria: %d (%s)", sum(used.values()),
+                     ", ".join(f"{k} {v}" for k, v in sorted(used.items())))
         return report
 
     @staticmethod

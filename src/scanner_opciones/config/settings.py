@@ -214,6 +214,9 @@ class StorageSettings(_Model):
 class LoggingSettings(_Model):
     level: str = "INFO"
     ib_async_level: str = "WARNING"  # nivel del log de ib_async (INFO escribe cada updatePortfolio)
+    file: Optional[str] = "logs/scanner.log"  # fichero de log con rotación; null = solo consola
+    file_max_mb: int = Field(5, ge=1)
+    file_backups: int = Field(3, ge=0)
 
 
 class MarketSettings(_Model):

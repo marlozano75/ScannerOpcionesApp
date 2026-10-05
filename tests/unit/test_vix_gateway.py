@@ -162,6 +162,20 @@ async def test_get_iv_history_returns_close_high_low():
     assert [p[0] for p in since] == [date(2026, 9, 29)]                  # incluye el día indicado
 
 
+async def test_historical_requests_are_counted_by_kind():
+    class HistIB(QuoteIB):
+        async def reqHistoricalDataAsync(self, contract, **kw):
+            return [NS(date=date(2026, 9, 29), close=0.31, high=0.33, low=0.28)]
+
+    gw = IBKRGateway(IbkrSettings(), now=lambda: datetime(2026, 9, 29, 10))
+    gw.ib = HistIB()
+    await gw.get_iv_history("AAPL", None)
+    await gw.get_iv_history("KO", None)
+    await gw._last_close(NS(symbol="AAPL"))   # el último cierre es una petición histórica
+    assert gw.historical_request_counts()["iv"] == 2
+    assert gw.historical_request_counts()["precio"] == 1
+
+
 class NoisyIB(QuoteIB):
     """qualifyContractsAsync que imita a ib_async: por cada contrato inexistente registra Error 200 + Unknown contract."""
 

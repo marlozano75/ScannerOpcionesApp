@@ -54,5 +54,8 @@ class BrokerGateway(Protocol):
 
     async def get_vix_data(self, history_days: int, futures_ahead: int) -> VixData: ...
 
+    def historical_request_counts(self) -> dict[str, int]:
+        """Peticiones históricas hechas desde que arrancó, acumuladas por tipo (precio, iv, vix, futuros_vix)."""
+
     def pacing_wait_seconds(self) -> float:
         """Segundos que lleva por delante la espera por el límite de peticiones históricas de IBKR (0 si no hay)."""

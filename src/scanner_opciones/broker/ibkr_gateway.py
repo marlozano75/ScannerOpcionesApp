@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import Counter
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -78,6 +79,7 @@ class IBKRGateway:
         self._stocks: dict[str, Stock] = {}
         self._sector_cache: dict[str, tuple[Optional[str], Optional[str]]] = {}
         self._vix_futures_cache: Optional[tuple[date, list]] = None
+        self._historical_counts: Counter[str] = Counter()
         self._historical_limiter = AsyncRateLimiter(
             settings.historical_requests_per_10min, 600, on_wait=self._log_pacing
         )
@@ -101,12 +103,14 @@ class IBKRGateway:
     def is_connected(self) -> bool:
         return self.ib.isConnected()
 
-    @staticmethod
-    def _log_pacing(delay: float) -> None:
+    def _log_pacing(self, delay: float) -> None:
         log.info(
-            "Límite de peticiones históricas de IBKR alcanzado: se espera ~%.0f s (es normal al cargar muchos "
-            "tickers nuevos; cada uno descarga un año de histórico de IV)", delay,
+            "Límite de peticiones históricas de IBKR alcanzado: se espera ~%.0f s (peticiones desde el arranque: %s)",
+            delay, ", ".join(f"{k} {v}" for k, v in sorted(self._historical_counts.items())) or "ninguna",
         )
+
+    def historical_request_counts(self) -> dict[str, int]:
+        return dict(self._historical_counts)
 
     def pacing_wait_seconds(self) -> float:
         return self._historical_limiter.wait_remaining()
@@ -160,9 +164,13 @@ class IBKRGateway:
     # ---- utilidades con timeout -----------------------------------------------------------
     HISTORICAL_TIMEOUT = 30.0
 
-    async def _historical(self, contract, duration: str, what: str, bar: str = "1 day", use_rth: bool = True) -> list:
-        """reqHistoricalData con pacing y timeout. Lanza DataUnavailableError si no responde."""
+    async def _historical(
+        self, contract, duration: str, what: str, bar: str = "1 day", use_rth: bool = True, kind: str = "otro"
+    ) -> list:
+        """reqHistoricalData con pacing y timeout. Lanza DataUnavailableError si no responde.
+        `kind` solo sirve para contar las peticiones por tipo (log y diagnóstico del límite de IBKR)."""
         await self._historical_limiter.acquire()
+        self._historical_counts[kind] += 1
         try:
             bars = await asyncio.wait_for(
                 self.ib.reqHistoricalDataAsync(
@@ -195,8 +203,8 @@ class IBKRGateway:
         finally:
             self.ib.cancelMktData(contract)
 
-    async def _last_close(self, contract, use_rth: bool = True) -> Optional[float]:
-        bars = await self._historical(contract, "1 W", "TRADES", use_rth=use_rth)
+    async def _last_close(self, contract, use_rth: bool = True, kind: str = "precio") -> Optional[float]:
+        bars = await self._historical(contract, "1 W", "TRADES", use_rth=use_rth, kind=kind)
         return m.num(bars[-1].close) if bars else None
 
     # ---- subyacente -----------------------------------------------------------------------
@@ -326,7 +334,7 @@ class IBKRGateway:
                 duration = "1 Y"
             else:
                 duration = f"{days} D"
-        bars = await self._historical(stock, duration, "OPTION_IMPLIED_VOLATILITY")
+        bars = await self._historical(stock, duration, "OPTION_IMPLIED_VOLATILITY", kind="iv")
         out = []
         for b in bars:
             d = self._bar_day(b)
@@ -446,7 +454,7 @@ class IBKRGateway:
         self._require()
         vix = Index("VIX", "CBOE")
         await self.ib.qualifyContractsAsync(vix)
-        bars = await self._historical(vix, f"{max(history_days * 2 + 4, 10)} D", "TRADES")
+        bars = await self._historical(vix, f"{max(history_days * 2 + 4, 10)} D", "TRADES", kind="vix")
         closes = [(self._bar_day(b), float(b.close)) for b in bars if m.num(b.close) is not None]
         current = closes[-1][1] if closes else None
         closes = closes[-history_days:]
@@ -468,7 +476,7 @@ class IBKRGateway:
                     by_expiry[datetime.strptime(k, "%Y%m%d").date()] = d.contract
             upcoming = sorted((e, c) for e, c in by_expiry.items() if e >= today)[:futures_ahead]
             for expiry, contract in upcoming:
-                px = await self._last_close(contract, use_rth=False)  # futuros CFE: sin RTH
+                px = await self._last_close(contract, use_rth=False, kind="futuros_vix")  # futuros CFE: sin RTH
                 if px is not None:
                     futures.append((expiry, px))
         except (BrokerError, asyncio.TimeoutError) as exc:
