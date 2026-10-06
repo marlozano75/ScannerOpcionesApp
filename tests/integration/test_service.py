@@ -8,7 +8,7 @@ import pytest
 from scanner_opciones.app.service import AppService, SelectedContract
 from scanner_opciones.broker.fake_gateway import FakeGateway
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.domain.enums import OperationType, OptionRight, TrafficLight
+from scanner_opciones.domain.enums import OptionRight, TrafficLight
 from scanner_opciones.domain.errors import BrokerDisconnectedError
 from scanner_opciones.domain.models import (
     AccountSummary, OptionChain, OptionContract, OptionQuote, Position, VixData,
@@ -115,7 +115,6 @@ async def test_scan_returns_enriched_results():
     out = svc.scan(svc.criteria())
     assert sorted(r.snapshot.contract.strike for r in out.results) == [75.0, 80.0]
     assert all(r.impact.sector == "Technology" for r in out.results)
-    assert all(r.operation is OperationType.REGULAR for r in out.results)     # DTE 30: dentro de 25-35
     strict = svc.scan(svc.criteria(min_oi=1000))
     assert strict.results == [] and strict.rejected_count == 2
 

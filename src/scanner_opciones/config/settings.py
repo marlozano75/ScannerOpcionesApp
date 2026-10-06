@@ -111,18 +111,6 @@ class InitialFilterSettings(_Model):
         return self
 
 
-class OperationSettings(_Model):
-    """Clasificación de la columna «Operación»: Regular dentro de este DTE, Táctica fuera de él."""
-    regular_dte_min: int = Field(25, ge=0)
-    regular_dte_max: int = Field(35, ge=0)
-
-    @model_validator(mode="after")
-    def _check(self) -> "OperationSettings":
-        if self.regular_dte_min > self.regular_dte_max:
-            raise ValueError("regular_dte_min no puede superar regular_dte_max")
-        return self
-
-
 class ScannerPreset(_Model):
     """Botón del scanner que carga estos valores en el formulario y escanea. `dte_max` None = el máximo
     de la ventana guardada (`candidates.dte_max`)."""
@@ -173,7 +161,6 @@ class ScannerSettings(_Model):
     price_reference: PriceReferenceSettings = PriceReferenceSettings()
     candidates: CandidateRange = CandidateRange()
     initial: InitialFilterSettings = InitialFilterSettings()
-    operation: OperationSettings = OperationSettings()
     filters: FilterSettings = FilterSettings()
     filter_values: FilterValues = FilterValues()
     presets: tuple[ScannerPreset, ...] = DEFAULT_PRESETS

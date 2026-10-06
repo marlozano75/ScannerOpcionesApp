@@ -26,7 +26,3 @@ class PriceReference(str, Enum):
     MID = "mid"
     BID_PLUS_SPREAD = "bid_plus_spread"   # bid + X % del spread
 
-
-class OperationType(str, Enum):
-    REGULAR = "regular"
-    TACTICAL = "tactical"

@@ -3,7 +3,7 @@ from datetime import date, datetime
 import pytest
 
 from scanner_opciones.config.settings import CandidateRange, Settings
-from scanner_opciones.domain.enums import OperationType, OptionRight, PriceReference
+from scanner_opciones.domain.enums import OptionRight, PriceReference
 from scanner_opciones.domain.models import ContractSnapshot, OptionChain, OptionContract
 from scanner_opciones.scanner.candidates import candidate_contracts
 from scanner_opciones.scanner.criteria import criteria_from_settings
@@ -29,15 +29,6 @@ def test_criteria_from_settings():
     # filtro único: descuento 10–30 %, DTE 1–35 (todo editable en el formulario)
     assert (BASE.strike_below_pct_min, BASE.strike_below_pct_max) == (10, 30)
     assert (BASE.dte_min, BASE.dte_max) == (1, 35) and BASE.min_annual_yield_pct == 12.0
-    assert (BASE.regular_dte_min, BASE.regular_dte_max) == (25, 35)
-
-
-@pytest.mark.parametrize("dte, expected", [
-    (1, OperationType.TACTICAL), (24, OperationType.TACTICAL), (25, OperationType.REGULAR),
-    (30, OperationType.REGULAR), (35, OperationType.REGULAR), (36, OperationType.TACTICAL), (60, OperationType.TACTICAL),
-])
-def test_operation_is_regular_between_25_and_35_dte_and_tactical_otherwise(dte, expected):
-    assert BASE.operation_for(dte) is expected
 
 
 def test_regular_passes():

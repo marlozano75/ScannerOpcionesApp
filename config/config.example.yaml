@@ -37,9 +37,6 @@ scanner:
   presets:                 # botones del scanner que cargan estos valores y escanean (dte_max null = máximo de candidates)
     - { name: "Corto plazo", strike_below_pct_min: 10, dte_min: 1, dte_max: 15, min_annual_yield_pct: 20 }
     - { name: "Largo plazo", strike_below_pct_min: 20, dte_min: 16, dte_max: null, min_annual_yield_pct: 13 }
-  operation:               # columna «Operación» del resultado: Regular dentro de este DTE, Táctica fuera
-    regular_dte_min: 25
-    regular_dte_max: 35
   filters:                       # null = filtro desactivado
     min_oi: null
     min_bid_size: null

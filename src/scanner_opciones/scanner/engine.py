@@ -6,7 +6,7 @@ from datetime import date
 from typing import Optional, Sequence
 
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, Position, TickerInfo
-from scanner_opciones.domain.enums import OperationType, PriceReference
+from scanner_opciones.domain.enums import PriceReference
 from scanner_opciones.metrics.yields import (
     annualized_yield_pct, gross_yield_ref_pct, reference_price, strike_distance_pct,
 )
@@ -27,7 +27,6 @@ class ScanResult:
     yield_ref_annualized_pct: Optional[float] = None
     yield_bid_pct: Optional[float] = None         # yield vendiendo al bid (para comparar)
     yield_bid_annualized_pct: Optional[float] = None
-    operation: Optional[OperationType] = None     # Regular (DTE 25-35) o Táctica (el resto)
 
 
 @dataclass(frozen=True)
@@ -80,7 +79,6 @@ def build_result(
         reference_price=ref, yield_ref_pct=y_ref,
         yield_ref_annualized_pct=annualized_yield_pct(y_ref, dte),
         yield_bid_pct=y_bid, yield_bid_annualized_pct=annualized_yield_pct(y_bid, dte),
-        operation=criteria.operation_for(dte),
     )
 
 

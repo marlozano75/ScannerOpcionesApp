@@ -96,22 +96,8 @@ def test_scanner_has_no_operation_selector(client_and_service):
     r = client.get("/scanner")
     assert 'name="op"' not in r.text and "<option value=\"tactical\"" not in r.text
     assert 'id="dte_min_label"' not in r.text and 'name="dte_min"' in r.text      # DTE mín. siempre editable
+    assert "Operación" not in r.text
     assert client.get("/scanner?op=tactical").status_code == 200                   # un enlace antiguo no rompe
-
-
-def test_operation_column_regular_between_25_and_35_dte_otherwise_tactical(client_and_service):
-    client, svc, gw, _ = client_and_service
-    from datetime import timedelta
-    far = OptionContract("AAPL", TODAY + timedelta(days=10), 80.0)
-    svc.contracts.sync_for_ticker("AAPL", {svc.contracts.key(c) for c in svc.contracts.list()} | {svc.contracts.key(far)}, [far])
-    for c in svc.contracts.list("AAPL"):
-        gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=500)
-    refresh(client)
-    out = client.get("/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1").text
-    assert "<th>Operación</th>" in out
-    rows = [row for row in out.split("<tr>") if '<td class="tk">AAPL' in row]
-    by_dte = {int(row.split("<td>")[5].split("</td>")[0]): ("Regular" in row, "Táctica" in row) for row in rows}
-    assert by_dte == {10: (False, True), 30: (True, False)}          # DTE 10: Táctica; DTE 30: Regular
 
 
 def test_optional_filters_only_apply_when_ticked(client_and_service):
