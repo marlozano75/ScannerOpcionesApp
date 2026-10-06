@@ -159,19 +159,19 @@ class PriceReferenceSettings(_Model):
 
 
 class FrameSettings(_Model):
-    """Análisis de máximos y mínimos crecientes en una ventana (diaria, semanal o mensual)."""
+    """Análisis de máximos y mínimos crecientes con velas diarias, semanales o mensuales."""
     pivot_width: int = Field(3, ge=1)       # barras a cada lado que debe superar un máximo/mínimo local
-    lookback_bars: int = Field(120, ge=5)   # barras de la ventana que se analizan
     swings_required: int = Field(3, ge=2)   # últimos máximos y mínimos que deben ser crecientes (o decrecientes)
 
 
 class TechnicalSettings(_Model):
     """Filtros técnicos del scanner: tendencia, zona de soporte y días desde el último toque del strike."""
-    daily: FrameSettings = FrameSettings(pivot_width=3, lookback_bars=120, swings_required=3)
-    weekly: FrameSettings = FrameSettings(pivot_width=2, lookback_bars=52, swings_required=3)
-    monthly: FrameSettings = FrameSettings(pivot_width=1, lookback_bars=24, swings_required=2)
+    daily: FrameSettings = FrameSettings(pivot_width=3, swings_required=3)
+    weekly: FrameSettings = FrameSettings(pivot_width=2, swings_required=3)
+    monthly: FrameSettings = FrameSettings(pivot_width=1, swings_required=2)
     trend_min_progress_pct: float = Field(5, ge=0)        # avance mínimo desde el mínimo (o máximo) sin romper
     trend_durations: tuple[int, ...] = (7, 14, 30, 60, 90, 180, 365)   # antigüedad mínima del mínimo, en días
+    trend_windows_months: tuple[int, ...] = (1, 2, 3, 6, 9, 12, 18, 24)   # ventana de la tendencia: últimos N meses de cierres
     support_lookback_days: int = Field(365, ge=30)
     support_band_pct: float = Field(1.5, gt=0)            # banda de la zona y ruptura máxima tolerada
     support_min_touches: int = Field(3, ge=2)
@@ -230,7 +230,7 @@ class TrendSettings(_Model):
     """Tendencia alcista: precio > media de `sma_short` cierres > media de `sma_long` cierres (velas diarias de tastytrade)."""
     sma_short: int = Field(50, ge=2)
     sma_long: int = Field(200, ge=3)
-    history_days: int = Field(730, ge=30)           # días naturales de cierres que se guardan (~2 años)
+    history_days: int = Field(1400, ge=30)          # días naturales de cierres que se guardan (~3,8 años: lo máximo que da tastytrade)
     batch_timeout_seconds: float = Field(20, gt=0)  # espera máxima por lote de 50 tickers
 
     @model_validator(mode="after")

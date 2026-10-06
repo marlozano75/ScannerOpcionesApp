@@ -60,26 +60,26 @@ class TestSwings:
 
     def test_rising_highs_and_lows_is_an_uptrend(self):
         bars = series(self.UP)
-        assert ta.trend_swings(bars, True, 27.0, "daily", 2, 60, 3)[0]
-        ok, why = ta.trend_swings(bars, False, 27.0, "daily", 2, 60, 3)
+        assert ta.trend_swings(bars, True, 27.0, "daily", 2, 3)[0]
+        ok, why = ta.trend_swings(bars, False, 27.0, "daily", 2, 3)
         assert not ok and "decrecientes" in why
 
     def test_breaking_the_last_low_fails_the_check(self):
-        assert not ta.trend_swings(series(self.UP), True, 9.0, "daily", 2, 60, 3)[0]
+        assert not ta.trend_swings(series(self.UP), True, 9.0, "daily", 2, 3)[0]
 
     def test_downtrend_with_falling_swings(self):
         bars = series([100 - v for v in self.UP])
-        assert ta.trend_swings(bars, False, 70.0, "daily", 2, 60, 3)[0]
+        assert ta.trend_swings(bars, False, 70.0, "daily", 2, 3)[0]
 
     def test_too_few_pivots(self):
-        ok, why = ta.trend_swings(series(self.UP[:8]), True, 18.0, "daily", 2, 60, 3)
+        ok, why = ta.trend_swings(series(self.UP[:8]), True, 18.0, "daily", 2, 3)
         assert not ok and "pocos" in why
 
     def test_weekly_frame_resamples_before_looking_for_pivots(self):
         # una barra por día: cada valor de UP repetido 7 veces = una barra semanal por valor
         daily = [(TODAY - timedelta(days=7 * (len(self.UP) - i) - j), float(v)) for i, v in enumerate(self.UP) for j in range(7)]
         daily.sort()
-        assert ta.trend_swings(daily, True, 27.0, "weekly", 2, 60, 3)[0]
+        assert ta.trend_swings(daily, True, 27.0, "weekly", 2, 3)[0]
 
 
 class TestSupport:
@@ -120,3 +120,11 @@ def test_days_since_touch():
     bars = series([50, 40, 45, 60, 70])
     assert ta.days_since_touch(bars, 45.0, TODAY) == 3                   # el cierre de 45 fue hace 3 días
     assert ta.days_since_touch(bars, 30.0, TODAY) is None                # nunca visitó 30
+
+
+def test_last_months_keeps_only_the_recent_bars():
+    bars = series(list(range(1, 201)))                                    # 200 días naturales hasta ayer
+    window = ta.last_months(bars, TODAY, 2)                               # 2 meses = 61 días
+    assert len(window) == 61 and window[-1] == bars[-1] and window[0][0] >= TODAY - timedelta(days=61)
+    assert ta.last_months(bars, TODAY, 24) == bars                        # 24 meses cubre todo el histórico
+    assert ta.last_months([], TODAY, 6) == []

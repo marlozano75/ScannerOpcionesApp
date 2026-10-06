@@ -80,6 +80,8 @@ MIGRATIONS: list[str] = [
     "DELETE FROM daily_bars;",
     # v10: cierre provisional del día en curso (último precio del refresco); el cierre oficial lo sustituye
     "ALTER TABLE daily_bars ADD COLUMN provisional INTEGER NOT NULL DEFAULT 0;",
+    # v11: el histórico pasa de 730 a 1400 días (MA semanales/mensuales): se vacía para que se descargue entero
+    "DELETE FROM daily_bars;",
 ]
 
 

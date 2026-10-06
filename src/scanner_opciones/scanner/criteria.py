@@ -9,6 +9,11 @@ from scanner_opciones.domain.enums import PriceReference
 
 
 MA_LINES = {"ma50": ("sma", 50), "ma100": ("sma", 100), "ma200": ("sma", 200), "ema9": ("ema", 9), "ema20": ("ema", 20)}
+# comparaciones entre medias: campo del criterio -> (línea corta, línea larga); valores any | gte (≥) | lte (≤)
+MA_CROSSES = {
+    "cmp_ema9_ema20": ("ema9", "ema20"), "cmp_ema20_ma50": ("ema20", "ma50"),
+    "cmp_ma50_ma100": ("ma50", "ma100"), "cmp_ma100_ma200": ("ma100", "ma200"),
+}
 
 
 @dataclass(frozen=True)
@@ -27,13 +32,19 @@ class ScanCriteria:
     # filtros técnicos (ver scanner/technical.py); los valores por defecto no filtran nada
     trend_direction: str = "off"          # off | up | down
     trend_method: str = "low"             # low (mínimo/máximo sin romper) | swings (máximos y mínimos crecientes)
-    trend_frame: str = "daily"            # daily | weekly | monthly
+    trend_frame: str = "daily"            # velas: daily | weekly | monthly
+    trend_window_months: int = 24         # la tendencia se evalúa con los cierres de los últimos N meses
     trend_min_days: int = 30              # antigüedad mínima del mínimo sin romper (método «low»)
     ma50: str = "any"                     # any | above | below (precio respecto a cada línea)
     ma100: str = "any"
     ma200: str = "any"
     ema9: str = "any"
     ema20: str = "any"
+    ma_frame: str = "daily"               # velas de las medias: daily | weekly | monthly (50 = 50 días, 50 semanas o 50 meses)
+    cmp_ema9_ema20: str = "any"           # any | gte | lte
+    cmp_ema20_ma50: str = "any"
+    cmp_ma50_ma100: str = "any"
+    cmp_ma100_ma200: str = "any"
     require_support: bool = False
     min_days_since_touch: Optional[int] = None
     min_price: Optional[float] = None     # precio del subyacente (vacío = sin límite)
@@ -43,7 +54,7 @@ class ScanCriteria:
     def technical_active(self) -> bool:
         return (
             self.trend_direction != "off" or self.require_support or self.min_days_since_touch is not None
-            or any(getattr(self, k) != "any" for k in MA_LINES)
+            or any(getattr(self, k) != "any" for k in (*MA_LINES, *MA_CROSSES))
         )
     price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD
     price_spread_pct: float = 25.0

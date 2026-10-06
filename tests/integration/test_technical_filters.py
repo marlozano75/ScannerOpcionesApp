@@ -104,3 +104,43 @@ async def test_min_days_since_the_strike_was_last_visited():
     assert strikes(svc, min_days_since_touch=5) == [75.0, 80.0]
     assert strikes(svc, min_days_since_touch=30) == [75.0]              # el 80 se visitó hace menos de 30 días
     assert strikes(svc, min_days_since_touch=None) == [75.0, 80.0]
+
+
+async def test_trend_window_limits_the_history_that_is_analysed():
+    # mínimo de 60 hace ~130 días y ascenso hasta 100; en los últimos 2 meses el precio solo se mueve entre 98 y 100
+    history = [60 + i * 0.4 for i in range(100)] + [98 + (i % 3) * 0.5 for i in range(30)] + [100.0] * 5
+    svc = await service_with_history(history)
+    up = dict(trend_direction="up", trend_method="low", trend_min_days=14)
+    assert strikes(svc, **up, trend_window_months=24) == [75.0, 80.0]    # con toda la historia: +66 % desde el mínimo
+    assert strikes(svc, **up, trend_window_months=6) == [75.0, 80.0]
+    assert strikes(svc, **up, trend_window_months=1) == []               # en el último mes no hay avance real desde el mínimo
+    assert strikes(svc, trend_direction="up", trend_method="low", trend_min_days=90, trend_window_months=2) == []   # el mínimo de la ventana es más reciente
+
+
+async def test_moving_averages_with_weekly_and_monthly_candles():
+    history = [120.0] * 340 + [90.0] * 40                                # el precio actual (100) cae entre las medias corta y larga
+    svc = await service_with_history(history)
+    assert strikes(svc, ma50="above", ma_frame="daily") == [75.0, 80.0]  # media de 50 días ≈ 96
+    assert strikes(svc, ma50="above", ma_frame="weekly") == []           # media de 50 semanas ≈ 116
+    assert strikes(svc, ma50="below", ma_frame="weekly") == [75.0, 80.0]
+    assert strikes(svc, ma50="below", ma_frame="daily") == []
+    # con velas mensuales solo hay ~12 velas: la MA50 no se puede calcular y descarta el ticker, con motivo
+    assert strikes(svc, ma50="below", ma_frame="monthly") == []
+    out = svc.scan(svc.criteria().with_filters(strike_below_pct_min=1, min_annual_yield_pct=0, dte_max=45,
+                                               ma50="below", ma_frame="monthly"), include_rejections=True)
+    assert any("sin datos para MA50" in why and "mensuales" in why for why in out.rejections.values())
+    assert strikes(svc, ema9="below", ma_frame="monthly") == [75.0, 80.0]    # la EMA 9 mensual sí (12 velas ≥ 9)
+
+
+async def test_comparisons_between_averages():
+    rising = [74 + i * 0.1 for i in range(260)]                          # sube sin parar: las cortas por encima de las largas
+    svc = await service_with_history(rising)
+    for field in ("cmp_ema9_ema20", "cmp_ema20_ma50", "cmp_ma50_ma100", "cmp_ma100_ma200"):
+        assert strikes(svc, **{field: "gte"}) == [75.0, 80.0], field
+        assert strikes(svc, **{field: "lte"}) == [], field
+    falling = [126 - i * 0.1 for i in range(260)]
+    svc = await service_with_history(falling)
+    for field in ("cmp_ema9_ema20", "cmp_ema20_ma50", "cmp_ma50_ma100", "cmp_ma100_ma200"):
+        assert strikes(svc, **{field: "lte"}) == [75.0, 80.0], field
+        assert strikes(svc, **{field: "gte"}) == [], field
+    assert strikes(svc, cmp_ma100_ma200="gte", ma_frame="weekly") == []  # 260 días ≈ 37 semanas: sin datos para la MA 100 semanal

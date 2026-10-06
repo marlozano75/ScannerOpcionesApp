@@ -6,7 +6,7 @@ Todo son funciones puras sobre `Bars` = [(día, cierre), ...] en orden ascendent
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional, Sequence
 
 Bars = Sequence[tuple[date, float]]
@@ -51,6 +51,12 @@ def resample(bars: Bars, frame: str) -> list[tuple[date, float]]:
     return out
 
 
+def last_months(bars: Bars, today: date, months: int) -> list[tuple[date, float]]:
+    """Barras de los últimos `months` meses (30,4 días por mes)."""
+    cutoff = today - timedelta(days=round(months * 30.4375))
+    return [(d, px) for d, px in bars if d >= cutoff]
+
+
 def pivots(values: Sequence[float], width: int) -> tuple[list[int], list[int]]:
     """Índices de los máximos y mínimos locales: un valor es pivote si supera (máximo) o queda por debajo
     (mínimo) de los `width` valores anteriores y no es superado por los `width` siguientes. Los últimos
@@ -87,12 +93,12 @@ def trend_unbroken_extreme(
 
 
 def trend_swings(
-    bars: Bars, up: bool, price: float, frame: str, pivot_width: int, lookback_bars: int, required: int,
+    bars: Bars, up: bool, price: float, frame: str, pivot_width: int, required: int,
 ) -> tuple[bool, str]:
-    """Alcista: los últimos `required` máximos y mínimos locales (en la ventana elegida) son crecientes y el
+    """Alcista: los últimos `required` máximos y mínimos locales (de las velas `frame` de `bars`) son crecientes y el
     precio no ha roto el último mínimo. Bajista: máximos y mínimos decrecientes y el precio no ha superado
     el último máximo."""
-    values = [px for _, px in resample(bars, frame)][-lookback_bars:]
+    values = [px for _, px in resample(bars, frame)]
     highs, lows = pivots(values, pivot_width)
     if len(highs) < required or len(lows) < required:
         return False, "pocos máximos/mínimos para evaluar"

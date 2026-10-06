@@ -10,9 +10,10 @@ from typing import Optional
 
 from scanner_opciones.config.settings import TechnicalSettings
 from scanner_opciones.metrics import technical as ta
-from scanner_opciones.scanner.criteria import MA_LINES, ScanCriteria
+from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, ScanCriteria
 
 _LABELS = {"ma50": "MA50", "ma100": "MA100", "ma200": "MA200", "ema9": "EMA9", "ema20": "EMA20"}
+_FRAME_NAMES = {"daily": "diarias", "weekly": "semanales", "monthly": "mensuales"}
 
 
 class TechnicalFilter:
@@ -22,6 +23,15 @@ class TechnicalFilter:
         self.c, self.cfg, self.bars, self.today = criteria, cfg, bars, today
         self._ticker_cache: dict[str, Optional[str]] = {}
         self._zone_cache: dict[str, Optional[ta.Zone]] = {}
+        self._lines_cache: dict[str, tuple[dict[str, Optional[float]], int]] = {}
+
+    def _lines(self, ticker: str) -> tuple[dict[str, Optional[float]], int]:
+        """Valor de cada media con las velas elegidas (`ma_frame`) y cuántas velas hay."""
+        if ticker not in self._lines_cache:
+            closes = [px for _, px in ta.resample(self.bars.get(ticker, []), self.c.ma_frame)]
+            lines = {k: (ta.sma if kind == "sma" else ta.ema)(closes, n) for k, (kind, n) in MA_LINES.items()}
+            self._lines_cache[ticker] = (lines, len(closes))
+        return self._lines_cache[ticker]
 
     def reject(self, ticker: str, price: float, strike: float) -> Optional[str]:
         """Motivo de descarte del contrato por los filtros técnicos, o None si pasa."""
@@ -59,23 +69,39 @@ class TechnicalFilter:
             return "sin histórico de cierres"
         if c.trend_direction != "off":
             up = c.trend_direction == "up"
+            window = ta.last_months(series, self.today, c.trend_window_months)
             if c.trend_method == "swings":
                 f = cfg.frame(c.trend_frame)
-                ok, why = ta.trend_swings(series, up, price, c.trend_frame, f.pivot_width, f.lookback_bars, f.swings_required)
+                ok, why = ta.trend_swings(window, up, price, c.trend_frame, f.pivot_width, f.swings_required)
             else:
                 ok, why = ta.trend_unbroken_extreme(
-                    ta.resample(series, c.trend_frame), up, price, self.today, c.trend_min_days, cfg.trend_min_progress_pct
+                    ta.resample(window, c.trend_frame), up, price, self.today, c.trend_min_days, cfg.trend_min_progress_pct
                 )
             if not ok:
                 return f"tendencia {'alcista' if up else 'bajista'}: {why}"
-        closes = [px for _, px in series]
-        for key, (kind, n) in MA_LINES.items():
+        lines, n_bars = self._lines(ticker)
+        frame = _FRAME_NAMES[c.ma_frame]
+
+        def missing(key: str) -> str:
+            return f"sin datos para {_LABELS[key]} ({n_bars} velas {frame}, hacen falta {MA_LINES[key][1]})"
+
+        for key in MA_LINES:
             side = getattr(c, key)
             if side == "any":
                 continue
-            line = (ta.sma if kind == "sma" else ta.ema)(closes, n)
-            if line is None:
-                return f"sin datos para {_LABELS[key]}"
-            if (side == "above") != (price > line):
-                return f"precio {'no está por encima' if side == 'above' else 'no está por debajo'} de {_LABELS[key]}"
+            if lines[key] is None:
+                return missing(key)
+            if (side == "above") != (price > lines[key]):
+                return f"precio {'no está por encima' if side == 'above' else 'no está por debajo'} de {_LABELS[key]} ({frame})"
+        for field, (short, long_) in MA_CROSSES.items():
+            side = getattr(c, field)
+            if side == "any":
+                continue
+            for key in (short, long_):
+                if lines[key] is None:
+                    return missing(key)
+            a, b = lines[short], lines[long_]
+            if (a >= b) if side == "gte" else (a <= b):
+                continue
+            return f"{_LABELS[short]} {'<' if side == 'gte' else '>'} {_LABELS[long_]} ({frame})"
         return None

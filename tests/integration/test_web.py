@@ -678,3 +678,31 @@ def test_technical_filters_warn_when_closes_are_missing(client_and_service):
     assert "Faltan cierres diarios de" in out and "tickers" in out                # el histórico de la prueba está vacío
     svc.bars.upsert("AAPL", [(date(2026, 9, 1), 100.0)])
     assert "Faltan cierres diarios" not in client.get(base + "&ma50=above").text   # con histórico de toda la watchlist, sin aviso
+
+
+def test_trend_window_months_form(client_and_service):
+    client, svc, gw, _ = client_and_service
+    base = "/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid"
+    r = client.get("/scanner")
+    assert 'name="trend_window"' in r.text
+    for label in ("1 mes", "2 meses", "3 meses", "6 meses", "9 meses", "12 meses", "18 meses", "24 meses"):
+        assert f">{label}</option>" in r.text, label
+    assert '<option value="24" selected>' in r.text                                   # por defecto, todo el histórico
+    out = client.get(base + "&trend_dir=up&trend_window=9").text
+    assert '<option value="9" selected>' in out
+    for bad in ("trend_window=4", "trend_window=abc"):
+        assert "Parámetro no válido" in client.get(base + "&" + bad).text, bad
+
+
+def test_moving_average_candles_and_comparisons_form(client_and_service):
+    client, svc, gw, _ = client_and_service
+    base = "/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid"
+    r = client.get("/scanner")
+    for name in ("ma_frame", "cmp_ema9_ema20", "cmp_ema20_ma50", "cmp_ma50_ma100", "cmp_ma100_ma200"):
+        assert f'name="{name}"' in r.text, name
+    assert "EMA9 ≥ EMA20" in r.text and "MA100 ≤ MA200" in r.text
+    out = client.get(base + "&ma_frame=weekly&cmp_ema9_ema20=gte&cmp_ma100_ma200=lte").text
+    assert '<option value="weekly" selected>Semanales (semanas)' in out
+    assert '<option value="gte" selected>' in out and '<option value="lte" selected>' in out
+    for bad in ("ma_frame=yearly", "cmp_ema9_ema20=above", "cmp_ma50_ma100=equal"):
+        assert "Parámetro no válido" in client.get(base + "&" + bad).text, bad

@@ -17,7 +17,7 @@ from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.rankedstocks.filters import apply_filters, parse_filters
-from scanner_opciones.scanner.criteria import MA_LINES
+from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES
 from scanner_opciones.rankedstocks.loader import load_table
 from scanner_opciones.watchlist.loader import load_watchlist_file
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
@@ -279,11 +279,14 @@ def create_app(
             "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
             "use_trend": base.only_uptrend,
             "trend_dir": base.trend_direction, "trend_method": base.trend_method, "trend_frame": base.trend_frame,
+            "trend_window": str(base.trend_window_months),
             "trend_days": str(base.trend_min_days), "support": base.require_support,
             "touch": "" if base.min_days_since_touch is None else str(base.min_days_since_touch),
             "price_min": _fmt(base.min_price) if base.min_price is not None else "",
             "price_max": _fmt(base.max_price) if base.max_price is not None else "",
             **{k: getattr(base, k) for k in MA_LINES},
+            "ma_frame": base.ma_frame,
+            **{k: getattr(base, k) for k in MA_CROSSES},
         }
         tcfg = service.settings.scanner.technical
         optional = {
@@ -316,11 +319,17 @@ def create_app(
                     ("trend_method", "trend_method", ("low", "swings")),
                     ("trend_frame", "trend_frame", ("daily", "weekly", "monthly")),
                     *((k, k, ("any", "above", "below")) for k in MA_LINES),
+                    ("ma_frame", "ma_frame", ("daily", "weekly", "monthly")),
+                    *((k, k, ("any", "gte", "lte")) for k in MA_CROSSES),
                 ):
                     form[key] = qp.get(key, form[key])
                     if form[key] not in allowed:
                         raise ValueError(f"valor desconocido en «{key}»")
                     overrides[field_name] = form[key]
+                form["trend_window"] = qp.get("trend_window", form["trend_window"]).strip()
+                overrides["trend_window_months"] = _required(form["trend_window"], int, "Ventana de la tendencia")
+                if overrides["trend_window_months"] not in tcfg.trend_windows_months:
+                    raise ValueError("ventana de la tendencia no permitida")
                 form["trend_days"] = qp.get("trend_days", form["trend_days"]).strip()
                 overrides["trend_min_days"] = _required(form["trend_days"], int, "Antigüedad del mínimo")
                 if overrides["trend_min_days"] not in tcfg.trend_durations:
@@ -403,6 +412,7 @@ def create_app(
         return render(request, "scanner.html", out=out, ref_label=ref_label, watch_data=True, presets=presets,
                       candidates=service.settings.scanner.candidates, trend=service.settings.trend,
                       tech_opts=dict(
+                          windows=[(m, f"{m} {'mes' if m == 1 else 'meses'}") for m in service.settings.scanner.technical.trend_windows_months],
                           durations=[(d, _days_label(d)) for d in service.settings.scanner.technical.trend_durations],
                           touches=[(d, _days_label(d)) for d in service.settings.scanner.technical.touch_min_days_options]),
                       report=service.state.last_refresh_report, **parsed)

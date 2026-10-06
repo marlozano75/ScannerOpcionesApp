@@ -45,11 +45,12 @@ scanner:
     min_iv_percentile: null
     only_uptrend: false          # true = solo tickers con precio > media corta > media larga (ver `trend`)
   technical:                     # filtros de tendencia, soporte y días desde el último toque (sus valores se eligen en el formulario)
-    daily:   { pivot_width: 3, lookback_bars: 120, swings_required: 3 }   # máximos y mínimos crecientes por ventana
-    weekly:  { pivot_width: 2, lookback_bars: 52,  swings_required: 3 }
-    monthly: { pivot_width: 1, lookback_bars: 24,  swings_required: 2 }
+    daily:   { pivot_width: 3, swings_required: 3 }   # máximos y mínimos crecientes según las velas (diarias, semanales o mensuales)
+    weekly:  { pivot_width: 2, swings_required: 3 }
+    monthly: { pivot_width: 1, swings_required: 2 }
     trend_min_progress_pct: 5      # avance mínimo desde el mínimo (o máximo) sin romper
     trend_durations: [7, 14, 30, 60, 90, 180, 365]     # antigüedad mínima de ese mínimo (días)
+    trend_windows_months: [1, 2, 3, 6, 9, 12, 18, 24]  # ventana de la tendencia: últimos N meses de cierres
     support_lookback_days: 365
     support_band_pct: 1.5
     support_min_touches: 3
@@ -86,7 +87,7 @@ tastytrade:
 trend:
   sma_short: 50
   sma_long: 200
-  history_days: 730
+  history_days: 1400
   batch_timeout_seconds: 20
 
 storage:

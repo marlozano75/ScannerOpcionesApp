@@ -47,6 +47,9 @@
           <option value="low" {{ 'selected' if form.trend_method == 'low' }}>Mínimo (máximo) sin romper</option>
           <option value="swings" {{ 'selected' if form.trend_method == 'swings' }}>Máximos y mínimos crecientes (decrecientes)</option></select></label>
       <label>Ventana
+        <select name="trend_window" id="trend_window">
+          {% for m, label in tech_opts.windows %}<option value="{{ m }}" {{ 'selected' if form.trend_window == m|string }}>{{ label }}</option>{% endfor %}</select></label>
+      <label>Velas (máx./mín.)
         <select name="trend_frame" id="trend_frame">
           <option value="daily" {{ 'selected' if form.trend_frame == 'daily' }}>Diaria</option>
           <option value="weekly" {{ 'selected' if form.trend_frame == 'weekly' }}>Semanal</option>
@@ -61,17 +64,34 @@
           {% for d, label in tech_opts.touches %}<option value="{{ d }}" {{ 'selected' if form.touch == d|string }}>{{ label }}</option>{% endfor %}</select></label>
     </div>
     <p class="muted" style="margin:4px 0 10px;max-width:90ch">
-      <b>Alcista</b>: el mínimo del histórico (~2 años) que el precio no ha vuelto a romper debe tener al menos esa antigüedad y el precio debe haber avanzado desde él
+      La <b>ventana</b> son los últimos 1–24 meses de cierres que se analizan; las <b>velas</b> (diarias, semanales o mensuales) agrupan esos cierres.
+      <b>Alcista</b>: el mínimo de la ventana que el precio no ha vuelto a romper debe tener al menos esa antigüedad y el precio debe haber avanzado desde él
       (<b>bajista</b>: lo mismo con el máximo). Con «máximos y mínimos crecientes» se comparan los últimos máximos y mínimos locales de la ventana elegida y el precio no puede haber roto el último mínimo.
       <b>Zona de soporte</b>: nivel tocado 3+ veces en 2+ episodios durante el último año, sin cierres que lo pierdan en más de 1,5 %; el strike debe estar en él o por debajo.
-      <b>Días desde el último toque</b>: se excluyen los strikes que un cierre haya visitado (cierre ≤ strike) dentro de ese plazo.</p>
+      <b>Días desde el último toque</b>: se excluyen los strikes que un cierre haya visitado (cierre ≤ strike) dentro de ese plazo.
+      <b>Medias</b>: con velas diarias, semanales o mensuales (MA 50 = 50 días, 50 semanas o 50 meses); tastytrade solo da ~3,8 años de historia (≈198 semanas, 46 meses),
+      así que las medias más largas con velas mensuales (y la MA 200 semanal) no se pueden calcular y descartan el ticker.</p>
     <div class="filters tech">
-      {% for key, label in (('ma50', 'MA 50 días'), ('ma100', 'MA 100 días'), ('ma200', 'MA 200 días'), ('ema9', 'EMA 9'), ('ema20', 'EMA 20')) %}
+      <label>Velas de las medias
+        <select name="ma_frame" id="ma_frame">
+          <option value="daily" {{ 'selected' if form.ma_frame == 'daily' }}>Diarias (días)</option>
+          <option value="weekly" {{ 'selected' if form.ma_frame == 'weekly' }}>Semanales (semanas)</option>
+          <option value="monthly" {{ 'selected' if form.ma_frame == 'monthly' }}>Mensuales (meses)</option></select></label>
+      {% for key, label in (('ma50', 'MA 50'), ('ma100', 'MA 100'), ('ma200', 'MA 200'), ('ema9', 'EMA 9'), ('ema20', 'EMA 20')) %}
       <label>{{ label }}
         <select name="{{ key }}">
           <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
           <option value="above" {{ 'selected' if form[key] == 'above' }}>Precio por encima</option>
           <option value="below" {{ 'selected' if form[key] == 'below' }}>Precio por debajo</option></select></label>
+      {% endfor %}
+    </div>
+    <div class="filters tech">
+      {% for key, short, long in (('cmp_ema9_ema20', 'EMA9', 'EMA20'), ('cmp_ema20_ma50', 'EMA20', 'MA50'), ('cmp_ma50_ma100', 'MA50', 'MA100'), ('cmp_ma100_ma200', 'MA100', 'MA200')) %}
+      <label>{{ short }} frente a {{ long }}
+        <select name="{{ key }}">
+          <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
+          <option value="gte" {{ 'selected' if form[key] == 'gte' }}>{{ short }} ≥ {{ long }}</option>
+          <option value="lte" {{ 'selected' if form[key] == 'lte' }}>{{ short }} ≤ {{ long }}</option></select></label>
       {% endfor %}
       <label>Precio del subyacente
         <span><input name="price_min" size="6" placeholder="Mín." value="{{ form.price_min }}"> – <input name="price_max" size="6" placeholder="Máx." value="{{ form.price_max }}"></span></label>
@@ -141,7 +161,7 @@
   // Tendencia y niveles: cualquier cambio escanea; con la tendencia en Off se atenúan sus opciones
   const techSync = function () {
     const off = document.getElementById('trend_dir').value === 'off', low = document.getElementById('trend_method').value === 'low';
-    ['trend_method', 'trend_frame'].forEach(function (id) { document.getElementById(id).parentElement.style.opacity = off ? .45 : 1; });
+    ['trend_method', 'trend_frame', 'trend_window'].forEach(function (id) { document.getElementById(id).parentElement.style.opacity = off ? .45 : 1; });
     document.getElementById('trend_days_label').style.opacity = (off || !low) ? .45 : 1;
   };
   techSync();
