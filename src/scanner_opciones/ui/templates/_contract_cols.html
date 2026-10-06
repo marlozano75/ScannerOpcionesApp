@@ -16,4 +16,4 @@
 <td>{{ r.impact.assignment_pct_of_portfolio|pct }}</td>
 {%- endmacro %}
 
-{% macro updated(s) -%}<td>{{ s.updated_at.strftime('%H:%M:%S') if s.updated_at else 'sin cotizar' }}</td>{%- endmacro %}
+{% macro updated(s) -%}<td>{{ s.updated_at.strftime('%Y-%m-%d %H:%M:%S') if s.updated_at else 'sin cotizar' }}</td>{%- endmacro %}
