@@ -17,6 +17,7 @@ from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.rankedstocks.filters import apply_filters, parse_filters
+from scanner_opciones.scanner.criteria import MA_LINES
 from scanner_opciones.rankedstocks.loader import load_table
 from scanner_opciones.watchlist.loader import load_watchlist_file
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
@@ -45,6 +46,15 @@ def _x(v: Optional[float]) -> str:
 
 def _num(v: Optional[float], digits: int = 2) -> str:
     return "—" if v is None else f"{v:.{digits}f}"
+
+
+def _days_label(days: int) -> str:
+    """7 -> «1 semana», 30 -> «1 mes», 365 -> «1 año»; otros valores, «N días»."""
+    for size, one, many in ((365, "año", "años"), (30, "mes", "meses"), (7, "semana", "semanas")):
+        if days % size == 0:
+            n = days // size
+            return f"{n} {one if n == 1 else many}"
+    return f"{days} días"
 
 
 def _fmt(v) -> str:
@@ -268,7 +278,14 @@ def create_app(
             "min_yield": _fmt(base.min_annual_yield_pct),
             "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
             "use_trend": base.only_uptrend,
+            "trend_dir": base.trend_direction, "trend_method": base.trend_method, "trend_frame": base.trend_frame,
+            "trend_days": str(base.trend_min_days), "support": base.require_support,
+            "touch": "" if base.min_days_since_touch is None else str(base.min_days_since_touch),
+            "price_min": _fmt(base.min_price) if base.min_price is not None else "",
+            "price_max": _fmt(base.max_price) if base.max_price is not None else "",
+            **{k: getattr(base, k) for k in MA_LINES},
         }
+        tcfg = service.settings.scanner.technical
         optional = {
             "oi": ("min_oi", int, base.min_oi),
             "bidsize": ("min_bid_size", int, base.min_bid_size),
@@ -294,6 +311,33 @@ def create_app(
                 form["ref_x"] = qp.get("ref_x", form["ref_x"]).strip()   # ausente = valor de la configuración
                 form["use_trend"] = "use_trend" in qp
                 overrides["only_uptrend"] = form["use_trend"]
+                for key, field_name, allowed in (
+                    ("trend_dir", "trend_direction", ("off", "up", "down")),
+                    ("trend_method", "trend_method", ("low", "swings")),
+                    ("trend_frame", "trend_frame", ("daily", "weekly", "monthly")),
+                    *((k, k, ("any", "above", "below")) for k in MA_LINES),
+                ):
+                    form[key] = qp.get(key, form[key])
+                    if form[key] not in allowed:
+                        raise ValueError(f"valor desconocido en «{key}»")
+                    overrides[field_name] = form[key]
+                form["trend_days"] = qp.get("trend_days", form["trend_days"]).strip()
+                overrides["trend_min_days"] = _required(form["trend_days"], int, "Antigüedad del mínimo")
+                if overrides["trend_min_days"] not in tcfg.trend_durations:
+                    raise ValueError("antigüedad del mínimo no permitida")
+                form["support"] = "support" in qp
+                overrides["require_support"] = form["support"]
+                for key, field_name, label in (("price_min", "min_price", "Precio mín."), ("price_max", "max_price", "Precio máx.")):
+                    form[key] = qp.get(key, "").strip()
+                    overrides[field_name] = _required(form[key], float, label) if form[key] else None
+                    if overrides[field_name] is not None and overrides[field_name] < 0:
+                        raise ValueError(f"{label} no puede ser negativo")
+                if None not in (overrides["min_price"], overrides["max_price"]) and overrides["min_price"] > overrides["max_price"]:
+                    raise ValueError("el precio mínimo no puede superar el máximo")
+                form["touch"] = qp.get("touch", "").strip()
+                overrides["min_days_since_touch"] = _required(form["touch"], int, "Días desde el último toque") if form["touch"] else None
+                if overrides["min_days_since_touch"] is not None and overrides["min_days_since_touch"] not in tcfg.touch_min_days_options:
+                    raise ValueError("días desde el último toque no permitidos")
                 for key in optional:
                     form[f"use_{key}"] = f"use_{key}" in qp
                     form[key] = qp.get(key, "").strip()
@@ -352,6 +396,9 @@ def create_app(
                         min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
         return render(request, "scanner.html", out=out, ref_label=ref_label, watch_data=True, presets=presets,
                       candidates=service.settings.scanner.candidates, trend=service.settings.trend,
+                      tech_opts=dict(
+                          durations=[(d, _days_label(d)) for d in service.settings.scanner.technical.trend_durations],
+                          touches=[(d, _days_label(d)) for d in service.settings.scanner.technical.touch_min_days_options]),
                       report=service.state.last_refresh_report, **parsed)
 
     @app.get("/data-version")

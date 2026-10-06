@@ -636,3 +636,35 @@ def test_trend_checkbox_and_column(client_and_service):
     assert 'name="use_trend"' in r.text and "<th>Tendencia</th>" in r.text
     assert 'name="use_trend" id="use_trend" checked' not in r.text                    # por defecto desmarcado
     assert 'name="use_trend" id="use_trend" checked' in client.get("/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid&use_trend=on").text
+
+
+def test_technical_filters_form(client_and_service):
+    client, svc, gw, _ = client_and_service
+    base = "/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid"
+    r = client.get("/scanner")
+    for name in ("trend_dir", "trend_method", "trend_frame", "trend_days", "touch", "support", "ma50", "ma100", "ma200", "ema9", "ema20"):
+        assert f'name="{name}"' in r.text
+    assert "1 mes" in r.text and "1 año" in r.text and "1 semana" in r.text          # opciones con etiquetas legibles
+    url = base + "&trend_dir=up&trend_method=swings&trend_frame=weekly&trend_days=90&support=on&touch=30&ma50=above&ema9=below"
+    out = client.get(url).text
+    assert '<option value="up" selected>' in out and '<option value="swings" selected>' in out
+    assert '<option value="weekly" selected>' in out and '<option value="90" selected>' in out and '<option value="30" selected>' in out
+    assert 'name="support" id="support" checked' in out
+    assert '<option value="above" selected>' in out and '<option value="below" selected>' in out   # MA50 por encima, EMA9 por debajo
+    for bad in ("trend_dir=sideways", "trend_frame=yearly", "ma200=sometimes", "trend_days=5", "touch=3"):
+        assert "Parámetro no válido" in client.get(base + "&" + bad).text, bad
+
+
+def test_last_price_filter_form(client_and_service):
+    client, svc, gw, _ = client_and_service
+    base = "/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid"
+    r = client.get("/scanner")
+    assert 'name="price_min"' in r.text and 'name="price_max"' in r.text
+    out = client.get(base + "&price_min=20&price_max=150.5").text
+    assert 'name="price_min" size="6" placeholder="Mín." value="20"' in out and 'value="150.5"' in out
+    assert "Aplicado" in out
+    assert "Parámetro no válido" in client.get(base + "&price_min=200&price_max=100").text
+    assert "Parámetro no válido" in client.get(base + "&price_min=abc").text
+    assert "Parámetro no válido" in client.get(base + "&price_min=-5").text
+    only_high = client.get(base + "&price_min=1000").text                  # el subyacente de prueba vale 100: no pasa nada
+    assert "Ningún contrato cumple" in only_high or "0 contratos cumplen" in only_high

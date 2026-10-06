@@ -176,6 +176,20 @@ class BarRepo:
         ).fetchall()
         return {r["ticker"]: date.fromisoformat(r["day"]) for r in rows}
 
+    def all_closes(self, tickers: Iterable[str]) -> dict[str, list[tuple[date, float]]]:
+        """Cierres de varios tickers a la vez, en orden ascendente (para el scanner)."""
+        tickers = list(tickers)
+        if not tickers:
+            return {}
+        marks = ",".join("?" * len(tickers))
+        rows = self.db.conn.execute(
+            f"SELECT ticker, day, close FROM daily_bars WHERE ticker IN ({marks}) ORDER BY ticker, day", tickers
+        ).fetchall()
+        out: dict[str, list[tuple[date, float]]] = {}
+        for r in rows:
+            out.setdefault(r["ticker"], []).append((date.fromisoformat(r["day"]), r["close"]))
+        return out
+
     def closes(self, ticker: str) -> dict[date, float]:
         rows = self.db.conn.execute("SELECT day, close FROM daily_bars WHERE ticker = ?", (ticker,)).fetchall()
         return {date.fromisoformat(r["day"]): r["close"] for r in rows}

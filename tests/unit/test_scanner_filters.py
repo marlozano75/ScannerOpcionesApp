@@ -157,3 +157,16 @@ class TestPriceReference:
         bad = ContractSnapshot(c, NOW, bid=-1, ask=1.1, open_interest=500, spread_pct=None)
         for mode in PriceReference:
             assert "yield" in reject_reason(bad, 100.0, TODAY, self.with_ref(mode))
+
+
+class TestPriceRange:
+    def test_min_and_max_price_of_the_underlying(self):
+        c = REGULAR.with_filters(min_price=50, max_price=150)
+        assert reject_reason(snap(), 100.0, TODAY, c) is None
+        assert "máximo" in reject_reason(snap(strike=120.0), 160.0, TODAY, c)
+        assert "mínimo" in reject_reason(snap(strike=30.0), 40.0, TODAY, c)
+
+    def test_blank_means_no_limit(self):
+        assert reject_reason(snap(), 100.0, TODAY, REGULAR.with_filters(max_price=None, min_price=None)) is None
+        assert reject_reason(snap(), 100.0, TODAY, REGULAR.with_filters(min_price=50)) is None
+        assert "máximo" in reject_reason(snap(), 100.0, TODAY, REGULAR.with_filters(max_price=60))

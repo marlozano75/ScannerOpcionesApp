@@ -13,6 +13,8 @@ from scanner_opciones.metrics.yields import (
 from scanner_opciones.portfolio.diversification import CandidateImpact, candidate_impact
 from scanner_opciones.scanner.criteria import ScanCriteria
 from scanner_opciones.scanner.filters import reject_reason
+from scanner_opciones.scanner.technical import TechnicalFilter
+from scanner_opciones.config.settings import TechnicalSettings
 
 
 @dataclass(frozen=True)
@@ -43,7 +45,11 @@ def run_scan(
     criteria: ScanCriteria,
     today: date,
     include_rejections: bool = False,
+    bars: Optional[dict[str, list]] = None,
+    technical: Optional[TechnicalSettings] = None,
 ) -> ScanOutput:
+    """`bars` (cierres diarios por ticker) y `technical` solo hacen falta si `criteria.technical_active`."""
+    tech = TechnicalFilter(criteria, technical or TechnicalSettings(), bars or {}, today) if criteria.technical_active else None
     results: list[ScanResult] = []
     rejections: dict[str, str] = {}
     rejected = 0
@@ -52,6 +58,8 @@ def run_scan(
         info = infos.get(c.ticker)
         price = info.underlying_price if info else None
         why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info.uptrend if info else None)
+        if why is None and tech is not None:
+            why = tech.reject(c.ticker, price, c.strike)
         if why is not None:
             rejected += 1
             if include_rejections:

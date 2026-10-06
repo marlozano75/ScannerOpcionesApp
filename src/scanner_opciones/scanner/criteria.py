@@ -8,6 +8,9 @@ from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.enums import PriceReference
 
 
+MA_LINES = {"ma50": ("sma", 50), "ma100": ("sma", 100), "ma200": ("sma", 200), "ema9": ("ema", 9), "ema20": ("ema", 20)}
+
+
 @dataclass(frozen=True)
 class ScanCriteria:
     strike_below_pct_min: float
@@ -21,6 +24,27 @@ class ScanCriteria:
     min_iv_rank: Optional[float] = None
     min_iv_percentile: Optional[float] = None
     only_uptrend: bool = False
+    # filtros técnicos (ver scanner/technical.py); los valores por defecto no filtran nada
+    trend_direction: str = "off"          # off | up | down
+    trend_method: str = "low"             # low (mínimo/máximo sin romper) | swings (máximos y mínimos crecientes)
+    trend_frame: str = "daily"            # daily | weekly | monthly
+    trend_min_days: int = 30              # antigüedad mínima del mínimo sin romper (método «low»)
+    ma50: str = "any"                     # any | above | below (precio respecto a cada línea)
+    ma100: str = "any"
+    ma200: str = "any"
+    ema9: str = "any"
+    ema20: str = "any"
+    require_support: bool = False
+    min_days_since_touch: Optional[int] = None
+    min_price: Optional[float] = None     # precio del subyacente (vacío = sin límite)
+    max_price: Optional[float] = None
+
+    @property
+    def technical_active(self) -> bool:
+        return (
+            self.trend_direction != "off" or self.require_support or self.min_days_since_touch is not None
+            or any(getattr(self, k) != "any" for k in MA_LINES)
+        )
     price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD
     price_spread_pct: float = 25.0
 

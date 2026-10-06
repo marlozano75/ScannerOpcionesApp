@@ -76,6 +76,8 @@ MIGRATIONS: list[str] = [
     """,
     # v8: histórico de cierres diarios de los subyacentes (solo se piden los días que faltan)
     "CREATE TABLE daily_bars (ticker TEXT NOT NULL, day TEXT NOT NULL, close REAL NOT NULL, PRIMARY KEY (ticker, day));",
+    # v9: el histórico pasa de 400 días a ~2 años (730): se vacía para que la próxima actualización diaria lo descargue entero
+    "DELETE FROM daily_bars;",
 ]
 
 

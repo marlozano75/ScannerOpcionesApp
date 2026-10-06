@@ -391,9 +391,11 @@ class AppService:
         return criteria_from_settings(self.settings).with_filters(**overrides)
 
     def scan(self, criteria: ScanCriteria, include_rejections: bool = False) -> ScanOutput:
+        snapshots = self.snapshots.all()
+        bars = self.bars.all_closes({s.contract.ticker for s in snapshots}) if criteria.technical_active else None
         return run_scan(
-            self.snapshots.all(), self.ticker_info.all(), self.state.positions, criteria,
-            self.now().date(), include_rejections,
+            snapshots, self.ticker_info.all(), self.state.positions, criteria,
+            self.now().date(), include_rejections, bars, self.settings.scanner.technical,
         )
 
     def stored_contracts(self) -> list[ScanResult]:

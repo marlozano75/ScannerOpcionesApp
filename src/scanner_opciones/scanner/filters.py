@@ -32,6 +32,10 @@ def reject_reason(
         return "sin precio del subyacente"
     if not (criteria.strike_below_pct_min - _EPS <= dist <= criteria.strike_below_pct_max + _EPS):
         return f"strike a {dist:.2f}% fuera de [{criteria.strike_below_pct_min}, {criteria.strike_below_pct_max}]"
+    if criteria.min_price is not None and underlying_price < criteria.min_price - _EPS:
+        return f"precio {underlying_price:g} < mínimo {criteria.min_price:g}"
+    if criteria.max_price is not None and underlying_price > criteria.max_price + _EPS:
+        return f"precio {underlying_price:g} > máximo {criteria.max_price:g}"
     y = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)
     if y is None:
         return "sin yield (cotización no válida)"
