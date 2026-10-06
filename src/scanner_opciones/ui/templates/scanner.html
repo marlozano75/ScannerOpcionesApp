@@ -64,12 +64,14 @@
   {% for w in warnings %}<div class="banner info">{{ w }}</div>{% endfor %}
 </div>
 <script>
-  // X solo se muestra con «Bid + X % del spread»
-  document.getElementById('ref').addEventListener('change', function () {
-    document.getElementById('ref_x_label').hidden = (this.value !== 'bid_plus_spread');
-  });
   // Configuraciones preconfiguradas: cargan sus valores en el formulario (el resto de filtros se conserva) y escanean
   const form = document.getElementById('scan-form');
+  // X solo se muestra con «Bid + X % del spread»; cambiar el precio de referencia escanea
+  document.getElementById('ref').addEventListener('change', function () {
+    document.getElementById('ref_x_label').hidden = (this.value !== 'bid_plus_spread');
+    form.submit();
+  });
+  document.getElementById('ref_x').addEventListener('change', function () { form.submit(); });   // editar X escanea
   document.querySelectorAll('button.preset').forEach(function (b) {
     b.addEventListener('click', function () {
       document.getElementById('discount').value = b.dataset.discount;
