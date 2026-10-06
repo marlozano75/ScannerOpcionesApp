@@ -9,5 +9,3 @@ config/config.yaml
 *.egg-info/
 
 # datos de un tercero (RankedStocks): no se suben al repositorio
-watchlists/RankedStocks_*.xlsx
-watchlists/HelloStocks_*.xlsx
