@@ -51,7 +51,7 @@ def run_scan(
         c = snap.contract
         info = infos.get(c.ticker)
         price = info.underlying_price if info else None
-        why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile)
+        why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info.uptrend if info else None)
         if why is not None:
             rejected += 1
             if include_rejections:

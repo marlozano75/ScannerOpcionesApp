@@ -139,6 +139,7 @@ class FilterSettings(_Model):
     max_spread_pct: Optional[float] = Field(None, ge=0)
     min_iv_rank: Optional[float] = Field(None, ge=0, le=100)
     min_iv_percentile: Optional[float] = Field(None, ge=0, le=100)
+    only_uptrend: bool = False   # solo tickers con precio > media corta > media larga (`trend`)
 
 
 class FilterValues(_Model):
@@ -198,6 +199,20 @@ class TastytradeSettings(_Model):
     price_max_deviation_pct: float = Field(5, gt=0)
 
 
+class TrendSettings(_Model):
+    """Tendencia alcista: precio > media de `sma_short` cierres > media de `sma_long` cierres (velas diarias de tastytrade)."""
+    sma_short: int = Field(50, ge=2)
+    sma_long: int = Field(200, ge=3)
+    history_days: int = Field(400, ge=30)           # días naturales de velas que se piden (200 sesiones ≈ 290 días)
+    batch_timeout_seconds: float = Field(20, gt=0)  # espera máxima por lote de 50 tickers
+
+    @model_validator(mode="after")
+    def _check(self) -> "TrendSettings":
+        if self.sma_short >= self.sma_long:
+            raise ValueError("sma_short debe ser menor que sma_long")
+        return self
+
+
 class StorageSettings(_Model):
     path: str = "data/app.db"
 
@@ -238,6 +253,7 @@ class Settings(_Model):
     diversification: DiversificationSettings = DiversificationSettings()
     vix: VixSettings = VixSettings()
     tastytrade: TastytradeSettings = TastytradeSettings()
+    trend: TrendSettings = TrendSettings()
     storage: StorageSettings = StorageSettings()
     logging: LoggingSettings = LoggingSettings()
     market: MarketSettings = MarketSettings()

@@ -20,6 +20,7 @@ class ScanCriteria:
     max_spread_pct: Optional[float] = None
     min_iv_rank: Optional[float] = None
     min_iv_percentile: Optional[float] = None
+    only_uptrend: bool = False
     price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD
     price_spread_pct: float = 25.0
 
@@ -40,6 +41,7 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
         dte_max=ini.dte_max,
         min_oi=f.min_oi, min_bid_size=f.min_bid_size, max_spread_pct=f.max_spread_pct,
         min_iv_rank=f.min_iv_rank, min_iv_percentile=f.min_iv_percentile,
+        only_uptrend=f.only_uptrend,
         price_reference=settings.scanner.price_reference.mode,
         price_spread_pct=settings.scanner.price_reference.spread_pct,
     )

@@ -225,7 +225,7 @@ async def test_cleanup_orphans_removes_data_of_tickers_not_in_watchlist():
     svc.watchlist.remove("MU")                # como si se hubiera quitado con la versión anterior
     assert svc.contracts.list("MU")           # quedan huérfanos
     removed = svc.cleanup_orphans()
-    assert removed == {"contracts": 2, "ticker_info": 1}
+    assert removed == {"contracts": 2, "ticker_info": 1, "daily_bars": 0}
     assert svc.contracts.list("MU") == [] and svc.contracts.list("AAPL")
 
 

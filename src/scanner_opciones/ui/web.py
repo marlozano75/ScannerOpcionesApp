@@ -267,6 +267,7 @@ def create_app(
             "dte_min": str(base.dte_min), "dte_max": str(base.dte_max),
             "min_yield": _fmt(base.min_annual_yield_pct),
             "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
+            "use_trend": base.only_uptrend,
         }
         optional = {
             "oi": ("min_oi", int, base.min_oi),
@@ -291,6 +292,8 @@ def create_app(
                     form[key] = qp.get(key, "").strip()
                 form["ref"] = qp.get("ref", form["ref"])
                 form["ref_x"] = qp.get("ref_x", form["ref_x"]).strip()   # ausente = valor de la configuración
+                form["use_trend"] = "use_trend" in qp
+                overrides["only_uptrend"] = form["use_trend"]
                 for key in optional:
                     form[f"use_{key}"] = f"use_{key}" in qp
                     form[key] = qp.get(key, "").strip()
@@ -348,7 +351,7 @@ def create_app(
                         dte_max=p.dte_max if p.dte_max is not None else cand.dte_max,
                         min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
         return render(request, "scanner.html", out=out, ref_label=ref_label, watch_data=True, presets=presets,
-                      candidates=service.settings.scanner.candidates,
+                      candidates=service.settings.scanner.candidates, trend=service.settings.trend,
                       report=service.state.last_refresh_report, **parsed)
 
     @app.get("/data-version")

@@ -19,6 +19,7 @@ def reject_reason(
     criteria: ScanCriteria,
     iv_rank: Optional[float] = None,
     iv_percentile: Optional[float] = None,
+    uptrend: Optional[bool] = None,
 ) -> Optional[str]:
     c = snap.contract
     if c.right is not OptionRight.PUT:
@@ -51,4 +52,6 @@ def reject_reason(
         iv_percentile is None or iv_percentile < criteria.min_iv_percentile
     ):
         return "IV Percentile insuficiente o desconocido"
+    if criteria.only_uptrend and uptrend is not True:
+        return "sin tendencia alcista o desconocida"
     return None

@@ -1,12 +1,12 @@
 {# Columnas comunes del scanner y de «Contratos»: se mantienen en un solo sitio. #}
 {% macro head() -%}
-<th class="tk">Ticker</th><th>Sector</th><th>Precio</th><th>Precio act.</th><th>Vence</th><th>DTE</th><th>Strike</th><th>Desc.</th><th>Bid</th><th>Bid size</th><th>Ask</th><th>Last</th>
+<th class="tk">Ticker</th><th>Sector</th><th>Precio</th><th>Precio act.</th><th>Tendencia</th><th>Vence</th><th>DTE</th><th>Strike</th><th>Desc.</th><th>Bid</th><th>Bid size</th><th>Ask</th><th>Last</th>
 <th>Delta</th><th>IV</th><th>OI</th><th>Spread</th><th>Prima ref.</th><th>Yield</th><th>Yield anual</th><th>Yield bid</th><th>Yield bid anual</th><th>IV Rank</th><th>IV Pctl</th>
 <th>Margen ini.</th><th>Ex-div (d)</th><th>+Peso sector</th><th>Peso semana</th><th>% cartera si asignado</th>
 {%- endmacro %}
 
 {% macro cells(r) -%}{% set s = r.snapshot %}{% set c = s.contract -%}
-<td class="tk">{{ c.ticker }}</td><td>{{ r.impact.sector }}</td><td>{{ r.info.underlying_price|num if r.info else '—' }}</td><td>{{ r.info.price_at.strftime('%Y-%m-%d %H:%M') if r.info and r.info.price_at else '—' }}</td><td>{{ c.expiry }}</td><td>{{ r.dte }}</td><td>{{ c.strike|num }}</td>
+<td class="tk">{{ c.ticker }}</td><td>{{ r.impact.sector }}</td><td>{{ r.info.underlying_price|num if r.info else '—' }}</td><td>{{ r.info.price_at.strftime('%Y-%m-%d %H:%M') if r.info and r.info.price_at else '—' }}</td><td>{{ ('↑' if r.info.uptrend else '↓') if r.info and r.info.uptrend is not none else '—' }}</td><td>{{ c.expiry }}</td><td>{{ r.dte }}</td><td>{{ c.strike|num }}</td>
 <td>{{ r.strike_distance_pct|pct }}</td><td>{{ s.bid|num }}</td><td>{{ s.bid_size if s.bid_size is not none else '—' }}</td><td>{{ s.ask|num }}</td><td>{{ s.last|num }}</td>
 <td>{{ s.delta|num }}</td><td>{{ (s.iv * 100)|pct if s.iv is not none else '—' }}</td><td>{{ s.open_interest if s.open_interest is not none else '—' }}</td>
 <td>{{ s.spread_pct|pct }}</td><td>{{ r.reference_price|num }}</td><td>{{ r.yield_ref_pct|pct }}</td><td>{{ r.yield_ref_annualized_pct|pct }}</td><td>{{ r.yield_bid_pct|pct }}</td><td>{{ r.yield_bid_annualized_pct|pct }}</td>

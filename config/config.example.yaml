@@ -43,6 +43,7 @@ scanner:
     max_spread_pct: null
     min_iv_rank: null
     min_iv_percentile: null
+    only_uptrend: false          # true = solo tickers con precio > media corta > media larga (ver `trend`)
   filter_values:                 # valores de las cajas de los filtros opcionales cuando están desmarcados
     min_oi: 100
     min_bid_size: 20
@@ -67,6 +68,13 @@ tastytrade:
   client_secret: ""
   refresh_token: ""
   price_max_deviation_pct: 5   # si el precio de IBKR se aleja más de este % del de tastytrade, se usa el de tastytrade
+
+# Tendencia alcista: precio > media de sma_short cierres > media de sma_long cierres (velas diarias de tastytrade).
+trend:
+  sma_short: 50
+  sma_long: 200
+  history_days: 400
+  batch_timeout_seconds: 20
 
 storage:
   path: data/app.db

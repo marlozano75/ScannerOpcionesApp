@@ -628,3 +628,11 @@ def test_a_corrupt_saved_file_is_ignored_on_start(tmp_path):
     svc = AppService(FakeGateway(), db, Settings(storage={"path": str(tmp_path / "app.db")}),
                      lambda: NOW, market=FixedMarket(True))
     assert svc.rankedstocks is None
+
+
+def test_trend_checkbox_and_column(client_and_service):
+    client, svc, gw, _ = client_and_service
+    r = client.get("/scanner")
+    assert 'name="use_trend"' in r.text and "<th>Tendencia</th>" in r.text
+    assert 'name="use_trend" id="use_trend" checked' not in r.text                    # por defecto desmarcado
+    assert 'name="use_trend" id="use_trend" checked' in client.get("/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid&use_trend=on").text

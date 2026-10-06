@@ -29,3 +29,14 @@ async def test_prices_for_known_and_unknown_tickers():
     out = await TastytradeVolatility(tt.client_secret, tt.refresh_token).get_prices(["AAPL", "CBNK", "XXXXNOPE"])
     print(out)
     assert "XXXXNOPE" not in out and out["AAPL"] > 0 and out["CBNK"] > 0
+
+
+async def test_daily_closes_for_known_and_class_share_tickers():
+    from datetime import date
+
+    from scanner_opciones.metrics.trend import compute_trend
+
+    tt = load_settings(CONFIG).tastytrade
+    out = await TastytradeVolatility(tt.client_secret, tt.refresh_token).get_daily_closes(["AAPL", "PBR-A", "XXXXNOPE"], 400)
+    print({t: (len(b), compute_trend(b, date.today(), 50, 200)) for t, b in out.items()})
+    assert "XXXXNOPE" not in out and len(out["AAPL"]) >= 200 and "PBR-A" in out

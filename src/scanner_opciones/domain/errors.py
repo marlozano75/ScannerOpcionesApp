@@ -25,6 +25,10 @@ class WatchlistError(AppError):
     """Watchlist inválida o ilegible."""
 
 
+class CandleError(AppError):
+    """Fallo al obtener velas diarias de un proveedor externo."""
+
+
 class PriceError(AppError):
     """Fallo al obtener precios de un proveedor externo."""
 

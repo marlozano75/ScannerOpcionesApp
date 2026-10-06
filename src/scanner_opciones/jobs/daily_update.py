@@ -13,11 +13,13 @@ from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import TickerInfo
+from scanner_opciones.marketdata.candles import CandleProvider
+from scanner_opciones.jobs.price_history import update_history
 from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.scanner.candidates import candidate_contracts
 from scanner_opciones.storage.repositories import (
-    ContractRepo, TickerInfoRepo, WatchlistRepo,
+    BarRepo, ContractRepo, TickerInfoRepo, WatchlistRepo,
 )
 
 log = logging.getLogger(__name__)
@@ -36,6 +38,7 @@ class _Prefetched:
     quotes: dict = field(default_factory=dict)    # ticker -> UnderlyingQuote
     ex_div: dict = field(default_factory=dict)    # ticker -> días hasta el ex-dividendo (o None)
     iv: dict = field(default_factory=dict)        # ticker -> IVMetrics de tastytrade
+    trend: dict = field(default_factory=dict)     # ticker -> TrendStats (medias de los cierres diarios)
 
 
 class DailyUpdater:
@@ -49,8 +52,12 @@ class DailyUpdater:
         now: Callable[[], datetime] = datetime.now,
         volatility: Optional[VolatilityProvider] = None,
         prices: Optional[PriceProvider] = None,
+        candles: Optional[CandleProvider] = None,
+        bars: Optional[BarRepo] = None,
     ) -> None:
         self.volatility = volatility
+        self.candles = candles
+        self.bars = bars
         self.prices = prices
         self.gateway = gateway
         self.watchlist = watchlist
@@ -150,6 +157,14 @@ class DailyUpdater:
                 out.iv = await self._timed(timings, "iv externo", self.volatility.get_iv_metrics(tickers))
             except VolatilityError as exc:
                 log.warning("IV Rank/Percentile no disponibles, se conservan los guardados: %s", exc)
+        if self.candles is not None and self.bars is not None:   # cierres diarios: solo los días que faltan
+            out.trend = await self._timed(
+                timings, "tendencia",
+                update_history(self.candles, self.bars, tickers, self.now().date(), self.settings.trend),
+            )
+            missing = [x for x in tickers if x not in out.trend]
+            if missing:
+                log.info("Sin histórico suficiente para la tendencia de: %s", ", ".join(missing))
         return out
 
     async def _update_ticker(
@@ -197,6 +212,8 @@ class DailyUpdater:
                 updated_daily_at=now, price_at=price_at,
             )
         )
+        if (stats := shared.trend.get(ticker)) is not None:
+            self.ticker_info.update_trend(ticker, stats.sma_short, stats.sma_long, now)
         self.watchlist.mark_daily_updated(ticker, now)
 
     async def _sync_contracts(self, ticker, chain, price, today, revalidate, timings) -> None:

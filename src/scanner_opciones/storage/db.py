@@ -68,6 +68,14 @@ MIGRATIONS: list[str] = [
     "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
     # v6: cuándo se obtuvo el precio del subyacente
     "ALTER TABLE ticker_info ADD COLUMN price_at TEXT;",
+    # v7: medias de los cierres diarios (tendencia alcista) y cuándo se calcularon
+    """
+    ALTER TABLE ticker_info ADD COLUMN sma_short REAL;
+    ALTER TABLE ticker_info ADD COLUMN sma_long REAL;
+    ALTER TABLE ticker_info ADD COLUMN trend_at TEXT;
+    """,
+    # v8: histórico de cierres diarios de los subyacentes (solo se piden los días que faltan)
+    "CREATE TABLE daily_bars (ticker TEXT NOT NULL, day TEXT NOT NULL, close REAL NOT NULL, PRIMARY KEY (ticker, day));",
 ]
 
 

@@ -25,8 +25,9 @@ from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settin
 from scanner_opciones.scanner.engine import ScanOutput, ScanResult, list_stored, run_scan
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
-    ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
+    BarRepo, ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
+from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.rankedstocks.loader import RankedTable, load_table
@@ -71,6 +72,7 @@ class AppService:
         market: Optional[MarketCalendar] = None,
         volatility: Optional[VolatilityProvider] = None,
         prices: Optional[PriceProvider] = None,
+        candles: Optional[CandleProvider] = None,
     ) -> None:
         self.gateway = gateway
         self.settings = settings
@@ -81,8 +83,9 @@ class AppService:
         self.contracts = ContractRepo(db)
         self.snapshots = SnapshotRepo(db)
         self.meta = MetaRepo(db)
+        self.bars = BarRepo(db)
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info,
-                                  self.contracts, settings, now, volatility, prices)
+                                  self.contracts, settings, now, volatility, prices, candles, self.bars)
         self.refresh_job = RefreshJob(
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
             volatility, prices,
@@ -202,6 +205,7 @@ class AppService:
         removed = {
             "contracts": self.contracts.purge_except(keep),
             "ticker_info": self.ticker_info.purge_except(keep),
+            "daily_bars": self.bars.purge_except(keep),
         }
         if any(removed.values()):
             log.info("Limpieza de tickers fuera de la watchlist: %s", removed)

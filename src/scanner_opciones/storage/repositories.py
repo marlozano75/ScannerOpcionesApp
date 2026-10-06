@@ -127,6 +127,14 @@ class TickerInfoRepo:
                 (price, when.isoformat(), ticker),
             )
 
+    def update_trend(self, ticker: str, sma_short: float, sma_long: float, when: datetime) -> None:
+        """Guarda las medias de la tendencia sin tocar el resto de la ficha."""
+        with self.db.conn:
+            self.db.conn.execute(
+                "UPDATE ticker_info SET sma_short = ?, sma_long = ?, trend_at = ? WHERE ticker = ?",
+                (sma_short, sma_long, when.isoformat(), ticker),
+            )
+
     def purge_except(self, keep: Iterable[str]) -> int:
         """Borra la información de tickers que ya no están en la watchlist. Devuelve cuántos."""
         return _delete_not_in(self.db, "ticker_info", "ticker", keep)
@@ -140,6 +148,7 @@ class TickerInfoRepo:
             iv_rank=r["iv_rank"], iv_percentile=r["iv_percentile"],
             updated_daily_at=_dt(r["updated_daily_at"]),
             price_at=_dt(r["price_at"]),
+            sma_short=r["sma_short"], sma_long=r["sma_long"], trend_at=_dt(r["trend_at"]),
         )
 
     def get(self, ticker: str) -> Optional[TickerInfo]:
@@ -149,6 +158,47 @@ class TickerInfoRepo:
     def all(self) -> dict[str, TickerInfo]:
         rows = self.db.conn.execute("SELECT * FROM ticker_info").fetchall()
         return {r["ticker"]: self._row(r) for r in rows}
+
+
+class BarRepo:
+    """Cierres diarios de los subyacentes (para la tendencia)."""
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def last_days(self, tickers: Iterable[str]) -> dict[str, date]:
+        """Último día guardado de cada ticker (los que no tienen histórico no aparecen)."""
+        tickers = list(tickers)
+        if not tickers:
+            return {}
+        marks = ",".join("?" * len(tickers))
+        rows = self.db.conn.execute(
+            f"SELECT ticker, MAX(day) AS day FROM daily_bars WHERE ticker IN ({marks}) GROUP BY ticker", tickers
+        ).fetchall()
+        return {r["ticker"]: date.fromisoformat(r["day"]) for r in rows}
+
+    def closes(self, ticker: str) -> dict[date, float]:
+        rows = self.db.conn.execute("SELECT day, close FROM daily_bars WHERE ticker = ?", (ticker,)).fetchall()
+        return {date.fromisoformat(r["day"]): r["close"] for r in rows}
+
+    def upsert(self, ticker: str, bars: Iterable[tuple[date, float]]) -> None:
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO daily_bars (ticker, day, close) VALUES (?,?,?) "
+                "ON CONFLICT(ticker, day) DO UPDATE SET close = excluded.close",
+                [(ticker, d.isoformat(), px) for d, px in bars],
+            )
+
+    def delete(self, ticker: str) -> None:
+        with self.db.conn:
+            self.db.conn.execute("DELETE FROM daily_bars WHERE ticker = ?", (ticker,))
+
+    def prune(self, before: date) -> int:
+        """Borra los cierres anteriores a `before` (el histórico no crece sin límite)."""
+        with self.db.conn:
+            return self.db.conn.execute("DELETE FROM daily_bars WHERE day < ?", (before.isoformat(),)).rowcount
+
+    def purge_except(self, keep: Iterable[str]) -> int:
+        return _delete_not_in(self.db, "daily_bars", "ticker", keep)
 
 
 class ContractRepo:
