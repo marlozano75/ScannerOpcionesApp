@@ -25,5 +25,9 @@ class WatchlistError(AppError):
     """Watchlist inválida o ilegible."""
 
 
+class PriceError(AppError):
+    """Fallo al obtener precios de un proveedor externo."""
+
+
 class VolatilityError(AppError):
     """Fallo al obtener las métricas de volatilidad de un proveedor externo."""

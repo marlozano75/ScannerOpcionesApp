@@ -194,6 +194,8 @@ class TastytradeSettings(_Model):
     """Credenciales OAuth de tastytrade (solo lectura): de ahí salen IV Rank e IV Percentile. No se muestran en repr/logs."""
     client_secret: Optional[str] = Field(None, repr=False)
     refresh_token: Optional[str] = Field(None, repr=False)
+    # si el precio de IBKR se aleja más de este % del de tastytrade, se usa el de tastytrade (precio extraño)
+    price_max_deviation_pct: float = Field(5, gt=0)
 
 
 class StorageSettings(_Model):

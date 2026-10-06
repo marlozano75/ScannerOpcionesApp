@@ -13,6 +13,7 @@ from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import TickerInfo
+from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.scanner.candidates import candidate_contracts
 from scanner_opciones.storage.repositories import (
@@ -47,8 +48,10 @@ class DailyUpdater:
         settings: Settings,
         now: Callable[[], datetime] = datetime.now,
         volatility: Optional[VolatilityProvider] = None,
+        prices: Optional[PriceProvider] = None,
     ) -> None:
         self.volatility = volatility
+        self.prices = prices
         self.gateway = gateway
         self.watchlist = watchlist
         self.ticker_info = ticker_info
@@ -126,6 +129,10 @@ class DailyUpdater:
         out = _Prefetched()
         try:
             out.quotes = await self._timed(timings, "precios", self.gateway.get_underlying_quotes(tickers))
+            out.quotes = await self._timed(
+                timings, "precios externos",
+                reconcile_quotes(self.prices, out.quotes, self.settings.tastytrade.price_max_deviation_pct),
+            )
         except BrokerDisconnectedError:
             raise
         except BrokerError as exc:

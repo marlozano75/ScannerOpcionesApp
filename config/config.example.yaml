@@ -66,6 +66,7 @@ vix:
 tastytrade:
   client_secret: ""
   refresh_token: ""
+  price_max_deviation_pct: 5   # si el precio de IBKR se aleja más de este % del de tastytrade, se usa el de tastytrade
 
 storage:
   path: data/app.db

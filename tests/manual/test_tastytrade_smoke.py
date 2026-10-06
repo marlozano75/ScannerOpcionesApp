@@ -22,3 +22,10 @@ async def test_iv_metrics_for_known_and_unknown_tickers():
     assert "XXXXNOPE" not in out
     m = out["AAPL"]
     assert 0 <= m.iv_rank <= 100 and 0 <= m.iv_percentile <= 100
+
+
+async def test_prices_for_known_and_unknown_tickers():
+    tt = load_settings(CONFIG).tastytrade
+    out = await TastytradeVolatility(tt.client_secret, tt.refresh_token).get_prices(["AAPL", "CBNK", "XXXXNOPE"])
+    print(out)
+    assert "XXXXNOPE" not in out and out["AAPL"] > 0 and out["CBNK"] > 0

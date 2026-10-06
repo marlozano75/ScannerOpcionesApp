@@ -10,6 +10,7 @@ from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, OptionQuote
+from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.metrics.spread import spread_pct
 from scanner_opciones.metrics.yields import annualized_yield_pct, gross_yield_pct
@@ -46,8 +47,10 @@ class RefreshJob:
         settings: Settings,
         now: Callable[[], datetime] = datetime.now,
         volatility: Optional[VolatilityProvider] = None,
+        prices: Optional[PriceProvider] = None,
     ) -> None:
         self.volatility = volatility
+        self.prices = prices
         self.gateway = gateway
         self.contracts = contracts
         self.snapshots = snapshots
@@ -142,6 +145,7 @@ class RefreshJob:
         except BrokerError as exc:
             log.warning("No se pudieron actualizar precio/IV de los subyacentes: %s", exc)
             return infos
+        quotes = await reconcile_quotes(self.prices, quotes, self.settings.tastytrade.price_max_deviation_pct)
         infos = dict(infos)
         external: dict = {}
         if self.volatility is not None:  # una petición para todos los tickers

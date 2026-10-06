@@ -27,6 +27,7 @@ from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
+from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.rankedstocks.loader import RankedTable, load_table
 from scanner_opciones.watchlist.parser import ParseResult
@@ -69,6 +70,7 @@ class AppService:
         now: Callable[[], datetime] = datetime.now,
         market: Optional[MarketCalendar] = None,
         volatility: Optional[VolatilityProvider] = None,
+        prices: Optional[PriceProvider] = None,
     ) -> None:
         self.gateway = gateway
         self.settings = settings
@@ -80,10 +82,10 @@ class AppService:
         self.snapshots = SnapshotRepo(db)
         self.meta = MetaRepo(db)
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info,
-                                  self.contracts, settings, now, volatility)
+                                  self.contracts, settings, now, volatility, prices)
         self.refresh_job = RefreshJob(
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
-            volatility,
+            volatility, prices,
         )
         self.state = AppState()
         self.rankedstocks: Optional[RankedTable] = None   # fichero de RankedStocks elegido por el usuario (memoria)

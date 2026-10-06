@@ -39,8 +39,8 @@ def build_app(settings: Settings):
     tt = settings.tastytrade
     if not (tt.client_secret and tt.refresh_token):
         raise ConfigError("Faltan tastytrade.client_secret y tastytrade.refresh_token en config.yaml (IV Rank e IV Percentile)")
-    service = AppService(factory(settings.ibkr.mode), db, settings,
-                         volatility=TastytradeVolatility(tt.client_secret, tt.refresh_token))
+    tasty = TastytradeVolatility(tt.client_secret, tt.refresh_token)   # IV Rank/Percentile y precio de contraste
+    service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty)
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     startup_task: list[asyncio.Task] = []
 
