@@ -166,13 +166,15 @@ class BarRepo:
         self.db = db
 
     def last_days(self, tickers: Iterable[str]) -> dict[str, date]:
-        """Último día guardado de cada ticker (los que no tienen histórico no aparecen)."""
+        """Último día con cierre OFICIAL guardado de cada ticker (los que no tienen histórico no aparecen).
+        Los cierres provisionales del día en curso no cuentan: hay que seguir pidiendo el oficial."""
         tickers = list(tickers)
         if not tickers:
             return {}
         marks = ",".join("?" * len(tickers))
         rows = self.db.conn.execute(
-            f"SELECT ticker, MAX(day) AS day FROM daily_bars WHERE ticker IN ({marks}) GROUP BY ticker", tickers
+            f"SELECT ticker, MAX(day) AS day FROM daily_bars WHERE provisional = 0 AND ticker IN ({marks}) GROUP BY ticker",
+            tickers
         ).fetchall()
         return {r["ticker"]: date.fromisoformat(r["day"]) for r in rows}
 
@@ -190,16 +192,28 @@ class BarRepo:
             out.setdefault(r["ticker"], []).append((date.fromisoformat(r["day"]), r["close"]))
         return out
 
-    def closes(self, ticker: str) -> dict[date, float]:
-        rows = self.db.conn.execute("SELECT day, close FROM daily_bars WHERE ticker = ?", (ticker,)).fetchall()
+    def closes(self, ticker: str, official_only: bool = False) -> dict[date, float]:
+        rows = self.db.conn.execute(
+            "SELECT day, close FROM daily_bars WHERE ticker = ?" + (" AND provisional = 0" if official_only else ""),
+            (ticker,),
+        ).fetchall()
         return {date.fromisoformat(r["day"]): r["close"] for r in rows}
 
     def upsert(self, ticker: str, bars: Iterable[tuple[date, float]]) -> None:
         with self.db.conn:
             self.db.conn.executemany(
-                "INSERT INTO daily_bars (ticker, day, close) VALUES (?,?,?) "
-                "ON CONFLICT(ticker, day) DO UPDATE SET close = excluded.close",
+                "INSERT INTO daily_bars (ticker, day, close, provisional) VALUES (?,?,?,0) "
+                "ON CONFLICT(ticker, day) DO UPDATE SET close = excluded.close, provisional = 0",
                 [(ticker, d.isoformat(), px) for d, px in bars],
+            )
+
+    def upsert_provisional(self, ticker: str, day: date, price: float) -> None:
+        """Guarda el último precio visto como cierre provisional de `day`. Nunca pisa un cierre oficial."""
+        with self.db.conn:
+            self.db.conn.execute(
+                "INSERT INTO daily_bars (ticker, day, close, provisional) VALUES (?,?,?,1) "
+                "ON CONFLICT(ticker, day) DO UPDATE SET close = excluded.close WHERE daily_bars.provisional = 1",
+                (ticker, day.isoformat(), price),
             )
 
     def delete(self, ticker: str) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 
@@ -36,6 +37,14 @@ class MarketCalendar:
     def is_open(self, now: datetime) -> bool:
         local = self._local(now)
         return self._is_session_day(local.date()) and self.open <= local.time() < self.close
+
+    def session_day(self, now: datetime) -> Optional[date]:
+        """Día de la sesión en curso o ya terminada hoy (abierta o cerrada tras el cierre); None si hoy no hay
+        sesión (fin de semana, festivo) o aún no ha abierto. Sirve para fechar el cierre provisional del día."""
+        local = self._local(now)
+        if self._is_session_day(local.date()) and local.time() >= self.open:
+            return local.date()
+        return None
 
     def last_close(self, now: datetime) -> datetime:
         """Último cierre de sesión ya ocurrido (aware, en la zona del mercado)."""

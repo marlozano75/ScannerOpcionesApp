@@ -78,6 +78,8 @@ MIGRATIONS: list[str] = [
     "CREATE TABLE daily_bars (ticker TEXT NOT NULL, day TEXT NOT NULL, close REAL NOT NULL, PRIMARY KEY (ticker, day));",
     # v9: el histórico pasa de 400 días a ~2 años (730): se vacía para que la próxima actualización diaria lo descargue entero
     "DELETE FROM daily_bars;",
+    # v10: cierre provisional del día en curso (último precio del refresco); el cierre oficial lo sustituye
+    "ALTER TABLE daily_bars ADD COLUMN provisional INTEGER NOT NULL DEFAULT 0;",
 ]
 
 

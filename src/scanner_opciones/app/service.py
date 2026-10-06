@@ -132,6 +132,9 @@ class AppService:
 
     # ---- ciclo de vida ---------------------------------------------------------------------
     async def start(self) -> None:
+        # El histórico de cierres solo depende de tastytrade y se guarda en la base de datos: se completa lo
+        # primero (unos segundos), sin esperar al broker ni al primer refresco, que tarda minutos.
+        await self._update_history()
         try:
             await self.gateway.connect()
         except BrokerError as exc:
@@ -275,11 +278,26 @@ class AppService:
         self.state.activity = "Descargando histórico de cierres"
         try:
             await self.daily.update_history(self.watchlist.list())
+            self.record_today_prices()
         except Exception:
             log.exception("No se pudo actualizar el histórico de cierres")
         finally:
             self.state.activity = None
             self.state.data_version += 1
+
+    def record_today_prices(self) -> int:
+        """Guarda el último precio de cada ticker como cierre provisional de la sesión de hoy en el histórico (lo
+        sustituye el cierre oficial al día siguiente). Solo si hoy hay sesión y el precio es de hoy. Devuelve
+        cuántos tickers se guardaron."""
+        day = self.market.session_day(self.now())
+        if day is None:
+            return 0
+        saved = 0
+        for ticker, info in self.ticker_info.all().items():
+            if info.underlying_price and info.price_at and info.price_at.astimezone(self.market.tz).date() == day:
+                self.bars.upsert_provisional(ticker, day, info.underlying_price)
+                saved += 1
+        return saved
 
     def history_coverage(self) -> tuple[int, int]:
         """(tickers de la watchlist con histórico de cierres, tickers de la watchlist)."""
@@ -327,6 +345,7 @@ class AppService:
                 await self._refresh_vix()
                 if include_market:
                     self.state.last_refresh_report = await self.refresh_job.run()
+                    self.record_today_prices()
                     self.meta.set(LAST_FULL_REFRESH, self.now().isoformat())
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
@@ -366,6 +385,7 @@ class AppService:
         async with self._lock:
             try:
                 report = await self.refresh_job.run([criteria])
+                self.record_today_prices()
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return None

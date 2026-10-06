@@ -29,8 +29,13 @@ class FixedMarket:
         self.open_ = open_
         self.last_close_dt = datetime(2026, 9, 28, 16, 0, tzinfo=ZoneInfo("America/New_York"))
 
+    tz = ZoneInfo("America/New_York")
+
     def is_open(self, now):
         return self.open_
+
+    def session_day(self, now):
+        return now.date() if self.open_ else None
 
     def last_close(self, now):
         return self.last_close_dt
@@ -225,7 +230,7 @@ async def test_cleanup_orphans_removes_data_of_tickers_not_in_watchlist():
     svc.watchlist.remove("MU")                # como si se hubiera quitado con la versión anterior
     assert svc.contracts.list("MU")           # quedan huérfanos
     removed = svc.cleanup_orphans()
-    assert removed == {"contracts": 2, "ticker_info": 1, "daily_bars": 0}
+    assert removed == {"contracts": 2, "ticker_info": 1, "daily_bars": 1}     # el cierre provisional de hoy de MU
     assert svc.contracts.list("MU") == [] and svc.contracts.list("AAPL")
 
 

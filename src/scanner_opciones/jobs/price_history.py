@@ -48,7 +48,7 @@ async def update_history(
             fetched = await candles.get_daily_closes(stale, days)
             for t in stale:
                 series = _closed(fetched.get(t, []), today)
-                if series and _adjusted(repo.closes(t), series):
+                if series and _adjusted(repo.closes(t, official_only=True), series):
                     log.info("%s: los cierres guardados no coinciden con los actuales (¿split?); se recarga el histórico", t)
                     repo.delete(t)
                     full.append(t)

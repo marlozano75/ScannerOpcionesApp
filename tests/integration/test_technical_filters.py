@@ -47,7 +47,7 @@ async def test_ticker_without_history_is_rejected_by_any_technical_filter():
     assert strikes(svc, ma50="above") == []
     out = svc.scan(svc.criteria().with_filters(strike_below_pct_min=1, min_annual_yield_pct=0, dte_max=45, ma50="above"),
                    include_rejections=True)
-    assert any("sin histórico" in why for why in out.rejections.values())
+    assert out.rejections and all(why.startswith("sin ") for why in out.rejections.values())   # sin histórico / sin datos para la media
 
 
 @pytest.mark.parametrize("line, values, side, expected", [

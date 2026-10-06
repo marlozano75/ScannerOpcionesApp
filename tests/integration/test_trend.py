@@ -200,5 +200,68 @@ async def test_history_is_downloaded_even_when_the_daily_update_has_nothing_pend
     assert svc.watchlist.pending_daily_update(NOW.date()) == [] and svc.bars.closes("AAPL") == {}
     assert svc.history_coverage() == (0, 1)
     await svc.run_daily(wait=True)                     # ... y aun así el histórico se completa
-    assert svc.history_coverage() == (1, 1) and len(svc.bars.closes("AAPL")) == 25
+    assert svc.history_coverage() == (1, 1) and len(svc.bars.closes("AAPL", official_only=True)) == 25
     assert svc.ticker_info.get("AAPL").sma_short == 95.0
+
+
+# ---- cierre provisional del día (último precio del refresco) y arranque ------------------------------------------
+def test_provisional_bar_never_overwrites_an_official_one_and_is_replaced_by_it():
+    from scanner_opciones.storage.repositories import BarRepo
+    repo = BarRepo(Database(":memory:"))
+    repo.upsert_provisional("AAPL", TODAY, 100.0)
+    repo.upsert_provisional("AAPL", TODAY, 101.5)                      # el último precio visto sustituye al provisional
+    assert repo.closes("AAPL") == {TODAY: 101.5} and repo.closes("AAPL", official_only=True) == {}
+    assert repo.last_days(["AAPL"]) == {}                               # lo provisional no cuenta como histórico al día
+    repo.upsert("AAPL", [(TODAY, 100.9)])                              # llega el oficial
+    assert repo.closes("AAPL", official_only=True) == {TODAY: 100.9} and repo.last_days(["AAPL"]) == {"AAPL": TODAY}
+    repo.upsert_provisional("AAPL", TODAY, 120.0)                      # ya hay oficial: no se pisa
+    assert repo.closes("AAPL") == {TODAY: 100.9}
+
+
+async def test_refresh_records_the_last_price_of_the_day_in_the_history():
+    svc, gw = await service_with(FakeCandles({"AAPL": bars([50.0] * 30)}))
+    await svc.daily.run_pending()
+    await svc.refresh_all()
+    assert svc.bars.closes("AAPL")[TODAY] == 100.0                      # precio del refresco, fecha de la sesión
+    gw.prices["AAPL"] = 103.0
+    await svc.refresh_all()
+    assert svc.bars.closes("AAPL")[TODAY] == 103.0                      # cada refresco actualiza el provisional
+    assert svc.bars.closes("AAPL", official_only=True).get(TODAY) is None
+
+
+async def test_no_provisional_bar_without_a_session_today():
+    svc, gw = await service_with(FakeCandles({"AAPL": bars([50.0] * 30)}))
+    svc.market = FixedMarket(False)                                     # fin de semana, festivo o antes de la apertura
+    await svc.daily.run_pending()
+    await svc.refresh_all()
+    assert TODAY not in svc.bars.closes("AAPL")
+
+
+async def test_provisional_bar_is_replaced_by_the_official_close_the_next_day():
+    svc, gw = await service_with(FakeCandles({"AAPL": bars([50.0] * 30, end=TODAY - timedelta(days=2))}))
+    await daily(svc)
+    gw.prices["AAPL"] = 100.0
+    await svc.refresh_all()                                              # provisional de hoy = 100
+    official = [(TODAY, 99.2)]
+    svc.daily.candles = FakeCandles({"AAPL": official})
+    svc.now = lambda: NOW + timedelta(days=1)
+    svc.daily.now = svc.now
+    await svc.daily.update_history(["AAPL"])
+    assert svc.bars.closes("AAPL", official_only=True)[TODAY] == 99.2    # oficial; no hace falta recargar todo
+    assert svc.daily.candles.days == [3 + 7]                         # desde el último cierre oficial (hace 3 días) + solape
+
+
+async def test_start_downloads_the_history_before_connecting_or_refreshing():
+    candles = FakeCandles({"AAPL": bars([50.0] * 30)})
+    svc, gw = await service_with(candles)
+    order = []
+    original = svc.refresh_all
+
+    async def spy(*a, **kw):
+        order.append(("refresh", svc.history_coverage()))
+        return await original(*a, **kw)
+
+    svc.refresh_all = spy
+    await svc.start()
+    await svc.wait_idle()
+    assert order and order[0] == ("refresh", (1, 1))                    # al primer refresco el histórico ya estaba completo
