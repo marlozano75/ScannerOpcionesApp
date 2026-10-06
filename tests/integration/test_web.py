@@ -87,7 +87,7 @@ def test_scanner_defaults_from_config(client_and_service):
     for name, value in (("discount", "10"), ("dte_min", "1"), ("dte_max", "35"), ("min_yield", "1")):
         assert f'name="{name}"' in r.text and f'name="{name}" id="{name}" size="{6 if "d" in name[:1] and "dte" not in name else 5}" value="{value}"' in r.text.replace(
             'size="6" value', 'size="6" value').replace('size="5" value', 'size="5" value') or f'value="{value}"' in r.text
-    assert 'name="discount_max"' not in r.text and "35.0%" in r.text   # descuento máx. fijo = máx. del rango guardado
+    assert 'name="discount_max"' not in r.text and "30.0%" in r.text   # descuento máx. fijo = máx. del rango guardado
     assert "checked" not in _optional_block(r.text)          # ningún filtro opcional marcado
 
 
@@ -121,7 +121,7 @@ def test_discount_dte_and_yield_are_editable(client_and_service):
         "/scanner?submitted=1&discount=20&dte_min=40&dte_max=50&min_yield=1").text
     # descuento mínimo 30 %: el strike a 25 % ya no cumple (solo el de 30 %, si existe)
     assert "Ningún contrato cumple" in client.get(
-        "/scanner?submitted=1&discount=35&dte_min=25&dte_max=35&min_yield=1").text
+        "/scanner?submitted=1&discount=30&dte_min=25&dte_max=35&min_yield=1").text
     assert "Ningún contrato cumple" in client.get(
         "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=50").text
     wide = client.get("/scanner?submitted=1&discount=15&dte_min=1&dte_max=60&min_yield=0.1")
@@ -160,24 +160,6 @@ def test_config_filter_values_start_ticked(client_and_service):
     r = client.get("/scanner")
     assert 'name="use_oi" checked' in r.text and 'value="50"' in r.text
     assert 'name="use_oi" checked' not in client.get(BASE + "&oi=50").text   # enviado sin marcar = desactivado
-
-
-def test_refresh_scoped_quotes_wider_range_then_redirects(client_and_service):
-    client, svc, gw, _ = client_and_service
-    from datetime import timedelta
-    from scanner_opciones.domain.models import OptionQuote
-    # contrato guardado con DTE 50: fuera de lo que se cotiza por defecto
-    svc.contracts.replace_for_ticker("AAPL", [OptionContract("AAPL", TODAY + timedelta(days=50), 70.0)])
-    far = svc.contracts.list("AAPL")[0]
-    gw.quotes[far] = OptionQuote(bid=1.0, ask=1.2, open_interest=100)
-    refresh(client)
-    assert svc.snapshots.all("AAPL") == []                   # el refresco automático no lo cotiza
-    data = {"submitted": "1", "discount": "20", "dte_min": "25", "dte_max": "60", "min_yield": "0.5"}
-    r = client.post("/scanner/refresh", data=data, follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"].startswith("/scanner?")
-    assert len(svc.snapshots.all("AAPL")) == 1               # ahora sí
-    shown = client.get(r.headers["location"])
-    assert "contratos cumplen" in shown.text and "1/1 contratos del rango" in shown.text
 
 
 def test_simulate_flow(client_and_service):
@@ -558,10 +540,10 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     client, svc, gw, _ = client_and_service
     html = client.get("/scanner?reset=1").text
     form = html.split('id="scan-form"')[1].split("</form>")[0]
-    # dos configuraciones; la segunda toma el DTE máx. de la ventana guardada (45)
+    # dos configuraciones; la segunda toma el DTE máx. de la ventana guardada (35)
     assert form.count('class="secondary preset"') == 2
     assert 'data-discount="10" data-dte-min="1"' in form and 'data-dte-max="15" data-yield="20"' in form
-    assert 'data-discount="20" data-dte-min="16"' in form and 'data-dte-max="45" data-yield="13"' in form
+    assert 'data-discount="20" data-dte-min="16"' in form and 'data-dte-max="35" data-yield="13"' in form
     # − / + en las cajas principales, no en los filtros opcionales
     for name in ("discount", "dte_min", "dte_max", "min_yield"):
         box = form.split(f'name="{name}" id="{name}"')[1].split("</span>")[0]
@@ -572,7 +554,7 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     for name, value in (("oi", "100"), ("bidsize", "20"), ("spread", "35"), ("ivr", "30"), ("ivp", "50")):
         assert f'<input name="{name}" size="7" value="{value}">' in opt
     # los valores de una configuración escanean sin error
-    r = client.get("/scanner?submitted=1&discount=20&dte_min=16&dte_max=45&min_yield=13")
+    r = client.get("/scanner?submitted=1&discount=20&dte_min=16&dte_max=35&min_yield=13")
     assert r.status_code == 200 and "Parámetro no válido" not in r.text
 
 

@@ -21,10 +21,10 @@ daily_update:
 
 scanner:
   candidates:              # contratos que se GUARDAN en la actualización diaria
-    strike_below_pct_min: 5    # strikes desde un 5 % ...
-    strike_below_pct_max: 35   # ... hasta un 35 % por debajo del precio
+    strike_below_pct_min: 10   # strikes desde un 10 % ...
+    strike_below_pct_max: 30   # ... hasta un 30 % por debajo del precio
     dte_min: 1
-    dte_max: 45                # vencimientos hasta 45 días
+    dte_max: 35                # vencimientos hasta 35 días
   price_reference:         # precio de venta con el que se calcula el yield
     mode: bid_plus_spread      # bid | mid | bid_plus_spread
     spread_pct: 25             # X: % del spread sumado al bid (0 = bid, 50 = mid)

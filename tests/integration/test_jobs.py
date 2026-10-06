@@ -147,37 +147,32 @@ async def test_daily_update_drops_contracts_that_do_not_exist(env):
     assert [c.strike for c in env.contracts.list("AAPL")] == [80.0]
 
 
-async def test_stored_range_is_5_to_35_pct_and_up_to_45_dte(env):
+async def test_stored_range_is_10_to_30_pct_and_up_to_35_dte(env):
     env.gw.prices["AAPL"] = 100.0
     env.gw.chains["AAPL"] = OptionChain(
         "AAPL",
-        [TODAY + timedelta(days=n) for n in (0, 1, 30, 45, 46)],
+        [TODAY + timedelta(days=n) for n in (0, 1, 30, 35, 36)],
         [50.0, 60.0, 65.0, 70.0, 85.0, 96.0],
     )
     env.watch.add(["AAPL"], NOW)
     await env.daily.run(["AAPL"])
     stored = {(c.expiry - TODAY).days: sorted(x.strike for x in env.contracts.list("AAPL") if x.expiry == c.expiry)
               for c in env.contracts.list("AAPL")}
-    assert set(stored) == {1, 30, 45}            # DTE 0 y 46 fuera
-    assert stored[30] == [65.0, 70.0, 85.0]      # -35 %, -30 %, -15 %; 60 (-40 %), 50 (-50 %) y 96 (-4 %) fuera
+    assert set(stored) == {1, 30, 35}            # DTE 0 y 36 fuera
+    assert stored[30] == [70.0, 85.0]            # -30 %, -15 %; 65 (-35 %), 60, 50 y 96 (-4 %) fuera
 
 
-async def test_refresh_only_quotes_contracts_in_scope_unless_criteria_given(env):
-    from scanner_opciones.scanner.criteria import criteria_from_settings
+async def test_refresh_quotes_every_stored_contract(env):
     env.gw.prices["AAPL"] = 100.0
     env.gw.chains["AAPL"] = OptionChain(
-        "AAPL", [TODAY + timedelta(days=30), TODAY + timedelta(days=44)], [70.0]
+        "AAPL", [TODAY + timedelta(days=30), TODAY + timedelta(days=34)], [70.0]
     )
     env.watch.add(["AAPL"], NOW)
     await env.daily.run(["AAPL"])
-    near, far = env.contracts.list("AAPL")
-    for c in (near, far):
+    for c in env.contracts.list("AAPL"):
         env.gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=100)
-    report = await env.refresh.run()                      # valores iniciales del filtro: DTE 1-35
-    assert (report.stored, report.in_scope, report.refreshed) == (2, 1, 1)
-    wide = criteria_from_settings(env.settings).with_filters(dte_max=45)
-    report = await env.refresh.run([wide])                # rango ampliado desde el formulario
-    assert (report.in_scope, report.refreshed) == (2, 2)
+    report = await env.refresh.run()                      # lo guardado coincide con los valores iniciales del filtro
+    assert (report.stored, report.in_scope, report.refreshed) == (2, 2, 2)
 
 
 async def test_refresh_updates_underlying_price_each_cycle(env):
@@ -285,10 +280,10 @@ async def test_second_daily_update_only_validates_new_combinations(env):
     assert env.gw.qualified == []                           # ni las guardadas ni la inexistente se repiten
     # una expiración nueva solo valida las combinaciones de esa expiración
     env.gw.chains["AAPL"] = OptionChain(
-        "AAPL", [TODAY + timedelta(days=30), TODAY + timedelta(days=37)], [75.0, 80.0]
+        "AAPL", [TODAY + timedelta(days=30), TODAY + timedelta(days=33)], [75.0, 80.0]
     )
     await env.daily.run(["AAPL"])
-    assert {c.expiry for c in env.gw.qualified} == {TODAY + timedelta(days=37)}
+    assert {c.expiry for c in env.gw.qualified} == {TODAY + timedelta(days=33)}
     assert len(env.contracts.list("AAPL")) == 3
 
 

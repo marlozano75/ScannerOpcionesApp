@@ -105,13 +105,10 @@
         <input name="ivp" size="7" value="{{ form.ivp }}"></label>
       <button>Escanear</button>
       <a href="/scanner?reset=1" title="Vuelve a los valores iniciales de la configuración">Restablecer</a>
-      <button class="secondary" formaction="/scanner/refresh" formmethod="post"
-              title="Pide cotizaciones a IBKR de los contratos de este rango y luego escanea">Actualizar cotizaciones de este rango y escanear</button>
     </div>
   </form>
   <p class="muted">Guardado en la actualización diaria: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }}% por debajo,
-    DTE {{ candidates.dte_min }}–{{ candidates.dte_max }}. Cada {{ refresh_minutes|round|int }} min solo se cotizan los contratos que encajan con los
-    valores iniciales del filtro; si cambias el rango, usa «Actualizar cotizaciones».</p>
+    DTE {{ candidates.dte_min }}–{{ candidates.dte_max }}. Todos se cotizan cada {{ refresh_minutes|round|int }} min.</p>
   {% if criteria %}
   <p class="muted">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
     yield anual ≥ {{ criteria.min_annual_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}

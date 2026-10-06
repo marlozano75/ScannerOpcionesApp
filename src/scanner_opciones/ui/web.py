@@ -433,16 +433,6 @@ def create_app(
                       quoted=sum(1 for r in rows if r.snapshot.updated_at is not None),
                       candidates=service.settings.scanner.candidates)
 
-    @app.post("/scanner/refresh")
-    async def scanner_refresh(request: Request):
-        """Cotiza los contratos del rango pedido en el formulario y vuelve al scanner."""
-        data = await request.form()
-        parsed = parse_scan(data)
-        if parsed["criteria"] is not None and service.state.connected:
-            await service.refresh_scoped(parsed["criteria"])
-        query = urlencode([(k, str(v)) for k, v in data.multi_items()])
-        return RedirectResponse(f"/scanner?{query}", status_code=303)
-
     @app.get("/simulate")
     async def simulate_get():
         """La simulación es un POST: un GET (recargar, volver atrás) lleva de nuevo al scanner."""

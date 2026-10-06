@@ -377,23 +377,6 @@ class AppService:
     def pacing_wait_seconds(self) -> float:
         return self.gateway.pacing_wait_seconds()
 
-    async def refresh_scoped(self, criteria: ScanCriteria) -> Optional[RefreshReport]:
-        """Cotiza los contratos que encajan con `criteria` (p. ej. un rango distinto del inicial)."""
-        if self.busy:
-            log.info("Refresco omitido: hay otra ejecución en curso")
-            return None
-        async with self._lock:
-            try:
-                report = await self.refresh_job.run([criteria])
-                self.record_today_prices()
-            except BrokerDisconnectedError as exc:
-                self._disconnected(exc)
-                return None
-            self.state.last_refresh_report = report
-            self.state.last_refresh = self.now()
-            self.state.data_version += 1
-            return report
-
     def _disconnected(self, exc: Exception) -> None:
         self.state.connected = False
         self.state.errors["connection"] = str(exc)

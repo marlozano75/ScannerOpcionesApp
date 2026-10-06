@@ -80,10 +80,10 @@ class DailyUpdateSettings(_Model):
 
 class CandidateRange(_Model):
     """Rango de contratos que se GUARDAN en la actualización diaria (el scanner trabaja dentro de él)."""
-    strike_below_pct_min: float = Field(5, ge=0, lt=100)
-    strike_below_pct_max: float = Field(35, ge=0, lt=100)
+    strike_below_pct_min: float = Field(10, ge=0, lt=100)
+    strike_below_pct_max: float = Field(30, ge=0, lt=100)
     dte_min: int = Field(1, ge=0)
-    dte_max: int = Field(45, ge=1)
+    dte_max: int = Field(35, ge=1)
 
     @model_validator(mode="after")
     def _check(self) -> "CandidateRange":
