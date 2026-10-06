@@ -154,8 +154,9 @@ class RefreshJob:
             if info is None:
                 continue
             if q.price is not None:
-                self.ticker_info.update_price(ticker, q.price)
-                info = replace(info, underlying_price=q.price)
+                now = self.now()
+                self.ticker_info.update_price(ticker, q.price, now)
+                info = replace(info, underlying_price=q.price, price_at=now)
                 report.prices_updated += 1
             if (metrics := external.get(ticker)) is not None:
                 self.ticker_info.update_iv_stats(ticker, metrics.iv_rank, metrics.iv_percentile)

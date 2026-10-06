@@ -18,6 +18,7 @@ class TickerInfo:
     iv_rank: Optional[float] = None
     iv_percentile: Optional[float] = None
     updated_daily_at: Optional[datetime] = None
+    price_at: Optional[datetime] = None   # cuándo se obtuvo `underlying_price`
 
 
 @dataclass(frozen=True)

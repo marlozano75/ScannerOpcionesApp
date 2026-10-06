@@ -92,16 +92,18 @@ class TickerInfoRepo:
         with self.db.conn:
             self.db.conn.execute(
                 "INSERT INTO ticker_info (ticker, sector, category, underlying_price, "
-                "days_to_ex_dividend, iv_rank, iv_percentile, updated_daily_at) "
-                "VALUES (?,?,?,?,?,?,?,?) "
+                "days_to_ex_dividend, iv_rank, iv_percentile, updated_daily_at, price_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(ticker) DO UPDATE SET sector=excluded.sector, "
                 "category=excluded.category, underlying_price=excluded.underlying_price, "
                 "days_to_ex_dividend=excluded.days_to_ex_dividend, iv_rank=excluded.iv_rank, "
-                "iv_percentile=excluded.iv_percentile, updated_daily_at=excluded.updated_daily_at",
+                "iv_percentile=excluded.iv_percentile, updated_daily_at=excluded.updated_daily_at, "
+                "price_at=excluded.price_at",
                 (
                     info.ticker, info.sector, info.category, info.underlying_price,
                     info.days_to_ex_dividend, info.iv_rank, info.iv_percentile,
                     info.updated_daily_at.isoformat() if info.updated_daily_at else None,
+                    info.price_at.isoformat() if info.price_at else None,
                 ),
             )
 
@@ -117,11 +119,12 @@ class TickerInfoRepo:
                 (iv_rank, iv_percentile, ticker),
             )
 
-    def update_price(self, ticker: str, price: float) -> None:
-        """Actualiza solo el precio del subyacente (no toca la fecha de la actualización diaria)."""
+    def update_price(self, ticker: str, price: float, when: datetime) -> None:
+        """Actualiza solo el precio del subyacente y su fecha (no toca la actualización diaria)."""
         with self.db.conn:
             self.db.conn.execute(
-                "UPDATE ticker_info SET underlying_price = ? WHERE ticker = ?", (price, ticker)
+                "UPDATE ticker_info SET underlying_price = ?, price_at = ? WHERE ticker = ?",
+                (price, when.isoformat(), ticker),
             )
 
     def purge_except(self, keep: Iterable[str]) -> int:
@@ -136,6 +139,7 @@ class TickerInfoRepo:
             days_to_ex_dividend=r["days_to_ex_dividend"],
             iv_rank=r["iv_rank"], iv_percentile=r["iv_percentile"],
             updated_daily_at=_dt(r["updated_daily_at"]),
+            price_at=_dt(r["price_at"]),
         )
 
     def get(self, ticker: str) -> Optional[TickerInfo]:

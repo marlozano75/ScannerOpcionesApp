@@ -164,8 +164,9 @@ class DailyUpdater:
         price = quote.price if quote else None
         if price is None:
             price = await timed("precios", gw.get_underlying_price(ticker))
+        price_at = now if price is not None else None
         if price is None and known is not None:
-            price = known.underlying_price
+            price, price_at = known.underlying_price, known.price_at
         chain = await timed("cadena", gw.get_option_chain(ticker))
         if ticker in shared.ex_div:
             ex_div = shared.ex_div[ticker]
@@ -186,7 +187,7 @@ class DailyUpdater:
                 ticker=ticker, sector=sector, category=category, underlying_price=price,
                 days_to_ex_dividend=ex_div,
                 iv_rank=rank, iv_percentile=percentile,
-                updated_daily_at=now,
+                updated_daily_at=now, price_at=price_at,
             )
         )
         self.watchlist.mark_daily_updated(ticker, now)

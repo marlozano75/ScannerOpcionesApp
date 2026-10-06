@@ -66,6 +66,8 @@ MIGRATIONS: list[str] = [
     """,
     # v5: pares clave/valor de la aplicación (p. ej. cuándo se hizo el último refresco completo)
     "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    # v6: cuándo se obtuvo el precio del subyacente
+    "ALTER TABLE ticker_info ADD COLUMN price_at TEXT;",
 ]
 
 

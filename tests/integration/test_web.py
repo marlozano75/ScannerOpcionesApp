@@ -110,7 +110,7 @@ def test_operation_column_regular_between_25_and_35_dte_otherwise_tactical(clien
     out = client.get("/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1").text
     assert "<th>Operación</th>" in out
     rows = [row for row in out.split("<tr>") if '<td class="tk">AAPL' in row]
-    by_dte = {int(row.split("<td>")[3].split("</td>")[0]): ("Regular" in row, "Táctica" in row) for row in rows}
+    by_dte = {int(row.split("<td>")[5].split("</td>")[0]): ("Regular" in row, "Táctica" in row) for row in rows}
     assert by_dte == {10: (False, True), 30: (True, False)}          # DTE 10: Táctica; DTE 30: Regular
 
 
