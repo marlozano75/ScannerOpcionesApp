@@ -8,8 +8,9 @@ from datetime import datetime, timedelta
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError
+from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, OptionQuote
+from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.metrics.iv_stats import iv_percentile, iv_rank
 from scanner_opciones.metrics.spread import spread_pct
 from scanner_opciones.metrics.yields import annualized_yield_pct, gross_yield_pct
@@ -46,7 +47,9 @@ class RefreshJob:
         settings: Settings,
         now: Callable[[], datetime] = datetime.now,
         iv_history: Optional[IVHistoryRepo] = None,
+        volatility: Optional[VolatilityProvider] = None,
     ) -> None:
+        self.volatility = volatility
         self.iv_history = iv_history
         self.gateway = gateway
         self.contracts = contracts
@@ -143,6 +146,12 @@ class RefreshJob:
             log.warning("No se pudieron actualizar precio/IV de los subyacentes: %s", exc)
             return infos
         infos = dict(infos)
+        external: dict = {}
+        if self.volatility is not None:  # una petición para todos; los que no cubra se calculan con IBKR
+            try:
+                external = await self.volatility.get_iv_metrics(tickers)
+            except VolatilityError as exc:
+                log.warning("IV Rank/Percentile externos no disponibles, se calculan con IBKR: %s", exc)
         window_start = self.now().date() - timedelta(days=self.settings.iv.lookback_days)
         for ticker, q in quotes.items():
             info = infos.get(ticker)
@@ -152,7 +161,11 @@ class RefreshJob:
                 self.ticker_info.update_price(ticker, q.price)
                 info = replace(info, underlying_price=q.price)
                 report.prices_updated += 1
-            if q.iv is not None and self.iv_history is not None:
+            if (metrics := external.get(ticker)) is not None:
+                self.ticker_info.update_iv_stats(ticker, metrics.iv_rank, metrics.iv_percentile)
+                info = replace(info, iv_rank=metrics.iv_rank, iv_percentile=metrics.iv_percentile)
+                report.iv_updated += 1
+            elif q.iv is not None and self.iv_history is not None:
                 bars = self.iv_history.bars(ticker, since=window_start)
                 values = [b[1] for b in bars]
                 rank = iv_rank(q.iv, values, [b[2] for b in bars], [b[3] for b in bars])

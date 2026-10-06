@@ -67,6 +67,12 @@ vix:
 
 iv:
   lookback_days: 365
+  source: ibkr          # ibkr = IV Rank/Percentile calculados con el historial de IV de IBKR; tastytrade = ya calculados por tastytrade
+
+# Credenciales OAuth de tastytrade (solo lectura). Solo se usan con iv.source: tastytrade.
+# tastytrade:
+#   client_secret: ""
+#   refresh_token: ""
 
 storage:
   path: data/app.db

@@ -11,8 +11,9 @@ from typing import Awaitable, Callable, Optional, TypeVar
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError
+from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import TickerInfo
+from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.metrics.iv_stats import iv_percentile, iv_rank
 from scanner_opciones.scanner.candidates import candidate_contracts
 from scanner_opciones.storage.repositories import (
@@ -34,6 +35,7 @@ class DailyUpdateReport:
 class _Prefetched:
     quotes: dict = field(default_factory=dict)    # ticker -> UnderlyingQuote
     ex_div: dict = field(default_factory=dict)    # ticker -> días hasta el ex-dividendo (o None)
+    iv: dict = field(default_factory=dict)        # ticker -> IVMetrics del proveedor externo (si lo hay)
 
 
 class DailyUpdater:
@@ -46,7 +48,9 @@ class DailyUpdater:
         contracts: ContractRepo,
         settings: Settings,
         now: Callable[[], datetime] = datetime.now,
+        volatility: Optional[VolatilityProvider] = None,
     ) -> None:
+        self.volatility = volatility
         self.gateway = gateway
         self.watchlist = watchlist
         self.ticker_info = ticker_info
@@ -137,6 +141,11 @@ class DailyUpdater:
             raise
         except BrokerError as exc:
             log.warning("Dividendos en lote no disponibles, se piden uno a uno: %s", exc)
+        if self.volatility is not None:  # una petición para todos; los que no cubra caen al cálculo con IBKR
+            try:
+                out.iv = await self._timed(timings, "iv externo", self.volatility.get_iv_metrics(tickers))
+            except VolatilityError as exc:
+                log.warning("IV Rank/Percentile externos no disponibles, se calculan con IBKR: %s", exc)
         return out
 
     async def _update_ticker(
@@ -169,17 +178,23 @@ class DailyUpdater:
         # IV incremental: solo desde el último día guardado (RF-06); ese último día se rehace porque
         # su barra podía ser parcial. Si hay barras sin máximo/mínimo (guardadas antes de la
         # migración v3) se descarga la ventana completa una vez.
-        window_start = today - timedelta(days=self.settings.iv.lookback_days)
-        last = self.iv_history.last_day(ticker)
-        if last is not None and self.iv_history.needs_hilo_backfill(ticker, window_start):
-            last = None
-        new_points = await timed("iv", gw.get_iv_history(ticker, last))
-        if new_points:
-            self.iv_history.add(ticker, new_points)
-        self.iv_history.prune(ticker, window_start)
-        bars = self.iv_history.bars(ticker, since=window_start)
-        values = [b[1] for b in bars]
-        current_iv = values[-1] if values else None
+        external = shared.iv.get(ticker)
+        if external is not None:  # el proveedor ya los calcula: no se descarga el historial de IV
+            rank, percentile = external.iv_rank, external.iv_percentile
+        else:
+            window_start = today - timedelta(days=self.settings.iv.lookback_days)
+            last = self.iv_history.last_day(ticker)
+            if last is not None and self.iv_history.needs_hilo_backfill(ticker, window_start):
+                last = None
+            new_points = await timed("iv", gw.get_iv_history(ticker, last))
+            if new_points:
+                self.iv_history.add(ticker, new_points)
+            self.iv_history.prune(ticker, window_start)
+            bars = self.iv_history.bars(ticker, since=window_start)
+            values = [b[1] for b in bars]
+            current_iv = values[-1] if values else None
+            rank = iv_rank(current_iv, values, [b[2] for b in bars], [b[3] for b in bars])
+            percentile = iv_percentile(current_iv, values)
 
         if price:
             await self._sync_contracts(ticker, chain, price, today, revalidate, timings)
@@ -188,8 +203,7 @@ class DailyUpdater:
             TickerInfo(
                 ticker=ticker, sector=sector, category=category, underlying_price=price,
                 days_to_ex_dividend=ex_div,
-                iv_rank=iv_rank(current_iv, values, [b[2] for b in bars], [b[3] for b in bars]),
-                iv_percentile=iv_percentile(current_iv, values),
+                iv_rank=rank, iv_percentile=percentile,
                 updated_daily_at=now,
             )
         )

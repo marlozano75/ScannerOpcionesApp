@@ -332,6 +332,12 @@ ScannerOpcionesApp/
 
 **Contradicciones/erratas detectadas:** DTE "25 a 25"; DTE táctica sin número; hueco 30-40% en semáforo; "Riesgo algo"; "Overnigh"/"Post-Expirity" (se interpretan como *Overnight* y *Post-Expiration*); "exdividendo" (ex-dividend); "L20: guaradado".
 
+### Fuente externa de IV Rank / IV Percentile (tastytrade)
+- `iv.source` (`ibkr` por defecto | `tastytrade`) decide de dónde salen IV Rank e IV Percentile. Con `tastytrade` se piden ya calculados al proveedor en una sola petición (puerto `VolatilityProvider`) y no se descarga el historial de IV de IBKR.
+- Respaldo: los tickers que el proveedor no devuelva, o un fallo del proveedor, usan el cálculo local con IBKR.
+- Credenciales OAuth de solo lectura en `tastytrade.client_secret` y `tastytrade.refresh_token` (`config.yaml`, ignorado por git).
+- Pendiente: implementación real del proveedor y smoke test manual contra la cuenta aprobada.
+
 ## 14. Ampliaciones futuras previstas (no implementar ahora)
 
 Nuevas estrategias en el scanner (calls cubiertas, spreads) añadiendo `ScanCriteria`/filtros sin tocar el motor; otros brokers vía nueva implementación de `BrokerGateway`; alertas; exportación; más escenarios de simulación (estrés de mercado).

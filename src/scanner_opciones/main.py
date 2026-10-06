@@ -35,6 +35,8 @@ def build_app(settings: Settings):
     def factory(mode: AccountMode) -> IBKRGateway:
         return IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
 
+    if settings.iv.source == "tastytrade":
+        raise ConfigError("iv.source: tastytrade aún no está implementado (pendiente de la aprobación de la cuenta); usa ibkr")
     service = AppService(factory(settings.ibkr.mode), db, settings)
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     startup_task: list[asyncio.Task] = []

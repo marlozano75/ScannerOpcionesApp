@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, time
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
@@ -205,6 +205,15 @@ class VixSettings(_Model):
 
 class IvSettings(_Model):
     lookback_days: int = Field(365, ge=30)
+    # De dónde salen IV Rank e IV Percentile: «ibkr» los calcula con el historial de IV (lento por el
+    # límite de históricos); «tastytrade» los pide ya calculados (los tickers que no cubra usan IBKR).
+    source: Literal["ibkr", "tastytrade"] = "ibkr"
+
+
+class TastytradeSettings(_Model):
+    """Credenciales OAuth de tastytrade (solo lectura). No se muestran en repr/logs."""
+    client_secret: Optional[str] = Field(None, repr=False)
+    refresh_token: Optional[str] = Field(None, repr=False)
 
 
 class StorageSettings(_Model):
@@ -247,9 +256,16 @@ class Settings(_Model):
     diversification: DiversificationSettings = DiversificationSettings()
     vix: VixSettings = VixSettings()
     iv: IvSettings = IvSettings()
+    tastytrade: TastytradeSettings = TastytradeSettings()
     storage: StorageSettings = StorageSettings()
     logging: LoggingSettings = LoggingSettings()
     market: MarketSettings = MarketSettings()
+
+    @model_validator(mode="after")
+    def _check_volatility_source(self) -> "Settings":
+        if self.iv.source == "tastytrade" and not (self.tastytrade.client_secret and self.tastytrade.refresh_token):
+            raise ValueError("iv.source = tastytrade requiere tastytrade.client_secret y tastytrade.refresh_token")
+        return self
 
     @property
     def refresh_interval_minutes(self) -> float:

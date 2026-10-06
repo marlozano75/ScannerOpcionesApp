@@ -23,3 +23,7 @@ class DataUnavailableError(BrokerError):
 
 class WatchlistError(AppError):
     """Watchlist inválida o ilegible."""
+
+
+class VolatilityError(AppError):
+    """Fallo al obtener las métricas de volatilidad de un proveedor externo."""
