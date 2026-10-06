@@ -139,7 +139,6 @@ class FilterSettings(_Model):
     max_spread_pct: Optional[float] = Field(None, ge=0)
     min_iv_rank: Optional[float] = Field(None, ge=0, le=100)
     min_iv_percentile: Optional[float] = Field(None, ge=0, le=100)
-    only_uptrend: bool = False   # solo tickers con precio > media corta > media larga (`trend`)
 
 
 class FilterValues(_Model):
@@ -217,17 +216,10 @@ class TastytradeSettings(_Model):
 
 
 class TrendSettings(_Model):
-    """Tendencia alcista: precio > media de `sma_short` cierres > media de `sma_long` cierres (velas diarias de tastytrade)."""
-    sma_short: int = Field(50, ge=2)
-    sma_long: int = Field(200, ge=3)
+    """Histórico de cierres diarios de tastytrade (DXLink) en el que se basan los filtros técnicos del scanner."""
     history_days: int = Field(1400, ge=30)          # días naturales de cierres que se guardan (~3,8 años: lo máximo que da tastytrade)
     batch_timeout_seconds: float = Field(20, gt=0)  # espera máxima por lote de 50 tickers
 
-    @model_validator(mode="after")
-    def _check(self) -> "TrendSettings":
-        if self.sma_short >= self.sma_long:
-            raise ValueError("sma_short debe ser menor que sma_long")
-        return self
 
 
 class StorageSettings(_Model):

@@ -13,7 +13,7 @@
     <tr>{{ cols.head() }}<th>Actualizado</th></tr>
     {% for r in rows %}
       <tr>{{ cols.cells(r) }}{{ cols.updated(r.snapshot) }}</tr>
-    {% else %}<tr><td colspan="28" class="muted">No hay contratos guardados todavía: ejecuta la actualización diaria.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="27" class="muted">No hay contratos guardados todavía: ejecuta la actualización diaria.</td></tr>{% endfor %}
   </table></div>
 </div>
 {% endblock %}

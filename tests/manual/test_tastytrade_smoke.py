@@ -32,11 +32,7 @@ async def test_prices_for_known_and_unknown_tickers():
 
 
 async def test_daily_closes_for_known_and_class_share_tickers():
-    from datetime import date
-
-    from scanner_opciones.metrics.trend import compute_trend
-
     tt = load_settings(CONFIG).tastytrade
     out = await TastytradeVolatility(tt.client_secret, tt.refresh_token).get_daily_closes(["AAPL", "PBR-A", "XXXXNOPE"], 400)
-    print({t: (len(b), compute_trend(b, date.today(), 50, 200)) for t, b in out.items()})
+    print({t: (len(b), b[-1]) for t, b in out.items()})
     assert "XXXXNOPE" not in out and len(out["AAPL"]) >= 200 and "PBR-A" in out

@@ -13,7 +13,6 @@ from typing import Optional
 from scanner_opciones.config.settings import TrendSettings
 from scanner_opciones.domain.errors import CandleError
 from scanner_opciones.marketdata.candles import CandleProvider, DailyBars
-from scanner_opciones.metrics.trend import TrendStats, compute_trend
 from scanner_opciones.storage.repositories import BarRepo
 
 log = logging.getLogger(__name__)
@@ -34,9 +33,8 @@ def _adjusted(stored: dict[date, float], fresh: DailyBars) -> bool:
 
 async def update_history(
     candles: CandleProvider, repo: BarRepo, tickers: list[str], today: date, cfg: TrendSettings
-) -> dict[str, TrendStats]:
-    """Completa el histórico de `tickers` y devuelve sus medias (solo los que tienen histórico suficiente).
-    Si el proveedor falla, se calculan con lo ya guardado."""
+) -> None:
+    """Completa el histórico de cierres de `tickers`. Si el proveedor falla se conserva lo ya guardado."""
     last = repo.last_days(tickers)
     # al día (el último cierre guardado es de ayer o posterior): no hay nada que pedir
     stale = [t for t in tickers if t in last and (today - last[t]).days > 1]
@@ -61,13 +59,7 @@ async def update_history(
                 repo.upsert(t, _closed(fetched.get(t, []), today))
                 stats_note["full"] += 1
     except CandleError as exc:
-        log.warning("Velas no disponibles, la tendencia se calcula con el histórico guardado: %s", exc)
+        log.warning("Velas no disponibles, se conserva el histórico guardado: %s", exc)
     repo.prune(today - timedelta(days=cfg.history_days))
-    out: dict[str, TrendStats] = {}
-    for t in tickers:
-        stats: Optional[TrendStats] = compute_trend(sorted(repo.closes(t).items()), today, cfg.sma_short, cfg.sma_long)
-        if stats is not None:
-            out[t] = stats
     log.info("Histórico de cierres: %d completos, %d incrementales, %d al día", stats_note["full"],
              stats_note["incremental"], len(tickers) - stats_note["full"] - stats_note["incremental"])
-    return out

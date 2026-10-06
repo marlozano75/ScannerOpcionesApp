@@ -277,7 +277,6 @@ def create_app(
             "dte_min": str(base.dte_min), "dte_max": str(base.dte_max),
             "min_yield": _fmt(base.min_annual_yield_pct),
             "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
-            "use_trend": base.only_uptrend,
             "trend_dir": base.trend_direction, "trend_method": base.trend_method,
             "trend_window": str(base.trend_window_months),
             "trend_days": str(base.trend_min_days), "support": base.require_support,
@@ -312,8 +311,6 @@ def create_app(
                     form[key] = qp.get(key, "").strip()
                 form["ref"] = qp.get("ref", form["ref"])
                 form["ref_x"] = qp.get("ref_x", form["ref_x"]).strip()   # ausente = valor de la configuración
-                form["use_trend"] = "use_trend" in qp
-                overrides["only_uptrend"] = form["use_trend"]
                 for key, field_name, allowed in (
                     ("trend_dir", "trend_direction", ("off", "up", "down")),
                     ("trend_method", "trend_method", ("low", "swings")),
@@ -409,7 +406,7 @@ def create_app(
                         dte_max=p.dte_max if p.dte_max is not None else cand.dte_max,
                         min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
         return render(request, "scanner.html", out=out, ref_label=ref_label, watch_data=True, presets=presets,
-                      candidates=service.settings.scanner.candidates, trend=service.settings.trend,
+                      candidates=service.settings.scanner.candidates,
                       tech_opts=dict(
                           windows=[(m, f"{m} {'mes' if m == 1 else 'meses'}") for m in service.settings.scanner.technical.trend_windows_months],
                           durations=[(d, _days_label(d)) for d in service.settings.scanner.technical.trend_durations],

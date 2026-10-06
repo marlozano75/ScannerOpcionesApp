@@ -1,4 +1,4 @@
-"""Tendencia alcista (precio > SMA50 > SMA200) con velas diarias de tastytrade (puerto CandleProvider)."""
+"""Histórico de cierres diarios de tastytrade (puerto CandleProvider) guardado en la base de datos."""
 from datetime import date, timedelta
 
 import pytest
@@ -6,10 +6,8 @@ import pytest
 from scanner_opciones.app.service import AppService
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.errors import CandleError
-from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.candles import FakeCandles
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, tasty_symbol
-from scanner_opciones.metrics.trend import TrendStats, compute_trend, is_uptrend, sma
 from scanner_opciones.storage.db import Database
 from tests.integration.test_service import NOW, TODAY, FixedMarket, make_service, seed_market
 
@@ -18,27 +16,6 @@ def bars(closes, end=TODAY - timedelta(days=1)):
     """Una barra por día natural acabando en `end` (los días no importan, solo el orden)."""
     n = len(closes)
     return [(end - timedelta(days=n - 1 - i), c) for i, c in enumerate(closes)]
-
-
-def test_sma():
-    assert sma([1, 2, 3, 4], 2) == 3.5
-    assert sma([1, 2, 3], 4) is None
-
-
-def test_compute_trend_ignores_today_and_needs_the_long_window():
-    series = bars([10.0] * 5 + [20.0] * 5)
-    series.append((TODAY, 999.0))                      # barra en curso: no cuenta
-    assert compute_trend(series, TODAY, 2, 10) == TrendStats(20.0, 15.0)
-    assert compute_trend(series, TODAY, 2, 11) is None
-
-
-@pytest.mark.parametrize("price, short, long_, expected", [
-    (110, 100, 90, True), (95, 100, 90, False), (110, 90, 100, False),
-    (None, 100, 90, None), (110, None, 90, None), (110, 100, None, None),
-])
-def test_is_uptrend(price, short, long_, expected):
-    assert is_uptrend(price, short, long_) is expected
-    assert TickerInfo("X", underlying_price=price, sma_short=short, sma_long=long_).uptrend is expected
 
 
 def test_tasty_symbol():
@@ -64,7 +41,7 @@ async def test_get_daily_closes_maps_symbols_back_and_wraps_errors():
 
 
 def settings(**trend):
-    return Settings.model_validate({"trend": {"sma_short": 5, "sma_long": 20, **trend}})
+    return Settings.model_validate({"trend": trend})
 
 
 async def daily(svc):
@@ -83,35 +60,22 @@ async def service_with(candles):
     return svc, gw
 
 
-async def test_daily_update_stores_the_averages_and_the_ticker_is_in_uptrend():
-    up = bars([50.0] * 10 + [90.0] * 20)               # SMA5 = SMA20 = 90
-    candles = FakeCandles({"AAPL": up})
+async def test_history_of_all_tickers_is_requested_in_one_call():
+    candles = FakeCandles({"AAPL": bars([50.0] * 10 + [90.0] * 20)})
     svc, _ = await service_with(candles)
     await daily(svc)
-    info = svc.ticker_info.get("AAPL")
-    assert info.sma_short == 90.0 and info.sma_long == 90.0 and info.trend_at == NOW
-    assert info.uptrend is False                       # 100 > 90 pero 90 no es > 90
-    assert candles.calls == [["AAPL"]]                 # una sola petición para todos
+    assert candles.calls == [["AAPL"]] and svc.history_coverage() == (1, 1)
 
 
-async def test_uptrend_and_downtrend_flags():
-    svc, _ = await service_with(FakeCandles({"AAPL": bars([50.0] * 15 + [80.0] * 5 + [95.0] * 5)}))
-    await daily(svc)
-    info = svc.ticker_info.get("AAPL")
-    assert info.sma_short == 95.0 > info.sma_long and info.uptrend is True      # 100 > 95 > media larga
-    svc2, _ = await service_with(FakeCandles({"AAPL": bars([150.0] * 15 + [120.0] * 10)}))
-    await daily(svc2)
-    assert svc2.ticker_info.get("AAPL").uptrend is False
-
-
-async def test_provider_failure_keeps_the_stored_trend():
-    svc, _ = await service_with(FakeCandles({"AAPL": bars([50.0] * 15 + [80.0] * 5 + [95.0] * 5, end=TODAY - timedelta(days=3))}))
+async def test_provider_failure_keeps_the_stored_history():
+    series = bars([50.0] * 15 + [80.0] * 5 + [95.0] * 5, end=TODAY - timedelta(days=3))
+    svc, _ = await service_with(FakeCandles({"AAPL": series}))
     await daily(svc)
     svc.daily.candles = FakeCandles(error=CandleError("sin red"))
     svc.watchlist.mark_daily_updated("AAPL", NOW - timedelta(days=1))
     report = await daily(svc)
     assert svc.daily.candles.calls == [["AAPL"]]       # se intentó pedir lo que faltaba
-    assert report.errors == {} and svc.ticker_info.get("AAPL").sma_short == 95.0
+    assert report.errors == {} and sorted(svc.bars.closes("AAPL").items()) == series
 
 
 async def rerun(svc, candles):
@@ -139,7 +103,6 @@ async def test_next_day_only_asks_for_the_missing_days():
     candles = await rerun(svc, FakeCandles({"AAPL": old[-5:] + new}))
     assert candles.days == [4 + 7]                                   # días desde el último guardado + solape
     assert len(svc.bars.closes("AAPL")) == len(old) + 3
-    assert svc.ticker_info.get("AAPL").sma_short == pytest.approx((95 + 96 + 97 + 98 + 95) / 5)
 
 
 async def test_up_to_date_history_makes_no_request():
@@ -147,7 +110,7 @@ async def test_up_to_date_history_makes_no_request():
     await daily(svc)
     candles = await rerun(svc, FakeCandles({"AAPL": []}))
     assert candles.calls == []
-    assert svc.ticker_info.get("AAPL").sma_short == 50.0                      # las medias salen de lo guardado
+    assert len(svc.bars.closes("AAPL")) >= 30                                 # el histórico sigue en la base de datos
 
 
 async def test_adjusted_history_is_discarded_and_downloaded_again():
@@ -171,26 +134,6 @@ async def test_old_bars_are_pruned_and_orphans_removed():
     assert svc.cleanup_orphans()["daily_bars"] > 0 and svc.bars.closes("AAPL") == {}
 
 
-async def test_scan_filter_only_uptrend():
-    svc, gw = await service_with(FakeCandles({"AAPL": bars([50.0] * 15 + [80.0] * 5 + [95.0] * 5)}))
-    await daily(svc)
-    from scanner_opciones.domain.models import OptionQuote
-    for c in svc.contracts.list():
-        gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=500)
-    await svc.refresh_all()
-    crit = svc.criteria().with_filters(strike_below_pct_min=1, min_annual_yield_pct=0, dte_min=1, dte_max=45)
-    assert svc.scan(crit).results
-    svc.ticker_info.update_trend("AAPL", 120.0, 90.0, NOW)            # el precio (100) ya no supera la media corta
-    assert svc.scan(crit).results                                     # sin marcar el filtro no cambia nada
-    out = svc.scan(crit.with_filters(only_uptrend=True))
-    assert not out.results and out.rejected_count > 0
-
-
-def test_trend_settings_validate():
-    with pytest.raises(ValueError):
-        Settings.model_validate({"trend": {"sma_short": 200, "sma_long": 50}})
-
-
 async def test_history_is_downloaded_even_when_the_daily_update_has_nothing_pending():
     """Regresión: el histórico dependía de que el ticker estuviera pendiente de la actualización diaria de hoy,
     así que tras vaciarlo (migración) los filtros técnicos descartaban todo hasta el día siguiente."""
@@ -201,7 +144,6 @@ async def test_history_is_downloaded_even_when_the_daily_update_has_nothing_pend
     assert svc.history_coverage() == (0, 1)
     await svc.run_daily(wait=True)                     # ... y aun así el histórico se completa
     assert svc.history_coverage() == (1, 1) and len(svc.bars.closes("AAPL", official_only=True)) == 25
-    assert svc.ticker_info.get("AAPL").sma_short == 95.0
 
 
 # ---- cierre provisional del día (último precio del refresco) y arranque ------------------------------------------

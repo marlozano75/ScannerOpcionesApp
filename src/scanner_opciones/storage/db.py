@@ -82,6 +82,12 @@ MIGRATIONS: list[str] = [
     "ALTER TABLE daily_bars ADD COLUMN provisional INTEGER NOT NULL DEFAULT 0;",
     # v11: el histórico pasa de 730 a 1400 días (MA semanales/mensuales): se vacía para que se descargue entero
     "DELETE FROM daily_bars;",
+    # v12: las medias SMA50/SMA200 guardadas ya no las usa nada (los filtros las calculan al escanear con daily_bars)
+    """
+    ALTER TABLE ticker_info DROP COLUMN sma_short;
+    ALTER TABLE ticker_info DROP COLUMN sma_long;
+    ALTER TABLE ticker_info DROP COLUMN trend_at;
+    """,
 ]
 
 

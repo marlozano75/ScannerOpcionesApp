@@ -127,14 +127,6 @@ class TickerInfoRepo:
                 (price, when.isoformat(), ticker),
             )
 
-    def update_trend(self, ticker: str, sma_short: float, sma_long: float, when: datetime) -> None:
-        """Guarda las medias de la tendencia sin tocar el resto de la ficha."""
-        with self.db.conn:
-            self.db.conn.execute(
-                "UPDATE ticker_info SET sma_short = ?, sma_long = ?, trend_at = ? WHERE ticker = ?",
-                (sma_short, sma_long, when.isoformat(), ticker),
-            )
-
     def purge_except(self, keep: Iterable[str]) -> int:
         """Borra la información de tickers que ya no están en la watchlist. Devuelve cuántos."""
         return _delete_not_in(self.db, "ticker_info", "ticker", keep)
@@ -148,7 +140,6 @@ class TickerInfoRepo:
             iv_rank=r["iv_rank"], iv_percentile=r["iv_percentile"],
             updated_daily_at=_dt(r["updated_daily_at"]),
             price_at=_dt(r["price_at"]),
-            sma_short=r["sma_short"], sma_long=r["sma_long"], trend_at=_dt(r["trend_at"]),
         )
 
     def get(self, ticker: str) -> Optional[TickerInfo]:

@@ -159,21 +159,19 @@ class DailyUpdater:
         return out
 
     async def update_history(self, tickers: list[str]) -> int:
-        """Completa el histórico de cierres diarios de `tickers` (solo los días que faltan) y guarda sus medias.
+        """Completa el histórico de cierres diarios de `tickers` (solo los días que faltan).
         Es independiente de la actualización diaria «pendiente de hoy»: se hace siempre que falte histórico.
-        Devuelve cuántos tickers tienen tendencia calculable."""
+        Devuelve cuántos tickers tienen histórico guardado."""
         if not tickers or self.candles is None or self.bars is None:
             return 0
         started = time.monotonic()
-        now = self.now()
-        stats = await update_history(self.candles, self.bars, tickers, now.date(), self.settings.trend)
-        for ticker, s in stats.items():
-            self.ticker_info.update_trend(ticker, s.sma_short, s.sma_long, now)
-        missing = [t for t in tickers if t not in stats]
+        await update_history(self.candles, self.bars, tickers, self.now().date(), self.settings.trend)
+        have = self.bars.last_days(tickers)
+        missing = [t for t in tickers if t not in have]
         if missing:
-            log.info("Sin histórico suficiente para la tendencia de: %s", ", ".join(missing))
+            log.info("Sin cierres de tastytrade para: %s", ", ".join(missing))
         log.info("Histórico de cierres: %d tickers en %.1f s", len(tickers), time.monotonic() - started)
-        return len(stats)
+        return len(have)
 
     async def _update_ticker(
         self, ticker: str, shared: _Prefetched, timings: dict[str, float], revalidate: bool = False

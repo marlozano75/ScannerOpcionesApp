@@ -19,16 +19,6 @@ class TickerInfo:
     iv_percentile: Optional[float] = None
     updated_daily_at: Optional[datetime] = None
     price_at: Optional[datetime] = None   # cuándo se obtuvo `underlying_price`
-    sma_short: Optional[float] = None     # media de los cierres diarios (corta y larga) para la tendencia
-    sma_long: Optional[float] = None
-    trend_at: Optional[datetime] = None   # cuándo se calcularon las medias
-
-    @property
-    def uptrend(self) -> Optional[bool]:
-        """Precio > media corta > media larga; None si falta algún dato."""
-        if self.underlying_price is None or self.sma_short is None or self.sma_long is None:
-            return None
-        return self.underlying_price > self.sma_short > self.sma_long
 
 
 @dataclass(frozen=True)
