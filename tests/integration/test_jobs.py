@@ -33,7 +33,8 @@ class Env:
             self.gw, self.watch, self.info, self.contracts, self.settings, lambda: self.clock, self.vol
         )
         self.refresh = RefreshJob(
-            self.gw, self.contracts, self.snaps, self.info, self.settings, lambda: self.clock, self.vol
+            self.gw, self.contracts, self.snaps, self.info, self.settings, lambda: self.clock, self.vol,
+            syncer=self.daily.syncer,
         )
 
     def add_aapl(self):
@@ -147,7 +148,7 @@ async def test_daily_update_drops_contracts_that_do_not_exist(env):
     assert [c.strike for c in env.contracts.list("AAPL")] == [80.0]
 
 
-async def test_stored_range_is_10_to_30_pct_and_up_to_35_dte(env):
+async def test_stored_range_is_10_to_30_pct_plus_5_margin_and_up_to_35_dte(env):
     env.gw.prices["AAPL"] = 100.0
     env.gw.chains["AAPL"] = OptionChain(
         "AAPL",
@@ -159,7 +160,7 @@ async def test_stored_range_is_10_to_30_pct_and_up_to_35_dte(env):
     stored = {(c.expiry - TODAY).days: sorted(x.strike for x in env.contracts.list("AAPL") if x.expiry == c.expiry)
               for c in env.contracts.list("AAPL")}
     assert set(stored) == {1, 30, 35}            # DTE 0 y 36 fuera
-    assert stored[30] == [70.0, 85.0]            # -30 %, -15 %; 65 (-35 %), 60, 50 y 96 (-4 %) fuera
+    assert stored[30] == [65.0, 70.0, 85.0]      # -35 %, -30 %, -15 %; 60, 50 y 96 (-4 %) fuera
 
 
 async def test_refresh_quotes_every_stored_contract(env):
@@ -247,7 +248,7 @@ async def test_daily_update_logs_one_summary_per_ticker(env, caplog):
     import logging
     env.add_aapl()
     env.gw.invalid_contracts.add(OptionContract("AAPL", TODAY + timedelta(days=30), 75.0))
-    with caplog.at_level(logging.INFO, logger="scanner_opciones.jobs.daily_update"):
+    with caplog.at_level(logging.INFO, logger="scanner_opciones.jobs.contract_sync"):
         await env.daily.run(["AAPL"])
     msgs = [r.getMessage() for r in caplog.records if "combinaciones" in r.getMessage()]
     assert msgs == ["AAPL: 1 de 2 combinaciones nuevas existen en IBKR (las demás no están listadas; es normal)"]
@@ -269,7 +270,7 @@ class CountingGateway(FakeGateway):
 
 async def test_second_daily_update_only_validates_new_combinations(env):
     env.gw = CountingGateway(connected=True)
-    env.daily.gateway = env.gw
+    env.daily.gateway = env.daily.syncer.gateway = env.gw
     env.add_aapl()
     env.gw.invalid_contracts.add(OptionContract("AAPL", TODAY + timedelta(days=30), 75.0))
     await env.daily.run(["AAPL"])
@@ -289,7 +290,7 @@ async def test_second_daily_update_only_validates_new_combinations(env):
 
 async def test_revalidate_retries_combinations_known_as_missing(env):
     env.gw = CountingGateway(connected=True)
-    env.daily.gateway = env.gw
+    env.daily.gateway = env.daily.syncer.gateway = env.gw
     env.add_aapl()
     bad = OptionContract("AAPL", TODAY + timedelta(days=30), 75.0)
     env.gw.invalid_contracts.add(bad)
@@ -488,3 +489,25 @@ async def test_only_unquoted_quotes_just_the_contracts_that_never_had_a_snapshot
     assert len(env.snaps.all("AAPL")) == 4
     again = await env.refresh.run(only_unquoted=True)
     assert again.in_scope == 0                                # ya no queda ninguno sin cotizar
+
+
+async def test_refresh_follows_the_price_and_fetches_contracts_that_come_into_the_window(env):
+    env.gw = CountingGateway(connected=True)
+    env.daily.gateway = env.daily.syncer.gateway = env.refresh.gateway = env.gw
+    env.add_aapl()
+    env.gw.chains["AAPL"] = OptionChain("AAPL", [TODAY + timedelta(days=30)], [50.0, 60.0, 75.0, 80.0, 96.0])
+    await env.daily.run(["AAPL"])
+    assert [c.strike for c in env.contracts.list("AAPL")] == [75.0, 80.0]   # catálogo -5…-35 % a precio 100
+    for c in env.contracts.list("AAPL"):
+        env.gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=100)
+    env.gw.qualified.clear()
+    env.gw.prices["AAPL"] = 80.0                                  # la acción cae un 20 % entre refrescos
+    env.gw.quotes[OptionContract("AAPL", TODAY + timedelta(days=30), 60.0)] = OptionQuote(bid=0.5, ask=0.6)
+    report = await env.refresh.run()
+    assert [c.strike for c in env.contracts.list("AAPL")] == [60.0, 75.0]   # 60 entra; 80 (0 %) sale
+    assert [c.strike for c in env.gw.qualified] == [60.0]                   # solo se valida lo nuevo
+    assert (report.contracts_added, report.contracts_removed) == (1, 1)
+    assert [s.contract.strike for s in env.snaps.all("AAPL")] == [60.0]     # 60 (-25 %) es el único en el filtro
+    env.gw.qualified.clear()
+    await env.refresh.run()                                                 # sin movimiento no se pide nada
+    assert env.gw.qualified == []

@@ -407,6 +407,7 @@ def create_app(
                         min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
         return render(request, "scanner.html", out=out, ref_label=ref_label, watch_data=True, presets=presets,
                       candidates=service.settings.scanner.candidates,
+                      margin=service.settings.scanner.catalog_margin_pct,
                       tech_opts=dict(
                           windows=[(m, f"{m} {'mes' if m == 1 else 'meses'}") for m in service.settings.scanner.technical.trend_windows_months],
                           durations=[(d, _days_label(d)) for d in service.settings.scanner.technical.trend_durations],
@@ -431,7 +432,7 @@ def create_app(
         }[c.price_reference]
         return render(request, "contracts.html", rows=rows, ref_label=ref_label, watch_data=True,
                       quoted=sum(1 for r in rows if r.snapshot.updated_at is not None),
-                      candidates=service.settings.scanner.candidates)
+                      candidates=service.settings.scanner.catalog)
 
     @app.get("/simulate")
     async def simulate_get():

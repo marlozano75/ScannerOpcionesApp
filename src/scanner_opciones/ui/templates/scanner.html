@@ -107,7 +107,7 @@
       <a href="/scanner?reset=1" title="Vuelve a los valores iniciales de la configuración">Restablecer</a>
     </div>
   </form>
-  <p class="muted">Guardado en la actualización diaria: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }}% por debajo,
+  <p class="muted">Rango cotizado (se guarda además un margen de ±{{ margin|num(0) }}%): strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }}% por debajo,
     DTE {{ candidates.dte_min }}–{{ candidates.dte_max }}. Todos se cotizan cada {{ refresh_minutes|round|int }} min.</p>
   {% if criteria %}
   <p class="muted">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·

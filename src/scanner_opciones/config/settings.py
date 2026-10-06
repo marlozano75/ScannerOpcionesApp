@@ -176,11 +176,24 @@ class TechnicalSettings(_Model):
 class ScannerSettings(_Model):
     price_reference: PriceReferenceSettings = PriceReferenceSettings()
     candidates: CandidateRange = CandidateRange()
+    # puntos porcentuales que se guardan de más por encima y por debajo de `candidates` (en strikes): así el
+    # rango cotizado puede seguir al precio del subyacente sin pedir contratos nuevos a cada oscilación
+    catalog_margin_pct: float = Field(5, ge=0, lt=100)
     initial: InitialFilterSettings = InitialFilterSettings()
     filters: FilterSettings = FilterSettings()
     filter_values: FilterValues = FilterValues()
     presets: tuple[ScannerPreset, ...] = DEFAULT_PRESETS
     technical: TechnicalSettings = TechnicalSettings()
+
+    @property
+    def catalog(self) -> CandidateRange:
+        """Rango de contratos que se GUARDAN: `candidates` ampliado con `catalog_margin_pct` en los strikes."""
+        c = self.candidates
+        return CandidateRange(
+            strike_below_pct_min=max(0.0, c.strike_below_pct_min - self.catalog_margin_pct),
+            strike_below_pct_max=min(99.0, c.strike_below_pct_max + self.catalog_margin_pct),
+            dte_min=c.dte_min, dte_max=c.dte_max,
+        )
 
 
 class CushionThresholds(_Model):

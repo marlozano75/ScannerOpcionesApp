@@ -10,6 +10,7 @@ from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, OptionQuote
+from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.metrics.spread import spread_pct
@@ -29,6 +30,8 @@ class RefreshReport:
     in_scope: int = 0      # contratos que se cotizaron en este ciclo
     prices_updated: int = 0   # subyacentes con precio actualizado en este ciclo
     iv_updated: int = 0       # subyacentes con IV Rank / Percentile recalculados con la IV en directo
+    contracts_added: int = 0   # contratos nuevos guardados porque el precio movió la ventana
+    contracts_removed: int = 0  # contratos retirados por salir de la ventana guardada
     refreshed: int = 0
     without_quote: int = 0
     margins_requested: int = 0
@@ -48,7 +51,9 @@ class RefreshJob:
         now: Callable[[], datetime] = datetime.now,
         volatility: Optional[VolatilityProvider] = None,
         prices: Optional[PriceProvider] = None,
+        syncer: Optional[ContractSyncer] = None,
     ) -> None:
+        self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
         self.prices = prices
         self.gateway = gateway
@@ -89,7 +94,11 @@ class RefreshJob:
         stored = self.contracts.list()
         today = self.now().date()
         if not only_unquoted:
-            infos = await self._refresh_underlyings(sorted({c.ticker for c in stored}), infos, report)
+            moved: set[str] = set()
+            infos = await self._refresh_underlyings(sorted({c.ticker for c in stored}), infos, report, moved)
+            if moved:  # el precio nuevo desplaza la ventana guardada: se completan los contratos que falten
+                await self._sync_catalog(sorted(moved), infos, today, report)
+                stored = self.contracts.list()
         t_underlyings = time.monotonic() - started
         all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), criteria, today)]
         # snapshots anteriores: de ellos se reutiliza el margen mientras sea reciente
@@ -123,9 +132,11 @@ class RefreshJob:
                     report.refreshed += 1
         log.info(
             "Refresco: %d contratos cotizados (de %d guardados) en %.1f s (subyacentes %.1f s); "
-            "márgenes pedidos %d, reutilizados %d; sin precio nuevo (se conserva el anterior): %d",
+            "márgenes pedidos %d, reutilizados %d; sin precio nuevo (se conserva el anterior): %d; "
+            "catálogo: +%d / -%d contratos",
             report.in_scope, report.stored, time.monotonic() - started, t_underlyings,
             report.margins_requested, report.margins_reused, report.quotes_kept,
+            report.contracts_added, report.contracts_removed,
         )
         return report
 
@@ -133,7 +144,28 @@ class RefreshJob:
     def _snap_key(c: OptionContract) -> tuple:
         return (c.ticker, c.expiry, c.strike, c.right)
 
-    async def _refresh_underlyings(self, tickers: list[str], infos: dict, report: RefreshReport) -> dict:
+    async def _sync_catalog(self, tickers: list[str], infos: dict, today, report: RefreshReport) -> None:
+        """Recalcula la ventana guardada de cada ticker con su precio actual: valida y guarda solo los
+        contratos que faltan y retira los que quedan fuera del margen. Un fallo no interrumpe el refresco."""
+        for ticker in tickers:
+            price = infos[ticker].underlying_price
+            if not price:
+                continue
+            try:
+                chain = await self.syncer.chain(ticker, today)
+                removed, added = await self.syncer.sync(ticker, chain, price, today)
+            except BrokerDisconnectedError:
+                raise
+            except BrokerError as exc:
+                report.errors[ticker] = str(exc)
+                log.warning("Catálogo de contratos no actualizado para %s: %s", ticker, exc)
+                continue
+            report.contracts_added += added
+            report.contracts_removed += removed
+
+    async def _refresh_underlyings(
+        self, tickers: list[str], infos: dict, report: RefreshReport, moved: Optional[set] = None
+    ) -> dict:
         """Actualiza precio e IV en directo de cada subyacente y recalcula IV Rank / Percentile con
         la IV actual (no con la última barra diaria guardada). Se hace antes de calcular alcance."""
         if not tickers:
@@ -162,6 +194,8 @@ class RefreshJob:
                 self.ticker_info.update_price(ticker, q.price, now)
                 info = replace(info, underlying_price=q.price, price_at=now)
                 report.prices_updated += 1
+                if moved is not None:
+                    moved.add(ticker)
             if (metrics := external.get(ticker)) is not None:
                 self.ticker_info.update_iv_stats(ticker, metrics.iv_rank, metrics.iv_percentile)
                 info = replace(info, iv_rank=metrics.iv_rank, iv_percentile=metrics.iv_percentile)

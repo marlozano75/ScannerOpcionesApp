@@ -14,6 +14,7 @@ from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, Br
 from scanner_opciones.domain.models import (
     AccountSummary, OptionContract, Position, RiskStatus, SectorExposure, VixData,
 )
+from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.daily_update import DailyUpdater, DailyUpdateReport
 from scanner_opciones.jobs.refresh import RefreshJob, RefreshReport
 from scanner_opciones.market.hours import MarketCalendar
@@ -84,11 +85,12 @@ class AppService:
         self.snapshots = SnapshotRepo(db)
         self.meta = MetaRepo(db)
         self.bars = BarRepo(db)
-        self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info,
-                                  self.contracts, settings, now, volatility, prices, candles, self.bars)
+        syncer = ContractSyncer(gateway, self.contracts, settings)  # comparte la cadena en caché
+        self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.contracts, settings,
+                                  now, volatility, prices, candles, self.bars, syncer)
         self.refresh_job = RefreshJob(
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
-            volatility, prices,
+            volatility, prices, syncer,
         )
         self.state = AppState()
         self.rankedstocks: Optional[RankedTable] = None   # fichero de RankedStocks elegido por el usuario (memoria)
@@ -166,6 +168,7 @@ class AppService:
             self.gateway = new_gateway
             self.daily.gateway = new_gateway
             self.refresh_job.gateway = new_gateway
+            self.daily.syncer.gateway = new_gateway
             self.state = AppState()
         await self.start()
 

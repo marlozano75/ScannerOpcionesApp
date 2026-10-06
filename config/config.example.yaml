@@ -20,7 +20,8 @@ daily_update:
   concurrency: 4         # tickers que se actualizan a la vez
 
 scanner:
-  candidates:              # contratos que se GUARDAN en la actualización diaria
+  catalog_margin_pct: 5    # puntos de más por arriba y por abajo que se GUARDAN (el rango cotizado sigue al precio)
+  candidates:              # rango visible y cotizado, respecto al precio actual
     strike_below_pct_min: 10   # strikes desde un 10 % ...
     strike_below_pct_max: 30   # ... hasta un 30 % por debajo del precio
     dte_min: 1

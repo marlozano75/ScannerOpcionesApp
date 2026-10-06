@@ -14,10 +14,10 @@ from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.candles import CandleProvider
+from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.price_history import update_history
 from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
 from scanner_opciones.marketdata.volatility import VolatilityProvider
-from scanner_opciones.scanner.candidates import candidate_contracts
 from scanner_opciones.storage.repositories import (
     BarRepo, ContractRepo, TickerInfoRepo, WatchlistRepo,
 )
@@ -53,7 +53,9 @@ class DailyUpdater:
         prices: Optional[PriceProvider] = None,
         candles: Optional[CandleProvider] = None,
         bars: Optional[BarRepo] = None,
+        syncer: Optional[ContractSyncer] = None,
     ) -> None:
+        self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
         self.candles = candles
         self.bars = bars
@@ -196,6 +198,7 @@ class DailyUpdater:
         if price is None and known is not None:
             price, price_at = known.underlying_price, known.price_at
         chain = await timed("cadena", gw.get_option_chain(ticker))
+        self.syncer.remember_chain(ticker, chain, today)
         if ticker in shared.ex_div:
             ex_div = shared.ex_div[ticker]
         else:
@@ -208,7 +211,7 @@ class DailyUpdater:
         percentile = external.iv_percentile if external else (known.iv_percentile if known else None)
 
         if price:
-            await self._sync_contracts(ticker, chain, price, today, revalidate, timings)
+            await self.syncer.sync(ticker, chain, price, today, revalidate, timings)
 
         self.ticker_info.upsert(
             TickerInfo(
@@ -219,27 +222,3 @@ class DailyUpdater:
             )
         )
         self.watchlist.mark_daily_updated(ticker, now)
-
-    async def _sync_contracts(self, ticker, chain, price, today, revalidate, timings) -> None:
-        """Catálogo incremental: solo se validan con IBKR las combinaciones que ni están guardadas
-        ni se sabe que no existen. Los contratos que siguen en la ventana conservan su snapshot."""
-        wanted = candidate_contracts(chain, price, today, self.settings.scanner.candidates)
-        wanted_keys = {ContractRepo.key(c) for c in wanted}
-        if revalidate:
-            self.contracts.clear_misses(ticker)
-        have = self.contracts.keys(ticker)
-        missed = self.contracts.miss_keys(ticker)
-        to_check = [c for c in wanted if (k := ContractRepo.key(c)) not in have and k not in missed]
-        validated: list = []
-        if to_check:  # descarta strikes que no existen para ese vencimiento y guarda el conId
-            validated = await self._timed(timings, "validación", self.gateway.qualify_contracts(to_check))
-            ok = {ContractRepo.key(c) for c in validated}
-            self.contracts.add_misses(ticker, [c for c in to_check if ContractRepo.key(c) not in ok])
-            log.info(
-                "%s: %d de %d combinaciones nuevas existen en IBKR (las demás no están listadas; es normal)",
-                ticker, len(validated), len(to_check),
-            )
-        removed, _ = self.contracts.sync_for_ticker(ticker, wanted_keys, validated)
-        self.contracts.purge_expired_misses(today)
-        if removed:
-            log.info("%s: %d contratos retirados (vencidos o fuera de la ventana guardada)", ticker, removed)

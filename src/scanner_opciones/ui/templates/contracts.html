@@ -5,7 +5,7 @@
 <div class="card">
   <h2>Contratos guardados ({{ rows|length }})</h2>
   <p class="muted">Todos los contratos de la base de datos, sin filtrar, con las mismas columnas que el scanner
-    (precio de venta de referencia: {{ ref_label }}). {{ quoted }} tienen cotización; el resto («sin cotizar») aún no se han cotizado. Guardado: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }}% por debajo,
+    (precio de venta de referencia: {{ ref_label }}). {{ quoted }} tienen cotización; el resto («sin cotizar») aún no se han cotizado. Guardado (rango cotizado más margen, siguiendo al precio): strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }}% por debajo,
     DTE {{ candidates.dte_min }}–{{ candidates.dte_max }}. Pulsa una cabecera para ordenar.</p>
   <div class="scroll"><table class="sortable sticky-tk" id="stored-contracts">
     <tr>{{ cols.head() }}<th>Actualizado</th></tr>
