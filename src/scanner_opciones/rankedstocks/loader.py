@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -18,8 +19,8 @@ MAX_CHOICES = 12                                    # una columna con ≤ 12 val
 SYMBOL_HEADERS = {"simbolo", "symbol", "symbols", "ticker", "tickers"}
 _FLAG = re.compile("[\U0001F1E6-\U0001F1FF]")       # banderas: pares de «regional indicator»
 _ARROWS = re.compile(r"\s*[↑↓▲▼⬆⬇]+\s*$")           # «RS ↓»: la flecha es del orden en la web de origen
-_NUMBER = re.compile(r"^[+-]?\d+(\.\d+)?$")
-_SUFFIX = {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}
+_NUMBER = re.compile(r"^([+-]?\d+(?:\.\d+)?)(thousand|million|billion|trillion|[kmbt])?$")
+_SUFFIX = {"k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12, "thousand": 1e3, "million": 1e6, "billion": 1e9, "trillion": 1e12}
 
 TEXT, CHOICE, NUMBER = "text", "choice", "number"
 
@@ -52,17 +53,15 @@ class RankedTable:
 
 
 def parse_number(text: str) -> Optional[float]:
-    """«$4.4B» -> 4.4e9, «$71.37» -> 71.37, «95.6» -> 95.6, «1,234» -> 1234, «12%» -> 12. None si no es un número."""
-    t = (text or "").strip().replace("$", "").replace(",", "").replace("%", "").replace(" ", "")
-    if not t:
+    """«$4.4B» -> 4.4e9, «$10.59 Billion» -> 10.59e9, «$71.37» -> 71.37, «93.6*» -> 93.6, «1,234» -> 1234,
+    «12%» -> 12. None si no es un número."""
+    t = (text or "").lower()
+    for ch in "$,%* ":
+        t = t.replace(ch, "")
+    m = _NUMBER.match(t)
+    if not m:
         return None
-    mult = 1.0
-    if t[-1].upper() in _SUFFIX:
-        mult = _SUFFIX[t[-1].upper()]
-        t = t[:-1]
-    if not _NUMBER.match(t):
-        return None
-    return float(t) * mult
+    return float(m.group(1)) * _SUFFIX.get(m.group(2), 1.0)
 
 
 def clean_header(name: object, index: int) -> str:
@@ -82,6 +81,8 @@ def _plain(text: str) -> str:
 def _cell_text(value: object) -> str:
     if value is None:
         return ""
+    if isinstance(value, datetime):   # «Criteria» de HelloStocks llega como fecha
+        return value.date().isoformat()
     if isinstance(value, float) and value.is_integer():
         return str(int(value))
     return str(value).strip()

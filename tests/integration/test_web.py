@@ -134,7 +134,7 @@ def test_warning_when_outside_stored_range(client_and_service):
     assert "Descuento mín. por debajo del rango guardado" in r.text and "Descuento máx." not in r.text
     assert "DTE fuera del rango guardado" in r.text
     ok = client.get(BASE)
-    assert "Rango cotizado (se guarda además un margen" in ok.text and "banner info" not in ok.text.split("</form>")[1].split("<script>")[0]
+    assert "Solo se escanean los contratos guardados" in ok.text and "banner info" not in ok.text.split("</form>")[1].split("<script>")[0]
 
 
 @pytest.mark.parametrize("qs", [
@@ -276,26 +276,10 @@ def test_daily_revalidate_option_is_passed_to_the_service(client_and_service):
     assert seen == [False, True]
 
 
-def test_contracts_page_lists_every_stored_contract_with_scanner_columns(client_and_service):
-    client, svc, gw, _ = client_and_service
-    from datetime import timedelta
-    refresh(client)
-    far = OptionContract("AAPL", TODAY + timedelta(days=44), 70.0)     # guardado pero fuera de lo que se cotiza
-    svc.contracts.sync_for_ticker("AAPL", {svc.contracts.key(c) for c in svc.contracts.list()} | {svc.contracts.key(far)}, [far])
-    r = client.get("/contracts")
-    assert r.status_code == 200
-    stored = svc.contracts.list()
-    assert f"Contratos guardados ({len(stored)})" in r.text
-    assert "sin cotizar" in r.text                                       # el de DTE 44 no tiene snapshot
-    scan_header = client.get(BASE).text
-    for col in ("Bid size", "Prima ref.", "Yield bid anual", "IV Pctl", "Margen ini.", "% cartera si asignado"):
-        assert f"<th>{col}</th>" in r.text and f"<th>{col}</th>" in scan_header
-    assert 'href="/contracts"' in client.get("/").text                    # enlace en el menú
-
-
-def test_scanner_links_to_contracts_in_a_new_tab(client_and_service):
+def test_contracts_tab_is_gone(client_and_service):
     client, *_ = client_and_service
-    assert 'href="/contracts" target="_blank"' in client.get("/scanner").text
+    assert client.get("/contracts").status_code == 404
+    assert "/contracts" not in client.get("/scanner").text and "Contratos</a>" not in client.get("/").text
 
 
 def test_banner_when_market_is_closed_and_not_when_open(client_and_service):
@@ -317,15 +301,12 @@ def test_banner_when_market_is_closed_and_not_when_open(client_and_service):
     assert "Mercado cerrado" not in client.get("/").text
 
 
-def test_ticker_column_is_sticky_in_scanner_and_contracts(client_and_service):
+def test_ticker_column_is_sticky_in_scanner(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     scanner = client.get("/scanner").text
-    contracts = client.get("/contracts").text
     assert 'class="sortable sticky-tk with-sel" id="scan-results"' in scanner
-    assert 'class="sortable sticky-tk" id="stored-contracts"' in contracts
-    for page in (scanner, contracts):
-        assert '<th class="tk">Ticker</th>' in page and '<td class="tk">AAPL</td>' in page
+    assert '<th class="tk">Ticker</th>' in scanner and '<td class="tk">AAPL</td>' in scanner
     assert '<th class="sel"></th>' in scanner and '<td class="sel"><input type="checkbox"' in scanner   # casilla también fija
     assert "table.sticky-tk .tk { left:0;" in scanner and "position:sticky" in scanner
 
@@ -380,7 +361,7 @@ def test_watchlist_page_has_replace_buttons_with_confirmation(client_and_service
     assert 'name="mode" value="add"' in page
 
 
-# ---- pestaña RankedStocks (fichero xlsx elegido por el usuario) -----------------------------------
+# ---- pestaña Universo (ficheros xlsx de RankedStocks y HelloStocks elegidos por el usuario) --------
 
 RANK_HEADER = ["Símbolo", "Empresa", "Bolsa", "País", "Capitalización", "Precio", "RS ↓", "Al"]
 RANK_ROWS = [
@@ -389,6 +370,11 @@ RANK_ROWS = [
     ["🇺🇸GCT", "GigaCloud", "NASDAQ", "US", "$2.0B", "$52.62", "88.0", "Oct 1, 2026"],
     ["🇺🇸PAYS", "Paysign", "NASDAQ", "US", "$517.1M", "$9.25", "85.6", "Oct 1, 2026"],
 ]
+# columnas del universo con RankedStocks: 0 Símbolo · 1 Fuente · 2 Empresa · 3 Bolsa · 4 País · 5 Capitalización · 6 Precio · 7 RS · 8 Al
+
+LOWER = "Lower Risk (Hello Stocks)"
+DEFENSIVE = "Defensive Investing-Benjamin G"
+VALUE = "Value Investing-Warren Buffett"
 
 
 def rank_xlsx(rows=None, header=None) -> bytes:
@@ -403,59 +389,120 @@ def rank_xlsx(rows=None, header=None) -> bytes:
     return buf.getvalue()
 
 
+def hello_xlsx() -> bytes:
+    """HelloStocks: una pestaña por estrategia, cada una con sus columnas; la de Buffett viene sin cabecera."""
+    import io
+    wb = Workbook()
+    ws = wb.active
+    ws.title = LOWER
+    ws.append(["Ticker", "Company", "Sector", "Criteria", "ROE", "Free Cash Flow (TTM)"])
+    ws.append(["KO", "Coca-Cola Co", "Consumer Defensive", datetime(2026, 7, 7), "40.1%", "$10.59 Billion"])
+    ws.append(["ADBE", "Adobe Inc", "Technology", datetime(2026, 7, 7), "62.9%", "$716.77 Million"])
+    ws2 = wb.create_sheet(DEFENSIVE)
+    ws2.append(["Ticker", "Company", "Sector", "Criteria", "PE Ratio", "Dividend Yield"])
+    ws2.append(["KO", "Coca-Cola Co", "Consumer Defensive", datetime(2026, 4, 3), "22.5", "2.6%"])
+    ws2.append(["AIG", "American International Group Inc", "Financial Services", datetime(2026, 4, 3), "13.31", "2.6%"])
+    ws3 = wb.create_sheet(VALUE)
+    ws3.append(["ACN", "Accenture plc - Class A", "Technology", datetime(2026, 7, 7), "57.2%", "24.9%", "0.26", "$12.58 Billion", "13.90", "3.51", "3.7%"])
+    ws3.append(["ALL", "Allstate Corp (The)", "Financial Services", datetime(2026, 7, 7), "61.5%", "42.7%", "0.22", "$12.25 Billion", "4.55", "1.74", "1.9%"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+RANK_NAME = "RankedStocks_2026.10.01.xlsx"
+HELLO_NAME = "HelloStocks_2026.10.04.xlsx"
+
+
 def load_rank(client, **kw):
-    return client.post("/rankedstocks/load", files={"file": ("RankedStocks_2026.10.01.xlsx", rank_xlsx(**kw))},
-                       follow_redirects=True)
+    return client.post("/universe/load", files=[("files", (RANK_NAME, rank_xlsx(**kw)))], follow_redirects=True)
 
 
-def test_rankedstocks_page_asks_for_a_file_until_one_is_loaded(client_and_service):
+def load_hello(client):
+    return client.post("/universe/load", files=[("files", (HELLO_NAME, hello_xlsx()))], follow_redirects=True)
+
+
+def test_universe_page_asks_for_files_until_one_is_loaded(client_and_service):
     client, svc, gw, _ = client_and_service
-    r = client.get("/rankedstocks")
-    assert r.status_code == 200 and 'name="file"' in r.text and "rankedstocks-table" not in r.text
-    assert 'href="/rankedstocks"' in client.get("/").text                      # pestaña en el menú
+    r = client.get("/universe")
+    assert r.status_code == 200 and 'name="files"' in r.text and "universe-table" not in r.text
+    assert 'href="/universe"' in client.get("/").text                          # pestaña en el menú
+    assert 'href="/contracts"' not in client.get("/").text and 'href="/rankedstocks"' not in client.get("/").text
+    assert client.get("/contracts").status_code == 404 and client.get("/rankedstocks").status_code == 404
 
 
-def test_load_shows_every_column_and_row_of_the_file(client_and_service):
+def test_load_rankedstocks_shows_every_column_and_row_with_its_source(client_and_service):
     client, svc, gw, _ = client_and_service
-    r = load_rank(client)
-    assert "4 filas cargadas de RankedStocks_2026.10.01.xlsx" in r.text
-    for col in ("Símbolo", "Empresa", "Bolsa", "País", "Capitalización", "Precio", "RS", "Al", "En watchlist"):
+    assert "RankedStocks_2026.10.01.xlsx (1 fuente, 4 filas)" in load_rank(client).text
+    r = client.get("/universe?src=RankedStocks")
+    for col in ("Símbolo", "Fuente", "Empresa", "Bolsa", "País", "Capitalización", "Precio", "RS", "Al", "En watchlist"):
         assert f"<th>{col}</th>" in r.text
-    assert "4 de 4 filas" in r.text and "Delek US Holdings" in r.text and "$4.4B" in r.text
+    assert "4 de 4 acciones" in r.text and "Delek US Holdings" in r.text and "$4.4B" in r.text
+    assert "<td>RankedStocks</td>" in r.text                                       # la fuente va en cada fila
     assert 'name="sel" value="DK" checked' in r.text and "🇺🇸" not in r.text     # ticker limpio, sin bandera
     assert 'data-sort="4400000000.0"' in r.text                                   # ordena por valor, muestra el texto
-    assert svc.rankedstocks is not None and svc.rankedstocks.source == "RankedStocks_2026.10.01.xlsx"
+    assert [s.name for s in svc.universe_sources] == ["RankedStocks"]
+
+
+def test_hello_stocks_makes_one_source_per_tab_each_with_its_own_columns(client_and_service):
+    client, svc, gw, _ = client_and_service
+    r = load_hello(client)
+    assert f"{HELLO_NAME} (3 fuentes, 6 filas)" in r.text
+    assert [s.name for s in svc.universe_sources] == [LOWER, DEFENSIVE, VALUE]
+    lower = client.get(f"/universe?src={LOWER}").text
+    assert "<th>ROE</th>" in lower and "<th>Free Cash Flow (TTM)</th>" in lower and "<th>PE Ratio</th>" not in lower
+    assert f"<td>{LOWER}</td>" in lower and 'data-sort="10590000000.0"' in lower      # «$10.59 Billion»
+    assert "2026-07-07" in lower                                                      # la fecha de «Criteria»
+    defensive = client.get(f"/universe?src={DEFENSIVE}").text
+    assert "<th>PE Ratio</th>" in defensive and "<th>Dividend Yield</th>" in defensive and "<th>ROE</th>" not in defensive
+    value = client.get(f"/universe?src={VALUE}").text                                  # sin cabecera: columnas deducidas
+    for col in ("Revenue Growth (5Y)", "ROE", "Debt to Equity", "PB Ratio", "Dividend Yield"):
+        assert f"<th>{col}</th>" in value
+
+
+def test_all_view_has_one_row_per_ticker_with_every_source(client_and_service):
+    client, svc, gw, _ = client_and_service
+    load_rank(client)
+    load_hello(client)
+    r = client.get("/universe")
+    assert "<th>Fuentes</th>" in r.text and "<th>Nº fuentes</th>" in r.text
+    ko = [row for row in r.text.split("<tr>") if 'value="KO"' in row]
+    assert len(ko) == 1                                                                # KO está en 3 fuentes, una sola fila
+    assert "RankedStocks" in ko[0] and LOWER in ko[0] and DEFENSIVE in ko[0] and 'data-sort="3.0"' in ko[0]
+    assert "Coca-Cola" in ko[0] and "Consumer Defensive" in ko[0]
+    assert "8 de 8 acciones" in r.text                                                 # DK KO GCT PAYS + ADBE AIG ACN ALL
+    both = client.get("/universe?t3=Defensive")                                        # «Fuentes» contiene
+    assert 'value="KO"' in both.text and 'value="AIG"' in both.text and 'value="DK"' not in both.text
 
 
 def test_filters_reduce_rows_and_selection(client_and_service):
     client, svc, gw, _ = client_and_service
     load_rank(client)
-    r = client.get("/rankedstocks?c2=NASDAQ")
-    assert "2 de 4 filas" in r.text and 'value="GCT" checked' in r.text and 'value="DK"' not in r.text
-    r = client.get("/rankedstocks?c2=NYSE&max5=65")
-    assert "1 de 4 filas" in r.text and 'value="KO"' in r.text
-    r = client.get("/rankedstocks?min4=1B&t1=co")                                  # capitalización ≥ 1B y empresa contiene «co»
-    assert "1 de 4 filas" in r.text and 'value="KO"' in r.text
-    r = client.get("/rankedstocks?min5=1000")
-    assert "Ninguna fila cumple los filtros" in r.text
-    bad = client.get("/rankedstocks?min5=abc")
-    assert "Filtro no válido" in bad.text and "4 de 4 filas" in bad.text           # no filtra y avisa
+    r = client.get("/universe?src=RankedStocks&c3=NASDAQ")
+    assert "2 de 4 acciones" in r.text and 'value="GCT" checked' in r.text and 'value="DK"' not in r.text
+    r = client.get("/universe?src=RankedStocks&c3=NYSE&max6=65")
+    assert "1 de 4 acciones" in r.text and 'value="KO"' in r.text
+    r = client.get("/universe?src=RankedStocks&min5=1B&t2=co")                        # capitalización ≥ 1B y empresa contiene «co»
+    assert "1 de 4 acciones" in r.text and 'value="KO"' in r.text
+    assert "Ninguna fila cumple los filtros" in client.get("/universe?src=RankedStocks&min6=1000").text
+    bad = client.get("/universe?src=RankedStocks&min6=abc")
+    assert "Filtro no válido" in bad.text and "4 de 4 acciones" in bad.text           # no filtra y avisa
 
 
 def test_apply_add_keeps_existing_and_adds_the_selection(client_and_service):
     client, svc, gw, _ = client_and_service
     load_rank(client)
     gw.prices["GCT"] = 52.0
-    r = client.post("/rankedstocks/apply", data={"mode": "add", "sel": ["GCT", "PAYS"]}, follow_redirects=True)
+    r = client.post("/universe/apply", data={"mode": "add", "sel": ["GCT", "PAYS"]}, follow_redirects=True)
     assert set(svc.watchlist.list()) == {"AAPL", "GCT", "PAYS"}
     assert "2 nuevos" in r.text
-    assert "✓" in client.get("/rankedstocks").text                                   # la columna «En watchlist» lo marca
+    assert "✓" in client.get("/universe?src=RankedStocks").text                      # la columna «En watchlist» lo marca
 
 
 def test_apply_replace_swaps_the_whole_watchlist(client_and_service):
     client, svc, gw, _ = client_and_service
     load_rank(client)
-    r = client.post("/rankedstocks/apply", data={"mode": "replace", "sel": ["DK", "KO"]}, follow_redirects=True)
+    r = client.post("/universe/apply", data={"mode": "replace", "sel": ["DK", "KO"]}, follow_redirects=True)
     assert set(svc.watchlist.list()) == {"DK", "KO"}
     assert "Watchlist sustituida: 2 nuevos, 0 conservados, 1 quitados (AAPL)" in r.text
 
@@ -463,7 +510,7 @@ def test_apply_replace_swaps_the_whole_watchlist(client_and_service):
 def test_apply_with_nothing_selected_does_not_wipe_the_watchlist(client_and_service):
     client, svc, gw, _ = client_and_service
     load_rank(client)
-    r = client.post("/rankedstocks/apply", data={"mode": "replace"}, follow_redirects=True)
+    r = client.post("/universe/apply", data={"mode": "replace"}, follow_redirects=True)
     assert svc.watchlist.list() == ["AAPL"] and "no se ha cambiado la watchlist" in r.text
 
 
@@ -473,14 +520,29 @@ def test_page_has_replace_confirmation_and_select_all(client_and_service):
     assert 'name="mode" value="replace"' in page and "confirmReplace()" in page and 'id="rk-all"' in page
 
 
-def test_bad_rankedstocks_files_report_an_error_and_keep_the_previous_one(client_and_service):
+def test_a_newer_file_of_the_same_source_replaces_the_old_one_and_files_can_be_removed(client_and_service):
     client, svc, gw, _ = client_and_service
     load_rank(client)
-    bad = client.post("/rankedstocks/load", files={"file": ("w.csv", b"AAPL")}, follow_redirects=True)
+    load_hello(client)
+    newer = client.post("/universe/load", files=[("files", ("RankedStocks_2026.10.04.xlsx", rank_xlsx(rows=RANK_ROWS[:2])))],
+                        follow_redirects=True)
+    assert list(svc.universe_files) == [HELLO_NAME, "RankedStocks_2026.10.04.xlsx"]    # el de 10.01 ya no está
+    assert "2 de 2 acciones" in client.get("/universe?src=RankedStocks").text and newer.status_code == 200
+    r = client.post("/universe/remove", data={"file": HELLO_NAME}, follow_redirects=True)
+    assert "quitado del universo" in r.text and [s.name for s in svc.universe_sources] == ["RankedStocks"]
+    assert "<th>Fuentes</th>" in client.get("/universe?src=desconocida").text          # fuente desconocida: vista «Todas»
+
+
+def test_several_files_in_one_upload_and_bad_files_report_an_error(client_and_service):
+    client, svc, gw, _ = client_and_service
+    both = client.post("/universe/load", files=[("files", (RANK_NAME, rank_xlsx())), ("files", (HELLO_NAME, hello_xlsx()))],
+                       follow_redirects=True)
+    assert "Cargado:" in both.text and len(svc.universe_sources) == 4
+    bad = client.post("/universe/load", files=[("files", ("w.csv", b"AAPL"))], follow_redirects=True)
     assert "Error" in bad.text and "Formato no soportado" in bad.text
     no_symbol = load_rank(client, header=["Empresa", "Precio"], rows=[["X", "$1"]])
-    assert "Error" in no_symbol.text and "Símbolo" in no_symbol.text
-    assert svc.rankedstocks is not None and len(svc.rankedstocks.rows) == 4         # sigue el fichero anterior
+    assert "Error" in no_symbol.text and "cabecera" in no_symbol.text
+    assert len(svc.universe_sources) == 4                                             # siguen los ficheros anteriores
 
 
 def test_activity_banner_shows_the_ibkr_pacing_wait(client_and_service):
@@ -530,7 +592,7 @@ def test_data_version_sube_al_refrescar_y_las_tablas_lo_vigilan(client_and_servi
     client, svc, gw, _ = client_and_service
     before = client.get("/data-version").json()["version"]
     assert f"var current = {before}" in client.get("/scanner?reset=1").text
-    assert "/data-version" in client.get("/contracts").text
+    assert "/data-version" in client.get("/scanner").text
     assert "/data-version" not in client.get("/").text   # el panel no vigila los datos del scanner
     refresh(client)
     assert client.get("/data-version").json()["version"] > before
@@ -567,55 +629,51 @@ def test_filtro_opcional_marcado_se_aplica_con_el_valor_de_la_caja(client_and_se
     assert "AAPL" in sin and '<td class="tk">AAPL' not in con
 
 
-def test_rankedstocks_file_and_filters_survive_a_restart(tmp_path):
-    from scanner_opciones.app.service import AppService
-    from scanner_opciones.config.settings import Settings
-    from scanner_opciones.storage.db import Database
-    from tests.integration.test_service import FixedMarket
-
-    def start():
-        db = Database(tmp_path / "app.db")
-        svc = AppService(FakeGateway(), db, Settings(storage={"path": str(tmp_path / "app.db")}),
-                         lambda: NOW, market=FixedMarket(True))
-        return svc, create_app(svc, lambda mode: FakeGateway())
-
-    svc, app = start()
-    with TestClient(app) as client:
-        load_rank(client)
-        assert client.get("/rankedstocks?Pa%C3%ADs=US").status_code == 200   # una consulta con filtros
-    assert (tmp_path / "rankedstocks_last.xlsx").is_file()
-
-    svc2, app2 = start()                                                      # «reinicio»: servicio y app nuevos
-    assert svc2.rankedstocks.source == "RankedStocks_2026.10.01.xlsx" and len(svc2.rankedstocks.rows) == 4
-    assert svc2.rankedstocks_loaded_at == NOW
-    with TestClient(app2) as client:
-        page = client.get("/rankedstocks", follow_redirects=False)
-        assert page.status_code == 303 and "Pa%C3%ADs=US" in page.headers["location"]   # vuelve a los filtros
-        assert "rankedstocks-table" in client.get(page.headers["location"]).text
-
-        load_rank(client)                                                      # otro fichero: filtros fuera
-        assert client.get("/rankedstocks", follow_redirects=False).status_code == 200
-
-
-def test_a_corrupt_saved_file_is_ignored_on_start(tmp_path):
+def _start(tmp_path):
     from scanner_opciones.app.service import AppService
     from scanner_opciones.config.settings import Settings
     from scanner_opciones.storage.db import Database
     from tests.integration.test_service import FixedMarket
 
     db = Database(tmp_path / "app.db")
-    db.conn.execute("INSERT INTO meta (key, value) VALUES ('rankedstocks_name', 'x.xlsx')")
-    db.conn.commit()
-    (tmp_path / "rankedstocks_last.xlsx").write_bytes(b"no es un excel")
     svc = AppService(FakeGateway(), db, Settings(storage={"path": str(tmp_path / "app.db")}),
                      lambda: NOW, market=FixedMarket(True))
-    assert svc.rankedstocks is None
+    return svc, create_app(svc, lambda mode: FakeGateway())
+
+
+def test_universe_files_survive_a_restart(tmp_path):
+    svc, app = _start(tmp_path)
+    with TestClient(app) as client:
+        load_rank(client)
+        load_hello(client)
+    assert (tmp_path / "universe" / RANK_NAME).is_file() and (tmp_path / "universe" / HELLO_NAME).is_file()
+
+    svc2, app2 = _start(tmp_path)                                             # «reinicio»: servicio y app nuevos
+    assert [s.name for s in svc2.universe_sources] == ["RankedStocks", LOWER, DEFENSIVE, VALUE]
+    assert svc2.universe_files[RANK_NAME][0] == NOW
+    with TestClient(app2) as client:
+        assert "universe-table" in client.get("/universe").text
+        client.post("/universe/remove", data={"file": RANK_NAME})
+    assert not (tmp_path / "universe" / RANK_NAME).exists()
+    assert [s.name for s in _start(tmp_path)[0].universe_sources] == [LOWER, DEFENSIVE, VALUE]
+
+
+def test_a_corrupt_saved_file_is_ignored_on_start(tmp_path):
+    from scanner_opciones.storage.db import Database
+
+    db = Database(tmp_path / "app.db")
+    db.conn.execute("INSERT INTO meta (key, value) VALUES ('universe_files', '{\"x.xlsx\": \"2026-10-01T10:00:00\"}')")
+    db.conn.commit()
+    (tmp_path / "universe").mkdir()
+    (tmp_path / "universe" / "x.xlsx").write_bytes(b"no es un excel")
+    svc, _ = _start(tmp_path)
+    assert svc.universe_sources == []
 
 
 def test_no_trend_column_and_no_old_uptrend_filter(client_and_service):
     client, svc, gw, _ = client_and_service
     r = client.get("/scanner")
-    assert "<th>Tendencia</th>" not in r.text and "<th>Tendencia</th>" not in client.get("/contracts").text
+    assert "<th>Tendencia</th>" not in r.text and "<th>Tendencia</th>" not in client.get("/scanner?submitted=1").text
     assert "use_trend" not in r.text and "Solo tendencia alcista" not in r.text        # el filtro antiguo ya no existe
     assert client.get("/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid&use_trend=on").status_code == 200
 
@@ -643,7 +701,7 @@ def test_last_price_filter_form(client_and_service):
     r = client.get("/scanner")
     assert 'name="price_min"' in r.text and 'name="price_max"' in r.text
     out = client.get(base + "&price_min=20&price_max=150.5").text
-    assert 'name="price_min" size="6" placeholder="Mín." value="20"' in out and 'value="150.5"' in out
+    assert 'name="price_min" size="8" placeholder="Mín." value="20"' in out and 'value="150.5"' in out
     assert "Aplicado" in out
     assert "Parámetro no válido" in client.get(base + "&price_min=200&price_max=100").text
     assert "Parámetro no válido" in client.get(base + "&price_min=abc").text

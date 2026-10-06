@@ -1,51 +1,76 @@
 {% extends "base.html" %}
-{% block title %}RankedStocks{% endblock %}
+{% block title %}Universo{% endblock %}
 {% block content %}
 {% if message %}<div class="banner info">{{ message }}</div>{% endif %}
-<div class="card">
-  <h2>RankedStocks</h2>
-  <p class="muted">Elige el fichero .xlsx que has descargado de RankedStocks. La app solo lee ese fichero (no se conecta a rankedstocks.com).
-    Se guarda en memoria: al reiniciar la app hay que volver a elegirlo.</p>
-  <form method="post" action="/rankedstocks/load" enctype="multipart/form-data">
-    <input type="file" name="file" accept=".xlsx" required>
-    <button>Cargar fichero</button>
-  </form>
+<div class="section-title">Fuentes</div>
+<div class="panels">
+  <div class="panel">
+    <h3><span class="n">1</span>Cargar ficheros</h3>
+    <form method="post" action="/universe/load" enctype="multipart/form-data" class="row">
+      <input type="file" name="files" accept=".xlsx" multiple required>
+      <button>Cargar</button>
+    </form>
+    <p class="note">Elige los .xlsx que descargas de <b>RankedStocks</b> (una hoja: la fuente es «RankedStocks») y de <b>HelloStocks</b>
+      (una pestaña por estrategia: la fuente es el nombre de cada pestaña). La app solo lee los ficheros que eliges, no se conecta a ninguna web.
+      Una descarga nueva sustituye a la anterior de la misma fuente; los ficheros se conservan al reiniciar.</p>
+  </div>
+  <div class="panel">
+    <h3><span class="n">2</span>Ficheros cargados</h3>
+    {% for name, at, names in files %}
+      <div class="row" style="align-items:center">
+        <div style="flex:1 1 auto"><b>{{ name }}</b> <span class="muted">· {{ at.strftime('%d/%m %H:%M') }} · {{ names|length }} fuente{{ 's' if names|length != 1 }}</span></div>
+        <form class="inline" method="post" action="/universe/remove"><input type="hidden" name="file" value="{{ name }}"><button class="secondary">Quitar</button></form>
+      </div>
+    {% else %}<p class="muted" style="margin:0">Aún no hay ningún fichero cargado.</p>{% endfor %}
+  </div>
 </div>
 {% if table %}
-<div class="card">
-  <h2>Filtros <span class="muted">({{ table.source }}, cargado a las {{ loaded_at.strftime('%H:%M:%S') }})</span></h2>
+<div class="section-title">Explorar por fuente</div>
+<div class="chips" style="margin-bottom:14px">
+  <a class="chip {{ 'active' if not src }}" href="/universe?reset=1">Todas<small>{{ all_count }}</small></a>
+  {% for s in sources %}<a class="chip {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}">{{ s.name }}<small>{{ s.table.rows|length }}</small></a>{% endfor %}
+</div>
+<div class="panel" style="margin-bottom:16px">
+  <h3><span class="n">3</span>Filtros · {{ src or 'Todas las fuentes' }}</h3>
   {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
-  <form method="get" action="/rankedstocks" id="rk-filters">
+  <p class="note">
+    {% if src %}Columnas de la fuente <b>{{ src }}</b>: cada fuente tiene las suyas.{% else %}Una fila por ticker con las fuentes en las que aparece (columna <b>Fuentes</b>). Elige una fuente para ver sus propias columnas.{% endif %}
+    Las listas admiten varios valores (Ctrl + clic). Los números aceptan $, comas y K/M/B/T (p. ej. 500M).</p>
+  <form method="get" action="/universe" id="rk-filters">
+    {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
     <div class="filters">
       {% for col in table.columns %}{% set i = loop.index0 %}
-        {% if col.kind == 'text' %}
+        {% if i == table.symbol_index %}
+          <label>{{ col.name }} (contiene) <input name="t{{ i }}" size="10" value="{{ qp.get('t' ~ i, '') }}"></label>
+        {% elif col.kind == 'text' %}
           <label>{{ col.name }} (contiene) <input name="t{{ i }}" size="12" value="{{ qp.get('t' ~ i, '') }}"></label>
         {% elif col.kind == 'choice' %}
+          {% if col.name != 'Fuente' %}
           <label>{{ col.name }}
             <select name="c{{ i }}" multiple size="{{ [col.choices|length, 4]|min }}">
               {% set picked = qp.getlist('c' ~ i) %}
               {% for v in col.choices %}<option value="{{ v }}" {{ 'selected' if v in picked }}>{{ v }}</option>{% endfor %}
             </select></label>
+          {% endif %}
         {% else %}
           <label>{{ col.name }} (mín. – máx.)
             <span><input name="min{{ i }}" size="7" value="{{ qp.get('min' ~ i, '') }}"> – <input name="max{{ i }}" size="7" value="{{ qp.get('max' ~ i, '') }}"></span></label>
         {% endif %}
       {% endfor %}
       <button>Filtrar</button>
-      <a class="btn secondary" href="/rankedstocks?reset=1" style="background:#e8ebf0;color:var(--ink);text-decoration:none">Limpiar</a>
+      <a class="btn secondary" href="/universe?{{ ('src=' ~ src|urlencode ~ '&') if src }}reset=1">Limpiar</a>
     </div>
-    <p class="muted">Las listas admiten varios valores (Ctrl + clic). Los números aceptan $, comas y K/M/B/T (p. ej. 500M).</p>
   </form>
 </div>
-<form method="post" action="/rankedstocks/apply" class="card" id="rk-apply">
-  <h2>{{ rows|length }} de {{ table.rows|length }} filas <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
+<form method="post" action="/universe/apply" class="card" id="rk-apply">
+  <h2>{{ rows|length }} de {{ table.rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
   <p>
     <button name="mode" value="add">Añadir selección a la watchlist</button>
     <button name="mode" value="replace" class="secondary" onclick="return confirmReplace()"
             title="Quita de la watchlist (con sus contratos) los tickers que no estén en la selección">Sustituir watchlist con la selección</button>
     <span class="muted">Las filas marcadas son las visibles tras el filtro; desmarca las que no quieras.</span>
   </p>
-  <div class="scroll"><table class="sortable" id="rankedstocks-table">
+  <div class="scroll"><table class="sortable" id="universe-table">
     <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th>
       {% for col in table.columns %}<th>{{ col.name }}</th>{% endfor %}</tr>
     {% for row in rows %}

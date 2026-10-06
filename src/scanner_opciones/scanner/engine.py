@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional, Sequence
 
-from scanner_opciones.domain.models import ContractSnapshot, OptionContract, Position, TickerInfo
+from scanner_opciones.domain.models import ContractSnapshot, Position, TickerInfo
 from scanner_opciones.domain.enums import PriceReference
 from scanner_opciones.metrics.yields import (
     annualized_yield_pct, gross_yield_ref_pct, reference_price, strike_distance_pct,
@@ -88,21 +88,3 @@ def build_result(
         yield_ref_annualized_pct=annualized_yield_pct(y_ref, dte),
         yield_bid_pct=y_bid, yield_bid_annualized_pct=annualized_yield_pct(y_bid, dte),
     )
-
-
-def list_stored(
-    contracts: Sequence[OptionContract],
-    snapshots: Sequence[ContractSnapshot],
-    infos: dict[str, TickerInfo],
-    positions: list[Position],
-    criteria: ScanCriteria,
-    today: date,
-) -> list[ScanResult]:
-    """TODOS los contratos guardados, sin filtrar, con las columnas del scanner. Los que aún no
-    tienen cotización llevan un snapshot vacío (`updated_at=None`). Orden: ticker, vencimiento, strike."""
-    snaps = {(s.contract.ticker, s.contract.expiry, s.contract.strike, s.contract.right): s for s in snapshots}
-    out: list[ScanResult] = []
-    for c in contracts:
-        snap = snaps.get((c.ticker, c.expiry, c.strike, c.right)) or ContractSnapshot(c, None)
-        out.append(build_result(snap, infos.get(c.ticker), positions, criteria, today))
-    return out

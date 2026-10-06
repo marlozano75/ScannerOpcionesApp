@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import tempfile
 from urllib.parse import urlencode
-from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
@@ -18,7 +17,7 @@ from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLi
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.rankedstocks.filters import apply_filters, parse_filters
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES
-from scanner_opciones.rankedstocks.loader import load_table
+from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.loader import load_watchlist_file
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
@@ -100,16 +99,12 @@ def create_app(
     app = FastAPI(title="ScannerOpcionesApp", lifespan=lifespan)
 
     remembered: dict[str, str] = {}   # última consulta con filtros de cada pestaña (en memoria)
-    if saved := service.meta.get("rankedstocks_query"):   # la de RankedStocks también sobrevive a los reinicios
-        remembered["rankedstocks"] = saved
 
     def remember(page: str, query: Optional[str]) -> None:
         if query is None:
             remembered.pop(page, None)
         else:
             remembered[page] = query
-        if page == "rankedstocks":
-            service.meta.set("rankedstocks_query", query or "")
 
     def recall(request: Request, page: str, ignore: tuple[str, ...] = ("message", "debug")) -> Optional[RedirectResponse]:
         """Los filtros viajan en la URL, así que al volver a una pestaña desde el menú (sin parámetros)
@@ -133,7 +128,7 @@ def create_app(
             delay_minutes=service.settings.ibkr.delay_minutes,
             pacing_wait=service.pacing_wait_seconds() if service.busy else 0,
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
-            next_open=service.market.next_open(service.now()),
+            next_open=service.market.next_open(service.now()), path=request.url.path,
         )
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 
@@ -218,42 +213,60 @@ def create_app(
         msg = await apply_watchlist(parsed, mode)
         return RedirectResponse(f"/watchlist?message={msg}", status_code=303)
 
-    # ---- RankedStocks (fichero .xlsx elegido por el usuario) ---------------------------------
-    @app.get("/rankedstocks", response_class=HTMLResponse)
-    async def rankedstocks(request: Request, message: str = ""):
-        if (back := recall(request, "rankedstocks")) is not None:
+    # ---- Universo (ficheros .xlsx de RankedStocks y HelloStocks elegidos por el usuario) ------
+    @app.get("/universe", response_class=HTMLResponse)
+    async def universe(request: Request, src: str = ALL, message: str = ""):
+        if (back := recall(request, "universe")) is not None:
             return back
-        table = service.rankedstocks
+        sources = service.universe_sources
+        current = next((s for s in sources if s.name == src), None)
+        merged = merge(sources) if sources else None
+        table = current.table if current else merged
         rows, error = [], None
         if table is not None:
             try:
                 rows = apply_filters(table, parse_filters(table, request.query_params))
             except ValueError as exc:
                 error, rows = f"Filtro no válido: {exc}", list(table.rows)
-        return render(request, "rankedstocks.html", table=table, rows=rows, error=error, message=message,
-                      qp=request.query_params, loaded_at=service.rankedstocks_loaded_at,
-                      in_watchlist=set(service.watchlist.list()))
+        files = [(name, at, [s.name for s in srcs]) for name, (at, srcs) in service.universe_files.items()]
+        return render(request, "universe.html", table=table, rows=rows, error=error, message=message,
+                      qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
+                      all_count=len(merged.rows) if merged else 0, in_watchlist=set(service.watchlist.list()))
 
-    @app.post("/rankedstocks/load")
-    async def rankedstocks_load(file: UploadFile):
-        suffix = Path(file.filename or "").suffix
-        content = await file.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(content)
-            path = Path(tmp.name)
-        try:
-            table = load_table(path)
-        except WatchlistError as exc:
-            return RedirectResponse(f"/rankedstocks?message=Error: {exc}", status_code=303)
-        finally:
-            path.unlink(missing_ok=True)
-        table = replace(table, source=file.filename or table.source)   # el nombre real, no el del temporal
-        service.set_rankedstocks(table, content)   # queda guardado hasta que se cargue otro
-        remembered.pop("rankedstocks", None)       # otro fichero, otras columnas: los filtros anteriores no valen
-        return RedirectResponse(f"/rankedstocks?message={len(table.rows)} filas cargadas de {table.source}", status_code=303)
+    @app.post("/universe/load")
+    async def universe_load(files: list[UploadFile]):
+        done, errors = [], []
+        for upload in files:
+            name = Path(upload.filename or "").name
+            if not name:
+                continue
+            content = await upload.read()
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(name).suffix) as tmp:
+                tmp.write(content)
+                path = Path(tmp.name)
+            try:
+                sources = load_sources(path, name)
+            except WatchlistError as exc:
+                errors.append(f"{name}: {exc}")
+                continue
+            finally:
+                path.unlink(missing_ok=True)
+            service.set_universe_file(name, sources, content)   # queda guardado hasta que se quite o se cargue otro igual
+            done.append(f"{name} ({len(sources)} fuente{'s' if len(sources) != 1 else ''}, {sum(len(s.table.rows) for s in sources)} filas)")
+        remembered.pop("universe", None)   # otras columnas: los filtros anteriores no valen
+        msg = "Cargado: " + ", ".join(done) if done else ""
+        if errors:
+            msg += (" · " if msg else "") + "Error: " + "; ".join(errors)
+        return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
 
-    @app.post("/rankedstocks/apply")
-    async def rankedstocks_apply(request: Request):
+    @app.post("/universe/remove")
+    async def universe_remove(file: str = Form(...)):
+        service.remove_universe_file(file)
+        remembered.pop("universe", None)
+        return RedirectResponse(f"/universe?{urlencode({'message': f'{file} quitado del universo'})}", status_code=303)
+
+    @app.post("/universe/apply")
+    async def universe_apply(request: Request):
         """Añade a la watchlist (o la sustituye por) los tickers marcados."""
         form = await request.form()
         mode = str(form.get("mode", "add"))
@@ -416,23 +429,9 @@ def create_app(
 
     @app.get("/data-version")
     async def data_version():
-        """Versión de los datos guardados: las páginas Scanner y Contratos la consultan y se recargan
+        """Versión de los datos guardados: el scanner la consulta y se recarga
         si cambia (RF: refresco automático de la tabla al terminar una cotización)."""
         return {"version": service.state.data_version, "busy": service.busy}
-
-    @app.get("/contracts", response_class=HTMLResponse)
-    async def contracts(request: Request):
-        """Todos los contratos almacenados, con las mismas columnas que el resultado del scanner."""
-        rows = service.stored_contracts()
-        c = service.criteria()
-        ref_label = {
-            PriceReference.BID: "bid",
-            PriceReference.MID: "mid (media bid/ask)",
-            PriceReference.BID_PLUS_SPREAD: f"bid + {c.price_spread_pct:g}% del spread",
-        }[c.price_reference]
-        return render(request, "contracts.html", rows=rows, ref_label=ref_label, watch_data=True,
-                      quoted=sum(1 for r in rows if r.snapshot.updated_at is not None),
-                      candidates=service.settings.scanner.catalog)
 
     @app.get("/simulate")
     async def simulate_get():

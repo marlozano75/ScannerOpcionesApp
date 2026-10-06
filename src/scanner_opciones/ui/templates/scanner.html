@@ -8,113 +8,153 @@
 <style>
   .stepper { display:inline-flex; gap:2px; align-items:center; }
   .stepper button.step { padding:4px 8px; line-height:1; }
-  .presets { margin:0 0 10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .presets { margin:8px 0 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 </style>
-<div class="card">
-  <h2>Scanner de puts vendidas
-    <a href="/contracts" target="_blank" rel="noopener" class="muted" style="font-size:13px;font-weight:400;margin-left:12px"
-       title="Todos los contratos guardados, en otra pestaña">Ver todos los contratos guardados ↗</a></h2>
-  <form method="get" action="/scanner" id="scan-form">
-    <input type="hidden" name="submitted" value="1">
-    {% if presets %}<div class="presets"><span class="muted">Configuraciones:</span>
-      {% for p in presets %}<button type="button" class="secondary preset" data-discount="{{ p.discount }}" data-dte-min="{{ p.dte_min }}"
-        data-dte-max="{{ p.dte_max }}" data-yield="{{ p.min_yield }}"
-        title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield anual mín. {{ p.min_yield }} %">{{ p.name }}
-        <span class="muted">({{ p.discount }}% · DTE {{ p.dte_min }}–{{ p.dte_max }} · {{ p.min_yield }}%)</span></button>{% endfor %}
-    </div>{% endif %}
-    <div class="filters">
-      <label>Descuento mín. del strike (%) {{ num("discount", 6, form.discount, 99) }}</label>
-      <label>DTE mín. {{ num("dte_min", 5, form.dte_min) }}</label>
-      <label>DTE máx. {{ num("dte_max", 5, form.dte_max) }}</label>
-      <label>Yield anual mín. (%) {{ num("min_yield", 6, form.min_yield) }}</label>
-      <label>Precio de venta de referencia
-        <select name="ref" id="ref">
-          <option value="bid" {{ 'selected' if form.ref == 'bid' }}>Bid</option>
-          <option value="mid" {{ 'selected' if form.ref == 'mid' }}>Mid (media bid/ask)</option>
-          <option value="bid_plus_spread" {{ 'selected' if form.ref == 'bid_plus_spread' }}>Bid + X % del spread</option>
-        </select></label>
-      <label id="ref_x_label" {{ 'hidden' if form.ref != 'bid_plus_spread' }}>X (% del spread) {{ num("ref_x", 5, form.ref_x, 100) }}</label>
+<h2 style="margin-top:4px">Scanner de puts vendidas</h2>
+<form method="get" action="/scanner" id="scan-form">
+  <input type="hidden" name="submitted" value="1">
+  {% if presets %}<div class="presets"><span class="muted">Configuraciones:</span>
+    {% for p in presets %}<button type="button" class="secondary preset" data-discount="{{ p.discount }}" data-dte-min="{{ p.dte_min }}"
+      data-dte-max="{{ p.dte_max }}" data-yield="{{ p.min_yield }}"
+      title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield anual mín. {{ p.min_yield }} %">{{ p.name }}
+      <span class="muted">({{ p.discount }}% · DTE {{ p.dte_min }}–{{ p.dte_max }} · {{ p.min_yield }}%)</span></button>{% endfor %}
+  </div>{% endif %}
+
+  <div class="section-title">Contrato</div>
+  <div class="panels">
+    <div class="panel">
+      <h3><span class="n">1</span>Strike y vencimiento</h3>
+      <div class="filters">
+        <label>Descuento mín. del strike (%) {{ num("discount", 6, form.discount, 99) }}</label>
+        <label>DTE mín. {{ num("dte_min", 5, form.dte_min) }}</label>
+        <label>DTE máx. {{ num("dte_max", 5, form.dte_max) }}</label>
+      </div>
+      <p class="note">Solo se escanean los contratos guardados: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }} % por debajo
+        del precio y DTE {{ candidates.dte_min }}–{{ candidates.dte_max }} (más un margen de ±{{ margin|num(0) }} % que se guarda pero no se cotiza). El descuento máximo es el del rango guardado.</p>
     </div>
-    <p class="muted" style="margin:10px 0 4px">Tendencia y niveles (calculados con los cierres diarios guardados):</p>
-    <div class="filters tech">
-      <label>Tendencia
-        <select name="trend_dir" id="trend_dir">
-          <option value="off" {{ 'selected' if form.trend_dir == 'off' }}>Off</option>
-          <option value="up" {{ 'selected' if form.trend_dir == 'up' }}>Alcista</option>
-          <option value="down" {{ 'selected' if form.trend_dir == 'down' }}>Bajista</option></select></label>
-      <label>Método
-        <select name="trend_method" id="trend_method">
-          <option value="low" {{ 'selected' if form.trend_method == 'low' }}>Mínimo (máximo) sin romper</option>
-          <option value="swings" {{ 'selected' if form.trend_method == 'swings' }}>Máximos y mínimos crecientes (decrecientes)</option></select></label>
-      <label>Ventana
-        <select name="trend_window" id="trend_window">
-          {% for m, label in tech_opts.windows %}<option value="{{ m }}" {{ 'selected' if form.trend_window == m|string }}>{{ label }}</option>{% endfor %}</select></label>
-      <label id="trend_days_label">Antigüedad mín. del mínimo (máximo)
-        <select name="trend_days" id="trend_days">
-          {% for d, label in tech_opts.durations %}<option value="{{ d }}" {{ 'selected' if form.trend_days == d|string }}>{{ label }}</option>{% endfor %}</select></label>
-      <label class="opt"><span><input type="checkbox" name="support" id="support" {{ 'checked' if form.support }}> Exigir zona de soporte probada</span></label>
-      <label>Días mín. desde el último toque del strike
-        <select name="touch" id="touch">
-          <option value="" {{ 'selected' if form.touch == '' }}>Cualquiera</option>
-          {% for d, label in tech_opts.touches %}<option value="{{ d }}" {{ 'selected' if form.touch == d|string }}>{{ label }}</option>{% endfor %}</select></label>
+    <div class="panel">
+      <h3><span class="n">2</span>Rentabilidad</h3>
+      <div class="filters">
+        <label>Yield anual mín. (%) {{ num("min_yield", 6, form.min_yield) }}</label>
+        <label>Precio de venta de referencia
+          <select name="ref" id="ref">
+            <option value="bid" {{ 'selected' if form.ref == 'bid' }}>Bid</option>
+            <option value="mid" {{ 'selected' if form.ref == 'mid' }}>Mid (media bid/ask)</option>
+            <option value="bid_plus_spread" {{ 'selected' if form.ref == 'bid_plus_spread' }}>Bid + X % del spread</option>
+          </select></label>
+        <label id="ref_x_label" {{ 'hidden' if form.ref != 'bid_plus_spread' }}>X (% del spread) {{ num("ref_x", 5, form.ref_x, 100) }}</label>
+      </div>
+      <p class="note">El yield se calcula con el precio de venta elegido: <b>bid</b>, <b>mid</b> o el bid más un porcentaje X del spread.
+        Todos los contratos se cotizan cada {{ refresh_minutes|round|int }} min.</p>
     </div>
-    <p class="muted" style="margin:4px 0 10px;max-width:90ch">
-      La <b>ventana</b> son los últimos 1–24 meses de cierres diarios que se analizan: se mira día a día si el mínimo (o el máximo) se ha vuelto a romper.
-      <b>Alcista</b>: el mínimo de la ventana que el precio no ha vuelto a romper debe tener al menos esa antigüedad y el precio debe haber avanzado desde él
-      (<b>bajista</b>: lo mismo con el máximo). Con «máximos y mínimos crecientes» se comparan los últimos máximos y mínimos locales de la ventana y ningún cierre posterior al último mínimo puede haberlo roto.
-      <b>Zona de soporte</b>: nivel tocado 3+ veces en 2+ episodios durante el último año, sin cierres que lo pierdan en más de 1,5 %; el strike debe estar en él o por debajo.
-      <b>Días desde el último toque</b>: se excluyen los strikes que un cierre haya visitado (cierre ≤ strike) dentro de ese plazo.
-      <b>Medias</b>: con velas diarias, semanales o mensuales (MA 50 = 50 días, 50 semanas o 50 meses); tastytrade solo da ~3,8 años de historia (≈198 semanas, 46 meses),
-      así que las medias más largas con velas mensuales (y la MA 200 semanal) no se pueden calcular y descartan el ticker.</p>
-    <div class="filters tech">
-      <label>Velas de las medias
-        <select name="ma_frame" id="ma_frame">
-          <option value="daily" {{ 'selected' if form.ma_frame == 'daily' }}>Diarias (días)</option>
-          <option value="weekly" {{ 'selected' if form.ma_frame == 'weekly' }}>Semanales (semanas)</option>
-          <option value="monthly" {{ 'selected' if form.ma_frame == 'monthly' }}>Mensuales (meses)</option></select></label>
-      {% for key, label in (('ma50', 'MA 50'), ('ma100', 'MA 100'), ('ma200', 'MA 200'), ('ema9', 'EMA 9'), ('ema20', 'EMA 20')) %}
-      <label>{{ label }}
-        <select name="{{ key }}">
-          <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
-          <option value="above" {{ 'selected' if form[key] == 'above' }}>Precio por encima</option>
-          <option value="below" {{ 'selected' if form[key] == 'below' }}>Precio por debajo</option></select></label>
-      {% endfor %}
+  </div>
+
+  <div class="section-title">Tendencia y niveles <span style="letter-spacing:.04em;text-transform:none;font-weight:400">(con los cierres diarios guardados)</span></div>
+  <div class="panels">
+    <div class="panel tech">
+      <h3><span class="n">3</span>Filtro de tendencia</h3>
+      <div class="filters">
+        <label>Tendencia
+          <select name="trend_dir" id="trend_dir">
+            <option value="off" {{ 'selected' if form.trend_dir == 'off' }}>Off</option>
+            <option value="up" {{ 'selected' if form.trend_dir == 'up' }}>Alcista</option>
+            <option value="down" {{ 'selected' if form.trend_dir == 'down' }}>Bajista</option></select></label>
+        <label>Ventana
+          <select name="trend_window" id="trend_window">
+            {% for m, label in tech_opts.windows %}<option value="{{ m }}" {{ 'selected' if form.trend_window == m|string }}>{{ label }}</option>{% endfor %}</select></label>
+      </div>
+      <div class="filters">
+        <label>Método
+          <select name="trend_method" id="trend_method">
+            <option value="low" {{ 'selected' if form.trend_method == 'low' }}>Mínimo (máximo) sin romper</option>
+            <option value="swings" {{ 'selected' if form.trend_method == 'swings' }}>Máximos y mínimos crecientes (decrecientes)</option></select></label>
+        <label id="trend_days_label">Antigüedad mín. del mínimo (máximo)
+          <select name="trend_days" id="trend_days">
+            {% for d, label in tech_opts.durations %}<option value="{{ d }}" {{ 'selected' if form.trend_days == d|string }}>{{ label }}</option>{% endfor %}</select></label>
+      </div>
+      <p class="note"><b>Alcista</b>: el mínimo de la ventana (1–24 meses de cierres diarios) que el precio no ha vuelto a romper debe tener al menos esa antigüedad y el precio
+        debe haber avanzado desde él; <b>bajista</b> es lo mismo con el máximo. Con «máximos y mínimos crecientes» se comparan los últimos extremos locales. Un solo cierre que lo rompa descarta el ticker. <b>Off</b> lo ignora.</p>
     </div>
-    <div class="filters tech">
-      {% for key, short, long in (('cmp_ema9_ema20', 'EMA9', 'EMA20'), ('cmp_ema20_ma50', 'EMA20', 'MA50'), ('cmp_ma50_ma100', 'MA50', 'MA100'), ('cmp_ma100_ma200', 'MA100', 'MA200')) %}
-      <label>{{ short }} frente a {{ long }}
-        <select name="{{ key }}">
-          <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
-          <option value="gte" {{ 'selected' if form[key] == 'gte' }}>{{ short }} ≥ {{ long }}</option>
-          <option value="lte" {{ 'selected' if form[key] == 'lte' }}>{{ short }} ≤ {{ long }}</option></select></label>
-      {% endfor %}
-      <label>Precio del subyacente
-        <span><input name="price_min" size="6" placeholder="Mín." value="{{ form.price_min }}"> – <input name="price_max" size="6" placeholder="Máx." value="{{ form.price_max }}"></span></label>
+    <div class="panel tech">
+      <h3><span class="n">4</span>Zona de soporte</h3>
+      <label class="opt" style="flex-direction:row;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
+        <input type="checkbox" name="support" id="support" {{ 'checked' if form.support }}> <b>Exigir una zona de precio probada</b></label>
+      <p class="note">Nivel tocado <b>3+ veces</b> en <b>2+ episodios</b> durante el último año, sin cierres que lo pierdan en más de 1,5 %. El strike debe estar en esa zona o por debajo.</p>
     </div>
-    <p class="muted" style="margin:10px 0 4px">Filtros opcionales — márcalos para aplicarlos:</p>
-    <div class="filters">
-      <label class="opt"><span><input type="checkbox" name="use_oi" {{ 'checked' if form.use_oi }}> OI mínimo</span>
-        <input name="oi" size="7" value="{{ form.oi }}"></label>
-      <label class="opt"><span><input type="checkbox" name="use_bidsize" {{ 'checked' if form.use_bidsize }}> Bid size mínimo</span>
-        <input name="bidsize" size="7" value="{{ form.bidsize }}"></label>
-      <label class="opt"><span><input type="checkbox" name="use_spread" {{ 'checked' if form.use_spread }}> Spread máx. (%)</span>
-        <input name="spread" size="7" value="{{ form.spread }}"></label>
-      <label class="opt"><span><input type="checkbox" name="use_ivr" {{ 'checked' if form.use_ivr }}> IV Rank mín.</span>
-        <input name="ivr" size="7" value="{{ form.ivr }}"></label>
-      <label class="opt"><span><input type="checkbox" name="use_ivp" {{ 'checked' if form.use_ivp }}> IV Percentile mín.</span>
-        <input name="ivp" size="7" value="{{ form.ivp }}"></label>
-      <button>Escanear</button>
-      <a href="/scanner?reset=1" title="Vuelve a los valores iniciales de la configuración">Restablecer</a>
+    <div class="panel tech">
+      <h3><span class="n">5</span>Días mín. desde el último toque</h3>
+      <select name="touch" id="touch">
+        <option value="" {{ 'selected' if form.touch == '' }}>Cualquiera — sin mínimo</option>
+        {% for d, label in tech_opts.touches %}<option value="{{ d }}" {{ 'selected' if form.touch == d|string }}>{{ label }}</option>{% endfor %}</select>
+      <p class="note">Se excluyen los strikes que un cierre haya visitado (cierre ≤ strike) dentro de ese plazo. <b>Más días = más seguro</b>: el strike lleva más tiempo sin ser amenazado.</p>
     </div>
-  </form>
-  <p class="muted">Rango cotizado (se guarda además un margen de ±{{ margin|num(0) }}%): strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }}% por debajo,
-    DTE {{ candidates.dte_min }}–{{ candidates.dte_max }}. Todos se cotizan cada {{ refresh_minutes|round|int }} min.</p>
+    <div class="panel tech">
+      <h3><span class="n">6</span>Precio del subyacente</h3>
+      <div class="filters">
+        <label style="flex-direction:row;align-items:center;gap:6px"><input name="price_min" size="8" placeholder="Mín." value="{{ form.price_min }}"> – <input name="price_max" size="8" placeholder="Máx." value="{{ form.price_max }}"></label>
+      </div>
+      <p class="note">Filtra por el último precio de la acción. Deja ambos vacíos para incluirlas todas (valor por defecto).</p>
+    </div>
+    <div class="panel tech wide">
+      <h3><span class="n">7</span>Medias móviles / EMA</h3>
+      <div class="filters">
+        <label>Velas de las medias
+          <select name="ma_frame" id="ma_frame">
+            <option value="daily" {{ 'selected' if form.ma_frame == 'daily' }}>Diarias (días)</option>
+            <option value="weekly" {{ 'selected' if form.ma_frame == 'weekly' }}>Semanales (semanas)</option>
+            <option value="monthly" {{ 'selected' if form.ma_frame == 'monthly' }}>Mensuales (meses)</option></select></label>
+        {% for key, label in (('ma50', 'MA 50'), ('ma100', 'MA 100'), ('ma200', 'MA 200'), ('ema9', 'EMA 9'), ('ema20', 'EMA 20')) %}
+        <label>{{ label }}
+          <select name="{{ key }}">
+            <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
+            <option value="above" {{ 'selected' if form[key] == 'above' }}>Precio por encima</option>
+            <option value="below" {{ 'selected' if form[key] == 'below' }}>Precio por debajo</option></select></label>
+        {% endfor %}
+      </div>
+      <div class="filters">
+        {% for key, short, long in (('cmp_ema9_ema20', 'EMA9', 'EMA20'), ('cmp_ema20_ma50', 'EMA20', 'MA50'), ('cmp_ma50_ma100', 'MA50', 'MA100'), ('cmp_ma100_ma200', 'MA100', 'MA200')) %}
+        <label>{{ short }} frente a {{ long }}
+          <select name="{{ key }}">
+            <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
+            <option value="gte" {{ 'selected' if form[key] == 'gte' }}>{{ short }} ≥ {{ long }}</option>
+            <option value="lte" {{ 'selected' if form[key] == 'lte' }}>{{ short }} ≤ {{ long }}</option></select></label>
+        {% endfor %}
+      </div>
+      <p class="note">Pon cualquier combinación de líneas en <b>Por encima</b> o <b>Por debajo</b> para exigir que el precio esté de ese lado; <b>Cualquiera</b> la ignora y todas las activas deben cumplirse.
+        Las velas pueden ser diarias, semanales o mensuales (MA 50 = 50 días, semanas o meses). tastytrade solo da ~3,8 años de historia (≈198 semanas, 46 meses):
+        las medias más largas con velas mensuales (y la MA 200 semanal) no se pueden calcular y descartan el ticker.</p>
+    </div>
+  </div>
+
+  <div class="section-title">Liquidez y volatilidad</div>
+  <div class="panels">
+    <div class="panel wide">
+      <h3><span class="n">8</span>Filtros opcionales</h3>
+      <div class="filters">
+        <label class="opt"><span><input type="checkbox" name="use_oi" {{ 'checked' if form.use_oi }}> OI mínimo</span>
+          <input name="oi" size="7" value="{{ form.oi }}"></label>
+        <label class="opt"><span><input type="checkbox" name="use_bidsize" {{ 'checked' if form.use_bidsize }}> Bid size mínimo</span>
+          <input name="bidsize" size="7" value="{{ form.bidsize }}"></label>
+        <label class="opt"><span><input type="checkbox" name="use_spread" {{ 'checked' if form.use_spread }}> Spread máx. (%)</span>
+          <input name="spread" size="7" value="{{ form.spread }}"></label>
+        <label class="opt"><span><input type="checkbox" name="use_ivr" {{ 'checked' if form.use_ivr }}> IV Rank mín.</span>
+          <input name="ivr" size="7" value="{{ form.ivr }}"></label>
+        <label class="opt"><span><input type="checkbox" name="use_ivp" {{ 'checked' if form.use_ivp }}> IV Percentile mín.</span>
+          <input name="ivp" size="7" value="{{ form.ivp }}"></label>
+      </div>
+      <p class="note">Márcalos para aplicarlos: la caja muestra el valor por defecto aunque el filtro esté desactivado.</p>
+    </div>
+  </div>
+  <p style="margin:16px 0 4px"><button>Escanear</button>
+    <a href="/scanner?reset=1" class="btn secondary" title="Vuelve a los valores iniciales de la configuración">Restablecer</a></p>
+</form>
+<div class="card" style="margin-top:12px">
   {% if criteria %}
-  <p class="muted">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
+  <p class="muted" style="margin:0">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
     yield anual ≥ {{ criteria.min_annual_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
     {% if report %}· última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados){% endif %}.</p>
   {% endif %}
-  {% for w in warnings %}<div class="banner info">{{ w }}</div>{% endfor %}
+  {% for w in warnings %}<div class="banner info" style="margin:10px 0 0">{{ w }}</div>{% endfor %}
 </div>
 <script>
   // Configuraciones preconfiguradas: cargan sus valores en el formulario (el resto de filtros se conserva) y escanean
@@ -168,7 +208,7 @@
 </script>
 {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
 {% if out %}
-<form method="post" action="/simulate" class="card">
+<form method="post" action="/simulate" class="card" style="margin-top:16px">
   <h2>{{ out.results|length }} contratos cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></h2>
   <div class="scroll"><table class="sortable sticky-tk with-sel" id="scan-results">
     <tr><th class="sel"></th>{{ cols.head() }}<th data-nosort>Cant.</th><th>Actualizado</th></tr>

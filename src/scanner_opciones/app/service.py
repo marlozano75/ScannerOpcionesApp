@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
@@ -23,7 +24,7 @@ from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_e
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
-from scanner_opciones.scanner.engine import ScanOutput, ScanResult, list_stored, run_scan
+from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     BarRepo, ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
@@ -31,7 +32,7 @@ from scanner_opciones.storage.repositories import (
 from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
-from scanner_opciones.rankedstocks.loader import RankedTable, load_table
+from scanner_opciones.universe.sources import Source, load_sources
 from scanner_opciones.watchlist.parser import ParseResult
 
 log = logging.getLogger(__name__)
@@ -93,40 +94,61 @@ class AppService:
             volatility, prices, syncer,
         )
         self.state = AppState()
-        self.rankedstocks: Optional[RankedTable] = None   # fichero de RankedStocks elegido por el usuario (memoria)
-        self.rankedstocks_loaded_at: Optional[datetime] = None
-        self.restore_rankedstocks()
+        # ficheros del universo (RankedStocks, HelloStocks): nombre -> (hora de carga, fuentes); en memoria y en disco
+        self.universe_files: dict[str, tuple[datetime, tuple[Source, ...]]] = {}
+        self.restore_universe()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas
         self._background: set = set()
 
-    # ---- RankedStocks: el último fichero cargado sobrevive a los reinicios --------------------
-    def _rankedstocks_copy(self) -> Optional[Path]:
-        """Copia del último .xlsx cargado, junto a la base de datos (`data/` no se sube al repositorio)."""
+    # ---- Universo: los ficheros cargados sobreviven a los reinicios --------------------------
+    def _universe_dir(self) -> Optional[Path]:
+        """Copias de los .xlsx cargados, junto a la base de datos (`data/` no se sube al repositorio)."""
         path = self.settings.storage.path
-        return None if str(path) == ":memory:" else Path(path).parent / "rankedstocks_last.xlsx"
+        return None if str(path) == ":memory:" else Path(path).parent / "universe"
 
-    def set_rankedstocks(self, table: RankedTable, content: bytes) -> None:
-        """Sustituye el fichero cargado: queda en memoria y en disco hasta que se cargue otro."""
-        self.rankedstocks, self.rankedstocks_loaded_at = table, self.now()
-        self.meta.set("rankedstocks_query", "")   # otro fichero, otras columnas: los filtros anteriores no valen
-        if (copy := self._rankedstocks_copy()) is not None:
-            copy.parent.mkdir(parents=True, exist_ok=True)
-            copy.write_bytes(content)
-            self.meta.set("rankedstocks_name", table.source)
-            self.meta.set("rankedstocks_loaded_at", self.rankedstocks_loaded_at.isoformat())
+    @property
+    def universe_sources(self) -> list[Source]:
+        return [src for _, sources in self.universe_files.values() for src in sources]
 
-    def restore_rankedstocks(self) -> None:
-        copy = self._rankedstocks_copy()
-        name = self.meta.get("rankedstocks_name")
-        if copy is None or not name or not copy.is_file():
-            return
+    def _save_universe_index(self) -> None:
+        self.meta.set("universe_files", json.dumps({name: at.isoformat() for name, (at, _) in self.universe_files.items()}))
+
+    def set_universe_file(self, file: str, sources: list[Source], content: bytes) -> None:
+        """Añade el fichero al universo. Sustituye al que lleve el mismo nombre y a los que aporten alguna de
+        sus fuentes (una descarga más reciente de HelloStocks o RankedStocks reemplaza a la anterior)."""
+        names = {src.name for src in sources}
+        for old, (_, olds) in list(self.universe_files.items()):
+            if old == file or names & {s.name for s in olds}:
+                self._drop_universe_file(old)
+        self.universe_files[file] = (self.now(), tuple(sources))
+        if (folder := self._universe_dir()) is not None:
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / file).write_bytes(content)
+            self._save_universe_index()
+
+    def _drop_universe_file(self, file: str) -> None:
+        self.universe_files.pop(file, None)
+        if (folder := self._universe_dir()) is not None:
+            (folder / file).unlink(missing_ok=True)
+
+    def remove_universe_file(self, file: str) -> None:
+        self._drop_universe_file(file)
+        if self._universe_dir() is not None:
+            self._save_universe_index()
+
+    def restore_universe(self) -> None:
+        folder = self._universe_dir()
         try:
-            table = load_table(copy)
-            loaded_at = datetime.fromisoformat(self.meta.get("rankedstocks_loaded_at") or "")
-        except (AppError, ValueError) as exc:
-            log.warning("No se pudo recuperar el último fichero de RankedStocks (%s): %s", name, exc)
+            index = json.loads(self.meta.get("universe_files") or "{}")
+        except ValueError:
+            index = {}
+        if folder is None:
             return
-        self.rankedstocks, self.rankedstocks_loaded_at = replace(table, source=name), loaded_at
+        for file, at in index.items():
+            try:
+                self.universe_files[file] = (datetime.fromisoformat(at), tuple(load_sources(folder / file, file)))
+            except (AppError, ValueError) as exc:
+                log.warning("No se pudo recuperar el fichero del universo %s: %s", file, exc)
 
     @property
     def busy(self) -> bool:
@@ -420,13 +442,6 @@ class AppService:
         return run_scan(
             snapshots, self.ticker_info.all(), self.state.positions, criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
-        )
-
-    def stored_contracts(self) -> list[ScanResult]:
-        """Todos los contratos guardados (con o sin cotización), sin aplicar filtros del scanner."""
-        return list_stored(
-            self.contracts.list(), self.snapshots.all(), self.ticker_info.all(), self.state.positions,
-            self.criteria(), self.now().date(),
         )
 
     def assignment(self) -> AssignmentExposure:
