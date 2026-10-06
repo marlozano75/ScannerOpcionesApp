@@ -8,9 +8,10 @@ from scanner_opciones.domain.errors import BrokerDisconnectedError
 from scanner_opciones.domain.models import OptionChain, OptionContract, OptionQuote
 from scanner_opciones.jobs.daily_update import DailyUpdater
 from scanner_opciones.jobs.refresh import RefreshJob
+from scanner_opciones.marketdata.volatility import FakeVolatility, IVMetrics
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
-    ContractRepo, IVHistoryRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
+    ContractRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 
 NOW = datetime(2026, 9, 29, 10, 0)
@@ -23,16 +24,16 @@ class Env:
         self.gw = FakeGateway(connected=True)
         self.watch = WatchlistRepo(self.db)
         self.info = TickerInfoRepo(self.db)
-        self.iv = IVHistoryRepo(self.db)
+        self.vol = FakeVolatility()
         self.contracts = ContractRepo(self.db)
         self.snaps = SnapshotRepo(self.db)
         self.settings = Settings()
         self.clock = NOW
         self.daily = DailyUpdater(
-            self.gw, self.watch, self.info, self.iv, self.contracts, self.settings, lambda: self.clock
+            self.gw, self.watch, self.info, self.contracts, self.settings, lambda: self.clock, self.vol
         )
         self.refresh = RefreshJob(
-            self.gw, self.contracts, self.snaps, self.info, self.settings, lambda: self.clock, self.iv
+            self.gw, self.contracts, self.snaps, self.info, self.settings, lambda: self.clock, self.vol
         )
 
     def add_aapl(self):
@@ -42,15 +43,8 @@ class Env:
             "AAPL", [TODAY + timedelta(days=30)], [50.0, 75.0, 80.0, 96.0]
         )
         self.gw.ex_dividend_days["AAPL"] = 12
-        self.gw.iv_history["AAPL"] = [
-            (TODAY - timedelta(days=n), 0.20 + 0.01 * (10 - n), 0.20 + 0.01 * (10 - n), 0.20 + 0.01 * (10 - n))
-            for n in range(10, 0, -1)
-        ]
+        self.vol.metrics["AAPL"] = IVMetrics(iv_rank=61.0, iv_percentile=72.0)
         self.watch.add(["AAPL"], NOW)
-
-
-def _iv_calls(env):
-    return [c for c in env.gw.calls if c[0] == "get_iv_history"]
 
 
 @pytest.fixture
@@ -65,20 +59,9 @@ async def test_daily_update_populates_everything(env):
     info = env.info.get("AAPL")
     assert info.sector == "Technology" and info.category == "Consumer Electronics"
     assert info.underlying_price == 100.0 and info.days_to_ex_dividend == 12
-    assert info.iv_rank == 100.0  # última IV = máxima de la serie
-    assert info.iv_percentile == pytest.approx(90.0)
+    assert (info.iv_rank, info.iv_percentile) == (61.0, 72.0)   # de tastytrade, sin historial de IBKR
     assert [c.strike for c in env.contracts.list("AAPL")] == [75.0, 80.0]  # guardado 5-40 % a DTE 30 (50 y 96 quedan fuera)
     assert env.watch.pending_daily_update(TODAY) == []
-
-
-async def test_iv_history_is_incremental(env):
-    env.add_aapl()
-    await env.daily.run(["AAPL"])
-    env.gw.calls.clear()
-    env.gw.iv_history["AAPL"].append((TODAY, 0.5, 0.5, 0.5))
-    await env.daily.run(["AAPL"])
-    assert _iv_calls(env) == [("get_iv_history", "AAPL", TODAY - timedelta(days=1))]
-    assert len(env.iv.series("AAPL")) == 11
 
 
 async def test_ticker_added_after_daily_run(env):
@@ -128,7 +111,7 @@ async def test_refresh_computes_metrics_and_margin_only_for_qualifying(env):
     assert s.yield_annualized_pct == pytest.approx(s.yield_pct * 365 / 30)
     assert s.spread_pct == pytest.approx(0.2 / 1.1 * 100)
     assert s.initial_margin == 1500.0 and s.updated_at == NOW
-    assert s.iv_rank == 100.0
+    assert s.iv_rank == 61.0
     assert by_strike[80.0].initial_margin is None
 
 
@@ -235,66 +218,34 @@ async def test_refresh_stores_bid_size(env):
     assert by[75.0].bid_size == 42 and by[80.0].bid_size is None
 
 
-async def test_refresh_recomputes_iv_rank_and_percentile_with_live_iv(env):
-    c75, c80 = await _prepare_refresh(env)
-    assert env.info.get("AAPL").iv_rank == 100.0          # valor del día: última barra = máximo
-    hist = [v for _, v in env.iv.series("AAPL")]           # 0.20 ... 0.29
-    live = 0.245                                           # la IV en directo es menor que la última barra
-    env.gw.underlying_ivs["AAPL"] = live
+async def test_refresh_takes_iv_rank_and_percentile_from_the_provider(env):
+    await _prepare_refresh(env)
+    assert (env.info.get("AAPL").iv_rank, env.info.get("AAPL").iv_percentile) == (61.0, 72.0)
+    env.vol.metrics["AAPL"] = IVMetrics(iv_rank=30.0, iv_percentile=40.0)
     report = await env.refresh.run()
     assert report.iv_updated == 1
     info = env.info.get("AAPL")
-    lo, hi = min(hist), max(hist)
-    assert info.iv_rank == pytest.approx((live - lo) / (hi - lo) * 100)
-    assert info.iv_percentile == pytest.approx(sum(1 for v in hist if v < live) / len(hist) * 100)
-    # y los snapshots usan los valores recalculados
-    assert all(s.iv_rank == pytest.approx(info.iv_rank) for s in env.snaps.all("AAPL"))
+    assert (info.iv_rank, info.iv_percentile) == (30.0, 40.0)
+    assert all(s.iv_rank == 30.0 and s.iv_percentile == 40.0 for s in env.snaps.all("AAPL"))   # los snapshots también
 
 
-async def test_refresh_keeps_iv_stats_when_no_live_iv(env):
+async def test_refresh_keeps_iv_stats_when_provider_has_no_data_or_fails(env):
+    from scanner_opciones.domain.errors import VolatilityError
     await _prepare_refresh(env)
-    before = env.info.get("AAPL")
-    report = await env.refresh.run()                       # el fake no tiene IV en directo
-    assert report.iv_updated == 0
-    assert env.info.get("AAPL").iv_rank == before.iv_rank
+    env.vol.metrics.clear()
+    assert (await env.refresh.run()).iv_updated == 0
+    env.vol.error = VolatilityError("sin red")
+    assert (await env.refresh.run()).iv_updated == 0
+    assert env.info.get("AAPL").iv_rank == 61.0
 
 
-async def test_todays_iv_bar_is_redone_on_next_daily_update(env):
-    env.add_aapl()
-    env.gw.iv_history["AAPL"].append((TODAY, 0.5, 0.5, 0.5))          # barra parcial de hoy
-    await env.daily.run(["AAPL"])
-    assert env.iv.series("AAPL")[-1] == (TODAY, 0.5)
-    env.gw.iv_history["AAPL"][-1] = (TODAY, 0.9, 0.9, 0.9)            # al cierre el valor cambia
-    await env.daily.run(["AAPL"])
-    series = env.iv.series("AAPL")
-    assert series[-1] == (TODAY, 0.9) and len(series) == 11   # se sustituye, no se duplica
-
-
-async def test_iv_rank_uses_daily_high_low_range(env):
-    env.add_aapl()
-    # cierres 0.30 .. 0.32 pero la barra del medio llegó a 0.60 y a 0.10 durante el día
-    env.gw.iv_history["AAPL"] = [
-        (TODAY - timedelta(days=3), 0.30, 0.31, 0.29),
-        (TODAY - timedelta(days=2), 0.31, 0.60, 0.10),
-        (TODAY - timedelta(days=1), 0.32, 0.33, 0.30),
-    ]
-    await env.daily.run(["AAPL"])
-    info = env.info.get("AAPL")
-    assert info.iv_rank == pytest.approx((0.32 - 0.10) / (0.60 - 0.10) * 100)   # 44 (con cierres saldría 100)
-
-
-async def test_old_bars_without_high_low_trigger_one_full_download(env):
+async def test_daily_update_keeps_previous_iv_stats_when_provider_fails(env):
+    from scanner_opciones.domain.errors import VolatilityError
     env.add_aapl()
     await env.daily.run(["AAPL"])
-    # simula datos guardados antes de la migración v3: se borran máx/mín
-    env.db.conn.execute("UPDATE iv_history SET high = NULL, low = NULL")
-    env.db.conn.commit()
-    env.gw.calls.clear()
-    await env.daily.run(["AAPL"])
-    assert _iv_calls(env) == [("get_iv_history", "AAPL", None)]           # descarga completa (una vez)
-    env.gw.calls.clear()
-    await env.daily.run(["AAPL"])
-    assert _iv_calls(env)[0][2] is not None                               # ya incremental
+    env.vol.error = VolatilityError("sin red")
+    report = await env.daily.run(["AAPL"])
+    assert report.errors == {} and env.info.get("AAPL").iv_rank == 61.0
 
 
 async def test_daily_update_logs_one_summary_per_ticker(env, caplog):

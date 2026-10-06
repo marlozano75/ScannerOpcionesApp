@@ -147,65 +147,6 @@ class TickerInfoRepo:
         return {r["ticker"]: self._row(r) for r in rows}
 
 
-class IVHistoryRepo:
-    def __init__(self, db: Database) -> None:
-        self.db = db
-
-    def last_day(self, ticker: str) -> Optional[date]:
-        """Último día guardado; permite descargar solo los días nuevos."""
-        r = self.db.conn.execute(
-            "SELECT MAX(day) AS d FROM iv_history WHERE ticker = ?", (ticker,)
-        ).fetchone()
-        return date.fromisoformat(r["d"]) if r["d"] else None
-
-    def add(self, ticker: str, points: Iterable[tuple]) -> int:
-        """Guarda barras diarias. Cada punto es (día, cierre) o (día, cierre, máximo, mínimo)."""
-        rows = []
-        for p in points:
-            day, close = p[0], p[1]
-            high = p[2] if len(p) > 2 else None
-            low = p[3] if len(p) > 3 else None
-            rows.append((ticker, day.isoformat(), close, high, low))
-        with self.db.conn:
-            cur = self.db.conn.executemany(
-                "INSERT OR REPLACE INTO iv_history (ticker, day, iv, high, low) VALUES (?,?,?,?,?)", rows
-            )
-        return cur.rowcount
-
-    def bars(self, ticker: str, since: Optional[date] = None) -> list[tuple]:
-        """Barras (día, cierre, máximo, mínimo); máximo/mínimo son None en barras antiguas."""
-        sql = "SELECT day, iv, high, low FROM iv_history WHERE ticker = ?"
-        params: list = [ticker]
-        if since is not None:
-            sql += " AND day >= ?"
-            params.append(since.isoformat())
-        rows = self.db.conn.execute(sql + " ORDER BY day", params).fetchall()
-        return [(date.fromisoformat(r["day"]), r["iv"], r["high"], r["low"]) for r in rows]
-
-    def needs_hilo_backfill(self, ticker: str, since: date) -> bool:
-        """True si hay barras en la ventana sin máximo/mínimo (guardadas antes de la migración v3)."""
-        r = self.db.conn.execute(
-            "SELECT COUNT(*) AS n FROM iv_history WHERE ticker = ? AND day >= ? AND (high IS NULL OR low IS NULL)",
-            (ticker, since.isoformat()),
-        ).fetchone()
-        return r["n"] > 0
-
-    def series(self, ticker: str, since: Optional[date] = None) -> list[tuple[date, float]]:
-        sql = "SELECT day, iv FROM iv_history WHERE ticker = ?"
-        params: list = [ticker]
-        if since is not None:
-            sql += " AND day >= ?"
-            params.append(since.isoformat())
-        rows = self.db.conn.execute(sql + " ORDER BY day", params).fetchall()
-        return [(date.fromisoformat(r["day"]), r["iv"]) for r in rows]
-
-    def prune(self, ticker: str, before: date) -> None:
-        with self.db.conn:
-            self.db.conn.execute(
-                "DELETE FROM iv_history WHERE ticker = ? AND day < ?", (ticker, before.isoformat())
-            )
-
-
 class ContractRepo:
     def __init__(self, db: Database) -> None:
         self.db = db

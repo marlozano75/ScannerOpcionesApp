@@ -144,24 +144,6 @@ async def test_get_underlying_quotes_returns_price_and_live_iv():
     assert sorted(gw.ib.cancelled) == ["AAPL", "KO", "MU"]   # las líneas de mercado se liberan
 
 
-async def test_get_iv_history_returns_close_high_low():
-    class HistIB(QuoteIB):
-        async def reqHistoricalDataAsync(self, contract, **kw):
-            self.what = kw["whatToShow"]
-            return [
-                NS(date=date(2026, 9, 28), close=0.30, high=0.33, low=0.28),
-                NS(date=date(2026, 9, 29), close=0.31, high=float("nan"), low=-1),   # sin máx/mín válidos
-            ]
-
-    gw = IBKRGateway(IbkrSettings(), now=lambda: datetime(2026, 9, 29, 10))
-    gw.ib = HistIB()
-    out = await gw.get_iv_history("AAPL", None)
-    assert gw.ib.what == "OPTION_IMPLIED_VOLATILITY"
-    assert out == [(date(2026, 9, 28), 0.30, 0.33, 0.28), (date(2026, 9, 29), 0.31, None, None)]
-    since = await gw.get_iv_history("AAPL", date(2026, 9, 29))
-    assert [p[0] for p in since] == [date(2026, 9, 29)]                  # incluye el día indicado
-
-
 async def test_historical_requests_are_counted_by_kind():
     class HistIB(QuoteIB):
         async def reqHistoricalDataAsync(self, contract, **kw):
@@ -169,11 +151,9 @@ async def test_historical_requests_are_counted_by_kind():
 
     gw = IBKRGateway(IbkrSettings(), now=lambda: datetime(2026, 9, 29, 10))
     gw.ib = HistIB()
-    await gw.get_iv_history("AAPL", None)
-    await gw.get_iv_history("KO", None)
     await gw._last_close(NS(symbol="AAPL"))   # el último cierre es una petición histórica
-    assert gw.historical_request_counts()["iv"] == 2
-    assert gw.historical_request_counts()["precio"] == 1
+    await gw._last_close(NS(symbol="KO"))
+    assert gw.historical_request_counts() == {"precio": 2}
 
 
 class NoisyIB(QuoteIB):

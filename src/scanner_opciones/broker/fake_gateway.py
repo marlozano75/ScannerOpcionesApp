@@ -20,7 +20,6 @@ class FakeGateway:
     underlying_ivs: dict[str, float] = field(default_factory=dict)  # IV en directo
     chains: dict[str, OptionChain] = field(default_factory=dict)
     ex_dividend_days: dict[str, Optional[int]] = field(default_factory=dict)
-    iv_history: dict[str, list[tuple]] = field(default_factory=dict)  # (día, cierre[, máx, mín])
     quotes: dict[OptionContract, OptionQuote] = field(default_factory=dict)
     margins: dict[OptionContract, float] = field(default_factory=dict)
     vix: VixData = field(default_factory=VixData)
@@ -90,12 +89,6 @@ class FakeGateway:
         self._check()
         self.calls.append(("get_days_to_ex_dividend_many", tuple(tickers)))
         return {t: self.ex_dividend_days.get(t) for t in tickers if t not in self.failing_tickers}
-
-    async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple]:
-        self._check(ticker)
-        self.calls.append(("get_iv_history", ticker, since))
-        data = self.iv_history.get(ticker, [])
-        return [p for p in data if since is None or p[0] >= since]  # incluye el último día: se rehace
 
     async def qualify_contracts(self, contracts: Sequence[OptionContract]) -> list[OptionContract]:
         self._check()

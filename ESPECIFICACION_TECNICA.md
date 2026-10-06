@@ -29,9 +29,9 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-01 | Conectar a TWS vía API. Selector cuenta **real** / **simulada** (puertos y clientId configurables). | L3 |
 | RF-02 | Introducir watchlist pegando tickers (texto libre). | L10 |
 | RF-03 | Introducir watchlist cargando archivo Excel (.xlsx) o texto (.txt/.csv). | L10 |
-| RF-04 | Actualización **diaria** por ticker: sector, categoría, expiraciones, DTE, strikes, contratos candidatos, días hasta ex-dividendo (si aplica), historial IV 1 año → IV Rank e IV Percentile. | L12-20 |
+| RF-04 | Actualización **diaria** por ticker: sector, categoría, expiraciones, DTE, strikes, contratos candidatos, días hasta ex-dividendo (si aplica); IV Rank e IV Percentile de tastytrade. | L12-20 |
 | RF-05 | Los tickers añadidos **después** de la ejecución diaria se actualizan (bloque diario) en el momento de añadirse. | L12 |
-| RF-06 | El historial de IV se **persiste** y en actualizaciones posteriores solo se descargan las entradas no guardadas (optimización). | L20 |
+| RF-06 | [SUSTITUIDO 2026-10-06 por RF-28/RF-40] Antes: historial de IV persistido y descargado de forma incremental. Ya no se descarga historial de IV. | L20 |
 | RF-07 | Cada **X minutos** (configurable) refrescar por contrato: Bid, Ask, Delta, IV, Last, OI, timestamp de última actualización; calcular Spread %, Yield, Yield anualizado, IV Rank, IV Percentile, margen inicial si se ejecuta. | L21-34 |
 | RF-08 | Scanner de puts vendidas con **un único filtro** (sin selector Regular/Táctica; ver RF-35): descuento mínimo (inicial **10 %**) y máximo (inicial **30 %**) del strike respecto al precio, **yield anual** mínimo (inicial **12 %**; antes yield bruto 1 %, cambio del 2026-10-01), DTE mín. y máx. (inicial **1 y 35**). Todo editable en el formulario. | L6 + decisión del usuario 2026-10-01 |
 | RF-09 | Scanner **Táctico**: descuento mínimo del strike (inicial **10 %**), yield bruto mínimo (inicial 1 %) y **solo DTE máx.** (inicial **15**; el mínimo es 1 y no se muestra). Todo editable. | L7 + decisión del usuario 2026-09-29 |
@@ -48,7 +48,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-20 | Panel de riesgo: mostrar **Gross Position Value** (tag `GrossPositionValue` de IBKR), **Nominal Assignment Exposure** = Short Put Exposure − Long Put Protection (nominal = strike × multiplicador × contratos) y **Leverage Assignment** = NAE / NLV. También antes/después en el simulador. | Petición del usuario 2026-09-29 |
 | RF-21 | VIX y futuros VIX solo con barras históricas diarias (sin suscripción en tiempo real; futuros CFE con `useRTH=False`). Ningún paso de red puede colgarse: timeouts. | Petición del usuario 2026-09-29 |
 | RF-23 | La actualización diaria guarda los contratos con strike de −5 % a −35 % y DTE hasta 45 días (configurable en `scanner.candidates`; antes −45 % y 60 días: casi nunca se filtraba por encima de 40 DTE). Cada ciclo automático solo cotiza los que encajan con los valores iniciales de Regular/Táctica; un botón cotiza el rango elegido en el formulario. | Petición del usuario 2026-09-29 |
-| RF-24 | Al quitar un ticker de la watchlist se borran sus contratos (con sus cotizaciones) y su ficha; el historial de IV se conserva. Al arrancar y antes de cada refresco se eliminan los datos de tickers que ya no están en la watchlist. | Petición del usuario 2026-09-29 |
+| RF-24 | Al quitar un ticker de la watchlist se borran sus contratos (con sus cotizaciones) y su ficha. Al arrancar y antes de cada refresco se eliminan los datos de tickers que ya no están en la watchlist. | Petición del usuario 2026-09-29 |
 | RF-25 | La actualización diaria forzada se ejecuta en segundo plano y espera su turno si hay otra tarea en curso (no se omite en silencio); la interfaz muestra la tarea en curso y su progreso. | Petición del usuario 2026-09-29 |
 | RF-26 | El precio del subyacente se actualiza en cada ciclo de refresco (no solo en la actualización diaria); las distancias y el filtro de descuento usan ese precio. La columna se llama **Desc.** | Petición del usuario 2026-09-29 |
 | RF-27 | Por contrato se trae y muestra también el **Bid size** (tamaño del bid). | Petición del usuario 2026-09-29 |
@@ -63,8 +63,8 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 | RF-37 | Pestaña **RankedStocks** (`/rankedstocks`): el usuario **elige** el .xlsx descargado de rankedstocks.com (la app no lee ninguna carpeta ni se conecta a la web: sus términos prohíben el scraping sin permiso escrito). Muestra todas las columnas del fichero (tipos inferidos: texto, lista de valores o número; símbolo sin bandera), con filtros por columna (texto «contiene», selección de valores, rango mín./máx. con `$`, comas y K/M/B/T), ordenación, y casillas por fila (marcadas las filas visibles). La selección puede **añadirse** a la watchlist o **sustituirla** (RF-36, con confirmación). El fichero se guarda solo en memoria: al reiniciar hay que volver a elegirlo. | Petición del usuario 2026-10-01 |
 | RF-38 | Mientras la actualización diaria espera el límite de peticiones históricas de IBKR (`ibkr.historical_requests_per_10min`, 50 por 10 min; cada ticker nuevo descarga un año de histórico de IV), la cabecera lo dice («esperando el límite de peticiones históricas de IBKR, ≈ N min») y el log INFO lo registra una vez por espera. Cargar muchos tickers nuevos tarda por eso unos 10 minutos por cada 50. | Petición del usuario 2026-10-01 |
 | RF-39 | **Log a fichero y contador de peticiones históricas.** Además de la consola, el log se escribe en `logging.file` (rotativo, ignorado por git). La pasarela cuenta las peticiones históricas por tipo (`precio`, `iv`, `vix`, `futuros_vix`); la actualización diaria registra cuántas ha gastado y el aviso del límite de IBKR (RF-38) incluye el total desde el arranque. | Petición del usuario 2026-10-05 |
-| RF-28 | IV Rank e IV Percentile se recalculan en cada ciclo con la IV en directo del subyacente (tick 106) frente al historial diario guardado; la barra del último día se rehace en cada actualización diaria. Diferencias conocidas con TWS: ±5 puntos en general; mayores donde el historial de IBKR trae picos (p. ej. FSLY). | Petición del usuario 2026-09-29 |
-| RF-29 | El **IV Rank** usa como rango el mayor máximo y el menor mínimo **diarios** de la IV de los últimos 365 días (barras `OPTION_IMPLIED_VOLATILITY` de IBKR), no los cierres; el **IV Percentile** sigue usando los cierres. IBKR no expone IV High/Low de 52 semanas por la API (verificado). Las barras antiguas sin máx/mín se rellenan con una descarga completa única. | Petición del usuario 2026-09-29 |
+| RF-28 | IV Rank e IV Percentile se toman de tastytrade en la actualización diaria y en cada refresco (una petición en lote); si un ticker no viene o el proveedor falla se conserva el valor guardado. Sin respaldo con IBKR. | Decisión del usuario 2026-10-06 |
+| RF-40 | Se usa el rank principal de tastytrade (`implied_volatility_index_rank`) y `implied_volatility_percentile`, convertidos de fracción a %. Sustituye al antiguo RF-29 sobre máx/mín diarios de IBKR. | Decisión del usuario 2026-10-06 |
 | RF-30 | Las tablas de la watchlist y de resultados del scanner se ordenan pulsando el título de la columna: primer clic de mayor a menor (números) o de A a Z (texto), segundo clic al revés; los vacíos («—») quedan al final; el orden elegido se recuerda en la sesión. | Petición del usuario 2026-09-29 |
 | RF-31 | El yield se calcula con un **precio de venta de referencia** seleccionable en el scanner: **Bid**, **Mid** o **Bid + X % del spread** (por defecto Bid + 25 %; `scanner.price_reference`). El filtro del yield mínimo y el yield anualizado usan esa referencia; se muestra también la prima usada («Prima ref.»), el «Yield bid» y el «Yield bid anual» (lineal, ×365/DTE) para comparar. Sustituye a la prima = mid de Q-06. | Petición del usuario 2026-09-29 |
 | RF-32 | Al validar contratos candidatos contra IBKR no deben llenarse los logs con un error por cada combinación inexistente: los avisos esperados («Error 200», «Unknown contract») se filtran durante la validación y se registra un resumen por ticker («N de M combinaciones existen»). Se descartó listar todas las opciones con `reqContractDetails` por lentitud (BAC 32 s frente a 5 s; MU > 100 s). | Petición del usuario 2026-09-30 |
@@ -109,7 +109,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 
 ### M5 — Actualización diaria (`jobs/daily`)
 - **Entrada:** watchlist.
-- **Proceso (por ticker):** sector/categoría → expiraciones y DTE → strikes → contratos candidatos → días a ex-dividendo → IV histórica incremental → IV Rank / IV Percentile.
+- **Proceso (por ticker):** sector/categoría → expiraciones y DTE → strikes → contratos candidatos → días a ex-dividendo; IV Rank / IV Percentile de tastytrade (una petición en lote para todos).
 - **Salida:** `TickerInfo`, `OptionContract` (candidatos), `IVHistory`; informe de errores por ticker.
 
 ### M6 — Refresco periódico (`jobs/refresh`)
@@ -235,7 +235,7 @@ ScannerOpcionesApp/
 | `risk.cushion_thresholds` | `normal_above: 40`, `concern_above: 30` | verde >40 / ámbar 30-40 / rojo <30 (Q-05) |
 | `diversification.weeks_ahead` | `5` | |
 | `vix.history_days` / `vix.futures_ahead` | `5` / `3` | |
-| `iv.lookback_days` | `365` | |
+| `tastytrade.client_secret` / `tastytrade.refresh_token` | obligatorios | Credenciales OAuth de solo lectura de tastytrade (IV Rank / IV Percentile) |
 | `storage.path` | `data/app.db` | |
 | `logging.level` | `INFO` | |
 
@@ -244,7 +244,7 @@ ScannerOpcionesApp/
 - **Spread %** = `(ask − bid) / mid × 100`, con `mid = (ask+bid)/2`. (Q-06: ¿sobre mid o sobre ask?)
 - **Yield (gross premium yield)** [REQ: "prima por acción dividido entre el precio del strike"] = `prima / strike`. Prima = `mid = (bid+ask)/2` [Q-06 resuelta].
 - **Yield anualizado** = `yield × 365 / DTE` (lineal, no compuesto). (Q-06)
-- **IV Rank** = `(IV_actual − IV_min_252d) / (IV_max_252d − IV_min_252d) × 100`.
+- **IV Rank / IV Percentile:** los calcula tastytrade (rango de thinkorswim); la app solo los convierte de fracción a %.
 - **IV Percentile** = `% de días de la ventana con IV < IV_actual`.
 - **Cushion** = `ExcessLiquidity / NetLiquidation` (definición IBKR; se puede leer directamente el tag `Cushion` del account summary).
 - **Cushion actual** = el tag `Cushion` de IBKR (fracción ×100), sin recalcular. **Cushion Look Ahead / Post-Expiration** [Q-05b] = `Excess Liquidity del escenario / NetLiquidation`.
@@ -293,7 +293,7 @@ ScannerOpcionesApp/
 ## 12. Notas de implementación IBKR [PROPUESTA — verificar contra la documentación de la API]
 
 - Sector/categoría: `reqContractDetails` → `industry`, `category`, `subcategory`.
-- Historial IV: `reqHistoricalData` con `whatToShow="OPTION_IMPLIED_VOLATILITY"`, barras diarias, 1 año.
+- Historial IV de IBKR: ya no se usa (IV Rank/Percentile vienen de tastytrade).
 - OI y griegas: ticks genéricos (p. ej. 101 para OI de opciones) y `modelGreeks`.
 - Ex-dividendo: tick genérico 456 (IB Dividends) o datos fundamentales (Q-12).
 - Margen inicial: orden *what-if* (`whatIfOrder`, campos `initMarginChange`). **No es aditivo** entre contratos; se aproxima sumando (Q-13 resuelta).
@@ -332,11 +332,10 @@ ScannerOpcionesApp/
 
 **Contradicciones/erratas detectadas:** DTE "25 a 25"; DTE táctica sin número; hueco 30-40% en semáforo; "Riesgo algo"; "Overnigh"/"Post-Expirity" (se interpretan como *Overnight* y *Post-Expiration*); "exdividendo" (ex-dividend); "L20: guaradado".
 
-### Fuente externa de IV Rank / IV Percentile (tastytrade)
-- `iv.source` (`ibkr` por defecto | `tastytrade`) decide de dónde salen IV Rank e IV Percentile. Con `tastytrade` se piden ya calculados al proveedor en una sola petición (puerto `VolatilityProvider`) y no se descarga el historial de IV de IBKR.
-- Respaldo: los tickers que el proveedor no devuelva, o un fallo del proveedor, usan el cálculo local con IBKR.
-- Credenciales OAuth de solo lectura en `tastytrade.client_secret` y `tastytrade.refresh_token` (`config.yaml`, ignorado por git).
-- Pendiente: implementación real del proveedor y smoke test manual contra la cuenta aprobada.
+### Fuente de IV Rank / IV Percentile (tastytrade)
+- Puerto `VolatilityProvider` (`marketdata/volatility.py`); implementación real `TastytradeVolatility` (`marketdata/tastytrade.py`) con OAuth de solo lectura; `FakeVolatility` en tests.
+- Valores distintos a los calculados antes con el historial de IBKR (decisión del usuario 2026-10-06: usar el rank de tastytrade y eliminar el respaldo de IBKR).
+- Se conserva la tabla `iv_history` sin usar (no se borra para no perder datos).
 
 ## 14. Ampliaciones futuras previstas (no implementar ahora)
 

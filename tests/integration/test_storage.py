@@ -5,7 +5,7 @@ import pytest
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, TickerInfo
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
-    ContractRepo, IVHistoryRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
+    ContractRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 
 NOW = datetime(2026, 9, 29, 10, 0)
@@ -71,30 +71,6 @@ def test_ticker_info_upsert_and_get(db):
     got = r.get("AAPL")
     assert got.underlying_price == 210.0 and got.days_to_ex_dividend == 5 and got.iv_rank is None
     assert set(r.all()) == {"AAPL"}
-
-
-class TestIVHistoryRepo:
-    def test_incremental(self, db):
-        r = IVHistoryRepo(db)
-        assert r.last_day("AAPL") is None
-        r.add("AAPL", [(date(2026, 9, 1), 0.2), (date(2026, 9, 2), 0.25)])
-        assert r.last_day("AAPL") == date(2026, 9, 2)
-        r.add("AAPL", [(date(2026, 9, 2), 0.26), (date(2026, 9, 3), 0.3)])  # reemplaza el 2
-        assert r.series("AAPL") == [
-            (date(2026, 9, 1), 0.2), (date(2026, 9, 2), 0.26), (date(2026, 9, 3), 0.3)
-        ]
-
-    def test_series_since_and_isolation(self, db):
-        r = IVHistoryRepo(db)
-        r.add("AAPL", [(date(2026, 9, 1), 0.2), (date(2026, 9, 5), 0.3)])
-        r.add("KO", [(date(2026, 9, 5), 0.1)])
-        assert r.series("AAPL", since=date(2026, 9, 2)) == [(date(2026, 9, 5), 0.3)]
-
-    def test_prune(self, db):
-        r = IVHistoryRepo(db)
-        r.add("AAPL", [(date(2025, 1, 1), 0.2), (date(2026, 9, 5), 0.3)])
-        r.prune("AAPL", date(2025, 9, 29))
-        assert len(r.series("AAPL")) == 1
 
 
 class TestContractsAndSnapshots:
@@ -165,20 +141,7 @@ def test_snapshot_bid_size_roundtrip_and_price_update(db):
     assert infos.get("NOPE") is None
 
 
-def test_iv_bars_store_high_low_and_flag_old_rows_for_backfill(db):
-    r = IVHistoryRepo(db)
-    r.add("AAPL", [(date(2026, 9, 1), 0.20), (date(2026, 9, 2), 0.25, 0.30, 0.18)])   # una antigua, una nueva
-    assert r.bars("AAPL") == [
-        (date(2026, 9, 1), 0.20, None, None), (date(2026, 9, 2), 0.25, 0.30, 0.18)
-    ]
-    assert r.series("AAPL") == [(date(2026, 9, 1), 0.20), (date(2026, 9, 2), 0.25)]   # series sigue igual
-    assert r.needs_hilo_backfill("AAPL", date(2026, 8, 1)) is True
-    assert r.needs_hilo_backfill("AAPL", date(2026, 9, 2)) is False                    # ventana solo con la nueva
-    r.add("AAPL", [(date(2026, 9, 1), 0.20, 0.22, 0.19)])                              # se rehace con máx/mín
-    assert r.needs_hilo_backfill("AAPL", date(2026, 8, 1)) is False
-
-
-def test_migration_from_v2_keeps_iv_history(tmp_path):
+def test_migration_from_v2_keeps_the_old_iv_history_table(tmp_path):
     import sqlite3
 
     from scanner_opciones.storage.db import MIGRATIONS
@@ -193,7 +156,8 @@ def test_migration_from_v2_keeps_iv_history(tmp_path):
     conn.close()
     db = Database(path)
     assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 5
-    assert IVHistoryRepo(db).bars("AAPL") == [(date(2026, 9, 1), 0.2, None, None)]
+    rows = db.conn.execute("SELECT ticker, day, iv FROM iv_history").fetchall()   # ya no se usa, pero no se borra
+    assert [tuple(r) for r in rows] == [("AAPL", "2026-09-01", 0.2)]
 
 
 def test_migration_from_v3_adds_misses_and_margin_date(tmp_path):

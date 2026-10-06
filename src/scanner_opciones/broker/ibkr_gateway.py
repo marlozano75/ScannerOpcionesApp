@@ -324,25 +324,6 @@ class IBKRGateway:
                 out[t] = None if div is None or div.nextDate is None else (div.nextDate - today).days
         return out
 
-    async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple]:
-        stock = await self._stock(ticker)
-        if since is None:
-            duration = "1 Y"
-        else:
-            days = max(1, (self.now().date() - since).days + 1)
-            if days > 365:
-                duration = "1 Y"
-            else:
-                duration = f"{days} D"
-        bars = await self._historical(stock, duration, "OPTION_IMPLIED_VOLATILITY", kind="iv")
-        out = []
-        for b in bars:
-            d = self._bar_day(b)
-            v = m.num(b.close)
-            if v is not None and (since is None or d >= since):
-                out.append((d, v, m.num(b.high), m.num(b.low)))   # (día, cierre, máximo, mínimo)
-        return out
-
     # ---- opciones -------------------------------------------------------------------------
     @staticmethod
     def _ib_option(c: OptionContract) -> Option:

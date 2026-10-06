@@ -39,10 +39,6 @@ class BrokerGateway(Protocol):
         """Como `get_days_to_ex_dividend` para varios tickers a la vez (una sola espera). Los que
         fallan no aparecen; los que no tienen dividendo próximo traen None."""
 
-    async def get_iv_history(self, ticker: str, since: Optional[date]) -> list[tuple]:
-        """IV diaria del subyacente: tuplas (día, cierre) o (día, cierre, máximo, mínimo).
-        Si `since` no es None, solo desde esa fecha (incluida: la barra del último día se rehace)."""
-
     async def qualify_contracts(self, contracts: Sequence[OptionContract]) -> list[OptionContract]:
         """Devuelve solo los contratos que existen en IBKR, con `con_id` informado."""
 

@@ -37,11 +37,9 @@ async def test_account_tags_dump(gw):
     assert summary.net_liquidation is not None
 
 
-async def test_chain_and_iv(gw):
+async def test_chain(gw):
     chain = await gw.get_option_chain("AAPL")
     assert chain.expiries and chain.strikes
-    iv = await gw.get_iv_history("AAPL", None)
-    assert len(iv) > 100
 
 
 async def test_vix(gw):

@@ -24,7 +24,7 @@ from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settin
 from scanner_opciones.scanner.engine import ScanOutput, ScanResult, list_stored, run_scan
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
-    ContractRepo, IVHistoryRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
+    ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.rankedstocks.loader import RankedTable
@@ -75,14 +75,13 @@ class AppService:
         self.market = market or MarketCalendar.from_settings(settings.market, settings.ibkr.delay_minutes)
         self.watchlist = WatchlistRepo(db)
         self.ticker_info = TickerInfoRepo(db)
-        self.iv_history = IVHistoryRepo(db)
         self.contracts = ContractRepo(db)
         self.snapshots = SnapshotRepo(db)
         self.meta = MetaRepo(db)
-        self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.iv_history,
+        self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info,
                                   self.contracts, settings, now, volatility)
         self.refresh_job = RefreshJob(
-            gateway, self.contracts, self.snapshots, self.ticker_info, settings, now, self.iv_history,
+            gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
             volatility,
         )
         self.state = AppState()

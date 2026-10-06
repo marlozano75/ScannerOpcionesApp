@@ -20,6 +20,7 @@ from scanner_opciones.config.settings import Settings, load_settings
 from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.errors import ConfigError
 from scanner_opciones.jobs.scheduler import PeriodicRunner
+from scanner_opciones.marketdata.tastytrade import TastytradeVolatility
 from scanner_opciones.storage.db import Database
 from scanner_opciones.ui.web import create_app
 
@@ -35,9 +36,11 @@ def build_app(settings: Settings):
     def factory(mode: AccountMode) -> IBKRGateway:
         return IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
 
-    if settings.iv.source == "tastytrade":
-        raise ConfigError("iv.source: tastytrade aún no está implementado (pendiente de la aprobación de la cuenta); usa ibkr")
-    service = AppService(factory(settings.ibkr.mode), db, settings)
+    tt = settings.tastytrade
+    if not (tt.client_secret and tt.refresh_token):
+        raise ConfigError("Faltan tastytrade.client_secret y tastytrade.refresh_token en config.yaml (IV Rank e IV Percentile)")
+    service = AppService(factory(settings.ibkr.mode), db, settings,
+                         volatility=TastytradeVolatility(tt.client_secret, tt.refresh_token))
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     startup_task: list[asyncio.Task] = []
 

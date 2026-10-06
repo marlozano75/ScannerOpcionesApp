@@ -56,7 +56,6 @@ def seed_market(gw):
     gw.sectors["AAPL"] = ("Technology", "Electronics")
     gw.prices["AAPL"] = 100.0
     gw.chains["AAPL"] = OptionChain("AAPL", [TODAY + timedelta(days=30)], [75.0, 80.0])
-    gw.iv_history["AAPL"] = [(TODAY - timedelta(days=n), 0.2 + 0.01 * n) for n in range(20, 0, -1)]
 
 
 async def started_service():
@@ -204,7 +203,6 @@ async def _two_ticker_service():
     svc, gw = await started_service()          # AAPL con contratos y cotizaciones
     gw.prices["MU"] = 100.0
     gw.chains["MU"] = OptionChain("MU", [TODAY + timedelta(days=30)], [70.0, 75.0])
-    gw.iv_history["MU"] = [(TODAY - timedelta(days=n), 0.3 + 0.01 * n) for n in range(5, 0, -1)]
     svc.watchlist.add(["MU"], NOW)
     await svc.run_daily(["MU"])
     for c in svc.contracts.list("MU"):
@@ -221,7 +219,6 @@ async def test_removing_a_ticker_deletes_its_contracts_snapshots_and_info():
     assert "MU" not in svc.watchlist.list()
     assert svc.contracts.list("MU") == [] and svc.snapshots.all("MU") == [] and svc.ticker_info.get("MU") is None
     assert svc.contracts.list("AAPL") and svc.snapshots.all("AAPL")      # el resto intacto
-    assert svc.iv_history.series("MU")                                  # el historial de IV se conserva
 
 
 async def test_cleanup_orphans_removes_data_of_tickers_not_in_watchlist():
@@ -237,7 +234,7 @@ async def test_orphans_are_purged_on_start_and_never_quoted():
     svc, gw = await _two_ticker_service()
     svc.watchlist.remove("MU")
     await svc.refresh_all()                   # el refresco limpia antes de cotizar
-    assert svc.contracts.list("MU") == [] and gw.calls.count(("get_iv_history", "MU", None)) <= 1
+    assert svc.contracts.list("MU") == []
 
 
 async def test_manual_daily_update_waits_for_its_turn_instead_of_being_skipped():

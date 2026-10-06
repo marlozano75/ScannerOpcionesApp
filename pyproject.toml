@@ -12,6 +12,7 @@ dependencies = [
     "pyyaml>=6.0",
     "openpyxl>=3.1",
     "ib_async>=2.0",
+    "tastytrade>=13",   # IV Rank / IV Percentile (SDK no oficial, solo lectura)
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "jinja2>=3.1",

@@ -11,13 +11,12 @@ from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, OptionQuote
 from scanner_opciones.marketdata.volatility import VolatilityProvider
-from scanner_opciones.metrics.iv_stats import iv_percentile, iv_rank
 from scanner_opciones.metrics.spread import spread_pct
 from scanner_opciones.metrics.yields import annualized_yield_pct, gross_yield_pct
 from scanner_opciones.metrics.yields import strike_distance_pct
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.filters import reject_reason
-from scanner_opciones.storage.repositories import ContractRepo, IVHistoryRepo, SnapshotRepo, TickerInfoRepo
+from scanner_opciones.storage.repositories import ContractRepo, SnapshotRepo, TickerInfoRepo
 from typing import Callable, Optional, Sequence
 
 log = logging.getLogger(__name__)
@@ -46,11 +45,9 @@ class RefreshJob:
         ticker_info: TickerInfoRepo,
         settings: Settings,
         now: Callable[[], datetime] = datetime.now,
-        iv_history: Optional[IVHistoryRepo] = None,
         volatility: Optional[VolatilityProvider] = None,
     ) -> None:
         self.volatility = volatility
-        self.iv_history = iv_history
         self.gateway = gateway
         self.contracts = contracts
         self.snapshots = snapshots
@@ -147,12 +144,11 @@ class RefreshJob:
             return infos
         infos = dict(infos)
         external: dict = {}
-        if self.volatility is not None:  # una petición para todos; los que no cubra se calculan con IBKR
+        if self.volatility is not None:  # una petición para todos los tickers
             try:
                 external = await self.volatility.get_iv_metrics(tickers)
             except VolatilityError as exc:
-                log.warning("IV Rank/Percentile externos no disponibles, se calculan con IBKR: %s", exc)
-        window_start = self.now().date() - timedelta(days=self.settings.iv.lookback_days)
+                log.warning("IV Rank/Percentile no disponibles, se conservan los guardados: %s", exc)
         for ticker, q in quotes.items():
             info = infos.get(ticker)
             if info is None:
@@ -165,15 +161,6 @@ class RefreshJob:
                 self.ticker_info.update_iv_stats(ticker, metrics.iv_rank, metrics.iv_percentile)
                 info = replace(info, iv_rank=metrics.iv_rank, iv_percentile=metrics.iv_percentile)
                 report.iv_updated += 1
-            elif q.iv is not None and self.iv_history is not None:
-                bars = self.iv_history.bars(ticker, since=window_start)
-                values = [b[1] for b in bars]
-                rank = iv_rank(q.iv, values, [b[2] for b in bars], [b[3] for b in bars])
-                pct = iv_percentile(q.iv, values)
-                if rank is not None or pct is not None:
-                    self.ticker_info.update_iv_stats(ticker, rank, pct)
-                    info = replace(info, iv_rank=rank, iv_percentile=pct)
-                    report.iv_updated += 1
             infos[ticker] = info
         return infos
 
