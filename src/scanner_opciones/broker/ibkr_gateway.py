@@ -212,7 +212,7 @@ class IBKRGateway:
         if ticker in self._stocks:
             return self._stocks[ticker]
         self._require()
-        stock = Stock(ticker, "SMART", "USD")
+        stock = Stock(m.ib_symbol(ticker), "SMART", "USD")   # «BRK.B» -> «BRK B»
         qualified = await self.ib.qualifyContractsAsync(stock)
         if not qualified or not stock.conId:
             raise DataUnavailableError(f"Ticker no reconocido por IBKR: {ticker}")
@@ -327,7 +327,7 @@ class IBKRGateway:
     # ---- opciones -------------------------------------------------------------------------
     @staticmethod
     def _ib_option(c: OptionContract) -> Option:
-        opt = Option(c.ticker, m.format_expiry(c.expiry), c.strike, c.right.value, "SMART",
+        opt = Option(m.ib_symbol(c.ticker), m.format_expiry(c.expiry), c.strike, c.right.value, "SMART",
                      multiplier=str(c.multiplier), currency="USD")
         if c.con_id:
             opt.conId = c.con_id  # ya validado: no hace falta volver a cualificar

@@ -5,6 +5,7 @@ Recibe objetos "con forma" de ib_async (duck typing), no importa ib_async.
 from __future__ import annotations
 
 import math
+import re
 from datetime import date, datetime
 from typing import Any, Iterable, Optional, Sequence
 
@@ -23,6 +24,12 @@ def num(x: Any) -> Optional[float]:
     if math.isnan(f) or f == -1:
         return None
     return f
+
+
+def ib_symbol(ticker: str) -> str:
+    """Símbolo en la forma de IBKR: las clases de acciones llevan un espacio, no punto ni guion
+    («BRK.B» y «BRK-B» -> «BRK B»; «PBR-A» -> «PBR A»). Idempotente."""
+    return re.sub(r"[.\-]", " ", ticker.strip())
 
 
 def parse_expiry(text: str) -> date:

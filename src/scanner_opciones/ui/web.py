@@ -90,17 +90,27 @@ def create_app(
     app = FastAPI(title="ScannerOpcionesApp", lifespan=lifespan)
 
     remembered: dict[str, str] = {}   # última consulta con filtros de cada pestaña (en memoria)
+    if saved := service.meta.get("rankedstocks_query"):   # la de RankedStocks también sobrevive a los reinicios
+        remembered["rankedstocks"] = saved
+
+    def remember(page: str, query: Optional[str]) -> None:
+        if query is None:
+            remembered.pop(page, None)
+        else:
+            remembered[page] = query
+        if page == "rankedstocks":
+            service.meta.set("rankedstocks_query", query or "")
 
     def recall(request: Request, page: str, ignore: tuple[str, ...] = ("message", "debug")) -> Optional[RedirectResponse]:
         """Los filtros viajan en la URL, así que al volver a una pestaña desde el menú (sin parámetros)
         se recuperan los últimos usados. `?reset=1` los descarta y muestra los valores iniciales."""
         qp = request.query_params
         if "reset" in qp:
-            remembered.pop(page, None)
+            remember(page, None)
             return None
         kept = [(k, v) for k, v in qp.multi_items() if k not in ignore]
         if kept:
-            remembered[page] = urlencode(kept)
+            remember(page, urlencode(kept))
             return None
         if page in remembered and not qp:
             return RedirectResponse(f"/{page}?{remembered[page]}", status_code=303)
@@ -217,8 +227,9 @@ def create_app(
     @app.post("/rankedstocks/load")
     async def rankedstocks_load(file: UploadFile):
         suffix = Path(file.filename or "").suffix
+        content = await file.read()
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(await file.read())
+            tmp.write(content)
             path = Path(tmp.name)
         try:
             table = load_table(path)
@@ -227,8 +238,8 @@ def create_app(
         finally:
             path.unlink(missing_ok=True)
         table = replace(table, source=file.filename or table.source)   # el nombre real, no el del temporal
-        service.rankedstocks, service.rankedstocks_loaded_at = table, service.now()
-        remembered.pop("rankedstocks", None)   # otro fichero, otras columnas: los filtros anteriores no valen
+        service.set_rankedstocks(table, content)   # queda guardado hasta que se cargue otro
+        remembered.pop("rankedstocks", None)       # otro fichero, otras columnas: los filtros anteriores no valen
         return RedirectResponse(f"/rankedstocks?message={len(table.rows)} filas cargadas de {table.source}", status_code=303)
 
     @app.post("/rankedstocks/apply")

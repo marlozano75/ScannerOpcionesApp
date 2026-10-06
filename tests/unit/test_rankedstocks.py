@@ -38,7 +38,8 @@ def test_parse_number(text, expected):
 
 
 def test_clean_ticker_removes_flag_and_header_arrows():
-    assert clean_ticker("🇺🇸DK") == "DK" and clean_ticker("🇺🇸BRK.B") == "BRK.B" and clean_ticker(" aapl ") == "AAPL"
+    assert clean_ticker("🇺🇸DK") == "DK" and clean_ticker(" aapl ") == "AAPL"
+    assert clean_ticker("🇺🇸BRK.B") == "BRK" and clean_ticker("PBR-A") == "PBR" and clean_ticker("🇺🇸a-b.c") == "A"
     assert clean_header("RS ↓", 0) == "RS" and clean_header("Precio", 1) == "Precio" and clean_header(None, 3) == "Columna 4"
 
 

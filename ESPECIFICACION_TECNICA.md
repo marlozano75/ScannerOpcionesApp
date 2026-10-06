@@ -337,6 +337,13 @@ ScannerOpcionesApp/
 - Valores distintos a los calculados antes con el historial de IBKR (decisión del usuario 2026-10-06: usar el rank de tastytrade y eliminar el respaldo de IBKR).
 - Se conserva la tabla `iv_history` sin usar (no se borra para no perder datos).
 
+### RankedStocks: ticker y persistencia (2026-10-06)
+- El nombre del ticker de cada fila se corta en el primer `-` o `.` (`PBR-A` → `PBR`, `BRK.B` → `BRK`).
+- El último fichero cargado y la última vista de filtros se conservan, también tras reiniciar la app, hasta que se cargue otro fichero (copia en `data/rankedstocks_last.xlsx`, ignorada por git). Si la copia está corrupta se ignora y se pide el fichero de nuevo.
+
+### Símbolos con clase de acciones (2026-10-06)
+- Al hablar con IBKR, `.` y `-` del ticker se sustituyen por un espacio (`BRK.B` → `BRK B`); el ticker guardado no cambia. Pendiente de verificar contra TWS con opciones de esas clases.
+
 ## 14. Ampliaciones futuras previstas (no implementar ahora)
 
 Nuevas estrategias en el scanner (calls cubiertas, spreads) añadiendo `ScanCriteria`/filtros sin tocar el motor; otros brokers vía nueva implementación de `BrokerGateway`; alertas; exportación; más escenarios de simulación (estrés de mercado).

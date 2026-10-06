@@ -71,8 +71,8 @@ def clean_header(name: object, index: int) -> str:
 
 
 def clean_ticker(text: str) -> str:
-    """«🇺🇸DK» -> «DK»."""
-    return _FLAG.sub("", text).strip().upper()
+    """«🇺🇸DK» -> «DK». El nombre acaba en el primer «-» o «.»: «PBR-A» -> «PBR», «BRK.B» -> «BRK»."""
+    return re.split(r"[-.]", _FLAG.sub("", text).strip().upper(), maxsplit=1)[0].strip()
 
 
 def _plain(text: str) -> str:

@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
+from pathlib import Path
 from typing import Callable, Optional
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError
+from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError
 from scanner_opciones.domain.models import (
     AccountSummary, OptionContract, Position, RiskStatus, SectorExposure, VixData,
 )
@@ -27,7 +28,7 @@ from scanner_opciones.storage.repositories import (
     ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 from scanner_opciones.marketdata.volatility import VolatilityProvider
-from scanner_opciones.rankedstocks.loader import RankedTable
+from scanner_opciones.rankedstocks.loader import RankedTable, load_table
 from scanner_opciones.watchlist.parser import ParseResult
 
 log = logging.getLogger(__name__)
@@ -87,8 +88,38 @@ class AppService:
         self.state = AppState()
         self.rankedstocks: Optional[RankedTable] = None   # fichero de RankedStocks elegido por el usuario (memoria)
         self.rankedstocks_loaded_at: Optional[datetime] = None
+        self.restore_rankedstocks()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas
         self._background: set = set()
+
+    # ---- RankedStocks: el último fichero cargado sobrevive a los reinicios --------------------
+    def _rankedstocks_copy(self) -> Optional[Path]:
+        """Copia del último .xlsx cargado, junto a la base de datos (`data/` no se sube al repositorio)."""
+        path = self.settings.storage.path
+        return None if str(path) == ":memory:" else Path(path).parent / "rankedstocks_last.xlsx"
+
+    def set_rankedstocks(self, table: RankedTable, content: bytes) -> None:
+        """Sustituye el fichero cargado: queda en memoria y en disco hasta que se cargue otro."""
+        self.rankedstocks, self.rankedstocks_loaded_at = table, self.now()
+        self.meta.set("rankedstocks_query", "")   # otro fichero, otras columnas: los filtros anteriores no valen
+        if (copy := self._rankedstocks_copy()) is not None:
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            copy.write_bytes(content)
+            self.meta.set("rankedstocks_name", table.source)
+            self.meta.set("rankedstocks_loaded_at", self.rankedstocks_loaded_at.isoformat())
+
+    def restore_rankedstocks(self) -> None:
+        copy = self._rankedstocks_copy()
+        name = self.meta.get("rankedstocks_name")
+        if copy is None or not name or not copy.is_file():
+            return
+        try:
+            table = load_table(copy)
+            loaded_at = datetime.fromisoformat(self.meta.get("rankedstocks_loaded_at") or "")
+        except (AppError, ValueError) as exc:
+            log.warning("No se pudo recuperar el último fichero de RankedStocks (%s): %s", name, exc)
+            return
+        self.rankedstocks, self.rankedstocks_loaded_at = replace(table, source=name), loaded_at
 
     @property
     def busy(self) -> bool:

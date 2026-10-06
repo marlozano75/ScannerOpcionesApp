@@ -597,3 +597,48 @@ def test_filtro_opcional_marcado_se_aplica_con_el_valor_de_la_caja(client_and_se
     sin = client.get(base + "&oi=100000").text                  # caja con valor pero desmarcada: no filtra
     con = client.get(base + "&oi=100000&use_oi=on").text        # marcada: OI mínimo 100000 deja fuera todo
     assert "AAPL" in sin and '<td class="tk">AAPL' not in con
+
+
+def test_rankedstocks_file_and_filters_survive_a_restart(tmp_path):
+    from scanner_opciones.app.service import AppService
+    from scanner_opciones.config.settings import Settings
+    from scanner_opciones.storage.db import Database
+    from tests.integration.test_service import FixedMarket
+
+    def start():
+        db = Database(tmp_path / "app.db")
+        svc = AppService(FakeGateway(), db, Settings(storage={"path": str(tmp_path / "app.db")}),
+                         lambda: NOW, market=FixedMarket(True))
+        return svc, create_app(svc, lambda mode: FakeGateway())
+
+    svc, app = start()
+    with TestClient(app) as client:
+        load_rank(client)
+        assert client.get("/rankedstocks?Pa%C3%ADs=US").status_code == 200   # una consulta con filtros
+    assert (tmp_path / "rankedstocks_last.xlsx").is_file()
+
+    svc2, app2 = start()                                                      # «reinicio»: servicio y app nuevos
+    assert svc2.rankedstocks.source == "RankedStocks_2026.10.01.xlsx" and len(svc2.rankedstocks.rows) == 4
+    assert svc2.rankedstocks_loaded_at == NOW
+    with TestClient(app2) as client:
+        page = client.get("/rankedstocks", follow_redirects=False)
+        assert page.status_code == 303 and "Pa%C3%ADs=US" in page.headers["location"]   # vuelve a los filtros
+        assert "rankedstocks-table" in client.get(page.headers["location"]).text
+
+        load_rank(client)                                                      # otro fichero: filtros fuera
+        assert client.get("/rankedstocks", follow_redirects=False).status_code == 200
+
+
+def test_a_corrupt_saved_file_is_ignored_on_start(tmp_path):
+    from scanner_opciones.app.service import AppService
+    from scanner_opciones.config.settings import Settings
+    from scanner_opciones.storage.db import Database
+    from tests.integration.test_service import FixedMarket
+
+    db = Database(tmp_path / "app.db")
+    db.conn.execute("INSERT INTO meta (key, value) VALUES ('rankedstocks_name', 'x.xlsx')")
+    db.conn.commit()
+    (tmp_path / "rankedstocks_last.xlsx").write_bytes(b"no es un excel")
+    svc = AppService(FakeGateway(), db, Settings(storage={"path": str(tmp_path / "app.db")}),
+                     lambda: NOW, market=FixedMarket(True))
+    assert svc.rankedstocks is None

@@ -204,3 +204,15 @@ async def test_other_errors_still_logged_and_filter_is_removed_afterwards(caplog
         # fuera de la validación el filtro ya no está: un Error 200 real se vería
         _l.getLogger("ib_async.wrapper").error("Error 200, reqId 1: fuera de la validación")
         assert any("Error 200" in r.getMessage() for r in caplog.records)
+
+
+async def test_share_class_tickers_are_sent_to_ibkr_with_a_space():
+    from scanner_opciones.domain.enums import OptionRight
+    from scanner_opciones.domain.models import OptionContract
+
+    gw = IBKRGateway(IbkrSettings(), now=lambda: datetime(2026, 9, 29, 10))
+    gw.ib = QuoteIB()
+    stock = await gw._stock("BRK.B")
+    assert stock.symbol == "BRK B" and (await gw._stock("BRK.B")) is stock       # cacheado por el ticker de la app
+    opt = gw._ib_option(OptionContract("PBR-A", date(2026, 10, 30), 10.0, OptionRight.PUT))
+    assert opt.symbol == "PBR A"

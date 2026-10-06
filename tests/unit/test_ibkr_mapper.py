@@ -78,3 +78,8 @@ def test_pick_chain_prefers_smart_class_and_multiplier():
 @pytest.mark.parametrize("v,exp", [("1234.5", 1234.5), ("", None), (None, None), (str(1.7976931348623157e308), None)])
 def test_margin_change(v, exp):
     assert m.parse_margin_change(v) == exp
+
+
+def test_ib_symbol_uses_a_space_for_share_classes():
+    assert m.ib_symbol("BRK.B") == "BRK B" and m.ib_symbol("BRK-B") == "BRK B" and m.ib_symbol("PBR-A") == "PBR A"
+    assert m.ib_symbol("AAPL") == "AAPL" and m.ib_symbol("BRK B") == "BRK B"      # sin cambios / idempotente
