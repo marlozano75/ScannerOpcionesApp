@@ -130,9 +130,11 @@ class TastytradeVolatility:
         return {symbols[s]: bars for s, bars in raw.items() if s in symbols}
 
     async def get_prices(self, tickers: list[str]) -> dict[str, float]:
+        names = {tasty_symbol(t): t for t in tickers}          # «PBR-A» -> «PBR/A»; el resultado vuelve con el ticker de la app
+        symbols = list(names)
         out: dict[str, float] = {}
-        for i in range(0, len(tickers), BATCH_SIZE):
-            batch = tickers[i:i + BATCH_SIZE]
+        for i in range(0, len(symbols), BATCH_SIZE):
+            batch = symbols[i:i + BATCH_SIZE]
             try:
                 items = await self._fetch_quotes(batch)
             except Exception as exc:   # el SDK lanza tipos variados (red, autenticación, formato)
@@ -140,13 +142,15 @@ class TastytradeVolatility:
                 raise PriceError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
             for item in items:
                 if item.symbol in batch and (price := to_price(item)) is not None:
-                    out[item.symbol] = price
+                    out[names[item.symbol]] = price
         return out
 
     async def get_iv_metrics(self, tickers: list[str]) -> dict[str, IVMetrics]:
+        names = {tasty_symbol(t): t for t in tickers}          # «PBR-A» -> «PBR/A»; el resultado vuelve con el ticker de la app
+        symbols = list(names)
         out: dict[str, IVMetrics] = {}
-        for i in range(0, len(tickers), BATCH_SIZE):
-            batch = tickers[i:i + BATCH_SIZE]
+        for i in range(0, len(symbols), BATCH_SIZE):
+            batch = symbols[i:i + BATCH_SIZE]
             try:
                 items = await self._fetch(batch)
             except VolatilityError:
@@ -156,7 +160,7 @@ class TastytradeVolatility:
                 raise VolatilityError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
             for item in items:
                 if (metrics := to_metrics(item)) is not None and item.symbol in batch:
-                    out[item.symbol] = metrics
+                    out[names[item.symbol]] = metrics
         missing = [t for t in tickers if t not in out]
         if missing:
             log.info("tastytrade no devuelve IV Rank/Percentile de: %s", ", ".join(missing))

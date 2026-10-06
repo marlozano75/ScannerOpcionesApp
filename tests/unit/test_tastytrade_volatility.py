@@ -57,3 +57,27 @@ async def test_no_tickers_makes_no_request():
         raise AssertionError("no debe llamar")
 
     assert await provider(fetch).get_iv_metrics([]) == {}
+
+
+async def test_class_share_tickers_are_sent_with_a_slash_and_come_back_with_the_app_ticker():
+    asked = []
+
+    async def fetch(symbols):
+        asked.append(list(symbols))
+        return [item("PBR/A", 0.37, 0.2), item("BRK/B", 0.27, 0.1)]
+
+    out = await provider(fetch).get_iv_metrics(["PBR-A", "BRK.B", "KO"])
+    assert asked == [["PBR/A", "BRK/B", "KO"]]
+    assert out == {"PBR-A": IVMetrics(37.0, 20.0), "BRK.B": IVMetrics(27.0, 10.0)}
+
+
+async def test_prices_of_class_share_tickers_use_the_same_translation():
+    asked = []
+
+    async def fetch_quotes(symbols):
+        asked.append(list(symbols))
+        return [NS(symbol="PBR/A", last=21.73, mark=21.7)]
+
+    prov = TastytradeVolatility("s", "t", fetch_quotes=fetch_quotes)
+    assert await prov.get_prices(["PBR-A", "KO"]) == {"PBR-A": 21.73}
+    assert asked == [["PBR/A", "KO"]]
