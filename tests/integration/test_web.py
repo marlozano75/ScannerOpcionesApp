@@ -642,16 +642,16 @@ def test_technical_filters_form(client_and_service):
     client, svc, gw, _ = client_and_service
     base = "/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid"
     r = client.get("/scanner")
-    for name in ("trend_dir", "trend_method", "trend_frame", "trend_days", "touch", "support", "ma50", "ma100", "ma200", "ema9", "ema20"):
+    for name in ("trend_dir", "trend_method", "trend_days", "touch", "support", "ma50", "ma100", "ma200", "ema9", "ema20"):
         assert f'name="{name}"' in r.text
     assert "1 mes" in r.text and "1 año" in r.text and "1 semana" in r.text          # opciones con etiquetas legibles
-    url = base + "&trend_dir=up&trend_method=swings&trend_frame=weekly&trend_days=90&support=on&touch=30&ma50=above&ema9=below"
+    url = base + "&trend_dir=up&trend_method=swings&trend_days=90&support=on&touch=30&ma50=above&ema9=below"
     out = client.get(url).text
     assert '<option value="up" selected>' in out and '<option value="swings" selected>' in out
-    assert '<option value="weekly" selected>' in out and '<option value="90" selected>' in out and '<option value="30" selected>' in out
+    assert '<option value="90" selected>' in out and '<option value="30" selected>' in out
     assert 'name="support" id="support" checked' in out
     assert '<option value="above" selected>' in out and '<option value="below" selected>' in out   # MA50 por encima, EMA9 por debajo
-    for bad in ("trend_dir=sideways", "trend_frame=yearly", "ma200=sometimes", "trend_days=5", "touch=3"):
+    for bad in ("trend_dir=sideways", "ma200=sometimes", "trend_days=5", "touch=3"):
         assert "Parámetro no válido" in client.get(base + "&" + bad).text, bad
 
 

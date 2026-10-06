@@ -60,26 +60,27 @@ class TestSwings:
 
     def test_rising_highs_and_lows_is_an_uptrend(self):
         bars = series(self.UP)
-        assert ta.trend_swings(bars, True, 27.0, "daily", 2, 3)[0]
-        ok, why = ta.trend_swings(bars, False, 27.0, "daily", 2, 3)
+        assert ta.trend_swings(bars, True, 27.0, 2, 3)[0]
+        ok, why = ta.trend_swings(bars, False, 27.0, 2, 3)
         assert not ok and "decrecientes" in why
 
     def test_breaking_the_last_low_fails_the_check(self):
-        assert not ta.trend_swings(series(self.UP), True, 9.0, "daily", 2, 3)[0]
+        assert not ta.trend_swings(series(self.UP), True, 9.0, 2, 3)[0]
 
     def test_downtrend_with_falling_swings(self):
         bars = series([100 - v for v in self.UP])
-        assert ta.trend_swings(bars, False, 70.0, "daily", 2, 3)[0]
+        assert ta.trend_swings(bars, False, 70.0, 2, 3)[0]
 
     def test_too_few_pivots(self):
-        ok, why = ta.trend_swings(series(self.UP[:8]), True, 18.0, "daily", 2, 3)
+        ok, why = ta.trend_swings(series(self.UP[:8]), True, 18.0, 2, 3)
         assert not ok and "pocos" in why
 
-    def test_weekly_frame_resamples_before_looking_for_pivots(self):
-        # una barra por día: cada valor de UP repetido 7 veces = una barra semanal por valor
-        daily = [(TODAY - timedelta(days=7 * (len(self.UP) - i) - j), float(v)) for i, v in enumerate(self.UP) for j in range(7)]
-        daily.sort()
-        assert ta.trend_swings(daily, True, 27.0, "weekly", 2, 3)[0]
+    def test_any_close_after_the_last_low_that_breaks_it_fails_the_check(self):
+        ok, why = ta.trend_swings(series(self.UP + [24.0, 5.0]), True, 24.0, 2, 3)   # el cierre de 5 aún no es un pivote confirmado
+        assert not ok and "roto" in why
+        assert ta.trend_swings(series(self.UP + [24.0, 25.0]), True, 25.0, 2, 3)[0]   # sin ruptura, sigue siendo alcista
+        ok, why = ta.trend_swings(series([100 - v for v in self.UP] + [76.0, 99.0]), False, 76.0, 2, 3)
+        assert not ok and "roto" in why                                                # espejo: un cierre sobre el último máximo
 
 
 class TestSupport:

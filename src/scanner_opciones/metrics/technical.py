@@ -93,23 +93,27 @@ def trend_unbroken_extreme(
 
 
 def trend_swings(
-    bars: Bars, up: bool, price: float, frame: str, pivot_width: int, required: int,
+    bars: Bars, up: bool, price: float, pivot_width: int, required: int,
 ) -> tuple[bool, str]:
-    """Alcista: los últimos `required` máximos y mínimos locales (de las velas `frame` de `bars`) son crecientes y el
-    precio no ha roto el último mínimo. Bajista: máximos y mínimos decrecientes y el precio no ha superado
-    el último máximo."""
-    values = [px for _, px in resample(bars, frame)]
+    """Con los cierres diarios de `bars`. Alcista: los últimos `required` máximos y mínimos locales son crecientes
+    y **ningún cierre posterior al último mínimo, ni el precio actual, lo ha vuelto a romper**. Bajista: máximos
+    y mínimos decrecientes y ningún cierre posterior al último máximo lo ha superado."""
+    values = [px for _, px in bars]
     highs, lows = pivots(values, pivot_width)
     if len(highs) < required or len(lows) < required:
         return False, "pocos máximos/mínimos para evaluar"
     hv, lv = [values[i] for i in highs[-required:]], [values[i] for i in lows[-required:]]
     if up:
-        ok = all(b > a for a, b in zip(hv, hv[1:])) and all(b > a for a, b in zip(lv, lv[1:])) and price > lv[-1]
+        ok = all(b > a for a, b in zip(hv, hv[1:])) and all(b > a for a, b in zip(lv, lv[1:]))
+        broken = min(values[lows[-1] + 1:] + [price]) < lv[-1]
     else:
-        ok = all(b < a for a, b in zip(hv, hv[1:])) and all(b < a for a, b in zip(lv, lv[1:])) and price < hv[-1]
-    if ok:
-        return True, ""
-    return False, "máximos y mínimos " + ("no crecientes" if up else "no decrecientes")
+        ok = all(b < a for a, b in zip(hv, hv[1:])) and all(b < a for a, b in zip(lv, lv[1:]))
+        broken = max(values[highs[-1] + 1:] + [price]) > hv[-1]
+    if not ok:
+        return False, "máximos y mínimos " + ("no crecientes" if up else "no decrecientes")
+    if broken:
+        return False, "se ha roto el último " + ("mínimo" if up else "máximo")
+    return True, ""
 
 
 # ---- soporte --------------------------------------------------------------------------------------

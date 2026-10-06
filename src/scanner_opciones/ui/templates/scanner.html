@@ -49,11 +49,6 @@
       <label>Ventana
         <select name="trend_window" id="trend_window">
           {% for m, label in tech_opts.windows %}<option value="{{ m }}" {{ 'selected' if form.trend_window == m|string }}>{{ label }}</option>{% endfor %}</select></label>
-      <label>Velas (máx./mín.)
-        <select name="trend_frame" id="trend_frame">
-          <option value="daily" {{ 'selected' if form.trend_frame == 'daily' }}>Diaria</option>
-          <option value="weekly" {{ 'selected' if form.trend_frame == 'weekly' }}>Semanal</option>
-          <option value="monthly" {{ 'selected' if form.trend_frame == 'monthly' }}>Mensual</option></select></label>
       <label id="trend_days_label">Antigüedad mín. del mínimo (máximo)
         <select name="trend_days" id="trend_days">
           {% for d, label in tech_opts.durations %}<option value="{{ d }}" {{ 'selected' if form.trend_days == d|string }}>{{ label }}</option>{% endfor %}</select></label>
@@ -64,9 +59,9 @@
           {% for d, label in tech_opts.touches %}<option value="{{ d }}" {{ 'selected' if form.touch == d|string }}>{{ label }}</option>{% endfor %}</select></label>
     </div>
     <p class="muted" style="margin:4px 0 10px;max-width:90ch">
-      La <b>ventana</b> son los últimos 1–24 meses de cierres que se analizan; las <b>velas</b> (diarias, semanales o mensuales) agrupan esos cierres.
+      La <b>ventana</b> son los últimos 1–24 meses de cierres diarios que se analizan: se mira día a día si el mínimo (o el máximo) se ha vuelto a romper.
       <b>Alcista</b>: el mínimo de la ventana que el precio no ha vuelto a romper debe tener al menos esa antigüedad y el precio debe haber avanzado desde él
-      (<b>bajista</b>: lo mismo con el máximo). Con «máximos y mínimos crecientes» se comparan los últimos máximos y mínimos locales de la ventana elegida y el precio no puede haber roto el último mínimo.
+      (<b>bajista</b>: lo mismo con el máximo). Con «máximos y mínimos crecientes» se comparan los últimos máximos y mínimos locales de la ventana y ningún cierre posterior al último mínimo puede haberlo roto.
       <b>Zona de soporte</b>: nivel tocado 3+ veces en 2+ episodios durante el último año, sin cierres que lo pierdan en más de 1,5 %; el strike debe estar en él o por debajo.
       <b>Días desde el último toque</b>: se excluyen los strikes que un cierre haya visitado (cierre ≤ strike) dentro de ese plazo.
       <b>Medias</b>: con velas diarias, semanales o mensuales (MA 50 = 50 días, 50 semanas o 50 meses); tastytrade solo da ~3,8 años de historia (≈198 semanas, 46 meses),
@@ -161,7 +156,7 @@
   // Tendencia y niveles: cualquier cambio escanea; con la tendencia en Off se atenúan sus opciones
   const techSync = function () {
     const off = document.getElementById('trend_dir').value === 'off', low = document.getElementById('trend_method').value === 'low';
-    ['trend_method', 'trend_frame', 'trend_window'].forEach(function (id) { document.getElementById(id).parentElement.style.opacity = off ? .45 : 1; });
+    ['trend_method', 'trend_window'].forEach(function (id) { document.getElementById(id).parentElement.style.opacity = off ? .45 : 1; });
     document.getElementById('trend_days_label').style.opacity = (off || !low) ? .45 : 1;
   };
   techSync();

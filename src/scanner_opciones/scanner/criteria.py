@@ -32,7 +32,6 @@ class ScanCriteria:
     # filtros técnicos (ver scanner/technical.py); los valores por defecto no filtran nada
     trend_direction: str = "off"          # off | up | down
     trend_method: str = "low"             # low (mínimo/máximo sin romper) | swings (máximos y mínimos crecientes)
-    trend_frame: str = "daily"            # velas: daily | weekly | monthly
     trend_window_months: int = 24         # la tendencia se evalúa con los cierres de los últimos N meses
     trend_min_days: int = 30              # antigüedad mínima del mínimo sin romper (método «low»)
     ma50: str = "any"                     # any | above | below (precio respecto a cada línea)

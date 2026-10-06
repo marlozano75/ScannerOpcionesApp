@@ -158,17 +158,10 @@ class PriceReferenceSettings(_Model):
     spread_pct: float = Field(25, ge=0, le=100)  # X: % del spread que se suma al bid (0 = bid, 50 = mid)
 
 
-class FrameSettings(_Model):
-    """Análisis de máximos y mínimos crecientes con velas diarias, semanales o mensuales."""
-    pivot_width: int = Field(3, ge=1)       # barras a cada lado que debe superar un máximo/mínimo local
-    swings_required: int = Field(3, ge=2)   # últimos máximos y mínimos que deben ser crecientes (o decrecientes)
-
-
 class TechnicalSettings(_Model):
     """Filtros técnicos del scanner: tendencia, zona de soporte y días desde el último toque del strike."""
-    daily: FrameSettings = FrameSettings(pivot_width=3, swings_required=3)
-    weekly: FrameSettings = FrameSettings(pivot_width=2, swings_required=3)
-    monthly: FrameSettings = FrameSettings(pivot_width=1, swings_required=2)
+    trend_pivot_width: int = Field(3, ge=1)               # días a cada lado que debe superar un máximo/mínimo local (método «máximos y mínimos»)
+    trend_swings_required: int = Field(3, ge=2)           # últimos máximos y mínimos que deben ser crecientes (o decrecientes)
     trend_min_progress_pct: float = Field(5, ge=0)        # avance mínimo desde el mínimo (o máximo) sin romper
     trend_durations: tuple[int, ...] = (7, 14, 30, 60, 90, 180, 365)   # antigüedad mínima del mínimo, en días
     trend_windows_months: tuple[int, ...] = (1, 2, 3, 6, 9, 12, 18, 24)   # ventana de la tendencia: últimos N meses de cierres
@@ -179,9 +172,6 @@ class TechnicalSettings(_Model):
     support_cluster_gap_days: int = Field(20, ge=1)       # separación mínima entre dos toques de episodios distintos
     support_pivot_width: int = Field(3, ge=1)
     touch_min_days_options: tuple[int, ...] = (7, 14, 30, 60, 90, 180, 365)   # opciones de «Días mín. desde el último toque»
-
-    def frame(self, name: str) -> FrameSettings:
-        return getattr(self, name)
 
 
 class ScannerSettings(_Model):

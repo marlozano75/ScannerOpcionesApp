@@ -45,9 +45,8 @@ scanner:
     min_iv_percentile: null
     only_uptrend: false          # true = solo tickers con precio > media corta > media larga (ver `trend`)
   technical:                     # filtros de tendencia, soporte y días desde el último toque (sus valores se eligen en el formulario)
-    daily:   { pivot_width: 3, swings_required: 3 }   # máximos y mínimos crecientes según las velas (diarias, semanales o mensuales)
-    weekly:  { pivot_width: 2, swings_required: 3 }
-    monthly: { pivot_width: 1, swings_required: 2 }
+    trend_pivot_width: 3           # método «máximos y mínimos»: días a cada lado de un máximo/mínimo local
+    trend_swings_required: 3       # y cuántos de los últimos deben ser crecientes (o decrecientes)
     trend_min_progress_pct: 5      # avance mínimo desde el mínimo (o máximo) sin romper
     trend_durations: [7, 14, 30, 60, 90, 180, 365]     # antigüedad mínima de ese mínimo (días)
     trend_windows_months: [1, 2, 3, 6, 9, 12, 18, 24]  # ventana de la tendencia: últimos N meses de cierres

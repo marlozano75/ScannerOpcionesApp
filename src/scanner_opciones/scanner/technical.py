@@ -71,11 +71,10 @@ class TechnicalFilter:
             up = c.trend_direction == "up"
             window = ta.last_months(series, self.today, c.trend_window_months)
             if c.trend_method == "swings":
-                f = cfg.frame(c.trend_frame)
-                ok, why = ta.trend_swings(window, up, price, c.trend_frame, f.pivot_width, f.swings_required)
+                ok, why = ta.trend_swings(window, up, price, cfg.trend_pivot_width, cfg.trend_swings_required)
             else:
                 ok, why = ta.trend_unbroken_extreme(
-                    ta.resample(window, c.trend_frame), up, price, self.today, c.trend_min_days, cfg.trend_min_progress_pct
+                    window, up, price, self.today, c.trend_min_days, cfg.trend_min_progress_pct
                 )
             if not ok:
                 return f"tendencia {'alcista' if up else 'bajista'}: {why}"

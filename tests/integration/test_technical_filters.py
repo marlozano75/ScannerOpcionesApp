@@ -75,17 +75,25 @@ async def test_uptrend_and_downtrend_with_unbroken_low():
     assert strikes(svc, trend_direction="up") == []
 
 
-async def test_uptrend_with_rising_highs_and_lows_in_the_weekly_window():
-    # un cierre por semana (viernes), ciclos de 5 semanas (sube, máximo, retroceso, mínimo) que cada vez acaban más alto
-    last_friday = TODAY - timedelta(days=(TODAY.weekday() - 4) % 7 or 7)
-    weekly = [(last_friday - timedelta(weeks=29 - w), float(40 + 8 * (w // 5) + [0, 5, 10, 6, 3][w % 5])) for w in range(30)]
-    svc = await service_with_history(None)
-    svc.bars.upsert("AAPL", weekly)
-    crit = dict(trend_direction="up", trend_method="swings", trend_frame="weekly")
+async def test_uptrend_with_rising_highs_and_lows_over_daily_closes():
+    # ciclos de 5 días (sube, máximo, retroceso, mínimo) que cada vez acaban más alto
+    cycles = [40 + 4 * (d // 5) + [0, 5, 10, 6, 3][d % 5] for d in range(40)]
+    svc = await service_with_history(cycles + [76.0])
+    crit = dict(trend_direction="up", trend_method="swings", trend_window_months=24)
     assert strikes(svc, **crit) == [75.0, 80.0]
     assert strikes(svc, **{**crit, "trend_direction": "down"}) == []
-    svc.bars.upsert("AAPL", [(d, 200.0 - px) for d, px in weekly])               # el espejo: máximos y mínimos decrecientes
-    assert strikes(svc, **{**crit, "trend_direction": "up"}) == []
+    assert strikes(svc, **{**crit, "trend_window_months": 1}) == [75.0, 80.0]      # 1 mes = ~30 días: caben 6 ciclos
+    mirror = [200.0 - v for v in cycles + [76.0]]                                   # máximos y mínimos decrecientes
+    svc = await service_with_history(mirror)
+    assert strikes(svc, **crit) == []
+    assert strikes(svc, **{**crit, "trend_direction": "down"}) == [75.0, 80.0]
+
+
+async def test_a_single_close_that_breaks_the_last_low_fails_the_swings_check():
+    cycles = [40 + 4 * (d // 5) + [0, 5, 10, 6, 3][d % 5] for d in range(40)]
+    broken = cycles[:-4] + [20.0] + cycles[-3:]                                     # un cierre por debajo del último mínimo
+    svc = await service_with_history(broken + [60.0])
+    assert strikes(svc, trend_direction="up", trend_method="swings") == []
 
 
 async def test_support_zone_requires_the_strike_to_be_at_or_below_it():

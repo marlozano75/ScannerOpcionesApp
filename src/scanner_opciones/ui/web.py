@@ -278,7 +278,7 @@ def create_app(
             "min_yield": _fmt(base.min_annual_yield_pct),
             "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
             "use_trend": base.only_uptrend,
-            "trend_dir": base.trend_direction, "trend_method": base.trend_method, "trend_frame": base.trend_frame,
+            "trend_dir": base.trend_direction, "trend_method": base.trend_method,
             "trend_window": str(base.trend_window_months),
             "trend_days": str(base.trend_min_days), "support": base.require_support,
             "touch": "" if base.min_days_since_touch is None else str(base.min_days_since_touch),
@@ -317,7 +317,6 @@ def create_app(
                 for key, field_name, allowed in (
                     ("trend_dir", "trend_direction", ("off", "up", "down")),
                     ("trend_method", "trend_method", ("low", "swings")),
-                    ("trend_frame", "trend_frame", ("daily", "weekly", "monthly")),
                     *((k, k, ("any", "above", "below")) for k in MA_LINES),
                     ("ma_frame", "ma_frame", ("daily", "weekly", "monthly")),
                     *((k, k, ("any", "gte", "lte")) for k in MA_CROSSES),
