@@ -67,6 +67,13 @@ def settings(**trend):
     return Settings.model_validate({"trend": {"sma_short": 5, "sma_long": 20, **trend}})
 
 
+async def daily(svc):
+    """Actualización diaria pendiente + histórico de cierres (como hace `AppService.run_daily`)."""
+    report = await svc.daily.run_pending()
+    await svc.daily.update_history(svc.watchlist.list())
+    return report
+
+
 async def service_with(candles):
     _, gw = make_service()
     seed_market(gw)                                    # AAPL a 100
@@ -80,7 +87,7 @@ async def test_daily_update_stores_the_averages_and_the_ticker_is_in_uptrend():
     up = bars([50.0] * 10 + [90.0] * 20)               # SMA5 = SMA20 = 90
     candles = FakeCandles({"AAPL": up})
     svc, _ = await service_with(candles)
-    await svc.daily.run_pending()
+    await daily(svc)
     info = svc.ticker_info.get("AAPL")
     assert info.sma_short == 90.0 and info.sma_long == 90.0 and info.trend_at == NOW
     assert info.uptrend is False                       # 100 > 90 pero 90 no es > 90
@@ -89,20 +96,20 @@ async def test_daily_update_stores_the_averages_and_the_ticker_is_in_uptrend():
 
 async def test_uptrend_and_downtrend_flags():
     svc, _ = await service_with(FakeCandles({"AAPL": bars([50.0] * 15 + [80.0] * 5 + [95.0] * 5)}))
-    await svc.daily.run_pending()
+    await daily(svc)
     info = svc.ticker_info.get("AAPL")
     assert info.sma_short == 95.0 > info.sma_long and info.uptrend is True      # 100 > 95 > media larga
     svc2, _ = await service_with(FakeCandles({"AAPL": bars([150.0] * 15 + [120.0] * 10)}))
-    await svc2.daily.run_pending()
+    await daily(svc2)
     assert svc2.ticker_info.get("AAPL").uptrend is False
 
 
 async def test_provider_failure_keeps_the_stored_trend():
     svc, _ = await service_with(FakeCandles({"AAPL": bars([50.0] * 15 + [80.0] * 5 + [95.0] * 5, end=TODAY - timedelta(days=3))}))
-    await svc.daily.run_pending()
+    await daily(svc)
     svc.daily.candles = FakeCandles(error=CandleError("sin red"))
     svc.watchlist.mark_daily_updated("AAPL", NOW - timedelta(days=1))
-    report = await svc.daily.run_pending()
+    report = await daily(svc)
     assert svc.daily.candles.calls == [["AAPL"]]       # se intentó pedir lo que faltaba
     assert report.errors == {} and svc.ticker_info.get("AAPL").sma_short == 95.0
 
@@ -111,7 +118,7 @@ async def rerun(svc, candles):
     """Otra actualización diaria con otro proveedor de velas (como al día siguiente)."""
     svc.daily.candles = candles
     svc.watchlist.mark_daily_updated("AAPL", NOW - timedelta(days=1))
-    await svc.daily.run_pending()
+    await daily(svc)
     return candles
 
 
@@ -119,7 +126,7 @@ async def test_first_run_downloads_the_whole_history_and_stores_it():
     series = bars([50.0] * 15 + [80.0] * 5 + [95.0] * 5, end=TODAY - timedelta(days=3))
     candles = FakeCandles({"AAPL": series + [(TODAY, 999.0)]})
     svc, _ = await service_with(candles)
-    await svc.daily.run_pending()
+    await daily(svc)
     assert candles.days == [settings().trend.history_days]
     assert sorted(svc.bars.closes("AAPL").items()) == series        # la barra de hoy (en curso) no se guarda
 
@@ -127,7 +134,7 @@ async def test_first_run_downloads_the_whole_history_and_stores_it():
 async def test_next_day_only_asks_for_the_missing_days():
     old = bars([50.0] * 15 + [80.0] * 5 + [95.0] * 5, end=TODAY - timedelta(days=4))
     svc, _ = await service_with(FakeCandles({"AAPL": old}))
-    await svc.daily.run_pending()
+    await daily(svc)
     new = [(TODAY - timedelta(days=3), 96.0), (TODAY - timedelta(days=2), 97.0), (TODAY - timedelta(days=1), 98.0)]
     candles = await rerun(svc, FakeCandles({"AAPL": old[-5:] + new}))
     assert candles.days == [4 + 7]                                   # días desde el último guardado + solape
@@ -137,7 +144,7 @@ async def test_next_day_only_asks_for_the_missing_days():
 
 async def test_up_to_date_history_makes_no_request():
     svc, _ = await service_with(FakeCandles({"AAPL": bars([50.0] * 30)}))     # último cierre: ayer
-    await svc.daily.run_pending()
+    await daily(svc)
     candles = await rerun(svc, FakeCandles({"AAPL": []}))
     assert candles.calls == []
     assert svc.ticker_info.get("AAPL").sma_short == 50.0                      # las medias salen de lo guardado
@@ -146,7 +153,7 @@ async def test_up_to_date_history_makes_no_request():
 async def test_adjusted_history_is_discarded_and_downloaded_again():
     old = bars([100.0] * 30, end=TODAY - timedelta(days=4))
     svc, _ = await service_with(FakeCandles({"AAPL": old}))
-    await svc.daily.run_pending()
+    await daily(svc)
     adjusted = bars([50.0] * 30, end=TODAY - timedelta(days=1))               # split 2:1: todo el pasado cambia
     candles = await rerun(svc, FakeCandles({"AAPL": adjusted}))
     assert candles.days == [4 + 7, settings().trend.history_days]             # incremental y luego completo
@@ -158,7 +165,7 @@ async def test_old_bars_are_pruned_and_orphans_removed():
     svc, _ = await service_with(FakeCandles({"AAPL": bars([50.0] * 60)}))
     svc.settings = cfg
     svc.daily.settings = cfg
-    await svc.daily.run_pending()
+    await daily(svc)
     assert min(svc.bars.closes("AAPL")) >= TODAY - timedelta(days=40)
     svc.watchlist.remove("AAPL")
     assert svc.cleanup_orphans()["daily_bars"] > 0 and svc.bars.closes("AAPL") == {}
@@ -166,7 +173,7 @@ async def test_old_bars_are_pruned_and_orphans_removed():
 
 async def test_scan_filter_only_uptrend():
     svc, gw = await service_with(FakeCandles({"AAPL": bars([50.0] * 15 + [80.0] * 5 + [95.0] * 5)}))
-    await svc.daily.run_pending()
+    await daily(svc)
     from scanner_opciones.domain.models import OptionQuote
     for c in svc.contracts.list():
         gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=500)
@@ -182,3 +189,16 @@ async def test_scan_filter_only_uptrend():
 def test_trend_settings_validate():
     with pytest.raises(ValueError):
         Settings.model_validate({"trend": {"sma_short": 200, "sma_long": 50}})
+
+
+async def test_history_is_downloaded_even_when_the_daily_update_has_nothing_pending():
+    """Regresión: el histórico dependía de que el ticker estuviera pendiente de la actualización diaria de hoy,
+    así que tras vaciarlo (migración) los filtros técnicos descartaban todo hasta el día siguiente."""
+    candles = FakeCandles({"AAPL": bars([50.0] * 15 + [80.0] * 5 + [95.0] * 5)})
+    svc, _ = await service_with(candles)
+    await svc.daily.run_pending()                      # la actualización diaria de hoy ya está hecha ...
+    assert svc.watchlist.pending_daily_update(NOW.date()) == [] and svc.bars.closes("AAPL") == {}
+    assert svc.history_coverage() == (0, 1)
+    await svc.run_daily(wait=True)                     # ... y aun así el histórico se completa
+    assert svc.history_coverage() == (1, 1) and len(svc.bars.closes("AAPL")) == 25
+    assert svc.ticker_info.get("AAPL").sma_short == 95.0

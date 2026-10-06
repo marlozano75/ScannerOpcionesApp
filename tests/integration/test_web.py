@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -668,3 +668,13 @@ def test_last_price_filter_form(client_and_service):
     assert "Parámetro no válido" in client.get(base + "&price_min=-5").text
     only_high = client.get(base + "&price_min=1000").text                  # el subyacente de prueba vale 100: no pasa nada
     assert "Ningún contrato cumple" in only_high or "0 contratos cumplen" in only_high
+
+
+def test_technical_filters_warn_when_closes_are_missing(client_and_service):
+    client, svc, gw, _ = client_and_service
+    base = "/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid"
+    assert "Faltan cierres diarios" not in client.get(base).text                  # sin filtros técnicos no hace falta histórico
+    out = client.get(base + "&ma50=above").text
+    assert "Faltan cierres diarios de" in out and "tickers" in out                # el histórico de la prueba está vacío
+    svc.bars.upsert("AAPL", [(date(2026, 9, 1), 100.0)])
+    assert "Faltan cierres diarios" not in client.get(base + "&ma50=above").text   # con histórico de toda la watchlist, sin aviso

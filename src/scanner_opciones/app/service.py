@@ -266,7 +266,25 @@ class AppService:
             finally:
                 self.state.activity = None
             self.state.last_daily_report = report
+            await self._update_history()
             return report
+
+    async def _update_history(self) -> None:
+        """Histórico de cierres de toda la watchlist (los que ya están al día no piden nada). Un fallo no
+        interrumpe la actualización diaria: los filtros técnicos avisan de que falta histórico."""
+        self.state.activity = "Descargando histórico de cierres"
+        try:
+            await self.daily.update_history(self.watchlist.list())
+        except Exception:
+            log.exception("No se pudo actualizar el histórico de cierres")
+        finally:
+            self.state.activity = None
+            self.state.data_version += 1
+
+    def history_coverage(self) -> tuple[int, int]:
+        """(tickers de la watchlist con histórico de cierres, tickers de la watchlist)."""
+        tickers = self.watchlist.list()
+        return len(self.bars.last_days(tickers)), len(tickers)
 
     def market_open(self) -> bool:
         return self.market.is_open(self.now())

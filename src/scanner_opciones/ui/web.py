@@ -383,6 +383,12 @@ def create_app(
         parsed = parse_scan(request.query_params)
         out = service.scan(parsed["criteria"], include_rejections=bool(debug)) if parsed["criteria"] else None
         c = parsed["criteria"]
+        if c is not None and c.technical_active:
+            with_history, total = service.history_coverage()
+            if with_history < total:
+                parsed["warnings"].append(
+                    f"Faltan cierres diarios de {total - with_history} de {total} tickers: los filtros de tendencia, soporte, "
+                    "medias y días desde el último toque los descartan. El histórico se descarga con la actualización diaria.")
         ref_label = None
         if c is not None:
             ref_label = {

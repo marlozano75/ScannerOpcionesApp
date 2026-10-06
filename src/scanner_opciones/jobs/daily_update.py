@@ -38,7 +38,6 @@ class _Prefetched:
     quotes: dict = field(default_factory=dict)    # ticker -> UnderlyingQuote
     ex_div: dict = field(default_factory=dict)    # ticker -> días hasta el ex-dividendo (o None)
     iv: dict = field(default_factory=dict)        # ticker -> IVMetrics de tastytrade
-    trend: dict = field(default_factory=dict)     # ticker -> TrendStats (medias de los cierres diarios)
 
 
 class DailyUpdater:
@@ -157,15 +156,24 @@ class DailyUpdater:
                 out.iv = await self._timed(timings, "iv externo", self.volatility.get_iv_metrics(tickers))
             except VolatilityError as exc:
                 log.warning("IV Rank/Percentile no disponibles, se conservan los guardados: %s", exc)
-        if self.candles is not None and self.bars is not None:   # cierres diarios: solo los días que faltan
-            out.trend = await self._timed(
-                timings, "tendencia",
-                update_history(self.candles, self.bars, tickers, self.now().date(), self.settings.trend),
-            )
-            missing = [x for x in tickers if x not in out.trend]
-            if missing:
-                log.info("Sin histórico suficiente para la tendencia de: %s", ", ".join(missing))
         return out
+
+    async def update_history(self, tickers: list[str]) -> int:
+        """Completa el histórico de cierres diarios de `tickers` (solo los días que faltan) y guarda sus medias.
+        Es independiente de la actualización diaria «pendiente de hoy»: se hace siempre que falte histórico.
+        Devuelve cuántos tickers tienen tendencia calculable."""
+        if not tickers or self.candles is None or self.bars is None:
+            return 0
+        started = time.monotonic()
+        now = self.now()
+        stats = await update_history(self.candles, self.bars, tickers, now.date(), self.settings.trend)
+        for ticker, s in stats.items():
+            self.ticker_info.update_trend(ticker, s.sma_short, s.sma_long, now)
+        missing = [t for t in tickers if t not in stats]
+        if missing:
+            log.info("Sin histórico suficiente para la tendencia de: %s", ", ".join(missing))
+        log.info("Histórico de cierres: %d tickers en %.1f s", len(tickers), time.monotonic() - started)
+        return len(stats)
 
     async def _update_ticker(
         self, ticker: str, shared: _Prefetched, timings: dict[str, float], revalidate: bool = False
@@ -212,8 +220,6 @@ class DailyUpdater:
                 updated_daily_at=now, price_at=price_at,
             )
         )
-        if (stats := shared.trend.get(ticker)) is not None:
-            self.ticker_info.update_trend(ticker, stats.sma_short, stats.sma_long, now)
         self.watchlist.mark_daily_updated(ticker, now)
 
     async def _sync_contracts(self, ticker, chain, price, today, revalidate, timings) -> None:
