@@ -1,6 +1,7 @@
 """Interfaz web local (FastAPI + Jinja2). Sin lógica de negocio: solo llama al AppService."""
 from __future__ import annotations
 
+import logging
 import tempfile
 from urllib.parse import urlencode
 from datetime import date
@@ -21,6 +22,7 @@ from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.loader import load_watchlist_file
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
+log = logging.getLogger(__name__)
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 LIGHT_LABEL = {
     TrafficLight.GREEN: "Normal / Holgado",
@@ -174,7 +176,7 @@ def create_app(
     # ---- watchlist -------------------------------------------------------------------------
     @app.get("/watchlist", response_class=HTMLResponse)
     async def watchlist(request: Request, message: str = ""):
-        return render(request, "watchlist.html", tickers=service.watchlist.list(),
+        return render(request, "watchlist.html", no_autorefresh=True, tickers=service.watchlist.list(),
                       infos=service.ticker_info.all(), message=message)
 
     async def apply_watchlist(parsed, mode: str) -> str:
@@ -234,7 +236,7 @@ def create_app(
             except ValueError as exc:
                 error, rows = f"Filtro no válido: {exc}", list(table.rows)
         files = [(name, at, [s.name for s in srcs]) for name, (at, srcs) in service.universe_files.items()]
-        return render(request, "universe.html", table=table, rows=rows, error=error, message=message,
+        return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, error=error, message=message,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
                       all_count=len(member), in_watchlist=set(service.watchlist.list()))
@@ -242,11 +244,14 @@ def create_app(
     @app.post("/universe/load")
     async def universe_load(files: list[UploadFile]):
         done, errors, notes = [], [], ""
+        log.info("Universo: petición de carga con %d fichero(s): %s", len(files), [f.filename for f in files])
         for upload in files:
             name = Path(upload.filename or "").name
             if not name:
+                log.warning("Universo: fichero sin nombre, se ignora")
                 continue
             content = await upload.read()
+            log.info("Universo: recibido %s (%d bytes)", name, len(content))
             with tempfile.NamedTemporaryFile(delete=False, suffix=Path(name).suffix) as tmp:
                 tmp.write(content)
                 path = Path(tmp.name)
@@ -254,10 +259,16 @@ def create_app(
                 sources = load_sources(path, name)
                 sources, removed, checked = await service.prune_without_options(sources)
             except WatchlistError as exc:
+                log.warning("Universo: %s no se pudo cargar: %s", name, exc)
                 errors.append(f"{name}: {exc}")
                 continue
+            except Exception:
+                log.exception("Universo: error inesperado al cargar %s", name)
+                raise
             finally:
                 path.unlink(missing_ok=True)
+            log.info("Universo: %s -> %d fuente(s), %d ticker(s) sin opciones descartados, comprobado=%s",
+                     name, len(sources), removed, checked)
             if not sources:
                 errors.append(f"{name}: ningún ticker tiene opciones")
                 continue

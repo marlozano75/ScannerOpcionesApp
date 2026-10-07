@@ -6,9 +6,8 @@
 <div class="panels">
   <div class="panel">
     <h3><span class="n">1</span>Cargar ficheros</h3>
-    <form method="post" action="/universe/load" enctype="multipart/form-data" class="row">
-      <input type="file" name="files" accept=".xlsx" multiple required>
-      <button>Cargar</button>
+    <form method="post" action="/universe/load" enctype="multipart/form-data" class="row" id="load-form">
+      <input type="file" name="files" accept=".xlsx" multiple required onchange="if (this.files.length) this.form.submit()">
     </form>
     <p class="note">Elige los .xlsx que descargas de <b>RankedStocks</b> (una hoja: la fuente es «RankedStocks») y de <b>HelloStocks</b>
       (una pestaña por estrategia: la fuente es el nombre de cada pestaña). La app solo lee los ficheros que eliges, no se conecta a ninguna web.
