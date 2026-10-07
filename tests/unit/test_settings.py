@@ -108,7 +108,7 @@ def test_delayed_data_sets_delay_and_minimum_refresh_interval():
 
 
 def test_presets_por_defecto_y_validacion(tmp_path):
-    s = load_settings("config/config.example.yaml")
+    s = load_settings(EXAMPLE)
     a, b = s.scanner.presets
     assert (a.strike_below_pct_min, a.dte_min, a.dte_max, a.min_annual_yield_pct) == (10, 1, 15, 20)
     assert (b.strike_below_pct_min, b.dte_min, b.dte_max, b.min_annual_yield_pct) == (20, 16, None, 13)

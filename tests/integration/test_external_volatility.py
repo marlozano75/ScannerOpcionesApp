@@ -1,4 +1,6 @@
 """IV Rank / Percentile desde tastytrade (puerto VolatilityProvider), sin historial de IBKR."""
+from pathlib import Path
+
 import pytest
 
 from scanner_opciones.app.service import AppService
@@ -58,4 +60,4 @@ def test_credentials_are_never_in_repr():
 
 
 def test_the_real_config_file_still_loads():
-    load_settings("config/config.yaml")
+    load_settings(Path(__file__).resolve().parents[2] / "config" / "config.yaml")
