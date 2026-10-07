@@ -28,7 +28,7 @@
 <div class="section-title">Explorar por fuente</div>
 <div class="chips" style="margin-bottom:14px">
   <a class="chip {{ 'active' if not src }}" href="/universe?reset=1">Todas<small>{{ all_count }}</small></a>
-  {% for s in sources %}<a class="chip {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}">{{ s.name }}<small>{{ s.table.rows|length }}</small></a>{% endfor %}
+  {% for s in sources %}<a class="chip {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}"><b>{{ numbers[s.name] }}</b> · {{ s.name }}<small>{{ s.table.rows|length }}</small></a>{% endfor %}
 </div>
 <div class="panel" style="margin-bottom:16px">
   <h3><span class="n">3</span>Filtros · {{ src or 'Todas las fuentes' }}</h3>
@@ -71,16 +71,17 @@
     <span class="muted">Las filas marcadas son las visibles tras el filtro; desmarca las que no quieras.</span>
   </p>
   <div class="scroll"><table class="sortable" id="universe-table">
-    <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th>
+    <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th><th>Fuentes (nº)</th>
       {% for col in table.columns %}<th>{{ col.name }}</th>{% endfor %}</tr>
     {% for row in rows %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ row.ticker }}" checked></td>
         <td>{{ '✓' if row.ticker in in_watchlist else '—' }}</td>
+        <td>{{ member.get(row.ticker, '') }}</td>
         {% for cell in row.cells %}
           {% if cell.value is not none %}<td data-sort="{{ cell.value }}">{{ cell.text }}</td>
           {% else %}<td>{{ loop.index0 == table.symbol_index and row.ticker or cell.text }}</td>{% endif %}
         {% endfor %}</tr>
-    {% else %}<tr><td colspan="{{ table.columns|length + 2 }}" class="muted">Ninguna fila cumple los filtros.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="{{ table.columns|length + 3 }}" class="muted">Ninguna fila cumple los filtros.</td></tr>{% endfor %}
   </table></div>
 </form>
 <script>

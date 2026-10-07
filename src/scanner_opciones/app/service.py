@@ -5,13 +5,14 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError
+from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import (
     AccountSummary, OptionContract, Position, RiskStatus, SectorExposure, VixData,
 )
@@ -96,6 +97,8 @@ class AppService:
         self.state = AppState()
         # ficheros del universo (RankedStocks, HelloStocks): nombre -> (hora de carga, fuentes); en memoria y en disco
         self.universe_files: dict[str, tuple[datetime, tuple[Source, ...]]] = {}
+        self.volatility = volatility
+        self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
         self.restore_universe()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas
         self._background: set = set()
@@ -109,6 +112,40 @@ class AppService:
     @property
     def universe_sources(self) -> list[Source]:
         return [src for _, sources in self.universe_files.values() for src in sources]
+
+    def _load_options_map(self) -> dict[str, bool]:
+        try:
+            return {str(t): bool(v) for t, v in json.loads(self.meta.get("universe_options") or "{}").items()}
+        except (ValueError, AttributeError):
+            return {}
+
+    async def prune_without_options(self, sources: list[Source]) -> tuple[list[Source], int, bool]:
+        """Quita de las fuentes los tickers sin opciones. tastytrade solo da IV Rank/Percentil a los que cotizan
+        opciones, así que eso se usa de criterio; cada ticker se comprueba una vez y se recuerda (también en disco).
+        Devuelve (fuentes, tickers quitados, ¿se pudo comprobar?); si no se puede, las fuentes quedan intactas."""
+        if self.volatility is None:
+            return sources, 0, False
+        pending = sorted({r.ticker for src in sources for r in src.table.rows} - self._has_options.keys())
+        if pending:
+            try:
+                found = await self.volatility.get_iv_metrics(pending)
+            except VolatilityError as exc:
+                log.warning("Universo: no se pudo comprobar qué tickers tienen opciones: %s", exc)
+                return sources, 0, False
+            self._has_options.update({t: t in found for t in pending})
+            self.meta.set("universe_options", json.dumps(self._has_options))
+        before = {r.ticker for src in sources for r in src.table.rows}
+        pruned = self._prune(sources)
+        return pruned, len(before - {r.ticker for src in pruned for r in src.table.rows}), True
+
+    def _prune(self, sources: list[Source]) -> list[Source]:
+        """Descarta las filas de tickers que se sabe que no tienen opciones (los no comprobados se conservan)."""
+        out = []
+        for src in sources:
+            rows = tuple(r for r in src.table.rows if self._has_options.get(r.ticker, True))
+            if rows:
+                out.append(replace(src, table=replace(src.table, rows=rows)))
+        return out
 
     def _save_universe_index(self) -> None:
         self.meta.set("universe_files", json.dumps({name: at.isoformat() for name, (at, _) in self.universe_files.items()}))
@@ -146,7 +183,7 @@ class AppService:
             return
         for file, at in index.items():
             try:
-                self.universe_files[file] = (datetime.fromisoformat(at), tuple(load_sources(folder / file, file)))
+                self.universe_files[file] = (datetime.fromisoformat(at), tuple(self._prune(load_sources(folder / file, file))))
             except (AppError, ValueError) as exc:
                 log.warning("No se pudo recuperar el fichero del universo %s: %s", file, exc)
 

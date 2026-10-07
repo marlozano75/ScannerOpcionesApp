@@ -219,9 +219,14 @@ def create_app(
         if (back := recall(request, "universe")) is not None:
             return back
         sources = service.universe_sources
+        numbers = {s.name: n for n, s in enumerate(sources, 1)}           # número de cada fuente
         current = next((s for s in sources if s.name == src), None)
         merged = merge(sources) if sources else None
         table = current.table if current else merged
+        member: dict[str, list[int]] = {}
+        for s_ in sources:
+            for r in s_.table.rows:
+                member.setdefault(r.ticker, []).append(numbers[s_.name])
         rows, error = [], None
         if table is not None:
             try:
@@ -231,11 +236,12 @@ def create_app(
         files = [(name, at, [s.name for s in srcs]) for name, (at, srcs) in service.universe_files.items()]
         return render(request, "universe.html", table=table, rows=rows, error=error, message=message,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
-                      all_count=len(merged.rows) if merged else 0, in_watchlist=set(service.watchlist.list()))
+                      numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
+                      all_count=len(member), in_watchlist=set(service.watchlist.list()))
 
     @app.post("/universe/load")
     async def universe_load(files: list[UploadFile]):
-        done, errors = [], []
+        done, errors, notes = [], [], ""
         for upload in files:
             name = Path(upload.filename or "").name
             if not name:
@@ -246,15 +252,24 @@ def create_app(
                 path = Path(tmp.name)
             try:
                 sources = load_sources(path, name)
+                sources, removed, checked = await service.prune_without_options(sources)
             except WatchlistError as exc:
                 errors.append(f"{name}: {exc}")
                 continue
             finally:
                 path.unlink(missing_ok=True)
+            if not sources:
+                errors.append(f"{name}: ningún ticker tiene opciones")
+                continue
             service.set_universe_file(name, sources, content)   # queda guardado hasta que se quite o se cargue otro igual
-            done.append(f"{name} ({len(sources)} fuente{'s' if len(sources) != 1 else ''}, {sum(len(s.table.rows) for s in sources)} filas)")
+            done.append(f"{name} ({len(sources)} fuente{'s' if len(sources) != 1 else ''}, {sum(len(s.table.rows) for s in sources)} filas)"
+                        + (f", {removed} tickers sin opciones descartados" if removed else ""))
+            if not checked:
+                notes = "Aviso: no se pudo comprobar qué tickers tienen opciones; se han cargado todos"
         remembered.pop("universe", None)   # otras columnas: los filtros anteriores no valen
         msg = "Cargado: " + ", ".join(done) if done else ""
+        if notes:
+            msg += (" · " if msg else "") + notes
         if errors:
             msg += (" · " if msg else "") + "Error: " + "; ".join(errors)
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
