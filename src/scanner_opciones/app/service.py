@@ -33,7 +33,8 @@ from scanner_opciones.storage.repositories import (
 from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
-from scanner_opciones.universe.sources import Source, load_sources
+from scanner_opciones.rankedstocks.loader import build_table, clean_ticker
+from scanner_opciones.universe.sources import MANUAL, SOURCE_COLUMN, Source, load_sources
 from scanner_opciones.watchlist.parser import ParseResult
 
 log = logging.getLogger(__name__)
@@ -99,6 +100,7 @@ class AppService:
         self.universe_files: dict[str, tuple[datetime, tuple[Source, ...]]] = {}
         self.volatility = volatility
         self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
+        self.manual_tickers: list[str] = self._load_manual()   # fuente «Manual»: tickers escritos a mano
         self.restore_universe()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas
         self._background: set = set()
@@ -111,7 +113,63 @@ class AppService:
 
     @property
     def universe_sources(self) -> list[Source]:
-        return [src for _, sources in self.universe_files.values() for src in sources]
+        sources = [src for _, sources in self.universe_files.values() for src in sources]
+        if self.manual_tickers:
+            raw = [["Ticker", SOURCE_COLUMN]] + [[t, MANUAL] for t in self.manual_tickers]
+            sources.append(Source(MANUAL, MANUAL, build_table(MANUAL, raw)))
+        return sources
+
+    def _load_manual(self) -> list[str]:
+        try:
+            return [str(t) for t in json.loads(self.meta.get("universe_manual") or "[]")]
+        except (ValueError, TypeError):
+            return []
+
+    async def add_manual_tickers(self, parsed: ParseResult) -> dict:
+        """Añade a la fuente «Manual» los tickers que aún no están en ninguna fuente y que tienen opciones.
+        Devuelve `added`, `already` (ticker -> fuentes en las que ya está), `no_options` y `checked`."""
+        present: dict[str, list[str]] = {}
+        for src in self.universe_sources:
+            for row in src.table.rows:
+                present.setdefault(row.ticker, []).append(src.name)
+        already = {t: present[clean_ticker(t)] for t in parsed.tickers if clean_ticker(t) in present}
+        new = [t for t in parsed.tickers if t not in already]
+        no_options: list[str] = []
+        checked = True
+        if new and self.volatility is not None:
+            found = await self._with_options([clean_ticker(t) for t in new])
+            if found is None:
+                checked = False
+            else:
+                no_options = [t for t in new if clean_ticker(t) not in found]
+                new = [t for t in new if clean_ticker(t) in found]
+        elif new:
+            checked = False
+        if new:
+            self.manual_tickers.extend(new)
+            self.meta.set("universe_manual", json.dumps(self.manual_tickers))
+        return {"added": new, "already": already, "no_options": no_options, "checked": checked}
+
+    def clear_manual(self) -> int:
+        n = len(self.manual_tickers)
+        self.manual_tickers = []
+        self.meta.set("universe_manual", "[]")
+        return n
+
+    async def _with_options(self, tickers: list[str]) -> Optional[set[str]]:
+        """Tickers (de los dados) que tienen opciones; `None` si no se puede comprobar. Recuerda el resultado."""
+        if self.volatility is None:
+            return None
+        pending = sorted(set(tickers) - self._has_options.keys())
+        if pending:
+            try:
+                found = await self.volatility.get_iv_metrics(pending)
+            except VolatilityError as exc:
+                log.warning("Universo: no se pudo comprobar qué tickers tienen opciones: %s", exc)
+                return None
+            self._has_options.update({t: t in found for t in pending})
+            self.meta.set("universe_options", json.dumps(self._has_options))
+        return {t for t in tickers if self._has_options.get(t)}
 
     def _load_options_map(self) -> dict[str, bool]:
         try:
@@ -123,17 +181,8 @@ class AppService:
         """Quita de las fuentes los tickers sin opciones. tastytrade solo da IV Rank/Percentil a los que cotizan
         opciones, así que eso se usa de criterio; cada ticker se comprueba una vez y se recuerda (también en disco).
         Devuelve (fuentes, tickers quitados, ¿se pudo comprobar?); si no se puede, las fuentes quedan intactas."""
-        if self.volatility is None:
+        if await self._with_options(sorted({r.ticker for src in sources for r in src.table.rows})) is None:
             return sources, 0, False
-        pending = sorted({r.ticker for src in sources for r in src.table.rows} - self._has_options.keys())
-        if pending:
-            try:
-                found = await self.volatility.get_iv_metrics(pending)
-            except VolatilityError as exc:
-                log.warning("Universo: no se pudo comprobar qué tickers tienen opciones: %s", exc)
-                return sources, 0, False
-            self._has_options.update({t: t in found for t in pending})
-            self.meta.set("universe_options", json.dumps(self._has_options))
         before = {r.ticker for src in sources for r in src.table.rows}
         pruned = self._prune(sources)
         return pruned, len(before - {r.ticker for src in pruned for r in src.table.rows}), True

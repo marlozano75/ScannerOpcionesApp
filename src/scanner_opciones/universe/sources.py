@@ -16,6 +16,7 @@ from scanner_opciones.rankedstocks.loader import (
 
 RANKED = "RankedStocks"
 SOURCE_COLUMN = "Fuente"
+MANUAL = "Manual"                                  # fuente de los tickers escritos a mano en la pestaña
 ALL = ""                                           # valor de `src` en la URL para la vista «Todas»
 # La pestaña «Value Investing-Warren Buffett» de HelloStocks viene sin fila de cabecera; estas columnas se
 # deducen comparando sus valores con los de las otras pestañas (mismo ticker, mismos números).

@@ -49,27 +49,8 @@ def test_dashboard_renders_risk_and_vix(client_and_service):
     assert "Leverage Assignment" in r.text and "Gross Position Value" in r.text and "Nominal Assignment Exposure" in r.text
 
 
-def test_watchlist_paste_and_remove(client_and_service):
-    client, svc, gw, _ = client_and_service
-    r = client.post("/watchlist/paste", data={"text": "ko pep AAPL 123"}, follow_redirects=True)
-    assert r.status_code == 200 and "2 nuevos, 0 repetidos, 1 rechazados" in r.text
-    assert set(svc.watchlist.list()) == {"AAPL", "KO", "PEP"}
-    client.post("/watchlist/remove", data={"ticker": "KO"})
-    assert "KO" not in svc.watchlist.list()
 
 
-def test_watchlist_upload_xlsx_and_bad_file(client_and_service):
-    client, svc, gw, _ = client_and_service
-    import io
-    wb = Workbook()
-    wb.active.append(["Ticker"])
-    wb.active.append(["NVDA"])
-    buf = io.BytesIO()
-    wb.save(buf)
-    r = client.post("/watchlist/upload", files={"file": ("w.xlsx", buf.getvalue())}, follow_redirects=True)
-    assert "1 nuevos" in r.text and "NVDA" in svc.watchlist.list()
-    r = client.post("/watchlist/upload", files={"file": ("w.pdf", b"x")}, follow_redirects=True)
-    assert "Error" in r.text
 
 
 BASE = "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=1"
@@ -183,16 +164,12 @@ def test_switch_mode_swaps_gateway(client_and_service):
     assert bad.status_code == 400
 
 
-def test_remove_route_deletes_contracts_and_forced_daily_runs_in_background(client_and_service):
+def test_removing_a_ticker_deletes_its_contracts(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     assert svc.contracts.list("AAPL")
-    r = client.post("/watchlist/remove", data={"ticker": "AAPL"}, follow_redirects=True)
-    assert "AAPL quitado, con sus contratos" in r.text
+    svc.remove_ticker("AAPL")
     assert svc.contracts.list("AAPL") == [] and svc.snapshots.all("AAPL") == []
-    svc.watchlist.add(["AAPL"], NOW)
-    r = client.post("/daily", follow_redirects=True)
-    assert r.status_code == 200 and "Actualización diaria de 1 tickers" in r.text
 
 
 def test_scanner_shows_desc_and_bid_size_columns(client_and_service):
@@ -260,20 +237,6 @@ def test_invalid_price_reference(client_and_service, qs):
     assert r.status_code == 200 and "Parámetro no válido" in r.text
 
 
-def test_daily_revalidate_option_is_passed_to_the_service(client_and_service):
-    client, svc, gw, _ = client_and_service
-    seen = []
-    real = svc.run_daily
-
-    async def spy(tickers=None, wait=False, revalidate=False):
-        seen.append(revalidate)
-        return await real(tickers, wait=wait, revalidate=revalidate)
-
-    svc.run_daily = spy
-    client.post("/daily", follow_redirects=False)
-    client.post("/daily", data={"revalidate": "1"}, follow_redirects=False)
-    client.portal.call(svc.wait_idle)
-    assert seen == [False, True]
 
 
 def test_contracts_tab_is_gone(client_and_service):
@@ -311,54 +274,14 @@ def test_ticker_column_is_sticky_in_scanner(client_and_service):
     assert "table.sticky-tk .tk { left:0;" in scanner and "position:sticky" in scanner
 
 
-def test_replace_watchlist_from_pasted_text_keeps_common_and_removes_the_rest(client_and_service):
-    client, svc, gw, _ = client_and_service
-    refresh(client)
-    svc.watchlist.add(["KO", "PEP"], NOW)
-    gw.prices["MSFT"] = 300.0
-    assert svc.snapshots.all("AAPL") and svc.contracts.list("AAPL")
-    r = client.post("/watchlist/paste", data={"text": "aapl msft 123", "mode": "replace"}, follow_redirects=True)
-    assert set(svc.watchlist.list()) == {"AAPL", "MSFT"}
-    assert "Watchlist sustituida: 1 nuevos, 1 conservados, 2 quitados (KO, PEP)" in r.text and "1 rechazados: 123" in r.text
-    assert svc.snapshots.all("AAPL") and svc.contracts.list("AAPL")            # el que se queda conserva sus datos
-    assert svc.ticker_info.get("KO") is None and svc.contracts.list("KO") == []
 
 
-def test_add_mode_still_keeps_existing_tickers(client_and_service):
-    client, svc, gw, _ = client_and_service
-    client.post("/watchlist/paste", data={"text": "KO", "mode": "add"})
-    assert set(svc.watchlist.list()) == {"AAPL", "KO"}
-    client.post("/watchlist/paste", data={"text": "PEP"})                          # sin modo: añadir
-    assert set(svc.watchlist.list()) == {"AAPL", "KO", "PEP"}
 
 
-def test_replace_with_no_valid_tickers_does_not_wipe_the_watchlist(client_and_service):
-    client, svc, gw, _ = client_and_service
-    r = client.post("/watchlist/paste", data={"text": "123 ??? ", "mode": "replace"}, follow_redirects=True)
-    assert svc.watchlist.list() == ["AAPL"]
-    assert "ningún ticker válido" in r.text and "no se ha cambiado la watchlist" in r.text
-    r = client.post("/watchlist/paste", data={"text": "", "mode": "replace"}, follow_redirects=True)
-    assert svc.watchlist.list() == ["AAPL"]
 
 
-def test_replace_watchlist_from_uploaded_file(client_and_service):
-    client, svc, gw, _ = client_and_service
-    gw.prices["NVDA"] = 120.0
-    r = client.post("/watchlist/upload", data={"mode": "replace"},
-                    files={"file": ("w.txt", b"NVDA\nAMD\n")}, follow_redirects=True)
-    assert set(svc.watchlist.list()) == {"NVDA", "AMD"}
-    assert "Watchlist sustituida: 2 nuevos, 0 conservados, 1 quitados (AAPL)" in r.text
-    client.post("/watchlist/upload", files={"file": ("w.txt", b"KO")})              # sin modo: añadir
-    assert set(svc.watchlist.list()) == {"NVDA", "AMD", "KO"}
-    bad = client.post("/watchlist/upload", data={"mode": "replace"}, files={"file": ("w.pdf", b"x")}, follow_redirects=True)
-    assert "Error" in bad.text and set(svc.watchlist.list()) == {"NVDA", "AMD", "KO"}
 
 
-def test_watchlist_page_has_replace_buttons_with_confirmation(client_and_service):
-    client, *_ = client_and_service
-    page = client.get("/watchlist").text
-    assert page.count('name="mode" value="replace"') == 2 and "confirmReplace()" in page
-    assert 'name="mode" value="add"' in page
 
 
 # ---- pestaña Universo (ficheros xlsx de RankedStocks y HelloStocks elegidos por el usuario) --------
@@ -437,7 +360,7 @@ def test_load_rankedstocks_shows_every_column_and_row_with_its_source(client_and
     r = client.get("/universe?src=RankedStocks")
     for col in ("Símbolo", "Fuente", "Empresa", "Bolsa", "País", "Capitalización", "Precio", "RS", "Al", "En watchlist"):
         assert f"<th>{col}</th>" in r.text
-    assert "4 de 4 acciones" in r.text and "Delek US Holdings" in r.text and "$4.4B" in r.text
+    assert "4 acciones" in r.text and "Delek US Holdings" in r.text and "$4.4B" in r.text
     assert "<td>RankedStocks</td>" in r.text                                       # la fuente va en cada fila
     assert 'name="sel" value="DK" checked' in r.text and "🇺🇸" not in r.text     # ticker limpio, sin bandera
     assert 'data-sort="4400000000.0"' in r.text                                   # ordena por valor, muestra el texto
@@ -470,23 +393,27 @@ def test_all_view_has_one_row_per_ticker_with_every_source(client_and_service):
     assert len(ko) == 1                                                                # KO está en 3 fuentes, una sola fila
     assert "RankedStocks" in ko[0] and LOWER in ko[0] and DEFENSIVE in ko[0] and 'data-sort="3.0"' in ko[0]
     assert "Coca-Cola" in ko[0] and "Consumer Defensive" in ko[0]
-    assert "8 de 8 acciones" in r.text                                                 # DK KO GCT PAYS + ADBE AIG ACN ALL
-    both = client.get("/universe?t3=Defensive")                                        # «Fuentes» contiene
-    assert 'value="KO"' in both.text and 'value="AIG"' in both.text and 'value="DK"' not in both.text
+    assert "8 acciones" in r.text                                                 # DK KO GCT PAYS + ADBE AIG ACN ALL
+    assert "Filtros" not in r.text and 'id="rk-filters"' not in r.text                  # sin panel de filtros
 
 
-def test_filters_reduce_rows_and_selection(client_and_service):
-    client, svc, gw, _ = client_and_service
-    load_rank(client)
-    r = client.get("/universe?src=RankedStocks&c3=NASDAQ")
-    assert "2 de 4 acciones" in r.text and 'value="GCT" checked' in r.text and 'value="DK"' not in r.text
-    r = client.get("/universe?src=RankedStocks&c3=NYSE&max6=65")
-    assert "1 de 4 acciones" in r.text and 'value="KO"' in r.text
-    r = client.get("/universe?src=RankedStocks&min5=1B&t2=co")                        # capitalización ≥ 1B y empresa contiene «co»
-    assert "1 de 4 acciones" in r.text and 'value="KO"' in r.text
-    assert "Ninguna fila cumple los filtros" in client.get("/universe?src=RankedStocks&min6=1000").text
-    bad = client.get("/universe?src=RankedStocks&min6=abc")
-    assert "Filtro no válido" in bad.text and "4 de 4 acciones" in bad.text           # no filtra y avisa
+
+
+def test_manual_source_adds_only_new_tickers_persists_and_reports_the_known_ones(tmp_path):
+    svc, app = _start(tmp_path)
+    with TestClient(app) as client:
+        load_rank(client)                                                               # KO ya está en RankedStocks
+        r = client.post("/universe/manual", data={"text": "ko, nvda amd 123"}, follow_redirects=True)
+        assert "Añadidos a Manual: NVDA, AMD" in r.text and "Ya incluidos: KO (RankedStocks)" in r.text
+        assert "Rechazados: 123" in r.text
+        assert [s.name for s in svc.universe_sources][-1] == "Manual"
+        again = client.post("/universe/manual", data={"text": "NVDA"}, follow_redirects=True)
+        assert "Ya incluidos: NVDA (Manual)" in again.text and svc.manual_tickers == ["NVDA", "AMD"]
+        assert "Manual" in client.get("/universe").text
+    assert _start(tmp_path)[0].manual_tickers == ["NVDA", "AMD"]                        # sobrevive al reinicio
+    with TestClient(app) as client:
+        client.post("/universe/manual/clear")
+    assert svc.manual_tickers == []
 
 
 def test_apply_add_keeps_existing_and_adds_the_selection(client_and_service):
@@ -527,7 +454,7 @@ def test_a_newer_file_of_the_same_source_replaces_the_old_one_and_files_can_be_r
     newer = client.post("/universe/load", files=[("files", ("RankedStocks_2026.10.04.xlsx", rank_xlsx(rows=RANK_ROWS[:2])))],
                         follow_redirects=True)
     assert list(svc.universe_files) == [HELLO_NAME, "RankedStocks_2026.10.04.xlsx"]    # el de 10.01 ya no está
-    assert "2 de 2 acciones" in client.get("/universe?src=RankedStocks").text and newer.status_code == 200
+    assert "2 acciones" in client.get("/universe?src=RankedStocks").text and newer.status_code == 200
     r = client.post("/universe/remove", data={"file": HELLO_NAME}, follow_redirects=True)
     assert "quitado del universo" in r.text and [s.name for s in svc.universe_sources] == ["RankedStocks"]
     assert "<th>Fuentes</th>" in client.get("/universe?src=desconocida").text          # fuente desconocida: vista «Todas»

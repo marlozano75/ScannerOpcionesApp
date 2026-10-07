@@ -21,6 +21,20 @@
         <form class="inline" method="post" action="/universe/remove"><input type="hidden" name="file" value="{{ name }}"><button class="secondary">Quitar</button></form>
       </div>
     {% else %}<p class="muted" style="margin:0">Aún no hay ningún fichero cargado.</p>{% endfor %}
+    {% if manual_count %}
+      <div class="row" style="align-items:center">
+        <div style="flex:1 1 auto"><b>Manual</b> <span class="muted">· {{ manual_count }} ticker{{ 'es' if manual_count != 1 }}</span></div>
+        <form class="inline" method="post" action="/universe/manual/clear" onsubmit="return confirm('¿Vaciar la fuente Manual?')"><button class="secondary">Vaciar</button></form>
+      </div>
+    {% endif %}
+  </div>
+  <div class="panel">
+    <h3><span class="n">3</span>Añadir tickers</h3>
+    <form method="post" action="/universe/manual">
+      <textarea name="text" rows="2" placeholder="AAPL, MSFT, KO ... (separados por comas o espacios)" required></textarea>
+      <p><button>Añadir a la fuente Manual</button></p>
+    </form>
+    <p class="note">Se añaden solo los que no estén ya en otra fuente y tengan opciones; la fuente <b>Manual</b> se conserva al reiniciar.</p>
   </div>
 </div>
 {% if table %}
@@ -29,40 +43,8 @@
   <a class="chip {{ 'active' if not src }}" href="/universe?reset=1">Todas<small>{{ all_count }}</small></a>
   {% for s in sources %}<a class="chip {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}"><b>{{ numbers[s.name] }}</b> · {{ s.name }}<small>{{ s.table.rows|length }}</small></a>{% endfor %}
 </div>
-<div class="panel" style="margin-bottom:16px">
-  <h3><span class="n">3</span>Filtros · {{ src or 'Todas las fuentes' }}</h3>
-  {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
-  <p class="note">
-    {% if src %}Columnas de la fuente <b>{{ src }}</b>: cada fuente tiene las suyas.{% else %}Una fila por ticker con las fuentes en las que aparece (columna <b>Fuentes</b>). Elige una fuente para ver sus propias columnas.{% endif %}
-    Las listas admiten varios valores (Ctrl + clic). Los números aceptan $, comas y K/M/B/T (p. ej. 500M).</p>
-  <form method="get" action="/universe" id="rk-filters">
-    {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
-    <div class="filters">
-      {% for col in table.columns %}{% set i = loop.index0 %}
-        {% if i == table.symbol_index %}
-          <label>{{ col.name }} (contiene) <input name="t{{ i }}" size="10" value="{{ qp.get('t' ~ i, '') }}"></label>
-        {% elif col.kind == 'text' %}
-          <label>{{ col.name }} (contiene) <input name="t{{ i }}" size="12" value="{{ qp.get('t' ~ i, '') }}"></label>
-        {% elif col.kind == 'choice' %}
-          {% if col.name != 'Fuente' %}
-          <label>{{ col.name }}
-            <select name="c{{ i }}" multiple size="{{ [col.choices|length, 4]|min }}">
-              {% set picked = qp.getlist('c' ~ i) %}
-              {% for v in col.choices %}<option value="{{ v }}" {{ 'selected' if v in picked }}>{{ v }}</option>{% endfor %}
-            </select></label>
-          {% endif %}
-        {% else %}
-          <label>{{ col.name }} (mín. – máx.)
-            <span><input name="min{{ i }}" size="7" value="{{ qp.get('min' ~ i, '') }}"> – <input name="max{{ i }}" size="7" value="{{ qp.get('max' ~ i, '') }}"></span></label>
-        {% endif %}
-      {% endfor %}
-      <button>Filtrar</button>
-      <a class="btn secondary" href="/universe?{{ ('src=' ~ src|urlencode ~ '&') if src }}reset=1">Limpiar</a>
-    </div>
-  </form>
-</div>
 <form method="post" action="/universe/apply" class="card" id="rk-apply">
-  <h2>{{ rows|length }} de {{ table.rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
+  <h2>{{ rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
   <p>
     <button name="mode" value="add">Añadir selección a la watchlist</button>
     <button name="mode" value="replace" class="secondary" onclick="return confirmReplace()"
@@ -80,7 +62,7 @@
           {% if cell.value is not none %}<td data-sort="{{ cell.value }}">{{ cell.text }}</td>
           {% else %}<td>{{ loop.index0 == table.symbol_index and row.ticker or cell.text }}</td>{% endif %}
         {% endfor %}</tr>
-    {% else %}<tr><td colspan="{{ table.columns|length + 3 }}" class="muted">Ninguna fila cumple los filtros.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="{{ table.columns|length + 3 }}" class="muted">Sin filas.</td></tr>{% endfor %}
   </table></div>
 </form>
 <script>

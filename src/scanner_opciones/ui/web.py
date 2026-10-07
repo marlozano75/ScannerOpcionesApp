@@ -16,10 +16,8 @@ from scanner_opciones.app.service import AppService, SelectedContract
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
-from scanner_opciones.rankedstocks.filters import apply_filters, parse_filters
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES
 from scanner_opciones.universe.sources import ALL, load_sources, merge
-from scanner_opciones.watchlist.loader import load_watchlist_file
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
 log = logging.getLogger(__name__)
@@ -147,18 +145,6 @@ def create_app(
         service.launch(service.refresh_all())
         return RedirectResponse("/", status_code=303)
 
-    @app.post("/daily")
-    async def daily(revalidate: str = Form("")):
-        """Fuerza la actualización de todos los tickers en segundo plano. Espera su turno si hay
-        otra tarea en curso (antes se omitía en silencio). `revalidate`: vuelve a validar también
-        las combinaciones strike/vencimiento que IBKR no listaba."""
-        if not service.state.connected:
-            return RedirectResponse("/watchlist?message=Sin conexión con TWS: no se puede actualizar", status_code=303)
-        tickers = service.watchlist.list()
-        service.launch(service.run_daily_then_refresh(tickers, wait=True, revalidate=bool(revalidate)))
-        note = "en cola: hay otra tarea en curso" if service.busy else "en curso"
-        return RedirectResponse(f"/watchlist?message=Actualización diaria de {len(tickers)} tickers {note}", status_code=303)
-
     @app.post("/connection")
     async def connection(mode: str = Form(...)):
         if gateway_factory is None:
@@ -195,26 +181,6 @@ def create_app(
         new = await service.add_watchlist(parsed)
         return f"{len(new)} nuevos, {parsed.duplicates} repetidos{rejected or ', 0 rechazados'}"
 
-    @app.post("/watchlist/paste")
-    async def watchlist_paste(request: Request, text: str = Form(""), mode: str = Form("add")):
-        msg = await apply_watchlist(parse_text(text), mode)
-        return RedirectResponse(f"/watchlist?message={msg}", status_code=303)
-
-    @app.post("/watchlist/upload")
-    async def watchlist_upload(request: Request, file: UploadFile, mode: str = Form("add")):
-        suffix = Path(file.filename or "").suffix
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(await file.read())
-            path = Path(tmp.name)
-        try:
-            parsed = load_watchlist_file(path)
-        except WatchlistError as exc:
-            return RedirectResponse(f"/watchlist?message=Error: {exc}", status_code=303)
-        finally:
-            path.unlink(missing_ok=True)
-        msg = await apply_watchlist(parsed, mode)
-        return RedirectResponse(f"/watchlist?message={msg}", status_code=303)
-
     # ---- Universo (ficheros .xlsx de RankedStocks y HelloStocks elegidos por el usuario) ------
     @app.get("/universe", response_class=HTMLResponse)
     async def universe(request: Request, src: str = ALL, message: str = ""):
@@ -229,17 +195,12 @@ def create_app(
         for s_ in sources:
             for r in s_.table.rows:
                 member.setdefault(r.ticker, []).append(numbers[s_.name])
-        rows, error = [], None
-        if table is not None:
-            try:
-                rows = apply_filters(table, parse_filters(table, request.query_params))
-            except ValueError as exc:
-                error, rows = f"Filtro no válido: {exc}", list(table.rows)
+        rows = list(table.rows) if table is not None else []
         files = [(name, at, [s.name for s in srcs]) for name, (at, srcs) in service.universe_files.items()]
-        return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, error=error, message=message,
+        return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
-                      all_count=len(member), in_watchlist=set(service.watchlist.list()))
+                      all_count=len(member), manual_count=len(service.manual_tickers), in_watchlist=set(service.watchlist.list()))
 
     @app.post("/universe/load")
     async def universe_load(files: list[UploadFile]):
@@ -285,6 +246,33 @@ def create_app(
             msg += (" · " if msg else "") + "Error: " + "; ".join(errors)
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
 
+    @app.post("/universe/manual")
+    async def universe_manual(text: str = Form("")):
+        """Añade tickers escritos a mano a la fuente «Manual» (solo los que no están ya en otra fuente)."""
+        parsed = parse_text(text)
+        log.info("Universo: tickers manuales recibidos: %s", parsed.tickers)
+        res = await service.add_manual_tickers(parsed)
+        parts = []
+        if res["added"]:
+            parts.append(f"Añadidos a Manual: {', '.join(res['added'])}")
+        if res["already"]:
+            parts.append("Ya incluidos: " + ", ".join(f"{t} ({' · '.join(n)})" for t, n in res["already"].items()))
+        if res["no_options"]:
+            parts.append(f"Sin opciones (no añadidos): {', '.join(res['no_options'])}")
+        if parsed.rejected:
+            parts.append("Rechazados: " + ", ".join(t for t, _ in parsed.rejected))
+        if not res["checked"] and res["added"]:
+            parts.append("Aviso: no se pudo comprobar si tienen opciones")
+        msg = " · ".join(parts) or "No hay ningún ticker que añadir"
+        remembered.pop("universe", None)
+        return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
+
+    @app.post("/universe/manual/clear")
+    async def universe_manual_clear():
+        n = service.clear_manual()
+        remembered.pop("universe", None)
+        return RedirectResponse(f"/universe?{urlencode({'message': f'Fuente Manual vaciada ({n} tickers)'})}", status_code=303)
+
     @app.post("/universe/remove")
     async def universe_remove(file: str = Form(...)):
         service.remove_universe_file(file)
@@ -298,11 +286,6 @@ def create_app(
         mode = str(form.get("mode", "add"))
         msg = await apply_watchlist(parse_tokens([str(t) for t in form.getlist("sel")]), mode)
         return RedirectResponse(f"/watchlist?message={msg}", status_code=303)
-
-    @app.post("/watchlist/remove")
-    async def watchlist_remove(ticker: str = Form(...)):
-        service.remove_ticker(ticker)
-        return RedirectResponse(f"/watchlist?message={ticker} quitado, con sus contratos", status_code=303)
 
     # ---- scanner y simulador ---------------------------------------------------------------
     def parse_scan(qp) -> dict:
