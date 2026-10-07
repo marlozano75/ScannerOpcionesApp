@@ -444,7 +444,7 @@ def create_app(
         presets = [dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
                         dte_max=p.dte_max if p.dte_max is not None else cand.dte_max,
                         min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
-        return render(request, "scanner.html", out=out, ref_label=ref_label, watch_data=True, presets=presets,
+        return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
                       candidates=service.settings.scanner.candidates,
                       margin=service.settings.scanner.catalog_margin_pct,
                       tech_opts=dict(
