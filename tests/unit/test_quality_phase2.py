@@ -18,15 +18,16 @@ def test_leverage_filter_needs_data_and_a_ratio_under_the_limit():
 def test_free_cash_flow_filter():
     crit = BASE.with_filters(require_positive_fcf=True)
     assert crit.quality_active
-    assert quality_reject(info(sector="Energy", fcf_ttm=1e6), EXPIRY, crit, TODAY) is None
-    assert "flujo de caja" in quality_reject(info(sector="Energy", fcf_ttm=-5.0), EXPIRY, crit, TODAY)
-    assert quality_reject(info(sector="Energy", fcf_ttm=0.0), EXPIRY, crit, TODAY) is not None
-    assert quality_reject(info(sector="Energy"), EXPIRY, crit, TODAY) is not None
+    assert quality_reject(info(sector="Technology", fcf_ttm=1e6), EXPIRY, crit, TODAY) is None
+    assert "flujo de caja" in quality_reject(info(sector="Technology", fcf_ttm=-5.0), EXPIRY, crit, TODAY)
+    assert quality_reject(info(sector="Technology", fcf_ttm=0.0), EXPIRY, crit, TODAY) is not None
+    assert quality_reject(info(sector="Technology"), EXPIRY, crit, TODAY) is not None
 
 
-@pytest.mark.parametrize("sector", ["Financial", "financial services", "Financials"])
-def test_financial_companies_are_exempt_from_leverage_and_cash_flow(sector):
-    """Un banco tiene un pasivo/patrimonio de 10 por naturaleza y no tiene «flujo de caja libre»."""
+@pytest.mark.parametrize("sector", ["Financial", "financial services", "Financials", "Energy", "Utilities", "Basic Materials", "Real Estate"])
+def test_exempt_sectors_skip_leverage_and_cash_flow(sector):
+    """Un banco tiene un pasivo/patrimonio de 10 por naturaleza y no tiene «flujo de caja libre»; energía, utilities,
+    materiales e inmobiliario tienen una deuda y una caja especiales."""
     crit = BASE.with_filters(max_liabilities_to_equity=2.0, require_positive_fcf=True)
     assert quality_reject(info(sector=sector, liabilities_to_equity=10.7, fcf_ttm=None), EXPIRY, crit, TODAY) is None
     assert quality_reject(info(sector=sector), EXPIRY, crit, TODAY) is None

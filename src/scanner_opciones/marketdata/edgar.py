@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Optional
 
 from scanner_opciones.domain.errors import FinancialsError
-from scanner_opciones.marketdata.financials import Financials
+from scanner_opciones.marketdata.financials import NO_LIMIT, Financials
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +34,15 @@ TAXONOMIES = {
         liabilities=("Liabilities",), liabilities_and_equity=("LiabilitiesAndStockholdersEquity",),
         ocf=("NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
         capex=("PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets", "PaymentsForCapitalImprovements"),
+        assets=("Assets",), cash=("CashAndCashEquivalentsAtCarryingValue",),
+        # deuda: «LongTermDebt» ya incluye la parte corriente; «DebtCurrent» es la deuda que vence en 12 meses
+        debt_total=("LongTermDebt", "LongTermDebtAndCapitalLeaseObligations", "DebtLongtermAndShorttermCombinedAmount"),
+        debt_noncurrent=("LongTermDebtNoncurrent",), debt_current_lt=("LongTermDebtCurrent",), debt_current=("DebtCurrent",),
+        short_debt=("ShortTermBorrowings", "CommercialPaper"),
+        other_debt=("ConvertibleNotesPayable", "ConvertibleNotesPayableNoncurrent", "ConvertibleDebtNoncurrent", "ConvertibleDebt",
+                    "SeniorNotes", "NotesPayable", "LongTermNotesPayable", "SecuredDebt", "UnsecuredDebt", "LineOfCredit"),
+        op_income=("OperatingIncomeLoss",),
+        interest=("InterestExpense", "InterestExpenseNonoperating", "InterestExpenseDebt", "InterestAndDebtExpense"),
     ),
     "ifrs-full": dict(
         equity=("Equity", "EquityAttributableToOwnersOfParent"),
@@ -124,29 +133,113 @@ def parse_company_facts(data: dict, today: date) -> Optional[Financials]:
     return None
 
 
+def _instant_value(tree: dict, tags: tuple[str, ...], fresh: str) -> Optional[float]:
+    """Último valor de balance de la etiqueta más reciente, o None si falta o es viejo."""
+    values = _instants(_freshest(tree, tags))
+    if not values:
+        return None
+    end = max(values)
+    return values[end] if end >= fresh else None
+
+
+def _flow_value(tree: dict, tags: tuple[str, ...], fresh: str) -> Optional[float]:
+    r = _freshest_flow(tree, tags)
+    return r[0] if r is not None and r[1] >= fresh else None
+
+
+def _debt(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabilities: Optional[float]) -> tuple[Optional[float], Optional[float]]:
+    """(deuda financiera total, deuda a corto plazo) en dólares; (None, None) si no se puede saber.
+    Sin ninguna etiqueta de deuda se da por «sin deuda» solo si el balance lo hace creíble (pasivo/patrimonio < 1,5):
+    muchas tecnológicas (ANET, CDNS…) no publican deuda porque no tienen."""
+    total = _instant_value(tree, tags.get("debt_total", ()), fresh)
+    if total is None:
+        noncurrent = _instant_value(tree, tags.get("debt_noncurrent", ()), fresh)
+        if noncurrent is not None:
+            total = noncurrent + (_instant_value(tree, tags.get("debt_current_lt", ()), fresh) or 0.0)
+    shorts = [v for tag in tags.get("short_debt", ()) if (v := _instant_value(tree, (tag,), fresh)) is not None]
+    if total is None:
+        others = [v for tag in tags.get("other_debt", ()) if (v := _instant_value(tree, (tag,), fresh)) is not None]
+        total = max(others) if others else None
+    if total is None and not shorts:
+        credible = equity is not None and equity > 0 and liabilities is not None and liabilities / equity < 1.5
+        return (0.0, 0.0) if credible else (None, None)
+    debt = (total or 0.0) + sum(shorts)
+    current = _instant_value(tree, tags.get("debt_current", ()), fresh)
+    if current is None:
+        current = (_instant_value(tree, tags.get("debt_current_lt", ()), fresh) or 0.0) + sum(shorts)
+    return debt, current
+
+
+def _net_buyback_pct(tree: dict, fresh: str) -> Optional[float]:
+    """Reducción (en %) del nº de acciones diluidas medias entre los dos últimos años fiscales (10-K)."""
+    facts = tree.get("WeightedAverageNumberOfDilutedSharesOutstanding", {}).get("units", {}).get("shares", [])
+    annual: dict[str, float] = {}
+    for f in facts:
+        if "start" in f and 350 <= _days(f["start"], f["end"]) <= 380 and f.get("form", "") in ANNUAL_FORMS:
+            annual[f["end"]] = f["val"]
+    ends = sorted(annual)
+    if len(ends) < 2 or ends[-1] < fresh or not annual[ends[-2]] or not (350 <= _days(ends[-2], ends[-1]) <= 380):
+        return None
+    return -(annual[ends[-1]] / annual[ends[-2]] - 1.0) * 100.0
+
+
 def _from_tree(tree: dict, tags: dict, today: date) -> Optional[Financials]:
     fresh = (today - timedelta(days=STALE_DAYS)).isoformat()
-    ratio, balance_end = None, None
+    ratio, balance_end, equity_val, liabilities_val = None, None, None, None
     equity = _instants(_freshest(tree, tags["equity"]))
     if equity:
         balance_end = max(equity)
         if balance_end < fresh:
             balance_end = None
-        elif equity[balance_end] > 0:
-            liabilities = _instants(_usd(tree, tags["liabilities"])).get(balance_end)
-            if liabilities is None:   # algunas empresas (KO, UAL, ADM) no publican «Liabilities»: total − patrimonio
-                total = _instants(_usd(tree, tags["liabilities_and_equity"])).get(balance_end)
-                liabilities = None if total is None else total - equity[balance_end]
-            if liabilities is not None and liabilities >= 0:
-                ratio = liabilities / equity[balance_end]
-    fcf, flow_end = None, None
+        else:
+            equity_val = equity[balance_end]
+            if equity_val > 0:
+                liabilities = _instants(_usd(tree, tags["liabilities"])).get(balance_end)
+                if liabilities is None:   # algunas empresas (KO, UAL, ADM) no publican «Liabilities»: total − patrimonio
+                    total = _instants(_usd(tree, tags["liabilities_and_equity"])).get(balance_end)
+                    liabilities = None if total is None else total - equity_val
+                if liabilities is not None and liabilities >= 0:
+                    liabilities_val = liabilities
+                    ratio = liabilities / equity_val
+    fcf, flow_end, ocf_val, capex_val = None, None, None, None
     ocf, capex = _freshest_flow(tree, tags["ocf"]), _freshest_flow(tree, tags["capex"])
-    if ocf is not None and capex is not None and ocf[1] >= fresh:
-        fcf, flow_end = ocf[0] - abs(capex[0]), ocf[1]    # el signo de las compras de inmovilizado varía entre taxonomías
-    if ratio is None and fcf is None:
+    if ocf is not None and ocf[1] >= fresh:
+        ocf_val = ocf[0]
+        if capex is not None:
+            capex_val = abs(capex[0])      # el signo de las compras de inmovilizado varía entre taxonomías
+            fcf, flow_end = ocf_val - capex_val, ocf[1]
+    extras = _solvency(tree, tags, fresh, equity_val, liabilities_val, ocf_val, capex_val, fcf)
+    if ratio is None and fcf is None and all(v is None for v in extras.values()):
         return None
     end = flow_end or balance_end
-    return Financials(ratio, fcf, date.fromisoformat(end) if end else None)
+    return Financials(ratio, fcf, date.fromisoformat(end) if end else None, **extras)
+
+
+def _solvency(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabilities: Optional[float],
+              ocf: Optional[float], capex: Optional[float], fcf: Optional[float]) -> dict[str, Optional[float]]:
+    """Cociente de solvencia y de calidad del flujo de caja. NO_LIMIT = sin deuda / sin intereses / sin deuda corriente."""
+    out: dict[str, Optional[float]] = dict.fromkeys(
+        ("debt_to_equity", "interest_coverage", "cash_to_short_debt", "ocf_to_debt", "capex_to_ocf", "fcf_to_assets", "net_buyback_pct"))
+    debt, current = _debt(tree, tags, fresh, equity, liabilities)
+    if debt is not None and equity is not None and equity > 0:
+        out["debt_to_equity"] = debt / equity
+    if debt is not None and ocf is not None:
+        out["ocf_to_debt"] = NO_LIMIT if debt <= 0 else min(ocf / debt, NO_LIMIT)
+    op, interest = _flow_value(tree, tags.get("op_income", ()), fresh), _flow_value(tree, tags.get("interest", ()), fresh)
+    if debt is not None and debt <= 0:
+        out["interest_coverage"] = NO_LIMIT
+    elif op is not None and interest is not None:
+        out["interest_coverage"] = NO_LIMIT if abs(interest) < 1e-9 else min(op / abs(interest), NO_LIMIT)
+    cash = _instant_value(tree, tags.get("cash", ()), fresh)
+    if cash is not None and current is not None:
+        out["cash_to_short_debt"] = NO_LIMIT if current <= 0 else min(cash / current, NO_LIMIT)
+    if ocf is not None and capex is not None:
+        out["capex_to_ocf"] = NO_LIMIT if ocf <= 0 else capex / ocf      # sin flujo operativo positivo: falla cualquier máximo
+    assets = _instant_value(tree, tags.get("assets", ()), fresh)
+    if fcf is not None and assets is not None and assets > 0:
+        out["fcf_to_assets"] = fcf / assets
+    out["net_buyback_pct"] = _net_buyback_pct(tree, fresh)
+    return out
 
 
 FetchJson = Callable[[str], Awaitable[Optional[dict]]]

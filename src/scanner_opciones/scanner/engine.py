@@ -13,7 +13,7 @@ from scanner_opciones.metrics.yields import (
 from scanner_opciones.portfolio.diversification import CandidateImpact, candidate_impact
 from scanner_opciones.scanner.criteria import ScanCriteria
 from scanner_opciones.scanner.filters import reject_reason
-from scanner_opciones.scanner.quality import quality_reject
+from scanner_opciones.scanner.quality import DEFAULT_EXEMPT, quality_reject
 from scanner_opciones.scanner.technical import TechnicalFilter
 from scanner_opciones.config.settings import TechnicalSettings
 
@@ -48,8 +48,10 @@ def run_scan(
     include_rejections: bool = False,
     bars: Optional[dict[str, list]] = None,
     technical: Optional[TechnicalSettings] = None,
+    exempt_sectors: Optional[Sequence[str]] = None,
 ) -> ScanOutput:
     """`bars` (cierres diarios por ticker) y `technical` solo hacen falta si `criteria.technical_active`."""
+    exempt = exempt_sectors
     tech = TechnicalFilter(criteria, technical or TechnicalSettings(), bars or {}, today) if criteria.technical_active else None
     results: list[ScanResult] = []
     rejections: dict[str, str] = {}
@@ -60,7 +62,7 @@ def run_scan(
         price = info.underlying_price if info else None
         why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile)
         if why is None and criteria.quality_active:
-            why = quality_reject(info, c.expiry, criteria, today)
+            why = quality_reject(info, c.expiry, criteria, today, exempt if exempt is not None else DEFAULT_EXEMPT)
         if why is None and tech is not None:
             why = tech.reject(c.ticker, price, c.strike)
         if why is not None:

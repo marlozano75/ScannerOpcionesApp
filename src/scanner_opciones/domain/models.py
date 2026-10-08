@@ -32,6 +32,14 @@ class TickerInfo:
     fcf_ttm: Optional[float] = None            # flujo de caja libre de los últimos 12 meses, USD (SEC EDGAR)
     financials_end: Optional[date] = None      # fin del último periodo contable usado
     financials_at: Optional[datetime] = None   # cuándo se consultó EDGAR (aunque no hubiera datos)
+    # solvencia y calidad del flujo de caja (SEC EDGAR); 999 = «sin deuda / sin intereses»: no hay nada que cubrir
+    debt_to_equity: Optional[float] = None      # deuda financiera / patrimonio
+    interest_coverage: Optional[float] = None   # resultado operativo / gastos por intereses (12 meses)
+    cash_to_short_debt: Optional[float] = None  # efectivo / deuda a corto plazo
+    ocf_to_debt: Optional[float] = None         # flujo de caja operativo / deuda total
+    capex_to_ocf: Optional[float] = None        # inversión en inmovilizado / flujo de caja operativo
+    fcf_to_assets: Optional[float] = None       # flujo de caja libre / activos totales
+    net_buyback_pct: Optional[float] = None     # reducción del nº de acciones diluidas en el último año fiscal, en %
 
 
 @dataclass(frozen=True)

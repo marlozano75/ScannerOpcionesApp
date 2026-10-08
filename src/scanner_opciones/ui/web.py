@@ -19,7 +19,7 @@ from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLi
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES
-from scanner_opciones.scanner.quality import ticker_quality_reject
+from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
@@ -73,6 +73,40 @@ QUALITY_SELECTS = (
 )
 
 
+# Filtros de solvencia / calidad del flujo de caja del Universo, con grado de exigencia (flexible, estándar, estricto):
+# (parámetro, campo del criterio, métrica en scanner.quality.thresholds, etiqueta, signo, unidad)
+SOLVENCY_UI = (
+    ("q_de", "max_debt_to_equity", "debt_to_equity", "Deuda / patrimonio", "≤", ""),
+    ("q_cov", "min_interest_coverage", "interest_coverage", "Cobertura de intereses", "≥", "×"),
+    ("q_cash", "min_cash_to_short_debt", "cash_to_short_debt", "Efectivo / deuda a corto plazo", "≥", "×"),
+    ("q_ocfd", "min_ocf_to_debt", "ocf_to_debt", "Flujo operativo / deuda", "≥", "%"),
+    ("q_capex", "max_capex_to_ocf", "capex_to_ocf", "CapEx / flujo operativo", "≤", "%"),
+    ("q_fcfa", "min_fcf_to_assets", "fcf_to_assets", "FCF / activos", "≥", "%"),
+    ("q_bb", "min_net_buyback_pct", "net_buyback_pct", "Recompra neta de acciones", "≥", "pct"),
+)
+SOLVENCY_CORE = ("q_de", "q_cov", "q_cash", "q_ocfd")   # el bloque «Solvencia»; los otros tres son indicadores opcionales
+
+
+def _threshold_text(value: float, unit: str) -> str:
+    if unit == "%":
+        return f"{value * 100:g} %"
+    if unit == "pct":
+        return f"{value:g} %"
+    return f"{value:g}{unit}"
+
+
+def solvency_controls(qcfg, form: dict) -> list[dict]:
+    """Selectores de solvencia para la plantilla: cada opción lleva su umbral («Estándar (≤ 1)»)."""
+    out = []
+    for key, _, metric, label, sign, unit in SOLVENCY_UI:
+        thresholds = getattr(qcfg.thresholds, metric)
+        out.append(dict(
+            key=key, label=label, core=key in SOLVENCY_CORE, value=form.get(key, ""),
+            options=[(level, f"{text} ({sign} {_threshold_text(thresholds[level], unit)})") for level, text in qcfg.level_labels.items()],
+        ))
+    return out
+
+
 def quality_form(base) -> dict:
     """Valores del formulario de calidad a partir de los criterios (sin filtros por defecto)."""
     return {
@@ -81,13 +115,15 @@ def quality_form(base) -> dict:
         "q_mcap": "" if base.min_market_cap_m is None else _fmt(base.min_market_cap_m),
         "q_liq": "" if base.min_option_liquidity is None else str(base.min_option_liquidity),
         "q_lev": "" if base.max_liabilities_to_equity is None else _fmt(base.max_liabilities_to_equity),
+        **{key: "" for key, *_ in SOLVENCY_UI},
     }
 
 
-def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidity: bool = True) -> None:
+def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidity: bool = True, solvency: bool = False) -> None:
     """Lee los filtros de calidad de la URL (scanner y Universo comparten parser). Cada valor se valida contra las
     listas permitidas de la configuración. `earnings`: el filtro de resultados es por contrato, solo existe en el scanner.
-    `liquidity`: la liquidez de las opciones solo se filtra en el scanner (en el Universo es solo un indicador)."""
+    `liquidity`: la liquidez de las opciones solo se filtra en el scanner (en el Universo es solo un indicador).
+    `solvency`: los filtros de solvencia con grado de exigencia solo existen en el Universo."""
     form["q_profit"], form["q_fcf"] = "q_profit" in qp, "q_fcf" in qp
     overrides["require_profitable"], overrides["require_positive_fcf"] = form["q_profit"], form["q_fcf"]
     if earnings:
@@ -100,6 +136,13 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
         overrides[field_name] = _required(form[key], cast, label) if form[key] else None
         if overrides[field_name] is not None and overrides[field_name] not in getattr(qcfg, options):
             raise ValueError(f"{label} no permitida")
+    if solvency:
+        for key, field_name, metric, label, _, _ in SOLVENCY_UI:
+            level = qp.get(key, "").strip()
+            if level and level not in qcfg.level_labels:
+                raise ValueError(f"{label}: grado de exigencia no permitido")
+            form[key] = level
+            overrides[field_name] = getattr(qcfg.thresholds, metric)[level] if level else None
 
 
 def _sector_of(row, sector_col: Optional[int], watchlist_sectors: dict) -> Optional[str]:
@@ -267,21 +310,23 @@ def create_app(
         if "submitted" in qp:
             try:
                 overrides: dict = {}
-                read_quality(qp, qform, overrides, qcfg, earnings=False, liquidity=False)
+                read_quality(qp, qform, overrides, qcfg, earnings=False, liquidity=False, solvency=True)
                 criteria = base.with_filters(**overrides)
             except ValueError as exc:
                 qerror = f"Parámetro no válido: {exc}"
         qinfos = service.quality.all()
         total_rows, excluded = len(rows), 0
-        if criteria.ticker_quality_active and rows:
-            sectors = {t: i.sector for t, i in service.ticker_info.all().items()}
-            sector_col = next((i for i, c in enumerate(table.columns) if c.name.strip().lower() == "sector"), None)
-            kept = []
-            for row in rows:
-                info = replace(qinfos.get(row.ticker) or TickerInfo(row.ticker), sector=_sector_of(row, sector_col, sectors))
-                if ticker_quality_reject(info, criteria) is None:
-                    kept.append(row)
-            excluded, rows = total_rows - len(kept), kept
+        sectors = {t: i.sector for t, i in service.ticker_info.all().items()}
+        sector_col = next((i for i, c in enumerate(table.columns) if c.name.strip().lower() == "sector"), None) if table else None
+        exempt_tickers: set[str] = set()
+        kept = []
+        for row in rows:
+            info = replace(qinfos.get(row.ticker) or TickerInfo(row.ticker), sector=_sector_of(row, sector_col, sectors))
+            if is_exempt(info, qcfg.exempt_sectors):
+                exempt_tickers.add(row.ticker)
+            if not criteria.ticker_quality_active or ticker_quality_reject(info, criteria, qcfg.exempt_sectors) is None:
+                kept.append(row)
+        excluded, rows = total_rows - len(kept), kept
         with_quality = sum(1 for r in rows if r.ticker in qinfos)
         files = [(name, at, [s.name for s in srcs]) for name, (at, srcs) in service.universe_files.items()]
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message,
@@ -294,7 +339,9 @@ def create_app(
                           quarters=qcfg.positive_quarters_options,
                           mcaps=[(_fmt(m), _mcap_label(m)) for m in qcfg.market_cap_options_m],
                           liquidity=qcfg.liquidity_options, leverage=[_fmt(v) for v in qcfg.leverage_options],
-                          edgar=bool(service.settings.edgar.contact.strip())))
+                          edgar=bool(service.settings.edgar.contact.strip())),
+                      solvency=solvency_controls(qcfg, qform), levels=list(qcfg.level_labels.items()),
+                      exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors))
 
     @app.post("/universe/load")
     async def universe_load(files: list[UploadFile]):

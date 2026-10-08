@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Universo{% endblock %}
 {% block content %}
+{% macro metric(v, kind, ex) -%}
+  {%- if v is none %}<td class="muted">{{ 'n/a' if ex else '—' }}</td>
+  {%- elif v >= 999 %}<td data-sort="999" title="Sin deuda / sin intereses: no hay nada que cubrir">∞</td>
+  {%- else %}<td data-sort="{{ v }}">{% if kind == 'x' %}{{ v|num }}×{% elif kind == 'f' %}{{ (v * 100)|pct(0) }}{% elif kind == 'p' %}{{ v|pct(1) }}{% else %}{{ v|num }}{% endif %}</td>
+  {%- endif %}
+{%- endmacro %}
 {% if message %}<div class="banner info">{{ message }}</div>{% endif %}
 <div class="section-title">Fuentes</div>
 <div class="panels">
@@ -62,7 +68,26 @@
       <input type="checkbox" name="q_fcf" {{ 'checked' if qform.q_fcf }}> <b>Flujo de caja libre &gt; 0</b></label>
     <a class="btn secondary" href="/universe{{ '?src=' ~ (src|urlencode) if src != 'all' else '' }}">Quitar filtros</a>
   </div>
+  <div class="filters" style="align-items:flex-end;margin-top:10px">
+    <label title="Aplica el mismo grado a los cuatro filtros de solvencia">Solvencia: grado para los cuatro
+      <select id="q_solv_master"><option value="">— elegir —</option>
+        {% for level, label in levels %}<option value="{{ level }}">{{ label }}</option>{% endfor %}</select></label>
+    {% for f in solvency if f.core %}
+    <label>{{ f.label }}
+      <select name="{{ f.key }}"><option value="">Sin filtro</option>
+        {% for level, text in f.options %}<option value="{{ level }}" {{ 'selected' if f.value == level }}>{{ text }}</option>{% endfor %}</select></label>
+    {% endfor %}
+  </div>
+  <div class="filters" style="align-items:flex-end;margin-top:10px">
+    <span class="muted" style="align-self:center">Opcionales (sin filtro por defecto):</span>
+    {% for f in solvency if not f.core %}
+    <label>{{ f.label }}
+      <select name="{{ f.key }}"><option value="">Sin filtro</option>
+        {% for level, text in f.options %}<option value="{{ level }}" {{ 'selected' if f.value == level }}>{{ text }}</option>{% endfor %}</select></label>
+    {% endfor %}
+  </div>
   <p class="note" style="margin:8px 0 0">Las financieras (bancos, aseguradoras) quedan exentas del pasivo/patrimonio y del flujo de caja.
+    Los umbrales de cada grado están en <code>scanner.quality.thresholds</code>. <b>Exentos</b> (pasan sin medirse el pasivo, la solvencia y la caja, y se ven como «n/a»): sectores con «{{ exempt_names }}» en su nombre.
     Datos de calidad disponibles para <b>{{ with_quality }}</b> de {{ rows|length }} acciones mostradas.
     {% if not quality_opts.edgar %}<b>Falta <code>edgar.contact</code> en config.yaml</b>: sin él no hay datos de pasivo/patrimonio ni de flujo de caja.{% endif %}
     Los filtros de resultados antes del vencimiento y de liquidez de las opciones están en el Scanner; aquí la liquidez es solo un indicador.</p>
@@ -79,7 +104,7 @@
   </p>
   <div class="scroll"><table class="sortable" id="universe-table">
     <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th><th>Fuentes (nº)</th>
-      <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th>
+      <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th><th>Deuda/Patr.</th><th>Cobertura int.</th><th>Efectivo/Deuda CP</th><th>Flujo op./Deuda</th><th>CapEx/Flujo op.</th><th>FCF/Activos</th><th>Recompra neta</th>
       {% for col in table.columns %}<th>{{ col.name }}</th>{% endfor %}</tr>
     {% for row in rows %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ row.ticker }}" checked></td>
@@ -93,17 +118,24 @@
         <td{% if q and q.next_earnings %} data-sort="{{ q.next_earnings }}"{% endif %}{% if q and q.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(q.eps_surprise_pct) }} %"{% endif %}>{{ q.next_earnings if q and q.next_earnings else '—' }}</td>
         <td{% if q and q.liabilities_to_equity is not none %} data-sort="{{ q.liabilities_to_equity }}"{% if q.liabilities_to_equity > 3 %} style="color:#b3361b"{% endif %}{% endif %}>{{ q.liabilities_to_equity|num if q and q.liabilities_to_equity is not none else '—' }}</td>
         <td{% if q and q.fcf_ttm is not none %} data-sort="{{ q.fcf_ttm }}"{% if q.fcf_ttm <= 0 %} style="color:#b3361b"{% endif %}{% endif %}>{{ (q.fcf_ttm / 1e6)|money if q and q.fcf_ttm is not none else '—' }}</td>
+        {%- set ex = row.ticker in exempt_tickers %}
+        {{ metric(q.debt_to_equity if q else none, 'n', ex) }}{{ metric(q.interest_coverage if q else none, 'x', ex) }}{{ metric(q.cash_to_short_debt if q else none, 'x', ex) }}
+        {{ metric(q.ocf_to_debt if q else none, 'f', ex) }}{{ metric(q.capex_to_ocf if q else none, 'f', ex) }}{{ metric(q.fcf_to_assets if q else none, 'f', ex) }}{{ metric(q.net_buyback_pct if q else none, 'p', ex) }}
         {% for cell in row.cells %}
           {% if cell.value is not none %}<td data-sort="{{ cell.value }}">{{ cell.text }}</td>
           {% else %}<td>{{ loop.index0 == table.symbol_index and row.ticker or cell.text }}</td>{% endif %}
         {% endfor %}</tr>
-    {% else %}<tr><td colspan="{{ table.columns|length + 10 }}" class="muted">Sin filas{% if quality_active %}: ningún ticker cumple los filtros de calidad{% endif %}.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="{{ table.columns|length + 17 }}" class="muted">Sin filas{% if quality_active %}: ningún ticker cumple los filtros de calidad{% endif %}.</td></tr>{% endfor %}
   </table></div>
 </form>
 <script>
   function confirmReplace() {
     return confirm('Se quitarán de la watchlist, con sus contratos y cotizaciones, los tickers que no estén en la selección. ¿Sustituir la watchlist?');
   }
+  var master = document.getElementById('q_solv_master');
+  master.addEventListener('change', function () {
+    ['q_de', 'q_cov', 'q_cash', 'q_ocfd'].forEach(function (n) { document.querySelector('#quality-form select[name=' + n + ']').value = master.value; });
+  });
   document.querySelectorAll('#quality-form select, #quality-form input[type=checkbox]').forEach(function (el) {
     el.addEventListener('change', function () { document.getElementById('quality-form').submit(); });
   });

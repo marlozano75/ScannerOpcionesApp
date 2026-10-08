@@ -175,6 +175,34 @@ class TechnicalSettings(_Model):
     touch_min_days_options: tuple[int, ...] = (7, 14, 30, 60, 90, 180, 365)   # opciones de «Días mín. desde el último toque»
 
 
+LEVELS = ("flexible", "standard", "strict")   # grados de exigencia, del más laxo al más estricto
+
+
+def _levels(flexible: float, standard: float, strict: float) -> dict[str, float]:
+    return {"flexible": flexible, "standard": standard, "strict": strict}
+
+
+class SolvencyThresholds(_Model):
+    """Umbral de cada filtro de solvencia / calidad del flujo de caja según el grado de exigencia elegido.
+    Máximos: deuda/patrimonio, capex/flujo. Mínimos: el resto. Inspirados en los filtros de un analista (deuda/patrimonio
+    ≤ 0,5, cobertura ≥ 3×, flujo operativo > 30 % de la deuda, capex < 35 % del flujo, FCF > 12 % de los activos,
+    recompra neta > 2 %): «estricto» es su umbral más duro y «flexible» deja pasar a la mayoría."""
+    debt_to_equity: dict[str, float] = _levels(1.5, 1.0, 0.5)          # máximo
+    interest_coverage: dict[str, float] = _levels(2.0, 3.0, 5.0)       # mínimo (veces)
+    cash_to_short_debt: dict[str, float] = _levels(0.5, 1.0, 2.0)      # mínimo (veces)
+    ocf_to_debt: dict[str, float] = _levels(0.15, 0.30, 0.50)          # mínimo (fracción)
+    capex_to_ocf: dict[str, float] = _levels(0.60, 0.35, 0.20)         # máximo (fracción)
+    fcf_to_assets: dict[str, float] = _levels(0.04, 0.08, 0.12)        # mínimo (fracción)
+    net_buyback_pct: dict[str, float] = _levels(0.0, 1.0, 2.0)         # mínimo (% de reducción del nº de acciones)
+
+    @model_validator(mode="after")
+    def _check(self) -> "SolvencyThresholds":
+        for name in type(self).model_fields:
+            if set(getattr(self, name)) != set(LEVELS):
+                raise ValueError(f"{name} debe definir exactamente los grados {', '.join(LEVELS)}")
+        return self
+
+
 class QualitySettings(_Model):
     """Filtros de calidad de la empresa del scanner (beneficios, trimestres, tamaño, liquidez, resultados)."""
     market_cap_options_m: list[float] = [500, 1000, 2000, 5000, 10000, 50000]   # capitalización mínima ofrecida (M$)
@@ -182,6 +210,10 @@ class QualitySettings(_Model):
     positive_quarters_options: list[int] = [2, 3, 4]       # trimestres con beneficios exigidos de los últimos 4
     leverage_options: list[float] = [1, 2, 3, 5]           # pasivo/patrimonio máximo ofrecido (no aplica a las financieras)
     refresh_days: int = Field(7, ge=1)                     # cada cuántos días se vuelve a bajar el historial trimestral
+    thresholds: SolvencyThresholds = SolvencyThresholds()  # umbrales de los filtros de solvencia por grado de exigencia
+    level_labels: dict[str, str] = {"flexible": "Flexible", "standard": "Estándar", "strict": "Estricto"}
+    # sectores a los que NO se miden la deuda, la caja ni la solvencia (pasan sin medirse): trozos del nombre del sector
+    exempt_sectors: list[str] = ["financ", "energy", "utilit", "material", "real estate"]
 
 
 class ScannerSettings(_Model):

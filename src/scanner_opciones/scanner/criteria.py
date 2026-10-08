@@ -16,6 +16,18 @@ MA_CROSSES = {
 }
 
 
+# Filtros de solvencia / calidad del flujo de caja: (campo del criterio, atributo de TickerInfo, "max"|"min", etiqueta)
+SOLVENCY_RULES = (
+    ("max_debt_to_equity", "debt_to_equity", "max", "deuda/patrimonio"),
+    ("min_interest_coverage", "interest_coverage", "min", "cobertura de intereses"),
+    ("min_cash_to_short_debt", "cash_to_short_debt", "min", "efectivo / deuda a corto plazo"),
+    ("min_ocf_to_debt", "ocf_to_debt", "min", "flujo operativo / deuda"),
+    ("max_capex_to_ocf", "capex_to_ocf", "max", "capex / flujo operativo"),
+    ("min_fcf_to_assets", "fcf_to_assets", "min", "FCF / activos"),
+    ("min_net_buyback_pct", "net_buyback_pct", "min", "recompra neta de acciones"),
+)
+
+
 @dataclass(frozen=True)
 class ScanCriteria:
     strike_below_pct_min: float
@@ -55,6 +67,14 @@ class ScanCriteria:
     avoid_earnings: bool = False                  # descarta los vencimientos posteriores a la próxima fecha de resultados
     max_liabilities_to_equity: Optional[float] = None   # pasivo/patrimonio máximo (las financieras no se miden)
     require_positive_fcf: bool = False            # flujo de caja libre de 12 meses > 0 (las financieras no se miden)
+    # solvencia y calidad del flujo de caja (grados de exigencia en scanner.quality.thresholds); los sectores exentos no se miden
+    max_debt_to_equity: Optional[float] = None    # deuda financiera / patrimonio
+    min_interest_coverage: Optional[float] = None  # resultado operativo / intereses (veces)
+    min_cash_to_short_debt: Optional[float] = None  # efectivo / deuda a corto plazo (veces)
+    min_ocf_to_debt: Optional[float] = None       # flujo de caja operativo / deuda total (fracción)
+    max_capex_to_ocf: Optional[float] = None      # inversión en inmovilizado / flujo operativo (fracción)
+    min_fcf_to_assets: Optional[float] = None     # flujo de caja libre / activos (fracción)
+    min_net_buyback_pct: Optional[float] = None   # reducción del nº de acciones en el último año (%)
 
     @property
     def ticker_quality_active(self) -> bool:
@@ -63,6 +83,7 @@ class ScanCriteria:
             self.require_profitable or self.min_positive_quarters is not None
             or self.min_market_cap_m is not None or self.min_option_liquidity is not None
             or self.max_liabilities_to_equity is not None or self.require_positive_fcf
+            or any(getattr(self, field) is not None for field, *_ in SOLVENCY_RULES)
         )
 
     @property
@@ -71,6 +92,7 @@ class ScanCriteria:
             self.require_profitable or self.avoid_earnings or self.min_positive_quarters is not None
             or self.min_market_cap_m is not None or self.min_option_liquidity is not None
             or self.max_liabilities_to_equity is not None or self.require_positive_fcf
+            or any(getattr(self, field) is not None for field, *_ in SOLVENCY_RULES)
         )
 
     @property

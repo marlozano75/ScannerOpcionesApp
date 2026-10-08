@@ -130,6 +130,19 @@ MIGRATIONS: list[str] = [
     ALTER TABLE ticker_info DROP COLUMN financials_end;
     ALTER TABLE ticker_info DROP COLUMN financials_at;
     """,
+    # v16: solvencia (deuda/patrimonio, cobertura de intereses, efectivo/deuda corriente, flujo operativo/deuda) y calidad
+    # del flujo de caja (capex/flujo, FCF/activos, recompra neta). Se vuelve a consultar EDGAR para rellenarlas.
+    """
+    ALTER TABLE ticker_quality ADD COLUMN debt_to_equity REAL;
+    ALTER TABLE ticker_quality ADD COLUMN interest_coverage REAL;
+    ALTER TABLE ticker_quality ADD COLUMN cash_to_short_debt REAL;
+    ALTER TABLE ticker_quality ADD COLUMN ocf_to_debt REAL;
+    ALTER TABLE ticker_quality ADD COLUMN capex_to_ocf REAL;
+    ALTER TABLE ticker_quality ADD COLUMN fcf_to_assets REAL;
+    ALTER TABLE ticker_quality ADD COLUMN net_buyback_pct REAL;
+    UPDATE ticker_quality SET financials_at = NULL;
+    """,
+
 ]
 
 

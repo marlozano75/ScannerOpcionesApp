@@ -250,7 +250,14 @@ class DailyUpdater:
                     continue    # fallo puntual de ese ticker: se reintenta en la próxima pasada
                 updated.append(replace(
                     self.quality.get(ticker) or TickerInfo(ticker), liabilities_to_equity=fin.liabilities_to_equity, fcf_ttm=fin.fcf_ttm,
-                    financials_end=fin.period_end, financials_at=self.now()))
+                    financials_end=fin.period_end, financials_at=self.now(),
+                    debt_to_equity=fin.debt_to_equity,
+                    interest_coverage=fin.interest_coverage,
+                    cash_to_short_debt=fin.cash_to_short_debt,
+                    ocf_to_debt=fin.ocf_to_debt,
+                    capex_to_ocf=fin.capex_to_ocf,
+                    fcf_to_assets=fin.fcf_to_assets,
+                    net_buyback_pct=fin.net_buyback_pct))
             done += self.quality.save(updated)
         log.info("Balance y flujo de caja (SEC EDGAR): %d de %d fichas actualizadas en %.1f s", done, len(stale),
                  time.monotonic() - started)

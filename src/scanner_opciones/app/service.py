@@ -650,6 +650,7 @@ class AppService:
         return run_scan(
             snapshots, self.ticker_info.all(), self.state.positions, criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
+            self.settings.scanner.quality.exempt_sectors,
         )
 
     def assignment(self) -> AssignmentExposure:

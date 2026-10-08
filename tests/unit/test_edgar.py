@@ -10,6 +10,11 @@ from scanner_opciones.marketdata.financials import Financials
 TODAY = date(2026, 10, 8)
 
 
+def core(f):
+    """Los tres campos básicos de `Financials` (los de solvencia se prueban aparte)."""
+    return None if f is None else (f.liabilities_to_equity, f.fcf_ttm, f.period_end)
+
+
 def inst(end, val, filed=None):
     return {"end": end, "val": val, "form": "10-Q", "filed": filed or end}
 
@@ -62,7 +67,7 @@ def test_full_us_company():
         Liabilities=[inst("2026-03-31", 9999.0), inst("2026-06-30", 600.0)],
         StockholdersEquity=[inst("2026-03-31", 1.0), inst("2026-06-30", 300.0)],
     )
-    assert parse_company_facts(data, TODAY) == Financials(2.0, 950.0, date(2026, 6, 30))   # 600/300; 1200 − 250
+    assert core(parse_company_facts(data, TODAY)) == (2.0, 950.0, date(2026, 6, 30))   # 600/300; 1200 − 250
 
 
 def test_missing_liabilities_are_derived_from_total_and_equity():
@@ -88,7 +93,7 @@ def test_negative_equity_gives_no_ratio_but_keeps_the_cash_flow():
         Liabilities=[inst("2026-06-30", 600.0)], StockholdersEquity=[inst("2026-06-30", -50.0)],
         NetCashProvidedByUsedInOperatingActivities=OCF, PaymentsToAcquirePropertyPlantAndEquipment=CAPEX,
     )
-    assert parse_company_facts(data, TODAY) == Financials(None, 950.0, date(2026, 6, 30))
+    assert core(parse_company_facts(data, TODAY)) == (None, 950.0, date(2026, 6, 30))
 
 
 def test_old_data_is_ignored():
@@ -118,7 +123,7 @@ def test_ifrs_filer_uses_the_fiscal_year_and_the_sign_of_capex_does_not_matter()
         "CashFlowsFromUsedInOperatingActivities": {"units": {"USD": [flow("2025-04-01", "2026-03-31", 800.0, "20-F")]}},
         "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities": {"units": {"USD": [flow("2025-04-01", "2026-03-31", -300.0, "20-F")]}},
     }}}
-    assert parse_company_facts(ifrs, TODAY) == Financials(2.0, 500.0, date(2026, 3, 31))
+    assert core(parse_company_facts(ifrs, TODAY)) == (2.0, 500.0, date(2026, 3, 31))
 
 
 def test_us_gaap_wins_over_ifrs_and_empty_documents_give_none():

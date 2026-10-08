@@ -27,7 +27,19 @@ scanner:
     liquidity_options: [2, 3, 4]            # liquidez mínima de las opciones (1-5, de tastytrade)
     positive_quarters_options: [2, 3, 4]    # trimestres con beneficios exigidos de los últimos 4
     refresh_days: 7                         # cada cuántos días se baja de nuevo el historial trimestral
-    leverage_options: [1, 2, 3, 5]          # pasivo/patrimonio máximo ofrecido (las financieras quedan exentas)
+    leverage_options: [1, 2, 3, 5]          # pasivo/patrimonio máximo ofrecido (los sectores exentos no se miden)
+    # Filtros de solvencia del Universo con TRES GRADOS de exigencia (flexible, estándar, estricto); el umbral de cada grado:
+    thresholds:
+      debt_to_equity:     {flexible: 1.5,  standard: 1.0,  strict: 0.5}    # deuda financiera / patrimonio, máximo
+      interest_coverage:  {flexible: 2.0,  standard: 3.0,  strict: 5.0}    # resultado operativo / intereses, mínimo (veces)
+      cash_to_short_debt: {flexible: 0.5,  standard: 1.0,  strict: 2.0}    # efectivo / deuda a corto plazo, mínimo (veces)
+      ocf_to_debt:        {flexible: 0.15, standard: 0.30, strict: 0.50}   # flujo operativo / deuda total, mínimo
+      capex_to_ocf:       {flexible: 0.60, standard: 0.35, strict: 0.20}   # inversión / flujo operativo, máximo
+      fcf_to_assets:      {flexible: 0.04, standard: 0.08, strict: 0.12}   # flujo de caja libre / activos, mínimo
+      net_buyback_pct:    {flexible: 0.0,  standard: 1.0,  strict: 2.0}    # reducción del nº de acciones (%), mínimo
+    level_labels: {flexible: Flexible, standard: Estándar, strict: Estricto}
+    # sectores a los que NO se mide el pasivo, la solvencia ni el flujo de caja (pasan sin medirse): trozos del nombre
+    exempt_sectors: [financ, energy, utilit, material, real estate]
   catalog_margin_pct: 5    # puntos de más por arriba y por abajo que se GUARDAN (el rango cotizado sigue al precio)
   candidates:              # rango visible y cotizado, respecto al precio actual
     strike_below_pct_min: 10   # strikes desde un 10 % ...

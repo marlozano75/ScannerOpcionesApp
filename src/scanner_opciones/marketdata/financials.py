@@ -7,11 +7,22 @@ from datetime import date
 from typing import Optional, Protocol
 
 
+NO_LIMIT = 999.0   # valor de un cociente cuando no hay deuda / intereses / deuda corriente que cubrir
+
+
 @dataclass(frozen=True)
 class Financials:
     liabilities_to_equity: Optional[float] = None   # pasivo total / patrimonio; None si el patrimonio es ≤ 0 o falta
     fcf_ttm: Optional[float] = None                 # flujo de caja libre (operativo − inversión en inmovilizado), USD, 12 meses
     period_end: Optional[date] = None               # fin del último periodo contable usado
+    # solvencia y calidad del flujo de caja; NO_LIMIT = «sin deuda / sin intereses»: no hay nada que cubrir
+    debt_to_equity: Optional[float] = None          # deuda financiera / patrimonio
+    interest_coverage: Optional[float] = None       # resultado operativo / gastos por intereses (12 meses)
+    cash_to_short_debt: Optional[float] = None      # efectivo / deuda a corto plazo
+    ocf_to_debt: Optional[float] = None             # flujo de caja operativo / deuda total
+    capex_to_ocf: Optional[float] = None            # inversión en inmovilizado / flujo de caja operativo
+    fcf_to_assets: Optional[float] = None           # flujo de caja libre / activos totales
+    net_buyback_pct: Optional[float] = None         # reducción del nº de acciones diluidas en el último año fiscal, en %
 
 
 class FinancialsProvider(Protocol):

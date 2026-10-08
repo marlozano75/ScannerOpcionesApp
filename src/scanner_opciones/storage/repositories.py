@@ -96,7 +96,7 @@ class TickerInfoRepo:
     _SELECT = (
         "SELECT t.*, q.eps_ttm, q.positive_quarters, q.reported_quarters, q.market_cap, q.option_liquidity, "
         "q.next_earnings, q.eps_surprise_pct, q.fundamentals_at, q.liabilities_to_equity, q.fcf_ttm, "
-        "q.financials_end, q.financials_at FROM ticker_info t LEFT JOIN ticker_quality q ON q.ticker = t.ticker"
+        "q.financials_end, q.financials_at, q.debt_to_equity, q.interest_coverage, q.cash_to_short_debt, q.ocf_to_debt, q.capex_to_ocf, q.fcf_to_assets, q.net_buyback_pct FROM ticker_info t LEFT JOIN ticker_quality q ON q.ticker = t.ticker"
     )
 
     def upsert(self, info: TickerInfo) -> None:
@@ -156,6 +156,13 @@ class TickerInfoRepo:
             liabilities_to_equity=r["liabilities_to_equity"], fcf_ttm=r["fcf_ttm"],
             financials_end=date.fromisoformat(r["financials_end"]) if r["financials_end"] else None,
             financials_at=_dt(r["financials_at"]),
+            debt_to_equity=r["debt_to_equity"],
+            interest_coverage=r["interest_coverage"],
+            cash_to_short_debt=r["cash_to_short_debt"],
+            ocf_to_debt=r["ocf_to_debt"],
+            capex_to_ocf=r["capex_to_ocf"],
+            fcf_to_assets=r["fcf_to_assets"],
+            net_buyback_pct=r["net_buyback_pct"],
         )
 
     def get(self, ticker: str) -> Optional[TickerInfo]:
@@ -175,6 +182,8 @@ class QualityRepo:
     COLUMNS = (
         "eps_ttm", "positive_quarters", "reported_quarters", "market_cap", "option_liquidity", "next_earnings",
         "eps_surprise_pct", "fundamentals_at", "liabilities_to_equity", "fcf_ttm", "financials_end", "financials_at",
+        "debt_to_equity", "interest_coverage", "cash_to_short_debt", "ocf_to_debt", "capex_to_ocf", "fcf_to_assets",
+        "net_buyback_pct",
     )
 
     def __init__(self, db: Database) -> None:
@@ -190,7 +199,8 @@ class QualityRepo:
         rows = [
             (i.ticker, i.eps_ttm, i.positive_quarters, i.reported_quarters, i.market_cap, i.option_liquidity,
              self._iso(i.next_earnings), i.eps_surprise_pct, self._iso(i.fundamentals_at), i.liabilities_to_equity,
-             i.fcf_ttm, self._iso(i.financials_end), self._iso(i.financials_at))
+             i.fcf_ttm, self._iso(i.financials_end), self._iso(i.financials_at), i.debt_to_equity, i.interest_coverage,
+             i.cash_to_short_debt, i.ocf_to_debt, i.capex_to_ocf, i.fcf_to_assets, i.net_buyback_pct)
             for i in infos
         ]
         updates = ", ".join(f"{c}=excluded.{c}" for c in self.COLUMNS)
@@ -210,6 +220,13 @@ class QualityRepo:
             liabilities_to_equity=r["liabilities_to_equity"], fcf_ttm=r["fcf_ttm"],
             financials_end=date.fromisoformat(r["financials_end"]) if r["financials_end"] else None,
             financials_at=_dt(r["financials_at"]),
+            debt_to_equity=r["debt_to_equity"],
+            interest_coverage=r["interest_coverage"],
+            cash_to_short_debt=r["cash_to_short_debt"],
+            ocf_to_debt=r["ocf_to_debt"],
+            capex_to_ocf=r["capex_to_ocf"],
+            fcf_to_assets=r["fcf_to_assets"],
+            net_buyback_pct=r["net_buyback_pct"],
         )
 
     def get(self, ticker: str) -> Optional[TickerInfo]:
