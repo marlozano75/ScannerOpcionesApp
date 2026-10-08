@@ -79,6 +79,7 @@ class IBKRGateway:
         self._stocks: dict[str, Stock] = {}
         self._sector_cache: dict[str, tuple[Optional[str], Optional[str]]] = {}
         self._vix_futures_cache: Optional[tuple[date, list]] = None
+        self._summary_request: Optional[asyncio.Future] = None   # petición de account summary en vuelo (una como máximo)
         self._historical_counts: Counter[str] = Counter()
         self._historical_limiter = AsyncRateLimiter(
             settings.historical_requests_per_10min, 600, on_wait=self._log_pacing
@@ -141,8 +142,22 @@ class IBKRGateway:
         # accountValues() se mantiene actualizado por la suscripción automática de ib_async
         values = list(self.ib.accountValues(account))
         # accountSummary aporta valores que accountValues no trae (p. ej. HighestSeverity)
-        values += list(await self.ib.accountSummaryAsync(account))
+        values += await self._summary_values(account)
         return m.build_account_summary(values, self.s.account_tags, account, self.now())
+
+    async def _summary_values(self, account: str) -> list:
+        """Valores de `accountSummary`. `ib_async.accountSummaryAsync` abre una suscripción NUEVA en cada llamada
+        mientras el resumen no está cargado y nunca la cierra: con TWS sin responder (error 1100) y un refresco
+        cada minuto se acumulaban hasta que TWS rechazaba con el error 322 («máximo de peticiones de account
+        summary»). Aquí hay como mucho una petición en vuelo, y quien llama puede agotar su tiempo sin cancelarla."""
+        wrapper = getattr(self.ib, "wrapper", None)
+        if wrapper is None:                       # dobles de prueba sin wrapper
+            return list(await self.ib.accountSummaryAsync(account))
+        if not wrapper.acctSummary:
+            if self._summary_request is None or self._summary_request.done():
+                self._summary_request = asyncio.ensure_future(self.ib.reqAccountSummaryAsync())
+            await asyncio.shield(self._summary_request)
+        return [v for v in wrapper.acctSummary.values() if not account or v.account == account]
 
     async def get_positions(self) -> list[Position]:
         self._require()

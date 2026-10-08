@@ -74,3 +74,36 @@ async def test_what_if_without_answer_times_out_instead_of_hanging():
     contract = OptionContract("AAPL", date(2026, 10, 30), 250.0, con_id=123)
     with pytest.raises(DataUnavailableError):
         await gw.what_if_margin(contract, 1)
+
+
+async def test_account_summary_never_opens_more_than_one_request_while_tws_is_silent():
+    """ib_async abre una suscripción nueva en cada llamada mientras el resumen no está cargado; TWS acaba
+    rechazándolas con el error 322. Con TWS mudo debe haber una sola petición en vuelo."""
+    import asyncio
+    from types import SimpleNamespace as NS
+
+    import pytest
+
+    from scanner_opciones.broker.ibkr_gateway import IBKRGateway
+    from scanner_opciones.config.settings import IbkrSettings
+
+    calls = []
+    release = asyncio.Event()
+
+    class SilentIB:
+        wrapper = NS(acctSummary={})
+
+        def reqAccountSummaryAsync(self):
+            calls.append(1)
+            return asyncio.ensure_future(release.wait())      # no termina hasta que TWS responda
+
+    gw = IBKRGateway(IbkrSettings())
+    gw.ib = SilentIB()
+    for _ in range(3):                                       # tres refrescos seguidos que agotan su tiempo
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(gw._summary_values("U1"), timeout=0.05)
+    assert len(calls) == 1
+    SilentIB.wrapper.acctSummary[("U1", "NetLiquidation", "", "EUR")] = NS(account="U1", tag="NetLiquidation")
+    release.set()
+    got = await gw._summary_values("U1")                      # ya cargado: no pide nada más
+    assert [v.tag for v in got] == ["NetLiquidation"] and len(calls) == 1
