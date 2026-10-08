@@ -14,6 +14,8 @@ from pathlib import Path
 import uvicorn
 
 from scanner_opciones.app.service import AppService
+from scanner_opciones.broker.base import BrokerGateway
+from scanner_opciones.broker.hybrid_gateway import HybridGateway
 from scanner_opciones.broker.ibkr_gateway import IBKRGateway
 from scanner_opciones.broker.probe import detect_mode
 from scanner_opciones.config.settings import Settings, load_settings
@@ -33,13 +35,20 @@ def build_app(settings: Settings):
         settings = settings.model_copy(update={"ibkr": settings.ibkr.model_copy(update={"mode": mode})})
     db = Database(settings.storage.path)
 
-    def factory(mode: AccountMode) -> IBKRGateway:
-        return IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
-
     tt = settings.tastytrade
     if not (tt.client_secret and tt.refresh_token):
         raise ConfigError("Faltan tastytrade.client_secret y tastytrade.refresh_token en config.yaml (IV Rank e IV Percentile)")
-    tasty = TastytradeVolatility(tt.client_secret, tt.refresh_token)   # IV Rank/Percentile y precio de contraste
+    md = settings.market_data
+    tasty = TastytradeVolatility(           # IV Rank/Percentile, precio de contraste, velas y (market_data.source) opciones
+        tt.client_secret, tt.refresh_token,
+        quote_wait=md.quote_wait_seconds, settle=md.settle_seconds, option_batch_size=md.quote_batch_size,
+    )
+
+    def factory(mode: AccountMode) -> BrokerGateway:
+        ibkr = IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
+        # «tastytrade»: cadena, cotizaciones, precios y ex-dividendos de tastytrade; cuenta, margen, sector y VIX de IBKR
+        return HybridGateway(ibkr, tasty, md) if md.source == "tastytrade" else ibkr
+
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty)
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     startup_task: list[asyncio.Task] = []

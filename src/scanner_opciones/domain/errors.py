@@ -35,3 +35,7 @@ class PriceError(AppError):
 
 class VolatilityError(AppError):
     """Fallo al obtener las métricas de volatilidad de un proveedor externo."""
+
+
+class OptionDataError(AppError):
+    """Fallo al obtener la cadena o las cotizaciones de opciones de un proveedor externo."""

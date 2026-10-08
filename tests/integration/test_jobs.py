@@ -251,7 +251,7 @@ async def test_daily_update_logs_one_summary_per_ticker(env, caplog):
     with caplog.at_level(logging.INFO, logger="scanner_opciones.jobs.contract_sync"):
         await env.daily.run(["AAPL"])
     msgs = [r.getMessage() for r in caplog.records if "combinaciones" in r.getMessage()]
-    assert msgs == ["AAPL: 1 de 2 combinaciones nuevas existen en IBKR (las demás no están listadas; es normal)"]
+    assert msgs == ["AAPL: 1 de 2 combinaciones nuevas existen (las demás no están listadas; es normal)"]
 
 
 # ---- catálogo incremental, caché de margen y lotes ----------------------------------------------
