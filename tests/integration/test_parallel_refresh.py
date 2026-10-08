@@ -149,3 +149,24 @@ def test_sdk_log_level_survives_later_imports():
     import tastytrade.streamer   # noqa: F401 - un import posterior no debe volver a ponerlo en DEBUG
     importlib.import_module("tastytrade.instruments")
     assert logging.getLogger("tastytrade").level == logging.WARNING
+
+
+async def test_a_stale_margin_is_kept_when_tws_does_not_answer():
+    """Con TWS caído, el margen antiguo (más viejo que margin_max_age_minutes) no se borra."""
+    from datetime import timedelta
+    from scanner_opciones.domain.errors import DataUnavailableError
+
+    env = Env()
+    c75, c80 = await _prepare_refresh(env)
+    env.settings = Settings.model_validate({"scanner": {"initial": {"min_annual_yield_pct": 0}}})
+    env.refresh.settings = env.settings
+    await env.refresh.run()                                    # guarda el margen de 1500
+    assert env.snaps.all("AAPL")[0].initial_margin == 1500.0
+    env.clock = NOW + timedelta(hours=3)                       # el margen ya es antiguo y se querría pedir de nuevo
+
+    async def silent(contract, quantity=1):
+        raise DataUnavailableError("TWS no respondió")
+    env.gw.what_if_margin = silent
+    await env.refresh.run()
+    kept = [s for s in env.snaps.all("AAPL") if s.contract == c75][0]
+    assert kept.initial_margin == 1500.0 and kept.margin_at == NOW      # sigue ahí, con su fecha antigua

@@ -286,8 +286,13 @@ class RefreshJob:
         ):
             report.margins_reused += 1
             return replace(snap, initial_margin=previous.initial_margin, margin_at=previous.margin_at)
+        # Sin respuesta de TWS se conserva el último margen conocido (con su fecha: se volverá a pedir en cuanto
+        # responda) en lugar de borrarlo: un margen antiguo es mejor que ninguno.
+        stale = snap
+        if previous is not None and previous.initial_margin is not None:
+            stale = replace(snap, initial_margin=previous.initial_margin, margin_at=previous.margin_at)
         if report.margin_streak >= MARGIN_MAX_FAILURES:
-            return snap   # TWS no responde: no se espera un tiempo máximo por cada contrato
+            return stale   # TWS no responde: no se espera un tiempo máximo por cada contrato
         try:
             report.margins_requested += 1
             margin = await self.gateway.what_if_margin(snap.contract, 1)
@@ -298,6 +303,6 @@ class RefreshJob:
             log.warning("what-if fallido para %s: %s", snap.contract, exc)
             if report.margin_streak == MARGIN_MAX_FAILURES:
                 log.warning("%d what-if seguidos fallidos: no se piden más márgenes en este ciclo", MARGIN_MAX_FAILURES)
-            return snap
+            return stale
         report.margin_streak = 0
         return replace(snap, initial_margin=margin, margin_at=self.now() if margin is not None else None)
