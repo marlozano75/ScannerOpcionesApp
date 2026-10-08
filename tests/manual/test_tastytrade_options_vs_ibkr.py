@@ -25,6 +25,7 @@ from typing import Optional
 import pytest
 
 from scanner_opciones.broker.ibkr_gateway import IBKRGateway
+from scanner_opciones.broker.probe import detect_mode
 from scanner_opciones.config.settings import CandidateRange, load_settings
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import OptionChain, OptionContract
@@ -174,7 +175,8 @@ async def test_chain_and_quotes_tastytrade_vs_ibkr(settings, tt):
         print("\n[IBKR] omitido (SMOKE_SKIP_IBKR=1)")
         return
     ibkr = settings.ibkr
-    gw = IBKRGateway(ibkr.model_copy(update={"client_id": ibkr.client_id + 100}))
+    mode = detect_mode(ibkr) if ibkr.auto_detect_mode else ibkr.mode   # como main.py: el modo según el puerto abierto
+    gw = IBKRGateway(ibkr.model_copy(update={"client_id": ibkr.client_id + 100, "mode": mode}))
     try:
         await asyncio.wait_for(gw.connect(), timeout=30)
     except Exception as exc:
