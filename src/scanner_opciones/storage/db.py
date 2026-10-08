@@ -150,6 +150,7 @@ class Database:
     """Envoltorio fino sobre sqlite3. `path=':memory:'` para tests."""
 
     def __init__(self, path: str | Path = ":memory:") -> None:
+        self.path = str(path)   # dónde vive realmente esta base de datos (el Universo guarda sus ficheros a su lado)
         if str(path) != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(path), check_same_thread=False)

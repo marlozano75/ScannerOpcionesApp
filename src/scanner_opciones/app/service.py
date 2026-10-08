@@ -85,6 +85,7 @@ class AppService:
         fundamentals: Optional[FundamentalsProvider] = None,
         financials: Optional[FinancialsProvider] = None,
     ) -> None:
+        self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
         self.settings = settings
         self.now = now
@@ -119,8 +120,9 @@ class AppService:
     # ---- Universo: los ficheros cargados sobreviven a los reinicios --------------------------
     def _universe_dir(self) -> Optional[Path]:
         """Copias de los .xlsx cargados, junto a la base de datos (`data/` no se sube al repositorio)."""
-        path = self.settings.storage.path
-        return None if str(path) == ":memory:" else Path(path).parent / "universe"
+        # Se deriva de la base de datos REALMENTE en uso, no de la configuración: un servicio con una base en memoria
+        # (tests, scripts de diagnóstico) con la configuración por defecto apuntaría a `data/` y pisaría los ficheros reales.
+        return None if self._db_path == ":memory:" else Path(self._db_path).parent / "universe"
 
     @property
     def universe_sources(self) -> list[Source]:
