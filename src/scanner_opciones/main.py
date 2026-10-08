@@ -94,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         handlers=handlers,
     )
     logging.getLogger("ib_async").setLevel(getattr(logging, settings.logging.ib_async_level.upper(), logging.WARNING))
+    logging.getLogger("tastytrade").setLevel(getattr(logging, settings.logging.tastytrade_level.upper(), logging.WARNING))
     uvicorn.run(build_app(settings), host=args.host, port=args.port, log_level="info")
     return 0
 

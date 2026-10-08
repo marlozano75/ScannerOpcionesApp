@@ -228,6 +228,7 @@ ScannerOpcionesApp/
 | `market.holidays` | `[]` | Festivos de EE. UU. (a mano); los cierres anticipados no se modelan |
 | `market.pause_when_closed` | `true` | Con el mercado cerrado: una captura y después solo cartera y VIX (RF-33). `false` = refrescar siempre |
 | `logging.ib_async_level` | `WARNING` | Nivel del log de `ib_async` |
+| `logging.tastytrade_level` | `WARNING` | Nivel del log del SDK de tastytrade (él mismo se fija en DEBUG y llenaría el log) |
 | `logging.file` | `logs/scanner.log` | Fichero de log con rotación (`file_max_mb` 5, `file_backups` 3); `null` = solo consola |
 | `daily_update.concurrency` | `4` | Tickers que se actualizan a la vez en la actualización diaria |
 | `refresh.margin_max_age_minutes` | `60` | Antigüedad máxima del margen (what-if) guardado que se reutiliza sin volver a pedirlo |
