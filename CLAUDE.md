@@ -69,4 +69,4 @@ Hexagonal ligera. El dominio y los jobs solo conocen el puerto `BrokerGateway` (
 
 `ESPECIFICACION_TECNICA.md` recoge los requisitos numerados (RF-xx) y las decisiones del usuario (Q-xx); al cambiar un comportamiento, actualízala junto con `README.md`. `especificaciones.md` es el requisito original.
 
-Git: el repositorio de esta app está anidado dentro de `C:\Users\marlo\ProyectosVSC` (que es otro repositorio) y no tiene remoto. Los commits llevan el trailer `Co-Authored-By: Claude`.
+Git: el repositorio de esta app está anidado dentro de `C:\Users\marlo\ProyectosVSC` (que es otro repositorio) y su remoto es `origin` (`https://github.com/marlozano75/ScannerOpcionesApp.git`, rama `main`; `config/config.yaml` está ignorado: lleva las credenciales de tastytrade y la cuenta de IBKR, no los subas). La etiqueta `version-ibkr-datos` marca la última versión con todos los datos de mercado por IBKR. Los commits llevan el trailer `Co-Authored-By: Claude`.
