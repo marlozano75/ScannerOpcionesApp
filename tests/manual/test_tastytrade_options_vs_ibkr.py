@@ -9,6 +9,7 @@ Variables de entorno opcionales:
     SMOKE_TICKERS       tickers separados por coma (por defecto AAPL,MU,BAC,PBR-A,AXTI,ADAM)
     SMOKE_BATCH_SIZES   tamaños de lote DXLink a probar (por defecto 50,100,200,400)
     SMOKE_WAIT_SECONDS  espera máxima por lote de cotizaciones (por defecto 20)
+    SMOKE_MARKET_DATA_TYPE  tipo de datos de IBKR para la prueba (1 en vivo, 2 congelado, 3 diferido; 0 = config)
     SMOKE_SKIP_IBKR     «1» para no conectar con TWS y medir solo tastytrade
 Con el mercado cerrado, las cotizaciones en vivo pueden llegar vacías en ambos lados: interpreta solo la
 cobertura de contratos (cadena) y, para valores, ejecuta la prueba con el mercado abierto.
@@ -37,6 +38,7 @@ CONFIG = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
 TICKERS = [t.strip().upper() for t in os.environ.get("SMOKE_TICKERS", "AAPL,MU,BAC,PBR-A,AXTI,ADAM").split(",") if t.strip()]
 BATCH_SIZES = [int(x) for x in os.environ.get("SMOKE_BATCH_SIZES", "50,100,200,400").split(",")]
 WAIT = float(os.environ.get("SMOKE_WAIT_SECONDS", "20"))
+MDT = int(os.environ.get("SMOKE_MARKET_DATA_TYPE", "0"))   # 0 = el de config.yaml
 SETTLE = 3.0   # segundos sin datos nuevos tras los cuales se da el lote por terminado
 
 
@@ -176,7 +178,7 @@ async def test_chain_and_quotes_tastytrade_vs_ibkr(settings, tt):
         return
     ibkr = settings.ibkr
     mode = detect_mode(ibkr) if ibkr.auto_detect_mode else ibkr.mode   # como main.py: el modo según el puerto abierto
-    gw = IBKRGateway(ibkr.model_copy(update={"client_id": ibkr.client_id + 100, "mode": mode}))
+    gw = IBKRGateway(ibkr.model_copy(update={"client_id": ibkr.client_id + 100, "mode": mode, **({"market_data_type": MDT} if MDT else {})}))
     try:
         await asyncio.wait_for(gw.connect(), timeout=30)
     except Exception as exc:
