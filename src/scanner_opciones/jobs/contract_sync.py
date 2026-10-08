@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 
 class ContractSyncer:
-    """Solo se validan con IBKR las combinaciones que ni están guardadas ni se sabe que no existen.
+    """Solo se validan con el broker/proveedor las combinaciones que ni están guardadas ni se sabe que no existen.
     Los contratos que siguen en la ventana conservan su snapshot. La ventana es la guardada
     (`scanner.catalog`: el rango visible más su margen) calculada con el precio actual del subyacente.
     La cadena se cachea en memoria por día: strikes y vencimientos no cambian dentro de la sesión."""
@@ -59,7 +59,7 @@ class ContractSyncer:
             ok = {ContractRepo.key(c) for c in validated}
             self.contracts.add_misses(ticker, [c for c in to_check if ContractRepo.key(c) not in ok])
             log.info(
-                "%s: %d de %d combinaciones nuevas existen en IBKR (las demás no están listadas; es normal)",
+                "%s: %d de %d combinaciones nuevas existen (las demás no están listadas; es normal)",
                 ticker, len(validated), len(to_check),
             )
         removed, inserted = self.contracts.sync_for_ticker(ticker, wanted_keys, validated)

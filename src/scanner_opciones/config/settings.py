@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import date, time
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
@@ -228,6 +228,16 @@ class TastytradeSettings(_Model):
     price_max_deviation_pct: float = Field(5, gt=0)
 
 
+class MarketDataSettings(_Model):
+    """De dónde salen la cadena, las cotizaciones de opciones, los precios y los ex-dividendos. La cuenta, las
+    posiciones, el margen what-if, el sector y el VIX son siempre de IBKR."""
+    source: Literal["tastytrade", "ibkr"] = "tastytrade"   # «ibkr» recupera el comportamiento anterior (todo por TWS)
+    quote_wait_seconds: float = Field(20, gt=0)   # espera máxima por lote de cotizaciones DXLink
+    settle_seconds: float = Field(3, gt=0)        # sin datos nuevos durante tanto tiempo, el lote se da por terminado
+    quote_batch_size: int = Field(400, ge=1)      # suscripciones DXLink a opciones por lote (probado hasta 400)
+    listing_ttl_minutes: float = Field(30, gt=0)  # cuánto se reutiliza la lista de contratos de un ticker
+
+
 class TrendSettings(_Model):
     """Histórico de cierres diarios de tastytrade (DXLink) en el que se basan los filtros técnicos del scanner."""
     history_days: int = Field(1400, ge=30)          # días naturales de cierres que se guardan (~3,8 años: lo máximo que da tastytrade)
@@ -275,6 +285,7 @@ class Settings(_Model):
     diversification: DiversificationSettings = DiversificationSettings()
     vix: VixSettings = VixSettings()
     tastytrade: TastytradeSettings = TastytradeSettings()
+    market_data: MarketDataSettings = MarketDataSettings()
     trend: TrendSettings = TrendSettings()
     storage: StorageSettings = StorageSettings()
     logging: LoggingSettings = LoggingSettings()

@@ -344,6 +344,12 @@ ScannerOpcionesApp/
 - Valores distintos a los calculados antes con el historial de IBKR (decisión del usuario 2026-10-06: usar el rank de tastytrade y eliminar el respaldo de IBKR).
 - Se conserva la tabla `iv_history` sin usar (no se borra para no perder datos).
 
+### Datos de mercado por tastytrade (rama `tastytrade-datos`, 2026-10-08)
+- `market_data.source: tastytrade` (por defecto en esta rama) saca de tastytrade la cadena (puts que existen de verdad, sin `qualify_contracts`), las cotizaciones de opciones (DXLink `Quote`/`Greeks`/`Summary`), los precios de los subyacentes, la IV a 30 días y el ex-dividendo. La cuenta, las posiciones, el margen what-if, el sector y el VIX siguen siendo de IBKR. `source: ibkr` recupera el comportamiento anterior; esa versión también está en la etiqueta git `version-ibkr-datos`.
+- Implementación: puerto `OptionDataProvider` (`marketdata/options.py`), métodos nuevos de `TastytradeVolatility` y `HybridGateway` (`broker/hybrid_gateway.py`), que envuelve a `IBKRGateway`. Si el proveedor falla, cada consulta cae a IBKR con un aviso en el log.
+- Los contratos guardados ya no traen `con_id` (lo resuelve IBKR al pedir el margen what-if). Los antiguos lo conservan.
+- Medido el 2026-10-08 (prueba `tests/manual/test_tastytrade_options_vs_ibkr.py`): mismos contratos que IBKR en 586/586; cadena + validación ~2,5 s frente a ~50 s para 6 tickers; open interest y bid size idénticos. Pendiente de confirmar con el mercado abierto: IV, delta, bid y ask en vivo. Diferencias conocidas: el bid sin ofertas llega como 0 (IBKR lo daba como «sin dato»); `last` no se rellena; el ex-dividendo es la última fecha conocida de tastytrade (si ya pasó, «sin dividendo próximo»).
+
 ### Universo, rediseño y Contratos (2026-10-06)
 - El ticker de cada fila se corta en el primer `-` o `.` (`PBR-A` → `PBR`, `BRK.B` → `BRK`). Si un fichero guardado está corrupto se ignora al arrancar.
 - Se retira la pestaña Contratos. La pestaña RankedStocks pasa a ser **Universo** (RF-37). Menú: Panel · Universo · Watchlist · Scanner.
