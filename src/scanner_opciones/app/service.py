@@ -30,6 +30,7 @@ from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     BarRepo, ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
+from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider
 from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.marketdata.prices import PriceProvider
@@ -81,6 +82,7 @@ class AppService:
         prices: Optional[PriceProvider] = None,
         candles: Optional[CandleProvider] = None,
         fundamentals: Optional[FundamentalsProvider] = None,
+        financials: Optional[FinancialsProvider] = None,
     ) -> None:
         self.gateway = gateway
         self.settings = settings
@@ -94,7 +96,7 @@ class AppService:
         self.bars = BarRepo(db)
         syncer = ContractSyncer(gateway, self.contracts, settings)  # comparte la cadena en caché
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.contracts, settings,
-                                  now, volatility, prices, candles, self.bars, syncer, fundamentals)
+                                  now, volatility, prices, candles, self.bars, syncer, fundamentals, financials)
         self.refresh_job = RefreshJob(
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
             volatility, prices, syncer,
@@ -108,6 +110,7 @@ class AppService:
         self.excluded: dict[str, dict] = self._load_excluded()   # tickers sacados de la watchlist por inservibles
         self.restore_universe()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas de los jobs de mercado
+        self._financials_running = False
         self._account_lock = asyncio.Lock()  # cuenta, posiciones y VIX: aparte, para que un ciclo largo de mercado no los retrase
         self._background: set = set()
 
@@ -269,6 +272,7 @@ class AppService:
             await self.refresh_all(include_market=False)
         else:
             await self.refresh_all()
+        self.update_financials_in_background()
         if self.settings.daily_update.run_on_startup:
             self.launch(self.run_daily_then_refresh())
 
@@ -425,6 +429,7 @@ class AppService:
             self.state.last_daily_report = report
             await self._update_history()
             await self._update_fundamentals()
+            self.update_financials_in_background()   # las fichas de los tickers nuevos ya existen
             return report
 
     async def _update_history(self) -> None:
@@ -453,6 +458,23 @@ class AppService:
             log.exception("No se pudieron actualizar los datos de calidad")
         finally:
             self.state.data_version += 1
+
+    def update_financials_in_background(self) -> None:
+        """Lanza la consulta a SEC EDGAR (la primera vez dura minutos) sin esperar y sin solaparse consigo misma."""
+        if self.daily.financials is None or self._financials_running:
+            return
+        self._financials_running = True
+
+        async def run() -> None:
+            try:
+                if await self.daily.update_financials(self.watchlist.list()):
+                    self.state.data_version += 1
+            except Exception:
+                log.exception("No se pudieron actualizar el balance y el flujo de caja")
+            finally:
+                self._financials_running = False
+
+        self.launch(run())
 
     def record_today_prices(self) -> int:
         """Guarda el último precio de cada ticker como cierre provisional de la sesión de hoy en el histórico (lo
@@ -492,6 +514,7 @@ class AppService:
         """Refresco automático según el horario del mercado. Abierto: completo. Cerrado: una única
         captura completa tras el cierre (con datos congelados, para tener el cierre) y después solo
         cartera y VIX, porque precios, IV, cotizaciones y márgenes no pueden cambiar hasta la apertura."""
+        self.update_financials_in_background()   # no hace nada si no hay datos viejos
         if not self._paused() or self._capture_needed():
             return await self.refresh_all()
         log.info("Mercado cerrado: se refrescan solo cartera y VIX")

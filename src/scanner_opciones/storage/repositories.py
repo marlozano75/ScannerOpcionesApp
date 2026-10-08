@@ -92,6 +92,7 @@ class TickerInfoRepo:
         "ticker", "sector", "category", "underlying_price", "days_to_ex_dividend", "iv_rank", "iv_percentile",
         "updated_daily_at", "price_at", "eps_ttm", "positive_quarters", "reported_quarters", "market_cap",
         "option_liquidity", "next_earnings", "eps_surprise_pct", "fundamentals_at",
+        "liabilities_to_equity", "fcf_ttm", "financials_end", "financials_at",
     )
 
     def upsert(self, info: TickerInfo) -> None:
@@ -104,6 +105,9 @@ class TickerInfoRepo:
             info.eps_ttm, info.positive_quarters, info.reported_quarters, info.market_cap, info.option_liquidity,
             info.next_earnings.isoformat() if info.next_earnings else None, info.eps_surprise_pct,
             info.fundamentals_at.isoformat() if info.fundamentals_at else None,
+            info.liabilities_to_equity, info.fcf_ttm,
+            info.financials_end.isoformat() if info.financials_end else None,
+            info.financials_at.isoformat() if info.financials_at else None,
         )
         updates = ", ".join(f"{c}=excluded.{c}" for c in cols[1:])
         with self.db.conn:
@@ -126,6 +130,19 @@ class TickerInfoRepo:
             cur = self.db.conn.executemany(
                 "UPDATE ticker_info SET eps_ttm=?, positive_quarters=?, reported_quarters=?, market_cap=?, "
                 "option_liquidity=?, next_earnings=?, eps_surprise_pct=?, fundamentals_at=? WHERE ticker=?", rows)
+        return cur.rowcount
+
+    def update_financials(self, infos: Iterable[TickerInfo]) -> int:
+        """Guarda solo el apalancamiento y el flujo de caja (SEC EDGAR) de las fichas existentes, en una transacción."""
+        rows = [
+            (i.liabilities_to_equity, i.fcf_ttm, i.financials_end.isoformat() if i.financials_end else None,
+             i.financials_at.isoformat() if i.financials_at else None, i.ticker)
+            for i in infos
+        ]
+        with self.db.conn:
+            cur = self.db.conn.executemany(
+                "UPDATE ticker_info SET liabilities_to_equity=?, fcf_ttm=?, financials_end=?, financials_at=? "
+                "WHERE ticker=?", rows)
         return cur.rowcount
 
     def delete(self, ticker: str) -> None:
@@ -165,6 +182,9 @@ class TickerInfoRepo:
             market_cap=r["market_cap"], option_liquidity=r["option_liquidity"],
             next_earnings=date.fromisoformat(r["next_earnings"]) if r["next_earnings"] else None,
             eps_surprise_pct=r["eps_surprise_pct"], fundamentals_at=_dt(r["fundamentals_at"]),
+            liabilities_to_equity=r["liabilities_to_equity"], fcf_ttm=r["fcf_ttm"],
+            financials_end=date.fromisoformat(r["financials_end"]) if r["financials_end"] else None,
+            financials_at=_dt(r["financials_at"]),
         )
 
     def get(self, ticker: str) -> Optional[TickerInfo]:

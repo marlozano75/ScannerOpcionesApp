@@ -28,6 +28,10 @@ class TickerInfo:
     next_earnings: Optional[date] = None       # fecha prevista de los próximos resultados (si ya pasó, es la última)
     eps_surprise_pct: Optional[float] = None   # último EPS frente al consenso, en %
     fundamentals_at: Optional[datetime] = None  # cuándo se descargó el historial trimestral
+    liabilities_to_equity: Optional[float] = None   # pasivo total / patrimonio (SEC EDGAR)
+    fcf_ttm: Optional[float] = None            # flujo de caja libre de los últimos 12 meses, USD (SEC EDGAR)
+    financials_end: Optional[date] = None      # fin del último periodo contable usado
+    financials_at: Optional[datetime] = None   # cuándo se consultó EDGAR (aunque no hubiera datos)
 
 
 @dataclass(frozen=True)

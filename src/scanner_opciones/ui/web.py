@@ -323,6 +323,8 @@ def create_app(
             "q_quarters": "" if base.min_positive_quarters is None else str(base.min_positive_quarters),
             "q_mcap": "" if base.min_market_cap_m is None else _fmt(base.min_market_cap_m),
             "q_liq": "" if base.min_option_liquidity is None else str(base.min_option_liquidity),
+            "q_lev": "" if base.max_liabilities_to_equity is None else _fmt(base.max_liabilities_to_equity),
+            "q_fcf": base.require_positive_fcf,
             **{k: getattr(base, k) for k in MA_LINES},
             "ma_frame": base.ma_frame,
             **{k: getattr(base, k) for k in MA_CROSSES},
@@ -382,10 +384,13 @@ def create_app(
                 qcfg = service.settings.scanner.quality
                 form["q_profit"], form["q_earn"] = "q_profit" in qp, "q_earn" in qp
                 overrides["require_profitable"], overrides["avoid_earnings"] = form["q_profit"], form["q_earn"]
+                form["q_fcf"] = "q_fcf" in qp
+                overrides["require_positive_fcf"] = form["q_fcf"]
                 for key, field_name, cast, allowed, label in (
                     ("q_quarters", "min_positive_quarters", int, qcfg.positive_quarters_options, "Trimestres con beneficios"),
                     ("q_mcap", "min_market_cap_m", float, qcfg.market_cap_options_m, "Capitalización mínima"),
                     ("q_liq", "min_option_liquidity", int, qcfg.liquidity_options, "Liquidez de opciones"),
+                    ("q_lev", "max_liabilities_to_equity", float, qcfg.leverage_options, "Apalancamiento máximo"),
                 ):
                     form[key] = qp.get(key, "").strip()
                     overrides[field_name] = _required(form[key], cast, label) if form[key] else None
@@ -467,7 +472,9 @@ def create_app(
                       quality_opts=dict(
                           quarters=service.settings.scanner.quality.positive_quarters_options,
                           mcaps=[(_fmt(m), _mcap_label(m)) for m in service.settings.scanner.quality.market_cap_options_m],
-                          liquidity=service.settings.scanner.quality.liquidity_options),
+                          liquidity=service.settings.scanner.quality.liquidity_options,
+                          leverage=[_fmt(v) for v in service.settings.scanner.quality.leverage_options],
+                          edgar=bool(service.settings.edgar.contact.strip())),
                       report=service.state.last_refresh_report, **parsed)
 
     @app.get("/data-version")

@@ -180,6 +180,7 @@ class QualitySettings(_Model):
     market_cap_options_m: list[float] = [500, 1000, 2000, 5000, 10000, 50000]   # capitalización mínima ofrecida (M$)
     liquidity_options: list[int] = [2, 3, 4]               # liquidez mínima de las opciones (1-5, de tastytrade)
     positive_quarters_options: list[int] = [2, 3, 4]       # trimestres con beneficios exigidos de los últimos 4
+    leverage_options: list[float] = [1, 2, 3, 5]           # pasivo/patrimonio máximo ofrecido (no aplica a las financieras)
     refresh_days: int = Field(7, ge=1)                     # cada cuántos días se vuelve a bajar el historial trimestral
 
 
@@ -249,6 +250,13 @@ class MarketDataSettings(_Model):
     listing_ttl_minutes: float = Field(30, gt=0)  # cuánto se reutiliza la lista de contratos de un ticker
 
 
+class EdgarSettings(_Model):
+    """SEC EDGAR (balance y flujos de caja): la SEC exige un contacto en el User-Agent; sin él la función queda apagada."""
+    contact: str = ""                                    # tu correo (o nombre y correo): se envía a la SEC en el User-Agent
+    refresh_days: int = Field(14, ge=1)                  # cada cuántos días se consulta de nuevo (los informes son trimestrales)
+    requests_per_second: float = Field(5, gt=0, le=10)   # la SEC permite 10 como máximo
+
+
 class TrendSettings(_Model):
     """Histórico de cierres diarios de tastytrade (DXLink) en el que se basan los filtros técnicos del scanner."""
     history_days: int = Field(1400, ge=30)          # días naturales de cierres que se guardan (~3,8 años: lo máximo que da tastytrade)
@@ -298,6 +306,7 @@ class Settings(_Model):
     vix: VixSettings = VixSettings()
     tastytrade: TastytradeSettings = TastytradeSettings()
     market_data: MarketDataSettings = MarketDataSettings()
+    edgar: EdgarSettings = EdgarSettings()
     trend: TrendSettings = TrendSettings()
     storage: StorageSettings = StorageSettings()
     logging: LoggingSettings = LoggingSettings()

@@ -99,6 +99,13 @@ MIGRATIONS: list[str] = [
     ALTER TABLE ticker_info ADD COLUMN eps_surprise_pct REAL;
     ALTER TABLE ticker_info ADD COLUMN fundamentals_at TEXT;
     """,
+    # v14: apalancamiento y flujo de caja (SEC EDGAR)
+    """
+    ALTER TABLE ticker_info ADD COLUMN liabilities_to_equity REAL;
+    ALTER TABLE ticker_info ADD COLUMN fcf_ttm REAL;
+    ALTER TABLE ticker_info ADD COLUMN financials_end TEXT;
+    ALTER TABLE ticker_info ADD COLUMN financials_at TEXT;
+    """,
 ]
 
 

@@ -22,6 +22,7 @@ from scanner_opciones.config.settings import Settings, load_settings
 from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.errors import ConfigError
 from scanner_opciones.jobs.scheduler import PeriodicRunner
+from scanner_opciones.marketdata.edgar import EdgarFinancialsProvider
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
 from scanner_opciones.ui.web import create_app
@@ -44,13 +45,20 @@ def build_app(settings: Settings):
         quote_wait=md.quote_wait_seconds, settle=md.settle_seconds, option_batch_size=md.quote_batch_size,
     )
 
+    financials = None
+    if settings.edgar.contact.strip():
+        financials = EdgarFinancialsProvider(settings.edgar.contact.strip(), settings.edgar.requests_per_second)
+    else:
+        logging.getLogger(__name__).info(
+            "Sin edgar.contact en config.yaml: no se consulta SEC EDGAR (filtros de apalancamiento y flujo de caja sin datos)")
+
     def factory(mode: AccountMode) -> BrokerGateway:
         ibkr = IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
         # «tastytrade»: cadena, cotizaciones, precios y ex-dividendos de tastytrade; cuenta, margen, sector y VIX de IBKR
         return HybridGateway(ibkr, tasty, md, fallback_batch=settings.refresh.batch_size) if md.source == "tastytrade" else ibkr
 
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty,
-                         fundamentals=tasty)
+                         fundamentals=tasty, financials=financials)
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     account_runner = PeriodicRunner(service.refresh_account, settings.refresh.account_interval_minutes * 60)
     startup_task: list[asyncio.Task] = []

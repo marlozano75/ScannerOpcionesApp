@@ -162,10 +162,27 @@
     </div>
   </div>
 
+  <div class="panels">
+    <div class="panel tech">
+      <h3><span class="n">11</span>Apalancamiento y caja</h3>
+      <div class="filters">
+        <label>Pasivo / patrimonio máximo
+          <select name="q_lev" id="q_lev">
+            <option value="" {{ 'selected' if form.q_lev == '' }}>Cualquiera</option>
+            {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if form.q_lev == v }}>{{ v }}</option>{% endfor %}</select></label>
+      </div>
+      <label class="opt" style="flex-direction:row;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
+        <input type="checkbox" name="q_fcf" id="q_fcf" {{ 'checked' if form.q_fcf }}> <b>Flujo de caja libre positivo (12 meses)</b></label>
+      <p class="note">Datos de la SEC (balance e informes trimestrales). Las <b>financieras</b> (bancos, aseguradoras) quedan exentas. Se descartan los tickers sin dato:
+        los emisores extranjeros (ADR) suelen no tenerlo, y también quien tenga patrimonio negativo.
+        {% if not quality_opts.edgar %}<b>Sin datos: falta <code>edgar.contact</code> en config.yaml</b> (la SEC exige un contacto en las peticiones).{% endif %}</p>
+    </div>
+  </div>
+
   <div class="section-title">Liquidez y volatilidad</div>
   <div class="panels">
     <div class="panel wide">
-      <h3><span class="n">11</span>Filtros opcionales</h3>
+      <h3><span class="n">12</span>Filtros opcionales</h3>
       <div class="filters">
         <label class="opt"><span><input type="checkbox" name="use_oi" {{ 'checked' if form.use_oi }}> OI mínimo</span>
           <input name="oi" size="7" value="{{ form.oi }}"></label>
@@ -231,7 +248,7 @@
     document.getElementById('trend_days_label').style.opacity = (off || !low) ? .45 : 1;
   };
   techSync();
-  document.querySelectorAll('.tech select, .tech input[name^=price_], #support, #q_profit, #q_earn').forEach(function (el) {
+  document.querySelectorAll('.tech select, .tech input[name^=price_], #support, #q_profit, #q_earn, #q_fcf').forEach(function (el) {
     el.addEventListener('change', function () { techSync(); form.submit(); });
   });
   document.querySelectorAll('label.opt').forEach(function (l) {

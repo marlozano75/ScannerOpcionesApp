@@ -1,0 +1,248 @@
+"""SEC EDGAR (API pública `data.sec.gov`, gratuita y oficial): balance y flujos de caja de cada empresa.
+
+Una sola petición por empresa (`companyfacts`, 1-5 MB) trae todos sus datos XBRL; las etiquetas alternativas se
+resuelven aquí, en local. La SEC exige un `User-Agent` con un contacto (sin él bloquea las peticiones) y limita a
+10 peticiones por segundo: se usa `edgar.contact` de la configuración y 5 por segundo como máximo.
+
+Cobertura: las empresas estadounidenses (10-K/10-Q, US-GAAP) dan balance y flujo de 12 meses. Los emisores
+extranjeros (20-F, IFRS) solo publican el año fiscal y, a menudo, sin etiquetas útiles: pueden quedar sin dato.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from datetime import date, datetime, timedelta
+from typing import Any, Awaitable, Callable, Optional
+
+from scanner_opciones.domain.errors import FinancialsError
+from scanner_opciones.marketdata.financials import Financials
+
+log = logging.getLogger(__name__)
+
+TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
+STALE_DAYS = 460   # un dato más viejo que esto (≈15 meses) es de otra época: etiquetas abandonadas, empresa que dejó de reportar
+ANNUAL_FORMS = ("10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A")
+QUARTER_FORMS = ("10-Q", "10-Q/A")
+
+# etiquetas por taxonomía, en orden de preferencia
+TAXONOMIES = {
+    "us-gaap": dict(
+        equity=("StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest", "StockholdersEquity"),
+        liabilities=("Liabilities",), liabilities_and_equity=("LiabilitiesAndStockholdersEquity",),
+        ocf=("NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
+        capex=("PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets", "PaymentsForCapitalImprovements"),
+    ),
+    "ifrs-full": dict(
+        equity=("Equity", "EquityAttributableToOwnersOfParent"),
+        liabilities=("Liabilities",), liabilities_and_equity=("EquityAndLiabilities",),
+        ocf=("CashFlowsFromUsedInOperatingActivities", "CashFlowsFromUsedInOperatingActivitiesContinuingOperations"),
+        capex=("PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "PurchaseOfPropertyPlantAndEquipment"),
+    ),
+}
+
+
+def _days(a: str, b: str) -> int:
+    return (date.fromisoformat(b) - date.fromisoformat(a)).days
+
+
+def _usd(tree: dict, tags: tuple[str, ...]) -> list[dict]:
+    """Hechos en dólares de la primera etiqueta que tenga alguno (cada hecho: start?, end, val, form, filed)."""
+    for tag in tags:
+        facts = tree.get(tag, {}).get("units", {}).get("USD")
+        if facts:
+            return facts
+    return []
+
+
+def _latest_end(facts: list[dict]) -> str:
+    return max((f["end"] for f in facts), default="")
+
+
+def _freshest(tree: dict, tags: tuple[str, ...]) -> list[dict]:
+    """Hechos en dólares de la etiqueta con el dato MÁS RECIENTE. Una empresa puede conservar una etiqueta antigua con
+    datos de 2015 y usar otra ahora (MU, LITE): no vale la primera que tenga algo. En un empate manda la primera."""
+    candidates = [tree.get(tag, {}).get("units", {}).get("USD") or [] for tag in tags]
+    return max(candidates, key=_latest_end, default=[])
+
+
+def _instants(facts: list[dict]) -> dict[str, float]:
+    """Valores de balance por fecha de cierre; si hay varios para una fecha, el del informe más reciente."""
+    best: dict[str, dict] = {}
+    for f in facts:
+        if "start" in f:
+            continue
+        if f["end"] not in best or f.get("filed", "") > best[f["end"]].get("filed", ""):
+            best[f["end"]] = f
+    return {end: f["val"] for end, f in best.items()}
+
+
+def flow_ttm(facts: list[dict]) -> Optional[tuple[float, str]]:
+    """Flujo de los últimos 12 meses y su fecha de fin: el último año fiscal (10-K/20-F) más el acumulado del año en
+    curso (10-Q) menos el mismo acumulado del año anterior. Sin trimestres posteriores o sin comparable, el año fiscal."""
+    by_period: dict[tuple[str, str], dict] = {}
+    for f in facts:
+        if "start" not in f:
+            continue
+        key = (f["start"], f["end"])
+        if key not in by_period or f.get("filed", "") > by_period[key].get("filed", ""):
+            by_period[key] = f
+    periods = list(by_period.values())
+    annual = [f for f in periods if 350 <= _days(f["start"], f["end"]) <= 380 and f.get("form", "") in ANNUAL_FORMS]
+    if not annual:
+        return None
+    last = max(annual, key=lambda f: f["end"])
+    later = [f for f in periods if f["end"] > last["end"] and f.get("form", "") in QUARTER_FORMS
+             and 60 <= _days(f["start"], f["end"]) <= 290]
+    if later:
+        ytd = max(later, key=lambda f: (f["end"], _days(f["start"], f["end"])))
+        prior = [f for f in periods if abs(_days(f["end"], ytd["end"]) - 365) <= 12
+                 and abs(_days(f["start"], ytd["start"]) - 365) <= 12]
+        if prior:
+            return last["val"] + ytd["val"] - max(prior, key=lambda f: f.get("filed", ""))["val"], ytd["end"]
+    return last["val"], last["end"]
+
+
+def _freshest_flow(tree: dict, tags: tuple[str, ...]) -> Optional[tuple[float, str]]:
+    """Flujo de 12 meses de la etiqueta cuyo cálculo termina más tarde."""
+    results = [r for tag in tags if (r := flow_ttm(tree.get(tag, {}).get("units", {}).get("USD") or []))]
+    return max(results, key=lambda r: r[1], default=None)
+
+
+def parse_company_facts(data: dict, today: date) -> Optional[Financials]:
+    """`Financials` de un documento `companyfacts`, o None si no hay datos recientes utilizables."""
+    facts = data.get("facts", {})
+    for taxonomy, tags in TAXONOMIES.items():
+        tree = facts.get(taxonomy)
+        if not tree:
+            continue
+        fin = _from_tree(tree, tags, today)
+        if fin is not None:
+            return fin
+    return None
+
+
+def _from_tree(tree: dict, tags: dict, today: date) -> Optional[Financials]:
+    fresh = (today - timedelta(days=STALE_DAYS)).isoformat()
+    ratio, balance_end = None, None
+    equity = _instants(_freshest(tree, tags["equity"]))
+    if equity:
+        balance_end = max(equity)
+        if balance_end < fresh:
+            balance_end = None
+        elif equity[balance_end] > 0:
+            liabilities = _instants(_usd(tree, tags["liabilities"])).get(balance_end)
+            if liabilities is None:   # algunas empresas (KO, UAL, ADM) no publican «Liabilities»: total − patrimonio
+                total = _instants(_usd(tree, tags["liabilities_and_equity"])).get(balance_end)
+                liabilities = None if total is None else total - equity[balance_end]
+            if liabilities is not None and liabilities >= 0:
+                ratio = liabilities / equity[balance_end]
+    fcf, flow_end = None, None
+    ocf, capex = _freshest_flow(tree, tags["ocf"]), _freshest_flow(tree, tags["capex"])
+    if ocf is not None and capex is not None and ocf[1] >= fresh:
+        fcf, flow_end = ocf[0] - abs(capex[0]), ocf[1]    # el signo de las compras de inmovilizado varía entre taxonomías
+    if ratio is None and fcf is None:
+        return None
+    end = flow_end or balance_end
+    return Financials(ratio, fcf, date.fromisoformat(end) if end else None)
+
+
+FetchJson = Callable[[str], Awaitable[Optional[dict]]]
+
+
+class EdgarFinancialsProvider:
+    def __init__(
+        self, contact: str, requests_per_second: float = 5.0, concurrency: int = 4,
+        fetch_json: Optional[FetchJson] = None, today: Callable[[], date] = date.today,
+    ) -> None:
+        self._user_agent = f"ScannerOpcionesApp {contact}"
+        self._interval = 1.0 / requests_per_second
+        self._sem = asyncio.Semaphore(concurrency)
+        self._fetch_json = fetch_json or self._http_get
+        self._today = today
+        self._next_slot = 0.0
+        self._pace_lock = asyncio.Lock()
+        self._ciks: dict[str, int] = {}
+        self._ciks_at: Optional[datetime] = None
+        self._client: Any = None
+        self._blocked = False
+
+    async def _pace(self) -> None:
+        """Como mucho `requests_per_second` peticiones por segundo, aunque haya varias a la vez."""
+        async with self._pace_lock:
+            wait = self._next_slot - time.monotonic()
+            self._next_slot = max(self._next_slot, time.monotonic()) + self._interval
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+    async def _http_get(self, url: str) -> Optional[dict]:
+        import httpx
+
+        if self._client is None:
+            self._client = httpx.AsyncClient(headers={"User-Agent": self._user_agent}, timeout=60)
+        await self._pace()
+        r = await self._client.get(url)
+        if r.status_code == 404:
+            return None
+        if r.status_code in (403, 429):    # la SEC nos limita o bloquea: no se insiste
+            self._blocked = True
+            raise FinancialsError(f"SEC EDGAR respondió {r.status_code} (¿falta edgar.contact o demasiadas peticiones?)")
+        r.raise_for_status()
+        return r.json()
+
+    async def _ticker_map(self) -> dict[str, int]:
+        if self._ciks and self._ciks_at and datetime.now() - self._ciks_at < timedelta(hours=12):
+            return self._ciks
+        data = await self._fetch_json(TICKERS_URL)
+        if not data:
+            raise FinancialsError("SEC EDGAR no devolvió la lista de tickers")
+        self._ciks = {v["ticker"].upper(): int(v["cik_str"]) for v in data.values()}
+        self._ciks_at = datetime.now()
+        return self._ciks
+
+    def _cik(self, ticker: str) -> Optional[int]:
+        t = ticker.upper()
+        for candidate in (t, t.replace("-", "."), t.replace(".", "-")):
+            if candidate in self._ciks:
+                return self._ciks[candidate]
+        return None
+
+    async def get_financials(self, tickers: list[str]) -> dict[str, Financials]:
+        try:
+            await self._ticker_map()
+        except FinancialsError:
+            raise
+        except Exception as exc:
+            raise FinancialsError(f"SEC EDGAR: {type(exc).__name__}: {str(exc)[:200]}") from exc
+        self._blocked = False
+        today = self._today()
+        out: dict[str, Financials] = {}
+
+        async def one(ticker: str) -> None:
+            cik = self._cik(ticker)
+            if cik is None:
+                out[ticker] = Financials()     # no cotiza en EE. UU. / sin CIK: se anota que se intentó
+                return
+            async with self._sem:
+                if self._blocked:
+                    return
+                try:
+                    data = await self._fetch_json(FACTS_URL.format(cik=cik))
+                except FinancialsError:
+                    raise
+                except Exception as exc:
+                    log.info("EDGAR: %s no disponible: %s", ticker, exc)
+                    return
+            out[ticker] = (parse_company_facts(data, today) if data else None) or Financials()
+
+        results = await asyncio.gather(*(one(t) for t in tickers), return_exceptions=True)
+        for r in results:
+            if isinstance(r, FinancialsError):
+                raise r
+        return out
+
+    async def aclose(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None

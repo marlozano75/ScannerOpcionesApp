@@ -11,12 +11,15 @@ from typing import Awaitable, Callable, Optional, TypeVar
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, UnsupportedTickerError, VolatilityError
+from scanner_opciones.domain.errors import (
+    BrokerDisconnectedError, BrokerError, FinancialsError, UnsupportedTickerError, VolatilityError,
+)
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.price_history import update_history
 from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
+from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider, resolve_eps
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.storage.repositories import (
@@ -57,8 +60,10 @@ class DailyUpdater:
         bars: Optional[BarRepo] = None,
         syncer: Optional[ContractSyncer] = None,
         fundamentals: Optional[FundamentalsProvider] = None,
+        financials: Optional[FinancialsProvider] = None,
     ) -> None:
         self.fundamentals = fundamentals
+        self.financials = financials
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
         self.candles = candles
@@ -173,6 +178,8 @@ class DailyUpdater:
             eps_ttm=info.eps_ttm, positive_quarters=info.positive_quarters, reported_quarters=info.reported_quarters,
             market_cap=info.market_cap, option_liquidity=info.option_liquidity, next_earnings=info.next_earnings,
             eps_surprise_pct=info.eps_surprise_pct, fundamentals_at=info.fundamentals_at,
+            liabilities_to_equity=info.liabilities_to_equity, fcf_ttm=info.fcf_ttm,
+            financials_end=info.financials_end, financials_at=info.financials_at,
         )
 
     def _quarters_stale(self, info: TickerInfo, today: date) -> bool:
@@ -224,6 +231,40 @@ class DailyUpdater:
         log.info("Datos de calidad: %d fichas actualizadas (%d con historial trimestral nuevo) en %.1f s",
                  n, len(quarters), time.monotonic() - started)
         return n
+
+    async def update_financials(self, tickers: list[str], batch: int = 50) -> int:
+        """Apalancamiento y flujo de caja (SEC EDGAR) de los tickers cuyo dato tiene más de `edgar.refresh_days` días
+        o no se ha consultado nunca. Se guarda por lotes: si se interrumpe (o la SEC bloquea) se conserva lo hecho.
+        Los tickers que EDGAR no conoce (emisores extranjeros) se anotan igualmente, para no insistir cada arranque.
+        Devuelve cuántas fichas actualizó."""
+        if not tickers or self.financials is None:
+            return 0
+        today = self.now().date()
+        max_age = self.settings.edgar.refresh_days
+        stale = [t for t in tickers if (i := self.ticker_info.get(t)) is not None
+                 and (i.financials_at is None or (today - i.financials_at.date()).days >= max_age)]
+        if not stale:
+            return 0
+        started, done = time.monotonic(), 0
+        for k in range(0, len(stale), batch):
+            chunk = stale[k:k + batch]
+            try:
+                found = await self.financials.get_financials(chunk)
+            except FinancialsError as exc:
+                log.warning("Balance y flujo de caja no disponibles (SEC EDGAR), se conservan los guardados: %s", exc)
+                break
+            updated = []
+            for ticker in chunk:
+                fin, known = found.get(ticker), self.ticker_info.get(ticker)
+                if fin is None or known is None:
+                    continue    # fallo puntual de ese ticker: se reintenta en la próxima pasada
+                updated.append(replace(
+                    known, liabilities_to_equity=fin.liabilities_to_equity, fcf_ttm=fin.fcf_ttm,
+                    financials_end=fin.period_end, financials_at=self.now()))
+            done += self.ticker_info.update_financials(updated)
+        log.info("Balance y flujo de caja (SEC EDGAR): %d de %d fichas actualizadas en %.1f s", done, len(stale),
+                 time.monotonic() - started)
+        return done
 
     async def update_history(self, tickers: list[str]) -> int:
         """Completa el histórico de cierres diarios de `tickers` (solo los días que faltan).

@@ -27,6 +27,7 @@ scanner:
     liquidity_options: [2, 3, 4]            # liquidez mínima de las opciones (1-5, de tastytrade)
     positive_quarters_options: [2, 3, 4]    # trimestres con beneficios exigidos de los últimos 4
     refresh_days: 7                         # cada cuántos días se baja de nuevo el historial trimestral
+    leverage_options: [1, 2, 3, 5]          # pasivo/patrimonio máximo ofrecido (las financieras quedan exentas)
   catalog_margin_pct: 5    # puntos de más por arriba y por abajo que se GUARDAN (el rango cotizado sigue al precio)
   candidates:              # rango visible y cotizado, respecto al precio actual
     strike_below_pct_min: 10   # strikes desde un 10 % ...
@@ -100,6 +101,14 @@ market_data:
   settle_seconds: 3          # sin datos nuevos durante tanto tiempo, el lote se da por terminado
   quote_batch_size: 2500     # contratos por conexión DXLink y por petición de cotizaciones (probado: 3000 sí, 4000 no)
   listing_ttl_minutes: 30    # cuánto se reutiliza la lista de contratos de un ticker
+
+# SEC EDGAR (gratuito y oficial): balance y flujo de caja para los filtros de apalancamiento y caja.
+# La SEC exige un contacto en las peticiones: pon aquí tu correo (se envía a la SEC en el User-Agent).
+# Sin contacto no se consulta y esos filtros no tienen datos.
+edgar:
+  contact: ""                  # p. ej. "Tu Nombre tu.correo@ejemplo.com"
+  refresh_days: 14             # los informes son trimestrales
+  requests_per_second: 5       # la SEC permite 10 como máximo
 
 # Histórico de cierres diarios (tastytrade) en el que se basan los filtros técnicos del scanner.
 trend:
