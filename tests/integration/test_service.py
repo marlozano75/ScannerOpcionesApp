@@ -230,7 +230,7 @@ async def test_cleanup_orphans_removes_data_of_tickers_not_in_watchlist():
     svc.watchlist.remove("MU")                # como si se hubiera quitado con la versión anterior
     assert svc.contracts.list("MU")           # quedan huérfanos
     removed = svc.cleanup_orphans()
-    assert removed == {"contracts": 2, "ticker_info": 1, "daily_bars": 1}     # el cierre provisional de hoy de MU
+    assert removed == {"contracts": 2, "ticker_info": 1, "daily_bars": 1, "quality": 0}     # el cierre provisional de hoy de MU
     assert svc.contracts.list("MU") == [] and svc.contracts.list("AAPL")
 
 

@@ -90,24 +90,23 @@ class TickerInfoRepo:
 
     _COLUMNS = (
         "ticker", "sector", "category", "underlying_price", "days_to_ex_dividend", "iv_rank", "iv_percentile",
-        "updated_daily_at", "price_at", "eps_ttm", "positive_quarters", "reported_quarters", "market_cap",
-        "option_liquidity", "next_earnings", "eps_surprise_pct", "fundamentals_at",
-        "liabilities_to_equity", "fcf_ttm", "financials_end", "financials_at",
+        "updated_daily_at", "price_at",
+    )
+    # la ficha se lee con los datos de calidad (tabla aparte, también para tickers que no están en la watchlist)
+    _SELECT = (
+        "SELECT t.*, q.eps_ttm, q.positive_quarters, q.reported_quarters, q.market_cap, q.option_liquidity, "
+        "q.next_earnings, q.eps_surprise_pct, q.fundamentals_at, q.liabilities_to_equity, q.fcf_ttm, "
+        "q.financials_end, q.financials_at FROM ticker_info t LEFT JOIN ticker_quality q ON q.ticker = t.ticker"
     )
 
     def upsert(self, info: TickerInfo) -> None:
+        """Guarda la ficha. Los campos de calidad de `info` se ignoran: los guarda `QualityRepo`."""
         cols = self._COLUMNS
         values = (
             info.ticker, info.sector, info.category, info.underlying_price, info.days_to_ex_dividend,
             info.iv_rank, info.iv_percentile,
             info.updated_daily_at.isoformat() if info.updated_daily_at else None,
             info.price_at.isoformat() if info.price_at else None,
-            info.eps_ttm, info.positive_quarters, info.reported_quarters, info.market_cap, info.option_liquidity,
-            info.next_earnings.isoformat() if info.next_earnings else None, info.eps_surprise_pct,
-            info.fundamentals_at.isoformat() if info.fundamentals_at else None,
-            info.liabilities_to_equity, info.fcf_ttm,
-            info.financials_end.isoformat() if info.financials_end else None,
-            info.financials_at.isoformat() if info.financials_at else None,
         )
         updates = ", ".join(f"{c}=excluded.{c}" for c in cols[1:])
         with self.db.conn:
@@ -116,34 +115,6 @@ class TickerInfoRepo:
                 f"ON CONFLICT(ticker) DO UPDATE SET {updates}",
                 values,
             )
-
-    def update_quality(self, infos: Iterable[TickerInfo]) -> int:
-        """Guarda solo los campos de calidad (EPS, trimestres, capitalización, liquidez, resultados) de las fichas
-        ya existentes, sin tocar el resto, en una sola transacción. Devuelve cuántas fichas actualizó."""
-        rows = [
-            (i.eps_ttm, i.positive_quarters, i.reported_quarters, i.market_cap, i.option_liquidity,
-             i.next_earnings.isoformat() if i.next_earnings else None, i.eps_surprise_pct,
-             i.fundamentals_at.isoformat() if i.fundamentals_at else None, i.ticker)
-            for i in infos
-        ]
-        with self.db.conn:
-            cur = self.db.conn.executemany(
-                "UPDATE ticker_info SET eps_ttm=?, positive_quarters=?, reported_quarters=?, market_cap=?, "
-                "option_liquidity=?, next_earnings=?, eps_surprise_pct=?, fundamentals_at=? WHERE ticker=?", rows)
-        return cur.rowcount
-
-    def update_financials(self, infos: Iterable[TickerInfo]) -> int:
-        """Guarda solo el apalancamiento y el flujo de caja (SEC EDGAR) de las fichas existentes, en una transacción."""
-        rows = [
-            (i.liabilities_to_equity, i.fcf_ttm, i.financials_end.isoformat() if i.financials_end else None,
-             i.financials_at.isoformat() if i.financials_at else None, i.ticker)
-            for i in infos
-        ]
-        with self.db.conn:
-            cur = self.db.conn.executemany(
-                "UPDATE ticker_info SET liabilities_to_equity=?, fcf_ttm=?, financials_end=?, financials_at=? "
-                "WHERE ticker=?", rows)
-        return cur.rowcount
 
     def delete(self, ticker: str) -> None:
         with self.db.conn:
@@ -188,12 +159,69 @@ class TickerInfoRepo:
         )
 
     def get(self, ticker: str) -> Optional[TickerInfo]:
-        r = self.db.conn.execute("SELECT * FROM ticker_info WHERE ticker = ?", (ticker,)).fetchone()
+        r = self.db.conn.execute(self._SELECT + " WHERE t.ticker = ?", (ticker,)).fetchone()
         return self._row(r) if r else None
 
     def all(self) -> dict[str, TickerInfo]:
-        rows = self.db.conn.execute("SELECT * FROM ticker_info").fetchall()
+        rows = self.db.conn.execute(self._SELECT).fetchall()
         return {r["ticker"]: self._row(r) for r in rows}
+
+
+class QualityRepo:
+    """Datos de calidad de la empresa (beneficios, trimestres, capitalización, liquidez, resultados, pasivo/patrimonio y
+    flujo de caja) por ticker, para todo el Universo y no solo para la watchlist. Se guardan y se leen como `TickerInfo`
+    con solo esos campos rellenos."""
+
+    COLUMNS = (
+        "eps_ttm", "positive_quarters", "reported_quarters", "market_cap", "option_liquidity", "next_earnings",
+        "eps_surprise_pct", "fundamentals_at", "liabilities_to_equity", "fcf_ttm", "financials_end", "financials_at",
+    )
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    @staticmethod
+    def _iso(value) -> Optional[str]:
+        return value.isoformat() if value is not None else None
+
+    def save(self, infos: Iterable[TickerInfo]) -> int:
+        """Guarda (crea o sustituye) la fila de calidad de cada ticker, en una sola transacción."""
+        cols = ("ticker", *self.COLUMNS)
+        rows = [
+            (i.ticker, i.eps_ttm, i.positive_quarters, i.reported_quarters, i.market_cap, i.option_liquidity,
+             self._iso(i.next_earnings), i.eps_surprise_pct, self._iso(i.fundamentals_at), i.liabilities_to_equity,
+             i.fcf_ttm, self._iso(i.financials_end), self._iso(i.financials_at))
+            for i in infos
+        ]
+        updates = ", ".join(f"{c}=excluded.{c}" for c in self.COLUMNS)
+        with self.db.conn:
+            self.db.conn.executemany(
+                f"INSERT INTO ticker_quality ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))}) "
+                f"ON CONFLICT(ticker) DO UPDATE SET {updates}", rows)
+        return len(rows)
+
+    @staticmethod
+    def _row(r) -> TickerInfo:
+        return TickerInfo(
+            ticker=r["ticker"], eps_ttm=r["eps_ttm"], positive_quarters=r["positive_quarters"],
+            reported_quarters=r["reported_quarters"], market_cap=r["market_cap"], option_liquidity=r["option_liquidity"],
+            next_earnings=date.fromisoformat(r["next_earnings"]) if r["next_earnings"] else None,
+            eps_surprise_pct=r["eps_surprise_pct"], fundamentals_at=_dt(r["fundamentals_at"]),
+            liabilities_to_equity=r["liabilities_to_equity"], fcf_ttm=r["fcf_ttm"],
+            financials_end=date.fromisoformat(r["financials_end"]) if r["financials_end"] else None,
+            financials_at=_dt(r["financials_at"]),
+        )
+
+    def get(self, ticker: str) -> Optional[TickerInfo]:
+        r = self.db.conn.execute("SELECT * FROM ticker_quality WHERE ticker = ?", (ticker,)).fetchone()
+        return self._row(r) if r else None
+
+    def all(self) -> dict[str, TickerInfo]:
+        return {r["ticker"]: self._row(r) for r in self.db.conn.execute("SELECT * FROM ticker_quality")}
+
+    def purge_except(self, keep: Iterable[str]) -> int:
+        """Borra los datos de tickers que ya no están en el Universo ni en la watchlist."""
+        return _delete_not_in(self.db, "ticker_quality", "ticker", keep)
 
 
 class BarRepo:

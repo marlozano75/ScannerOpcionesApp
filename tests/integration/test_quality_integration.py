@@ -18,31 +18,41 @@ FULL = TickerInfo(
 )
 
 
-def test_ticker_info_stores_the_quality_fields():
+def test_quality_is_stored_apart_and_joined_into_the_ticker_info():
     env = Env()
-    env.info.upsert(FULL)
-    got = env.info.get("AAPL")
-    assert got == FULL
-    # una ficha sin esos campos (la actualización diaria de antes) los deja en None, sin romper nada
+    env.info.upsert(TickerInfo("AAPL", sector="Tech", underlying_price=100.0, iv_rank=40.0))
+    env.daily.quality.save([FULL])
+    got = env.info.get("AAPL")                                  # la ficha se lee con los datos de calidad
+    assert (got.sector, got.underlying_price, got.iv_rank) == ("Tech", 100.0, 40.0)
+    assert (got.eps_ttm, got.positive_quarters, got.market_cap, got.next_earnings) == (8.7, 4, 4.8e12, date(2026, 10, 29))
+    assert env.info.all()["AAPL"].fundamentals_at == NOW
+    # una ficha sin datos de calidad los deja en None, sin romper nada
     env.info.upsert(TickerInfo("KO", underlying_price=60.0))
     assert env.info.get("KO").eps_ttm is None and env.info.get("KO").next_earnings is None
 
 
-def test_update_quality_changes_only_those_columns():
+def test_quality_exists_for_tickers_that_are_not_in_the_watchlist():
+    """Es lo que permite filtrar el Universo ANTES de añadir los tickers a la watchlist."""
     env = Env()
-    env.info.upsert(TickerInfo("AAPL", sector="Tech", underlying_price=100.0, iv_rank=40.0))
-    env.info.update_quality([TickerInfo("AAPL", eps_ttm=8.7, positive_quarters=4, reported_quarters=4)])
-    got = env.info.get("AAPL")
-    assert (got.sector, got.underlying_price, got.iv_rank) == ("Tech", 100.0, 40.0)
-    assert (got.eps_ttm, got.positive_quarters) == (8.7, 4)
-    assert env.info.update_quality([TickerInfo("NOPE", eps_ttm=1.0)]) == 0       # sin ficha no se crea nada
+    env.daily.quality.save([TickerInfo("NEW", eps_ttm=1.5, positive_quarters=4, reported_quarters=4)])
+    assert env.info.get("NEW") is None                           # sin ficha de watchlist...
+    assert env.daily.quality.get("NEW").eps_ttm == 1.5           # ...pero con calidad
+    assert set(env.daily.quality.all()) == {"NEW"}
+    env.daily.quality.save([TickerInfo("NEW", eps_ttm=2.5)])     # guardar sustituye la fila
+    assert env.daily.quality.get("NEW").eps_ttm == 2.5 and env.daily.quality.get("NEW").positive_quarters is None
+
+
+def test_quality_purge_keeps_only_the_given_tickers():
+    env = Env()
+    env.daily.quality.save([TickerInfo("A", eps_ttm=1.0), TickerInfo("B", eps_ttm=2.0), TickerInfo("C", eps_ttm=3.0)])
+    assert env.daily.quality.purge_except(["A", "C"]) == 1 and set(env.daily.quality.all()) == {"A", "C"}
 
 
 async def test_the_daily_update_does_not_erase_the_quality_fields():
     env = Env()
     env.add_aapl()
     await env.daily.run_pending()
-    env.info.update_quality([FULL])
+    env.daily.quality.save([FULL])
     env.watch.mark_daily_updated("AAPL", JOB_NOW - timedelta(days=2))      # vuelve a estar pendiente
     await env.daily.run(["AAPL"])
     assert env.info.get("AAPL").eps_ttm == 8.7 and env.info.get("AAPL").next_earnings == date(2026, 10, 29)
@@ -78,7 +88,7 @@ async def test_quarters_are_fetched_again_after_the_refresh_period_or_after_a_re
     await d.update_fundamentals(["AAPL"])
     assert len([c for c in env.fake.calls if c[0] == "get_quarterly_eps"]) == 2
     env.clock = JOB_NOW + timedelta(days=8, hours=1)
-    env.info.update_quality([TickerInfo("AAPL", eps_ttm=8.7, positive_quarters=4, reported_quarters=4,
+    env.daily.quality.save([TickerInfo("AAPL", eps_ttm=8.7, positive_quarters=4, reported_quarters=4,
                                         next_earnings=JOB_TODAY + timedelta(days=5),
                                         fundamentals_at=env.clock - timedelta(days=1))])
     env.clock = env.clock + timedelta(days=10)                           # los resultados previstos ya han pasado
@@ -99,7 +109,7 @@ async def test_a_provider_failure_keeps_the_stored_quality_data():
     env = Env()
     env.add_aapl()
     await env.daily.run_pending()
-    env.info.update_quality([FULL])
+    env.daily.quality.save([FULL])
     d = updater(env, error=VolatilityError("caído"))
     assert await d.update_fundamentals(["AAPL"]) == 0
     assert env.info.get("AAPL").eps_ttm == 8.7
@@ -121,7 +131,7 @@ async def scanned_service(**info_fields):
     for c in svc.contracts.list():
         gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=500)
     await svc.refresh_all()
-    svc.ticker_info.update_quality([TickerInfo("AAPL", **info_fields)])
+    svc.quality.save([TickerInfo("AAPL", **info_fields)])
     return svc, gw
 
 
@@ -138,7 +148,7 @@ async def test_scanner_applies_the_quality_filters():
     assert strikes(svc, min_positive_quarters=3) == []
     assert strikes(svc, min_market_cap_m=2000.0) == []
     good = TickerInfo("AAPL", eps_ttm=5.0, positive_quarters=4, reported_quarters=4, market_cap=9e9, option_liquidity=3)
-    svc.ticker_info.update_quality([good])
+    svc.quality.save([good])
     assert strikes(svc, require_profitable=True, min_positive_quarters=3, min_market_cap_m=2000.0,
                    min_option_liquidity=3) == [75.0, 80.0]
 
@@ -147,7 +157,7 @@ async def test_earnings_filter_only_drops_the_contracts_that_cross_the_report():
     svc, _ = await scanned_service(next_earnings=TODAY + timedelta(days=10))      # los contratos del test vencen a 30 días
     assert strikes(svc) == [75.0, 80.0]
     assert strikes(svc, avoid_earnings=True) == []
-    svc.ticker_info.update_quality([TickerInfo("AAPL", next_earnings=TODAY + timedelta(days=40))])
+    svc.quality.save([TickerInfo("AAPL", next_earnings=TODAY + timedelta(days=40))])
     assert strikes(svc, avoid_earnings=True) == [75.0, 80.0]                         # los resultados llegan tras el vencimiento
 
 

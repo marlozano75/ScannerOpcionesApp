@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import tempfile
 from urllib.parse import urlencode
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
@@ -16,7 +17,9 @@ from scanner_opciones.app.service import AppService, SelectedContract
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
+from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES
+from scanner_opciones.scanner.quality import ticker_quality_reject
 from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
@@ -59,6 +62,51 @@ def _days_label(days: int) -> str:
             n = days // size
             return f"{n} {one if n == 1 else many}"
     return f"{days} días"
+
+
+# Filtros de calidad de la empresa: (campo del formulario, campo del criterio, tipo, lista de opciones, etiqueta)
+QUALITY_SELECTS = (
+    ("q_quarters", "min_positive_quarters", int, "positive_quarters_options", "Trimestres con beneficios"),
+    ("q_mcap", "min_market_cap_m", float, "market_cap_options_m", "Capitalización mínima"),
+    ("q_liq", "min_option_liquidity", int, "liquidity_options", "Liquidez de opciones"),
+    ("q_lev", "max_liabilities_to_equity", float, "leverage_options", "Apalancamiento máximo"),
+)
+
+
+def quality_form(base) -> dict:
+    """Valores del formulario de calidad a partir de los criterios (sin filtros por defecto)."""
+    return {
+        "q_profit": base.require_profitable, "q_earn": base.avoid_earnings, "q_fcf": base.require_positive_fcf,
+        "q_quarters": "" if base.min_positive_quarters is None else str(base.min_positive_quarters),
+        "q_mcap": "" if base.min_market_cap_m is None else _fmt(base.min_market_cap_m),
+        "q_liq": "" if base.min_option_liquidity is None else str(base.min_option_liquidity),
+        "q_lev": "" if base.max_liabilities_to_equity is None else _fmt(base.max_liabilities_to_equity),
+    }
+
+
+def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool) -> None:
+    """Lee los filtros de calidad de la URL (scanner y Universo comparten parser). Cada valor se valida contra las
+    listas permitidas de la configuración. `earnings`: el filtro de resultados es por contrato, solo existe en el scanner."""
+    form["q_profit"], form["q_fcf"] = "q_profit" in qp, "q_fcf" in qp
+    overrides["require_profitable"], overrides["require_positive_fcf"] = form["q_profit"], form["q_fcf"]
+    if earnings:
+        form["q_earn"] = "q_earn" in qp
+        overrides["avoid_earnings"] = form["q_earn"]
+    for key, field_name, cast, options, label in QUALITY_SELECTS:
+        form[key] = qp.get(key, "").strip()
+        overrides[field_name] = _required(form[key], cast, label) if form[key] else None
+        if overrides[field_name] is not None and overrides[field_name] not in getattr(qcfg, options):
+            raise ValueError(f"{label} no permitida")
+
+
+def _sector_of(row, sector_col: Optional[int], watchlist_sectors: dict) -> Optional[str]:
+    """Sector de una fila del Universo: el de IBKR si el ticker está en la watchlist y, si no, el del fichero."""
+    if watchlist_sectors.get(row.ticker):
+        return watchlist_sectors[row.ticker]
+    if sector_col is not None:
+        text = row.cells[sector_col].text
+        return None if text in ("", "—") else text
+    return None
 
 
 def _fmt(v) -> str:
@@ -210,11 +258,40 @@ def create_app(
             for r in s_.table.rows:
                 member.setdefault(r.ticker, []).append(numbers[s_.name])
         rows = list(table.rows) if table is not None else []
+        # filtros de calidad de la empresa (ANTES de decidir qué entra en la watchlist)
+        qp, qcfg, base = request.query_params, service.settings.scanner.quality, service.criteria()
+        qform, criteria, qerror = quality_form(base), base, None
+        if "submitted" in qp:
+            try:
+                overrides: dict = {}
+                read_quality(qp, qform, overrides, qcfg, earnings=False)
+                criteria = base.with_filters(**overrides)
+            except ValueError as exc:
+                qerror = f"Parámetro no válido: {exc}"
+        qinfos = service.quality.all()
+        total_rows, excluded = len(rows), 0
+        if criteria.ticker_quality_active and rows:
+            sectors = {t: i.sector for t, i in service.ticker_info.all().items()}
+            sector_col = next((i for i, c in enumerate(table.columns) if c.name.strip().lower() == "sector"), None)
+            kept = []
+            for row in rows:
+                info = replace(qinfos.get(row.ticker) or TickerInfo(row.ticker), sector=_sector_of(row, sector_col, sectors))
+                if ticker_quality_reject(info, criteria) is None:
+                    kept.append(row)
+            excluded, rows = total_rows - len(kept), kept
+        with_quality = sum(1 for r in rows if r.ticker in qinfos)
         files = [(name, at, [s.name for s in srcs]) for name, (at, srcs) in service.universe_files.items()]
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
-                      all_count=len(member), manual_count=len(service.manual_tickers), in_watchlist=set(service.watchlist.list()))
+                      all_count=len(member), manual_count=len(service.manual_tickers), in_watchlist=set(service.watchlist.list()),
+                      qform=qform, qerror=qerror, qinfos=qinfos, excluded=excluded, total_rows=total_rows,
+                      with_quality=with_quality, quality_active=criteria.ticker_quality_active,
+                      quality_opts=dict(
+                          quarters=qcfg.positive_quarters_options,
+                          mcaps=[(_fmt(m), _mcap_label(m)) for m in qcfg.market_cap_options_m],
+                          liquidity=qcfg.liquidity_options, leverage=[_fmt(v) for v in qcfg.leverage_options],
+                          edgar=bool(service.settings.edgar.contact.strip())))
 
     @app.post("/universe/load")
     async def universe_load(files: list[UploadFile]):
@@ -319,12 +396,7 @@ def create_app(
             "touch": "" if base.min_days_since_touch is None else str(base.min_days_since_touch),
             "price_min": _fmt(base.min_price) if base.min_price is not None else "",
             "price_max": _fmt(base.max_price) if base.max_price is not None else "",
-            "q_profit": base.require_profitable, "q_earn": base.avoid_earnings,
-            "q_quarters": "" if base.min_positive_quarters is None else str(base.min_positive_quarters),
-            "q_mcap": "" if base.min_market_cap_m is None else _fmt(base.min_market_cap_m),
-            "q_liq": "" if base.min_option_liquidity is None else str(base.min_option_liquidity),
-            "q_lev": "" if base.max_liabilities_to_equity is None else _fmt(base.max_liabilities_to_equity),
-            "q_fcf": base.require_positive_fcf,
+            **quality_form(base),
             **{k: getattr(base, k) for k in MA_LINES},
             "ma_frame": base.ma_frame,
             **{k: getattr(base, k) for k in MA_CROSSES},
@@ -381,21 +453,7 @@ def create_app(
                         raise ValueError(f"{label} no puede ser negativo")
                 if None not in (overrides["min_price"], overrides["max_price"]) and overrides["min_price"] > overrides["max_price"]:
                     raise ValueError("el precio mínimo no puede superar el máximo")
-                qcfg = service.settings.scanner.quality
-                form["q_profit"], form["q_earn"] = "q_profit" in qp, "q_earn" in qp
-                overrides["require_profitable"], overrides["avoid_earnings"] = form["q_profit"], form["q_earn"]
-                form["q_fcf"] = "q_fcf" in qp
-                overrides["require_positive_fcf"] = form["q_fcf"]
-                for key, field_name, cast, allowed, label in (
-                    ("q_quarters", "min_positive_quarters", int, qcfg.positive_quarters_options, "Trimestres con beneficios"),
-                    ("q_mcap", "min_market_cap_m", float, qcfg.market_cap_options_m, "Capitalización mínima"),
-                    ("q_liq", "min_option_liquidity", int, qcfg.liquidity_options, "Liquidez de opciones"),
-                    ("q_lev", "max_liabilities_to_equity", float, qcfg.leverage_options, "Apalancamiento máximo"),
-                ):
-                    form[key] = qp.get(key, "").strip()
-                    overrides[field_name] = _required(form[key], cast, label) if form[key] else None
-                    if overrides[field_name] is not None and overrides[field_name] not in allowed:
-                        raise ValueError(f"{label} no permitida")
+                read_quality(qp, form, overrides, service.settings.scanner.quality, earnings=True)
                 form["touch"] = qp.get("touch", "").strip()
                 overrides["min_days_since_touch"] = _required(form["touch"], int, "Días desde el último toque") if form["touch"] else None
                 if overrides["min_days_since_touch"] is not None and overrides["min_days_since_touch"] not in tcfg.touch_min_days_options:

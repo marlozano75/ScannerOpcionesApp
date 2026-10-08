@@ -19,8 +19,9 @@ def _is_financial(info: Optional[TickerInfo]) -> bool:
     return info is not None and (info.sector or "").lower().startswith("financ")
 
 
-def quality_reject(info: Optional[TickerInfo], expiry: date, criteria: ScanCriteria, today: date) -> Optional[str]:
-    """Motivo por el que el contrato no pasa los filtros de calidad, o None."""
+def ticker_quality_reject(info: Optional[TickerInfo], criteria: ScanCriteria) -> Optional[str]:
+    """Motivo por el que el ticker no pasa los filtros de calidad de la EMPRESA (todos menos el de resultados, que
+    depende del vencimiento de cada contrato), o None. Es lo que usa la vista del Universo."""
     if criteria.require_profitable and (info is None or info.eps_ttm is None or info.eps_ttm <= 0):
         return "sin beneficios (EPS 12 m ≤ 0 o sin dato)"
     n = criteria.min_positive_quarters
@@ -43,6 +44,13 @@ def quality_reject(info: Optional[TickerInfo], expiry: date, criteria: ScanCrite
         info is None or info.fcf_ttm is None or info.fcf_ttm <= 0
     ):
         return "flujo de caja libre ≤ 0 (o sin dato)"
+    return None
+
+
+def quality_reject(info: Optional[TickerInfo], expiry: date, criteria: ScanCriteria, today: date) -> Optional[str]:
+    """Motivo por el que el contrato no pasa los filtros de calidad, o None."""
+    if (why := ticker_quality_reject(info, criteria)) is not None:
+        return why
     if criteria.avoid_earnings and info is not None and info.next_earnings is not None:
         if today <= info.next_earnings <= expiry:
             return f"resultados el {info.next_earnings} antes del vencimiento"

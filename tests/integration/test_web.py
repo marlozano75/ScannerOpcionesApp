@@ -394,7 +394,7 @@ def test_all_view_has_one_row_per_ticker_with_every_source(client_and_service):
     assert "RankedStocks" in ko[0] and LOWER in ko[0] and DEFENSIVE in ko[0] and 'data-sort="3.0"' in ko[0]
     assert "Coca-Cola" in ko[0] and "Consumer Defensive" in ko[0]
     assert "8 acciones" in r.text                                                 # DK KO GCT PAYS + ADBE AIG ACN ALL
-    assert "Filtros" not in r.text and 'id="rk-filters"' not in r.text                  # sin panel de filtros
+    assert 'id="rk-filters"' not in r.text and 'id="quality-form"' in r.text           # solo el panel de calidad
 
 
 

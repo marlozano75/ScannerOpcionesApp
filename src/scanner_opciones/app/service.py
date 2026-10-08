@@ -28,6 +28,7 @@ from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settin
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
+    QualityRepo,
     BarRepo, ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 from scanner_opciones.marketdata.financials import FinancialsProvider
@@ -90,6 +91,7 @@ class AppService:
         self.market = market or MarketCalendar.from_settings(settings.market, settings.ibkr.delay_minutes)
         self.watchlist = WatchlistRepo(db)
         self.ticker_info = TickerInfoRepo(db)
+        self.quality = QualityRepo(db)
         self.contracts = ContractRepo(db)
         self.snapshots = SnapshotRepo(db)
         self.meta = MetaRepo(db)
@@ -157,6 +159,7 @@ class AppService:
         if new:
             self.manual_tickers.extend(new)
             self.meta.set("universe_manual", json.dumps(self.manual_tickers))
+            self.kick_quality_update()
         return {"added": new, "already": already, "no_options": no_options, "checked": checked}
 
     def clear_manual(self) -> int:
@@ -216,6 +219,7 @@ class AppService:
             if old == file or names & {s.name for s in olds}:
                 self._drop_universe_file(old)
         self.universe_files[file] = (self.now(), tuple(sources))
+        self.kick_quality_update()
         if (folder := self._universe_dir()) is not None:
             folder.mkdir(parents=True, exist_ok=True)
             (folder / file).write_bytes(content)
@@ -358,6 +362,23 @@ class AppService:
         self.ticker_info.delete(ticker)
         return {"contracts": self.contracts.delete_for_ticker(ticker), "ticker_info": int(had_info)}
 
+    def quality_scope(self) -> list[str]:
+        """Tickers de los que se guardan datos de calidad: la watchlist y todo el Universo (ficheros y manuales), para
+        poder filtrar ANTES de decidir qué entra en la watchlist."""
+        tickers = set(self.watchlist.list()) | set(self.manual_tickers)
+        tickers.update(row.ticker for _, sources in self.universe_files.values() for src in sources for row in src.table.rows)
+        return sorted(tickers)
+
+    def kick_quality_update(self) -> None:
+        """Descarga los datos de calidad de lo que falte (tickers recién cargados) sin esperar. Sin bucle de eventos
+        en marcha (p. ej. al restaurar el Universo en el constructor) no hace nada: ya se hará en el arranque."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self.launch(self._update_fundamentals())
+        self.update_financials_in_background()
+
     def cleanup_orphans(self) -> dict[str, int]:
         """Borra contratos y fichas de tickers que ya no están en la watchlist (p. ej. quitados
         con una versión anterior). Barato: se llama al arrancar y antes de cada refresco."""
@@ -366,6 +387,7 @@ class AppService:
             "contracts": self.contracts.purge_except(keep),
             "ticker_info": self.ticker_info.purge_except(keep),
             "daily_bars": self.bars.purge_except(keep),
+            "quality": self.quality.purge_except(self.quality_scope()),
         }
         if any(removed.values()):
             log.info("Limpieza de tickers fuera de la watchlist: %s", removed)
@@ -453,7 +475,7 @@ class AppService:
         """Datos de calidad de toda la watchlist (EPS, trimestres, capitalización, liquidez, resultados). Un fallo
         no interrumpe nada: los filtros de calidad trabajan con lo guardado."""
         try:
-            await self.daily.update_fundamentals(self.watchlist.list())
+            await self.daily.update_fundamentals(self.quality_scope())
         except Exception:
             log.exception("No se pudieron actualizar los datos de calidad")
         finally:
@@ -467,7 +489,7 @@ class AppService:
 
         async def run() -> None:
             try:
-                if await self.daily.update_financials(self.watchlist.list()):
+                if await self.daily.update_financials(self.quality_scope()):
                     self.state.data_version += 1
             except Exception:
                 log.exception("No se pudieron actualizar el balance y el flujo de caja")

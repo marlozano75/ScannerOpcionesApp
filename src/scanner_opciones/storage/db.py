@@ -106,6 +106,30 @@ MIGRATIONS: list[str] = [
     ALTER TABLE ticker_info ADD COLUMN financials_end TEXT;
     ALTER TABLE ticker_info ADD COLUMN financials_at TEXT;
     """,
+    # v15: los datos de calidad pasan a su propia tabla, para los tickers del Universo aunque no estén en la watchlist
+    """
+    CREATE TABLE ticker_quality (
+        ticker TEXT PRIMARY KEY,
+        eps_ttm REAL, positive_quarters INTEGER, reported_quarters INTEGER, market_cap REAL,
+        option_liquidity INTEGER, next_earnings TEXT, eps_surprise_pct REAL, fundamentals_at TEXT,
+        liabilities_to_equity REAL, fcf_ttm REAL, financials_end TEXT, financials_at TEXT
+    );
+    INSERT INTO ticker_quality
+        SELECT ticker, eps_ttm, positive_quarters, reported_quarters, market_cap, option_liquidity, next_earnings, eps_surprise_pct, fundamentals_at, liabilities_to_equity, fcf_ttm, financials_end, financials_at FROM ticker_info
+        WHERE fundamentals_at IS NOT NULL OR financials_at IS NOT NULL OR eps_ttm IS NOT NULL;
+    ALTER TABLE ticker_info DROP COLUMN eps_ttm;
+    ALTER TABLE ticker_info DROP COLUMN positive_quarters;
+    ALTER TABLE ticker_info DROP COLUMN reported_quarters;
+    ALTER TABLE ticker_info DROP COLUMN market_cap;
+    ALTER TABLE ticker_info DROP COLUMN option_liquidity;
+    ALTER TABLE ticker_info DROP COLUMN next_earnings;
+    ALTER TABLE ticker_info DROP COLUMN eps_surprise_pct;
+    ALTER TABLE ticker_info DROP COLUMN fundamentals_at;
+    ALTER TABLE ticker_info DROP COLUMN liabilities_to_equity;
+    ALTER TABLE ticker_info DROP COLUMN fcf_ttm;
+    ALTER TABLE ticker_info DROP COLUMN financials_end;
+    ALTER TABLE ticker_info DROP COLUMN financials_at;
+    """,
 ]
 
 

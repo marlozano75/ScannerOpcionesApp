@@ -1,4 +1,5 @@
 """Apalancamiento y flujo de caja (SEC EDGAR): almacenamiento, actualización, escaneo y formulario."""
+from dataclasses import replace
 from datetime import date, timedelta
 
 from scanner_opciones.app.service import AppService
@@ -12,23 +13,22 @@ from tests.integration.test_quality_integration import FULL, make_client, scanne
 from tests.integration.test_service import NOW, FixedMarket, make_service, seed_market
 
 
-def test_ticker_info_stores_the_financials_fields_and_update_financials_touches_only_them():
+def test_quality_row_stores_the_financials_fields():
     env = Env()
-    env.info.upsert(FULL)
-    env.info.update_financials([TickerInfo("AAPL", liabilities_to_equity=2.56, fcf_ttm=1.3e11,
-                                           financials_end=date(2026, 6, 27), financials_at=NOW)])
+    env.info.upsert(TickerInfo("AAPL", sector="Tech", underlying_price=100.0))
+    env.daily.quality.save([replace(FULL, liabilities_to_equity=2.56, fcf_ttm=1.3e11,
+                                    financials_end=date(2026, 6, 27), financials_at=NOW)])
     got = env.info.get("AAPL")
     assert (got.liabilities_to_equity, got.fcf_ttm, got.financials_end, got.financials_at) == (
         2.56, 1.3e11, date(2026, 6, 27), NOW)
-    assert got.eps_ttm == 8.7 and got.next_earnings == date(2026, 10, 29)        # el resto, intacto
-    assert env.info.update_financials([TickerInfo("NOPE", fcf_ttm=1.0)]) == 0
+    assert got.eps_ttm == 8.7 and got.next_earnings == date(2026, 10, 29) and got.sector == "Tech"
 
 
 async def test_the_daily_update_does_not_erase_the_financials():
     env = Env()
     env.add_aapl()
     await env.daily.run_pending()
-    env.info.update_financials([TickerInfo("AAPL", liabilities_to_equity=1.1, fcf_ttm=5e9, financials_at=JOB_NOW)])
+    env.daily.quality.save([TickerInfo("AAPL", liabilities_to_equity=1.1, fcf_ttm=5e9, financials_at=JOB_NOW)])
     env.watch.mark_daily_updated("AAPL", JOB_NOW - timedelta(days=2))
     await env.daily.run(["AAPL"])
     assert env.info.get("AAPL").fcf_ttm == 5e9 and env.info.get("AAPL").liabilities_to_equity == 1.1
@@ -71,7 +71,7 @@ async def test_an_edgar_failure_keeps_the_stored_data_and_stops():
     env = Env()
     env.add_aapl()
     await env.daily.run_pending()
-    env.info.update_financials([TickerInfo("AAPL", liabilities_to_equity=1.1, fcf_ttm=5e9,
+    env.daily.quality.save([TickerInfo("AAPL", liabilities_to_equity=1.1, fcf_ttm=5e9,
                                            financials_at=JOB_NOW - timedelta(days=30))])
     d = edgar(env, error=FinancialsError("SEC EDGAR respondió 403"))
     assert await d.update_financials(["AAPL"]) == 0
@@ -104,11 +104,11 @@ async def test_without_a_provider_nothing_happens_for_financials():
 
 async def test_scanner_applies_the_financial_filters():
     svc, _ = await scanned_service(sector="Technology")
-    svc.ticker_info.update_financials([TickerInfo("AAPL", liabilities_to_equity=3.5, fcf_ttm=-1e6)])
+    svc.quality.save([TickerInfo("AAPL", liabilities_to_equity=3.5, fcf_ttm=-1e6)])
     assert strikes(svc) == [75.0, 80.0]
     assert strikes(svc, max_liabilities_to_equity=2.0) == []
     assert strikes(svc, require_positive_fcf=True) == []
-    svc.ticker_info.update_financials([TickerInfo("AAPL", liabilities_to_equity=1.2, fcf_ttm=4e9)])
+    svc.quality.save([TickerInfo("AAPL", liabilities_to_equity=1.2, fcf_ttm=4e9)])
     assert strikes(svc, max_liabilities_to_equity=2.0, require_positive_fcf=True) == [75.0, 80.0]
 
 
@@ -130,7 +130,7 @@ async def test_service_start_launches_edgar_in_the_background():
 
 async def test_scanner_form_reads_the_financial_fields_and_shows_the_columns():
     svc, _ = await scanned_service(sector="Technology")
-    svc.ticker_info.update_financials([TickerInfo("AAPL", liabilities_to_equity=3.5, fcf_ttm=-2.5e6)])
+    svc.quality.save([TickerInfo("AAPL", liabilities_to_equity=3.5, fcf_ttm=-2.5e6)])
     base = "/scanner?submitted=1&discount=1&dte_min=1&dte_max=45&min_yield=0&ref=bid"
     with make_client(svc) as client:
         page = client.get(base).text

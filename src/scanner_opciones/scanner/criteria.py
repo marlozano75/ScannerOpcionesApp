@@ -57,6 +57,15 @@ class ScanCriteria:
     require_positive_fcf: bool = False            # flujo de caja libre de 12 meses > 0 (las financieras no se miden)
 
     @property
+    def ticker_quality_active(self) -> bool:
+        """¿Hay algún filtro de calidad de la empresa (no cuenta el de resultados, que es por contrato)?"""
+        return (
+            self.require_profitable or self.min_positive_quarters is not None
+            or self.min_market_cap_m is not None or self.min_option_liquidity is not None
+            or self.max_liabilities_to_equity is not None or self.require_positive_fcf
+        )
+
+    @property
     def quality_active(self) -> bool:
         return (
             self.require_profitable or self.avoid_earnings or self.min_positive_quarters is not None

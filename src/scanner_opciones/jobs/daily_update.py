@@ -23,6 +23,7 @@ from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider, resolve_eps
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.storage.repositories import (
+    QualityRepo,
     BarRepo, ContractRepo, TickerInfoRepo, WatchlistRepo,
 )
 
@@ -64,6 +65,7 @@ class DailyUpdater:
     ) -> None:
         self.fundamentals = fundamentals
         self.financials = financials
+        self.quality = QualityRepo(ticker_info.db)
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
         self.candles = candles
@@ -172,16 +174,6 @@ class DailyUpdater:
                 log.warning("IV Rank/Percentile no disponibles, se conservan los guardados: %s", exc)
         return out
 
-    @staticmethod
-    def _quality_fields(info: TickerInfo) -> dict:
-        return dict(
-            eps_ttm=info.eps_ttm, positive_quarters=info.positive_quarters, reported_quarters=info.reported_quarters,
-            market_cap=info.market_cap, option_liquidity=info.option_liquidity, next_earnings=info.next_earnings,
-            eps_surprise_pct=info.eps_surprise_pct, fundamentals_at=info.fundamentals_at,
-            liabilities_to_equity=info.liabilities_to_equity, fcf_ttm=info.fcf_ttm,
-            financials_end=info.financials_end, financials_at=info.financials_at,
-        )
-
     def _quarters_stale(self, info: TickerInfo, today: date) -> bool:
         """¿Hay que bajar de nuevo el historial trimestral? Sí si no se bajó nunca, si pasó el plazo configurado
         o si desde entonces ha llegado la fecha de unos resultados (hay un trimestre nuevo)."""
@@ -200,9 +192,7 @@ class DailyUpdater:
         if not tickers or self.fundamentals is None:
             return 0
         started = time.monotonic()
-        infos = {t: i for t in tickers if (i := self.ticker_info.get(t)) is not None}
-        if not infos:
-            return 0
+        infos = {t: self.quality.get(t) or TickerInfo(t) for t in tickers}
         try:
             funds = await self.fundamentals.get_fundamentals(list(infos))
         except VolatilityError as exc:
@@ -216,7 +206,7 @@ class DailyUpdater:
             fund, q = funds.get(ticker), quarters.get(ticker)
             if fund is None and q is None:
                 continue
-            fields = self._quality_fields(known)
+            fields: dict = {}
             if q is not None:
                 fields.update(positive_quarters=sum(1 for x in q if x > 0), reported_quarters=len(q),
                               fundamentals_at=self.now())
@@ -227,7 +217,7 @@ class DailyUpdater:
                 fields.update(market_cap=fund.market_cap, option_liquidity=fund.option_liquidity,
                               next_earnings=fund.next_earnings, eps_surprise_pct=fund.eps_surprise_pct)
             updated.append(replace(known, **fields))
-        n = self.ticker_info.update_quality(updated)
+        n = self.quality.save(updated)
         log.info("Datos de calidad: %d fichas actualizadas (%d con historial trimestral nuevo) en %.1f s",
                  n, len(quarters), time.monotonic() - started)
         return n
@@ -241,8 +231,8 @@ class DailyUpdater:
             return 0
         today = self.now().date()
         max_age = self.settings.edgar.refresh_days
-        stale = [t for t in tickers if (i := self.ticker_info.get(t)) is not None
-                 and (i.financials_at is None or (today - i.financials_at.date()).days >= max_age)]
+        stale = [t for t in tickers if (i := self.quality.get(t)) is None or i.financials_at is None
+                 or (today - i.financials_at.date()).days >= max_age]
         if not stale:
             return 0
         started, done = time.monotonic(), 0
@@ -255,13 +245,13 @@ class DailyUpdater:
                 break
             updated = []
             for ticker in chunk:
-                fin, known = found.get(ticker), self.ticker_info.get(ticker)
-                if fin is None or known is None:
+                fin = found.get(ticker)
+                if fin is None:
                     continue    # fallo puntual de ese ticker: se reintenta en la próxima pasada
                 updated.append(replace(
-                    known, liabilities_to_equity=fin.liabilities_to_equity, fcf_ttm=fin.fcf_ttm,
+                    self.quality.get(ticker) or TickerInfo(ticker), liabilities_to_equity=fin.liabilities_to_equity, fcf_ttm=fin.fcf_ttm,
                     financials_end=fin.period_end, financials_at=self.now()))
-            done += self.ticker_info.update_financials(updated)
+            done += self.quality.save(updated)
         log.info("Balance y flujo de caja (SEC EDGAR): %d de %d fichas actualizadas en %.1f s", done, len(stale),
                  time.monotonic() - started)
         return done
@@ -325,7 +315,6 @@ class DailyUpdater:
                 days_to_ex_dividend=ex_div,
                 iv_rank=rank, iv_percentile=percentile,
                 updated_daily_at=now, price_at=price_at,
-                **(self._quality_fields(known) if known is not None else {}),   # la actualización diaria no los toca
             )
         )
         self.watchlist.mark_daily_updated(ticker, now)

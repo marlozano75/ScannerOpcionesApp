@@ -43,8 +43,37 @@
   <a class="chip {{ 'active' if not src }}" href="/universe?reset=1">Todas<small>{{ all_count }}</small></a>
   {% for s in sources %}<a class="chip {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}"><b>{{ numbers[s.name] }}</b> · {{ s.name }}<small>{{ s.table.rows|length }}</small></a>{% endfor %}
 </div>
+<div class="section-title">Filtros de calidad <span style="letter-spacing:.04em;text-transform:none;font-weight:400">(antes de añadir a la watchlist · datos de tastytrade y de la SEC; el que no tiene dato se descarta)</span></div>
+<form method="get" action="/universe" id="quality-form" class="card" style="margin-bottom:14px">
+  <input type="hidden" name="submitted" value="1"><input type="hidden" name="src" value="{{ '' if src == 'all' else src }}">
+  <div class="filters" style="align-items:flex-end">
+    <label class="opt" style="flex-direction:row;align-items:center;gap:6px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
+      <input type="checkbox" name="q_profit" {{ 'checked' if qform.q_profit }}> <b>Beneficios (12 m)</b></label>
+    <label>Trimestres con beneficios
+      <select name="q_quarters"><option value="">Cualquiera</option>
+        {% for n in quality_opts.quarters %}<option value="{{ n }}" {{ 'selected' if qform.q_quarters == n|string }}>{{ n }} de 4 o más</option>{% endfor %}</select></label>
+    <label>Capitalización mínima
+      <select name="q_mcap"><option value="">Cualquiera</option>
+        {% for v, label in quality_opts.mcaps %}<option value="{{ v }}" {{ 'selected' if qform.q_mcap == v }}>{{ label }}</option>{% endfor %}</select></label>
+    <label>Liquidez de opciones
+      <select name="q_liq"><option value="">Cualquiera</option>
+        {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if qform.q_liq == n|string }}>{{ n }} o más</option>{% endfor %}</select></label>
+    <label>Pasivo / patrimonio máx.
+      <select name="q_lev"><option value="">Cualquiera</option>
+        {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if qform.q_lev == v }}>{{ v }}</option>{% endfor %}</select></label>
+    <label class="opt" style="flex-direction:row;align-items:center;gap:6px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
+      <input type="checkbox" name="q_fcf" {{ 'checked' if qform.q_fcf }}> <b>Flujo de caja libre &gt; 0</b></label>
+    <a class="btn secondary" href="/universe{{ '?src=' ~ (src|urlencode) if src != 'all' else '' }}">Quitar filtros</a>
+  </div>
+  <p class="note" style="margin:8px 0 0">Las financieras (bancos, aseguradoras) quedan exentas del pasivo/patrimonio y del flujo de caja.
+    Datos de calidad disponibles para <b>{{ with_quality }}</b> de {{ rows|length }} acciones mostradas.
+    {% if not quality_opts.edgar %}<b>Falta <code>edgar.contact</code> en config.yaml</b>: sin él no hay datos de pasivo/patrimonio ni de flujo de caja.{% endif %}
+    El filtro de resultados es por contrato y está en el Scanner.</p>
+</form>
+{% if qerror %}<div class="banner err">{{ qerror }}</div>{% endif %}
 <form method="post" action="/universe/apply" class="card" id="rk-apply">
-  <h2>{{ rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
+  <h2>{{ rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas
+    {% if quality_active %}· {{ excluded }} descartadas por calidad (de {{ total_rows }}){% endif %}</span></h2>
   <p>
     <button name="mode" value="add">Añadir selección a la watchlist</button>
     <button name="mode" value="replace" class="secondary" onclick="return confirmReplace()"
@@ -53,22 +82,34 @@
   </p>
   <div class="scroll"><table class="sortable" id="universe-table">
     <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th><th>Fuentes (nº)</th>
+      <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th>
       {% for col in table.columns %}<th>{{ col.name }}</th>{% endfor %}</tr>
     {% for row in rows %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ row.ticker }}" checked></td>
         <td>{{ '✓' if row.ticker in in_watchlist else '—' }}</td>
         <td>{{ member.get(row.ticker, '') }}</td>
+        {%- set q = qinfos.get(row.ticker) %}
+        <td{% if q and q.eps_ttm is not none %} data-sort="{{ q.eps_ttm }}"{% if q.eps_ttm <= 0 %} style="color:#b3361b"{% endif %}{% endif %}>{{ q.eps_ttm|num if q and q.eps_ttm is not none else '—' }}</td>
+        <td{% if q and q.positive_quarters is not none %} data-sort="{{ q.positive_quarters }}"{% if q.positive_quarters < 3 %} style="color:#b3361b"{% endif %}{% endif %}>{{ q.positive_quarters ~ '/' ~ q.reported_quarters if q and q.positive_quarters is not none else '—' }}</td>
+        <td{% if q and q.market_cap %} data-sort="{{ q.market_cap }}"{% endif %}>{{ (q.market_cap / 1e9)|num if q and q.market_cap else '—' }}</td>
+        <td{% if q and q.option_liquidity is not none %} data-sort="{{ q.option_liquidity }}"{% endif %}>{{ q.option_liquidity if q and q.option_liquidity is not none else '—' }}</td>
+        <td{% if q and q.next_earnings %} data-sort="{{ q.next_earnings }}"{% endif %}{% if q and q.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(q.eps_surprise_pct) }} %"{% endif %}>{{ q.next_earnings if q and q.next_earnings else '—' }}</td>
+        <td{% if q and q.liabilities_to_equity is not none %} data-sort="{{ q.liabilities_to_equity }}"{% if q.liabilities_to_equity > 3 %} style="color:#b3361b"{% endif %}{% endif %}>{{ q.liabilities_to_equity|num if q and q.liabilities_to_equity is not none else '—' }}</td>
+        <td{% if q and q.fcf_ttm is not none %} data-sort="{{ q.fcf_ttm }}"{% if q.fcf_ttm <= 0 %} style="color:#b3361b"{% endif %}{% endif %}>{{ (q.fcf_ttm / 1e6)|money if q and q.fcf_ttm is not none else '—' }}</td>
         {% for cell in row.cells %}
           {% if cell.value is not none %}<td data-sort="{{ cell.value }}">{{ cell.text }}</td>
           {% else %}<td>{{ loop.index0 == table.symbol_index and row.ticker or cell.text }}</td>{% endif %}
         {% endfor %}</tr>
-    {% else %}<tr><td colspan="{{ table.columns|length + 3 }}" class="muted">Sin filas.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="{{ table.columns|length + 10 }}" class="muted">Sin filas{% if quality_active %}: ningún ticker cumple los filtros de calidad{% endif %}.</td></tr>{% endfor %}
   </table></div>
 </form>
 <script>
   function confirmReplace() {
     return confirm('Se quitarán de la watchlist, con sus contratos y cotizaciones, los tickers que no estén en la selección. ¿Sustituir la watchlist?');
   }
+  document.querySelectorAll('#quality-form select, #quality-form input[type=checkbox]').forEach(function (el) {
+    el.addEventListener('change', function () { document.getElementById('quality-form').submit(); });
+  });
   (function () {
     var boxes = function () { return document.querySelectorAll('#rk-apply input[name=sel]'); };
     var count = document.getElementById('rk-count'), all = document.getElementById('rk-all');
