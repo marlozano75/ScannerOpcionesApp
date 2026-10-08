@@ -20,7 +20,7 @@ from scanner_opciones.broker.rate_limiter import AsyncRateLimiter
 from scanner_opciones.config.settings import IbkrSettings
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import (
-    BrokerDisconnectedError, BrokerError, DataUnavailableError,
+    BrokerDisconnectedError, BrokerError, DataUnavailableError, UnsupportedTickerError,
 )
 from scanner_opciones.domain.models import (
     AccountSummary, OptionChain, OptionContract, OptionQuote, Position, UnderlyingQuote, VixData,
@@ -230,7 +230,7 @@ class IBKRGateway:
         stock = Stock(m.ib_symbol(ticker), "SMART", "USD")   # «BRK.B» -> «BRK B»
         qualified = await self.ib.qualifyContractsAsync(stock)
         if not qualified or not stock.conId:
-            raise DataUnavailableError(f"Ticker no reconocido por IBKR: {ticker}")
+            raise UnsupportedTickerError(f"Ticker no reconocido por IBKR: {ticker}")
         self._stocks[ticker] = stock
         return stock
 
@@ -294,7 +294,7 @@ class IBKRGateway:
         chains = await self.ib.reqSecDefOptParamsAsync(stock.symbol, "", stock.secType, stock.conId)
         chain = m.pick_chain(chains, ticker)
         if chain is None:
-            raise DataUnavailableError(f"Sin cadena de opciones para {ticker}")
+            raise UnsupportedTickerError(f"Sin cadena de opciones para {ticker}")
         expiries = sorted(m.parse_expiry(e) for e in chain.expirations)
         return OptionChain(ticker, expiries, sorted(float(s) for s in chain.strikes), int(chain.multiplier or 100))
 

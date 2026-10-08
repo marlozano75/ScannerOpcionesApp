@@ -40,6 +40,7 @@ from scanner_opciones.watchlist.parser import ParseResult
 log = logging.getLogger(__name__)
 
 LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco completo
+EXCLUDED = "watchlist_excluded"   # meta: ticker -> {motivo, fecha} de los tickers sacados de la watchlist
 STEP_TIMEOUT_SECONDS = 90  # un paso de red colgado no debe bloquear el refresco para siempre
 
 
@@ -102,6 +103,7 @@ class AppService:
         self.volatility = volatility
         self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
         self.manual_tickers: list[str] = self._load_manual()   # fuente «Manual»: tickers escritos a mano
+        self.excluded: dict[str, dict] = self._load_excluded()   # tickers sacados de la watchlist por inservibles
         self.restore_universe()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas de los jobs de mercado
         self._account_lock = asyncio.Lock()  # cuenta, posiciones y VIX: aparte, para que un ciclo largo de mercado no los retrase
@@ -285,8 +287,41 @@ class AppService:
         await self.start()
 
     # ---- watchlist -------------------------------------------------------------------------
+    def _load_excluded(self) -> dict[str, dict]:
+        try:
+            raw = json.loads(self.meta.get(EXCLUDED) or "{}")
+            return {str(t): dict(v) for t, v in raw.items()}
+        except (ValueError, AttributeError, TypeError):
+            return {}
+
+    def _save_excluded(self) -> None:
+        self.meta.set(EXCLUDED, json.dumps(self.excluded))
+
+    def excluded_among(self, parsed: ParseResult) -> list[str]:
+        """Tickers de `parsed` que están excluidos (no se pueden añadir a la watchlist)."""
+        return [t for t in parsed.tickers if t in self.excluded]
+
+    def allow_ticker(self, ticker: str) -> bool:
+        """Quita el ticker de la lista de excluidos (podrá volver a añadirse). False si no estaba."""
+        if self.excluded.pop(ticker, None) is None:
+            return False
+        self._save_excluded()
+        return True
+
+    def exclude_unsupported(self, report: DailyUpdateReport) -> list[str]:
+        """Saca de la watchlist (con sus contratos y ficha) los tickers que la actualización diaria ha
+        dado por inservibles de forma permanente y los recuerda, con el motivo, para no volver a añadirlos."""
+        for ticker, reason in report.unsupported.items():
+            self.remove_ticker(ticker)
+            self.excluded[ticker] = {"reason": reason, "at": self.now().isoformat()}
+            log.warning("%s excluido de la watchlist: %s", ticker, reason)
+        if report.unsupported:
+            self._save_excluded()
+        return list(report.unsupported)
+
     async def add_watchlist(self, parsed: ParseResult) -> list[str]:
-        """Añade tickers y lanza la actualización diaria de los nuevos (RF-05)."""
+        """Añade tickers y lanza la actualización diaria de los nuevos (RF-05). Los excluidos se ignoran."""
+        parsed = replace(parsed, tickers=[t for t in parsed.tickers if t not in self.excluded])
         new = self.watchlist.add(parsed.tickers, self.now())
         if new and self.state.connected:
             await self.run_daily(new)
@@ -296,9 +331,10 @@ class AppService:
         """Sustituye la watchlist por la lista dada: quita (con sus contratos) los tickers que no
         están en ella, conserva los que siguen (con sus datos) y añade los nuevos con su actualización
         diaria. Devuelve (nuevos, conservados, quitados). Una lista sin tickers válidos NO vacía la
-        watchlist: lanza ValueError."""
+        watchlist: lanza ValueError. Los tickers excluidos no cuentan."""
+        parsed = replace(parsed, tickers=[t for t in parsed.tickers if t not in self.excluded])
         if not parsed.tickers:
-            raise ValueError("la lista no contiene ningún ticker válido")
+            raise ValueError("la lista no contiene ningún ticker válido (o todos están excluidos)")
         current = self.watchlist.list()
         wanted = set(parsed.tickers)
         removed = [t for t in current if t not in wanted]
@@ -383,6 +419,7 @@ class AppService:
                 return None
             finally:
                 self.state.activity = None
+            self.exclude_unsupported(report)
             self.state.last_daily_report = report
             await self._update_history()
             return report

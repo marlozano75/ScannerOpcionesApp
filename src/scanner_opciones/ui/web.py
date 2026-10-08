@@ -163,13 +163,22 @@ def create_app(
     @app.get("/watchlist", response_class=HTMLResponse)
     async def watchlist(request: Request, message: str = ""):
         return render(request, "watchlist.html", no_autorefresh=True, tickers=service.watchlist.list(),
-                      infos=service.ticker_info.all(), message=message)
+                      infos=service.ticker_info.all(), message=message, excluded=service.excluded)
+
+    @app.post("/watchlist/allow")
+    async def watchlist_allow(ticker: str = Form("")):
+        """Quita un ticker de la lista de excluidos para que pueda volver a añadirse desde Universo."""
+        ok = service.allow_ticker(ticker.strip().upper())
+        msg = f"{ticker} ya puede volver a añadirse a la watchlist" if ok else f"{ticker} no estaba excluido"
+        return RedirectResponse(f"/watchlist?{urlencode({'message': msg})}", status_code=303)
 
     async def apply_watchlist(parsed, mode: str) -> str:
         """Añade los tickers a la watchlist o, con mode='replace', la sustituye por ellos."""
         rejected = f", {len(parsed.rejected)} rechazados" if parsed.rejected else ""
         if parsed.rejected:
             rejected += ": " + ", ".join(t for t, _ in parsed.rejected)
+        if skipped := service.excluded_among(parsed):
+            rejected += f"; excluidos por inservibles (no se añaden): {', '.join(skipped)}"
         if mode == "replace":
             try:
                 new, kept, removed = await service.replace_watchlist(parsed)

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional, Sequence
 
-from scanner_opciones.domain.errors import BrokerDisconnectedError, DataUnavailableError
+from scanner_opciones.domain.errors import BrokerDisconnectedError, DataUnavailableError, UnsupportedTickerError
 from scanner_opciones.domain.models import (
     AccountSummary, OptionChain, OptionContract, OptionQuote, Position, UnderlyingQuote, VixData,
 )
@@ -24,6 +24,7 @@ class FakeGateway:
     margins: dict[OptionContract, float] = field(default_factory=dict)
     vix: VixData = field(default_factory=VixData)
     failing_tickers: set[str] = field(default_factory=set)
+    unsupported_tickers: set[str] = field(default_factory=set)   # fallo permanente (no reconocido / sin opciones)
     invalid_contracts: set[OptionContract] = field(default_factory=set)  # no existen en el 'broker'
     pacing_wait: float = 0.0   # espera simulada por el límite de peticiones históricas
     connected: bool = False
@@ -47,6 +48,8 @@ class FakeGateway:
     def _check(self, ticker: Optional[str] = None) -> None:
         if not self.connected:
             raise BrokerDisconnectedError("FakeGateway no conectado")
+        if ticker and ticker in self.unsupported_tickers:
+            raise UnsupportedTickerError(f"Ticker no reconocido por IBKR: {ticker}")
         if ticker and ticker in self.failing_tickers:
             raise DataUnavailableError(f"Sin datos para {ticker}")
 

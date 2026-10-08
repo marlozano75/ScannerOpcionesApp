@@ -21,6 +21,11 @@ class DataUnavailableError(BrokerError):
     """El broker no devolvió datos (sin suscripción, ticker inválido, ...)."""
 
 
+class UnsupportedTickerError(DataUnavailableError):
+    """El ticker no se puede usar en esta aplicación de forma permanente (IBKR no lo reconoce o no tiene
+    cadena de opciones). Es distinto de un fallo pasajero: la actualización diaria lo saca de la watchlist."""
+
+
 class WatchlistError(AppError):
     """Watchlist inválida o ilegible."""
 

@@ -17,7 +17,7 @@ from typing import Callable, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import MarketDataSettings
-from scanner_opciones.domain.errors import DataUnavailableError, OptionDataError, PriceError, VolatilityError
+from scanner_opciones.domain.errors import OptionDataError, PriceError, UnsupportedTickerError, VolatilityError
 from scanner_opciones.domain.models import (
     AccountSummary, OptionChain, OptionContract, OptionQuote, Position, UnderlyingQuote, VixData,
 )
@@ -159,8 +159,11 @@ class HybridGateway:
             log.warning("Cadena de %s no disponible en el proveedor, se pide a IBKR: %s", ticker, exc)
             self._listings.pop(ticker, None)
             return await self.inner.get_option_chain(ticker)
-        if not listing:
-            raise DataUnavailableError(f"Sin cadena de opciones para {ticker}")
+        if not listing:   # el proveedor no lista nada: se confirma con IBKR antes de dar el ticker por inservible
+            chain = await self.inner.get_option_chain(ticker)
+            if not chain.expiries:
+                raise UnsupportedTickerError(f"Sin cadena de opciones para {ticker}")
+            return chain
         return OptionChain(
             ticker, sorted({e for e, _ in listing}), sorted({k for _, k in listing}), MULTIPLIER,
         )

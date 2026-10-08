@@ -8,6 +8,14 @@
     <div class="banner err">Errores en la última actualización:
       {% for t, e in state.last_daily_report.errors.items() %}<div><strong>{{ t }}</strong>: {{ e }}</div>{% endfor %}</div>
   {% endif %}
+  {% if excluded %}
+    <div class="banner info"><strong>Excluidos automáticamente</strong> (no sirven para esta aplicación; no se vuelven a añadir):
+      {% for t, e in excluded.items() %}
+        <form method="post" action="/watchlist/allow" style="display:flex;gap:.6rem;align-items:center;margin:.25rem 0">
+          <span><strong>{{ t }}</strong>: {{ e.reason }} <span class="muted">({{ e.at[:10] }})</span></span>
+          <input type="hidden" name="ticker" value="{{ t }}"><button type="submit">Permitir de nuevo</button>
+        </form>{% endfor %}</div>
+  {% endif %}
   <div class="scroll"><table class="sortable" id="watchlist-table">
     <tr><th>Ticker</th><th>Sector</th><th>Categoría</th><th>Precio</th><th>Días ex-div.</th><th>IV Rank</th><th>IV Pctl</th><th>Actualizado</th></tr>
     {% for t in tickers %}{% set i = infos.get(t) %}

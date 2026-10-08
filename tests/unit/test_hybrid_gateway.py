@@ -257,3 +257,13 @@ async def test_provider_vix_wraps_failures_and_returns_the_fetch():
     assert await provider_with(fetch_vix=ok).get_vix(5, 3) is expected
     with pytest.raises(OptionDataError):
         await provider_with(fetch_vix=boom).get_vix(5, 3)
+
+
+async def test_empty_provider_chain_is_confirmed_with_the_broker_before_giving_up():
+    chain = OptionChain("AAPL", [E1], [200.0])
+    gw, _, _ = build(FakeOptionData(), FakeGateway(connected=True, chains={"AAPL": chain}))
+    assert await gw.get_option_chain("AAPL") == chain          # tastytrade no lo lista pero IBKR sí: se usa
+    gw2, _, _ = build(FakeOptionData(), FakeGateway(connected=True))
+    from scanner_opciones.domain.errors import UnsupportedTickerError
+    with pytest.raises(UnsupportedTickerError):               # ninguno tiene cadena: inservible para siempre
+        await gw2.get_option_chain("UI")

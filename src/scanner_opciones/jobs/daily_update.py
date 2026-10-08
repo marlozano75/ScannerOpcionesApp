@@ -11,7 +11,7 @@ from typing import Awaitable, Callable, Optional, TypeVar
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
+from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, UnsupportedTickerError, VolatilityError
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.jobs.contract_sync import ContractSyncer
@@ -31,6 +31,7 @@ T = TypeVar("T")
 class DailyUpdateReport:
     updated: list[str] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)  # ticker -> motivo
+    unsupported: dict[str, str] = field(default_factory=dict)  # ticker -> motivo permanente: no sirve para esta app
 
 
 @dataclass
@@ -97,6 +98,9 @@ class DailyUpdater:
                     report.updated.append(ticker)
                 except BrokerDisconnectedError:
                     raise  # sin conexión no tiene sentido seguir con el resto
+                except UnsupportedTickerError as exc:   # permanente: lo quita de la watchlist quien llama
+                    log.warning("Ticker no utilizable %s: %s", ticker, exc)
+                    report.unsupported[ticker] = str(exc)
                 except (BrokerError, ValueError) as exc:
                     log.warning("Actualización diaria fallida para %s: %s", ticker, exc)
                     report.errors[ticker] = str(exc)
