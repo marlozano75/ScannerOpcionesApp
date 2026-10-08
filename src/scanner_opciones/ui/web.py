@@ -84,15 +84,18 @@ def quality_form(base) -> dict:
     }
 
 
-def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool) -> None:
+def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidity: bool = True) -> None:
     """Lee los filtros de calidad de la URL (scanner y Universo comparten parser). Cada valor se valida contra las
-    listas permitidas de la configuración. `earnings`: el filtro de resultados es por contrato, solo existe en el scanner."""
+    listas permitidas de la configuración. `earnings`: el filtro de resultados es por contrato, solo existe en el scanner.
+    `liquidity`: la liquidez de las opciones solo se filtra en el scanner (en el Universo es solo un indicador)."""
     form["q_profit"], form["q_fcf"] = "q_profit" in qp, "q_fcf" in qp
     overrides["require_profitable"], overrides["require_positive_fcf"] = form["q_profit"], form["q_fcf"]
     if earnings:
         form["q_earn"] = "q_earn" in qp
         overrides["avoid_earnings"] = form["q_earn"]
     for key, field_name, cast, options, label in QUALITY_SELECTS:
+        if key == "q_liq" and not liquidity:
+            continue
         form[key] = qp.get(key, "").strip()
         overrides[field_name] = _required(form[key], cast, label) if form[key] else None
         if overrides[field_name] is not None and overrides[field_name] not in getattr(qcfg, options):
@@ -264,7 +267,7 @@ def create_app(
         if "submitted" in qp:
             try:
                 overrides: dict = {}
-                read_quality(qp, qform, overrides, qcfg, earnings=False)
+                read_quality(qp, qform, overrides, qcfg, earnings=False, liquidity=False)
                 criteria = base.with_filters(**overrides)
             except ValueError as exc:
                 qerror = f"Parámetro no válido: {exc}"

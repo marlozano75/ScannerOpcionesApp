@@ -55,9 +55,6 @@
     <label>Capitalización mínima
       <select name="q_mcap"><option value="">Cualquiera</option>
         {% for v, label in quality_opts.mcaps %}<option value="{{ v }}" {{ 'selected' if qform.q_mcap == v }}>{{ label }}</option>{% endfor %}</select></label>
-    <label>Liquidez de opciones
-      <select name="q_liq"><option value="">Cualquiera</option>
-        {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if qform.q_liq == n|string }}>{{ n }} o más</option>{% endfor %}</select></label>
     <label>Pasivo / patrimonio máx.
       <select name="q_lev"><option value="">Cualquiera</option>
         {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if qform.q_lev == v }}>{{ v }}</option>{% endfor %}</select></label>
@@ -68,7 +65,7 @@
   <p class="note" style="margin:8px 0 0">Las financieras (bancos, aseguradoras) quedan exentas del pasivo/patrimonio y del flujo de caja.
     Datos de calidad disponibles para <b>{{ with_quality }}</b> de {{ rows|length }} acciones mostradas.
     {% if not quality_opts.edgar %}<b>Falta <code>edgar.contact</code> en config.yaml</b>: sin él no hay datos de pasivo/patrimonio ni de flujo de caja.{% endif %}
-    El filtro de resultados es por contrato y está en el Scanner.</p>
+    Los filtros de resultados antes del vencimiento y de liquidez de las opciones están en el Scanner; aquí la liquidez es solo un indicador.</p>
 </form>
 {% if qerror %}<div class="banner err">{{ qerror }}</div>{% endif %}
 <form method="post" action="/universe/apply" class="card" id="rk-apply">

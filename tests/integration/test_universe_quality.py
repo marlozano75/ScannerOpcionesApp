@@ -83,11 +83,20 @@ def test_every_selected_row_is_visible_and_checked(client_and_service):
     assert all("checked" in row for row in page.split("<tr>") if 'name="sel"' in row)
 
 
-def test_size_liquidity_and_quarters_filters(client_and_service):
+def test_size_and_quarters_filters(client_and_service):
     client, svc = setup(client_and_service)
     assert shown(client.get("/universe?submitted=1&q_mcap=2000").text) == {"DK", "KO", "ADBE", "AIG", "ACN", "ALL"}   # GCT 1,2 B$ y PAYS caen
-    assert shown(client.get("/universe?submitted=1&q_liq=4").text) == {"KO", "ADBE", "ACN"}
     assert shown(client.get("/universe?submitted=1&q_quarters=4").text) == {"KO", "ADBE", "ACN", "ALL"}
+
+
+def test_option_liquidity_is_an_indicator_in_the_universe_not_a_filter(client_and_service):
+    """La liquidez de las opciones se filtra solo en el Scanner."""
+    client, svc = setup(client_and_service)
+    page = client.get("/universe").text
+    assert "<th>Liq. opc.</th>" in page and 'name="q_liq"' not in page          # la columna sigue, el filtro no
+    assert shown(client.get("/universe?submitted=1&q_liq=4").text) == ALL_TICKERS   # un q_liq en la URL se ignora
+    assert "descartadas por calidad" not in client.get("/universe?submitted=1&q_liq=4").text
+    assert 'name="q_liq"' in client.get("/scanner").text                          # el Scanner conserva su filtro
 
 
 def test_leverage_and_cash_flow_filters_exempt_financial_companies(client_and_service):
@@ -103,7 +112,7 @@ def test_filters_combine_and_can_leave_nothing(client_and_service):
     client, svc = setup(client_and_service)
     page = client.get("/universe?submitted=1&q_profit=on&q_quarters=4&q_mcap=2000&q_lev=2&q_fcf=on").text
     assert shown(page) == {"ADBE", "ACN", "ALL"}
-    assert shown(client.get("/universe?submitted=1&q_liq=4&q_lev=1").text) == {"ACN"}     # liquidez 4 y pasivo/patrimonio ≤ 1
+    assert shown(client.get("/universe?submitted=1&q_mcap=50000&q_lev=1").text) == {"ACN", "ALL"}   # ≥ 50 B$ y pasivo/patrimonio ≤ 1 (ALL: financiera)
 
 
 def test_if_no_quality_data_has_been_downloaded_the_filters_leave_nothing(client_and_service):
@@ -123,7 +132,7 @@ def test_without_filters_nothing_is_dropped_even_with_missing_data(client_and_se
 
 def test_invalid_filter_values_are_rejected_and_nothing_is_filtered(client_and_service):
     client, svc = setup(client_and_service)
-    for bad in ("q_mcap=123", "q_quarters=1", "q_liq=9", "q_lev=7", "q_quarters=abc"):
+    for bad in ("q_mcap=123", "q_quarters=1", "q_lev=7", "q_quarters=abc"):
         page = client.get(f"/universe?submitted=1&q_profit=on&{bad}").text
         assert "Parámetro no válido" in page and shown(page) == ALL_TICKERS
 
