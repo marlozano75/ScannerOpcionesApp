@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import unicodedata
 from datetime import date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Optional
 
@@ -156,7 +157,9 @@ class EdgarFinancialsProvider:
         self, contact: str, requests_per_second: float = 5.0, concurrency: int = 4,
         fetch_json: Optional[FetchJson] = None, today: Callable[[], date] = date.today,
     ) -> None:
-        self._user_agent = f"ScannerOpcionesApp {contact}"
+        # las cabeceras HTTP solo admiten ASCII: «Ángel» -> «Angel»
+        ascii_contact = unicodedata.normalize("NFKD", contact).encode("ascii", "ignore").decode().strip()
+        self._user_agent = f"ScannerOpcionesApp {ascii_contact}"
         self._interval = 1.0 / requests_per_second
         self._sem = asyncio.Semaphore(concurrency)
         self._fetch_json = fetch_json or self._http_get

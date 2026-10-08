@@ -215,3 +215,10 @@ def test_the_freshest_flow_tag_wins_too():
         PaymentsToAcquireProductiveAssets=CAPEX,
     )
     assert parse_company_facts(data, TODAY).fcf_ttm == 950.0
+
+
+def test_the_user_agent_is_ascii_even_if_the_contact_has_accents():
+    ua = EdgarFinancialsProvider("Miguel Ángel Ruiz correo@ejemplo.com", fetch_json=lambda url: None)._user_agent
+    assert ua == "ScannerOpcionesApp Miguel Angel Ruiz correo@ejemplo.com" and ua.isascii()
+    import httpx
+    httpx.Headers({"User-Agent": ua}).raw        # httpx no lanza UnicodeEncodeError
