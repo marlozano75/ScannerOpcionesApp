@@ -418,13 +418,19 @@ class IBKRGateway:
     async def what_if_margin(self, contract: OptionContract, quantity: int = 1) -> Optional[float]:
         self._require()
         opt = self._ib_option(contract)
-        if not opt.conId:  # los contratos guardados ya traen conId: no hace falta cualificar de nuevo
-            await self.ib.qualifyContractsAsync(opt)
-        if not opt.conId:
-            return None
-        # whatIfOrderAsync fuerza whatIf=True: IBKR calcula el margen SIN enviar la orden.
-        order = MarketOrder("SELL", quantity, tif="DAY", account=self._account_id())
-        state = await self.ib.whatIfOrderAsync(opt, order)  # tif explícito: evita el aviso 10349
+        limit = self.s.what_if_timeout_seconds
+        try:
+            if not opt.conId:  # los contratos guardados ya traen conId: no hace falta cualificar de nuevo
+                await asyncio.wait_for(self.ib.qualifyContractsAsync(opt), timeout=limit)
+            if not opt.conId:
+                return None
+            # whatIfOrderAsync fuerza whatIf=True: IBKR calcula el margen SIN enviar la orden.
+            order = MarketOrder("SELL", quantity, tif="DAY", account=self._account_id())
+            # tif explícito: evita el aviso 10349. Si TWS pierde la conexión con IBKR (error 1100) no responde nunca:
+            # sin tiempo máximo el ciclo de refresco quedaba colgado.
+            state = await asyncio.wait_for(self.ib.whatIfOrderAsync(opt, order), timeout=limit)
+        except asyncio.TimeoutError as exc:
+            raise DataUnavailableError(f"TWS no respondió al what-if de {contract.ticker} en {limit:.0f} s") from exc
         return m.parse_margin_change(getattr(state, "initMarginChange", None))
 
     # ---- VIX ------------------------------------------------------------------------------

@@ -22,7 +22,7 @@ from scanner_opciones.config.settings import Settings, load_settings
 from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.errors import ConfigError
 from scanner_opciones.jobs.scheduler import PeriodicRunner
-from scanner_opciones.marketdata.tastytrade import TastytradeVolatility
+from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
 from scanner_opciones.ui.web import create_app
 
@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         handlers=handlers,
     )
     logging.getLogger("ib_async").setLevel(getattr(logging, settings.logging.ib_async_level.upper(), logging.WARNING))
-    logging.getLogger("tastytrade").setLevel(getattr(logging, settings.logging.tastytrade_level.upper(), logging.WARNING))
+    quiet_sdk_logging(getattr(logging, settings.logging.tastytrade_level.upper(), logging.WARNING))
     uvicorn.run(build_app(settings), host=args.host, port=args.port, log_level="info")
     return 0
 

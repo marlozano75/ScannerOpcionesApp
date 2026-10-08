@@ -6,6 +6,7 @@ ibkr:
   accounts: { live: null, paper: null }   # id por modo (U1234567); imprescindible si TWS gestiona varias cuentas
   auto_detect_mode: true   # al arrancar elige live/paper según el puerto que responda (7496/7497); false = usa `mode`
   mode: paper            # paper | live
+  what_if_timeout_seconds: 15   # tiempo máximo de un what-if de margen (si TWS pierde la conexión con IBKR no responde nunca)
   market_data_type: 2    # 1 = live, 2 = congelado (live; con el mercado cerrado, el último bid/ask del cierre), 3 = diferido
                          # (3 no ocupa la suscripción en tiempo real: la app móvil de IBKR conserva sus datos en vivo)
   delayed_minutes: 15    # retraso de los datos diferidos (solo con market_data_type 3 o 4)

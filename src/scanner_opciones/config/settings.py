@@ -50,6 +50,7 @@ class IbkrSettings(_Model):
     delayed_minutes: float = Field(15, ge=0)  # retraso de los datos diferidos (tipos 3 y 4)
     connect_timeout_seconds: float = Field(10, gt=0)
     quote_wait_seconds: float = Field(4, gt=0)  # espera de ticks tras pedir cotizaciones
+    what_if_timeout_seconds: float = Field(15, gt=0)  # tiempo máximo de un what-if de margen (TWS puede dejar de responder)
     historical_requests_per_10min: int = Field(50, ge=1)  # límite de pacing de IBKR: 60
     account_tags: AccountTags = AccountTags()
 

@@ -516,14 +516,16 @@ class AppService:
 
     async def _refresh_portfolio(self) -> None:
         try:
-            self.state.account = await self.gateway.get_account_summary()
-            self.state.positions = await self.gateway.get_positions()
+            self.state.account = await asyncio.wait_for(self.gateway.get_account_summary(), timeout=STEP_TIMEOUT_SECONDS)
+            self.state.positions = await asyncio.wait_for(self.gateway.get_positions(), timeout=STEP_TIMEOUT_SECONDS)
             self.state.risk = build_risk_status(self.state.account, self.settings.risk.cushion_thresholds)
             self.state.errors.pop("portfolio", None)
         except BrokerDisconnectedError:
             raise
         except BrokerError as exc:
             self.state.errors["portfolio"] = str(exc)
+        except asyncio.TimeoutError:
+            self.state.errors["portfolio"] = "Timeout obteniendo la cuenta (¿TWS ha perdido la conexión con IBKR?)"
 
     async def _refresh_vix(self) -> None:
         try:

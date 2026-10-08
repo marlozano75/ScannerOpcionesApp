@@ -36,6 +36,14 @@ ChainFetch = Callable[[str], Awaitable[OptionListing]]                          
 OptionQuotesFetch = Callable[[Sequence[str]], Awaitable[dict[str, OptionQuote]]]  # símbolos DXLink -> cotizaciones
 
 
+def quiet_sdk_logging(level: int) -> None:
+    """Fija el nivel del log del SDK. El SDK se pone en DEBUG él mismo cada vez que se importa; se importa aquí,
+    una sola vez y al arrancar, para que el nivel elegido no se pierda al importarlo más tarde (import perezoso)."""
+    import tastytrade   # noqa: F401 - el import es lo que fija DEBUG
+
+    logging.getLogger("tastytrade").setLevel(level)
+
+
 def tasty_symbol(ticker: str) -> str:
     """Símbolo de tastytrade: las clases de acciones llevan «/» («PBR-A» y «BRK.B» -> «PBR/A», «BRK/B»)."""
     return re.sub(r"[.\-]", "/", ticker.strip())

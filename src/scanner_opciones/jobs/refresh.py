@@ -24,6 +24,8 @@ from typing import Callable, Optional, Sequence
 
 log = logging.getLogger(__name__)
 
+MARGIN_MAX_FAILURES = 3   # what-if seguidos sin respuesta tras los que se deja de pedir márgenes en el ciclo
+
 
 @dataclass
 class RefreshReport:
@@ -38,6 +40,7 @@ class RefreshReport:
     margins_requested: int = 0
     quotes_kept: int = 0      # contratos sin precio nuevo (mercado cerrado): se conserva la última cotización
     margins_reused: int = 0   # márgenes recientes reutilizados sin pedir un what-if nuevo
+    margin_streak: int = 0    # what-if fallidos seguidos; al llegar a MARGIN_MAX_FAILURES no se piden más en el ciclo
     errors: dict[str, str] = field(default_factory=dict)  # ticker -> motivo
 
 
@@ -130,18 +133,21 @@ class RefreshJob:
                         report.errors[t] = str(quotes)
                     log.warning("Cotizaciones fallidas: %s", quotes)
                     continue
-                for contract in batch:
-                    quote = quotes.get(contract)
-                    if quote is None:
-                        report.without_quote += 1
-                        continue
-                    previous = prev.get(self._snap_key(contract))
-                    snap = self._build_snapshot(contract, quote, infos.get(contract.ticker), previous)
-                    if snap.updated_at != self.now():
-                        report.quotes_kept += 1
-                    snap = await self._maybe_add_margin(snap, infos.get(contract.ticker), criteria, report, previous)
-                    if self.snapshots.upsert(snap):
-                        report.refreshed += 1
+                ready: list[ContractSnapshot] = []
+                try:
+                    for contract in batch:
+                        quote = quotes.get(contract)
+                        if quote is None:
+                            report.without_quote += 1
+                            continue
+                        previous = prev.get(self._snap_key(contract))
+                        snap = self._build_snapshot(contract, quote, infos.get(contract.ticker), previous)
+                        if snap.updated_at != self.now():
+                            report.quotes_kept += 1
+                        ready.append(await self._maybe_add_margin(
+                            snap, infos.get(contract.ticker), criteria, report, previous))
+                finally:   # una sola transacción por lote; si se pierde la conexión a mitad, se guarda lo ya hecho
+                    report.refreshed += self.snapshots.upsert_many(ready)
         finally:
             if pending is not None and not pending.done():
                 pending.cancel()
@@ -280,12 +286,18 @@ class RefreshJob:
         ):
             report.margins_reused += 1
             return replace(snap, initial_margin=previous.initial_margin, margin_at=previous.margin_at)
+        if report.margin_streak >= MARGIN_MAX_FAILURES:
+            return snap   # TWS no responde: no se espera un tiempo máximo por cada contrato
         try:
             report.margins_requested += 1
             margin = await self.gateway.what_if_margin(snap.contract, 1)
         except BrokerDisconnectedError:
             raise
         except BrokerError as exc:
+            report.margin_streak += 1
             log.warning("what-if fallido para %s: %s", snap.contract, exc)
+            if report.margin_streak == MARGIN_MAX_FAILURES:
+                log.warning("%d what-if seguidos fallidos: no se piden más márgenes en este ciclo", MARGIN_MAX_FAILURES)
             return snap
+        report.margin_streak = 0
         return replace(snap, initial_margin=margin, margin_at=self.now() if margin is not None else None)

@@ -95,6 +95,29 @@ class TestContractsAndSnapshots:
         assert len(got) == 1 and got[0].bid == 1.1 and got[0].updated_at == NOW + timedelta(minutes=5)
         assert got[0].contract == c
 
+    def test_upsert_many_saves_a_batch_in_one_transaction_and_skips_unknown_contracts(self, db):
+        contracts, snaps = ContractRepo(db), SnapshotRepo(db)
+        known = [self._c(150), self._c(155)]
+        contracts.replace_for_ticker("AAPL", known)
+        saved = snaps.upsert_many([
+            ContractSnapshot(known[0], NOW, bid=1.0, ask=1.2),
+            ContractSnapshot(known[1], NOW, bid=2.0, ask=2.2),
+            ContractSnapshot(self._c(999), NOW, bid=9.0, ask=9.9),        # no existe: se descarta
+            ContractSnapshot(known[0], NOW + timedelta(minutes=1), bid=1.1, ask=1.3),   # repetido: gana el último
+        ])
+        assert saved == 3
+        by_strike = {s.contract.strike: s for s in snaps.all("AAPL")}
+        assert set(by_strike) == {150, 155} and by_strike[150].bid == 1.1 and by_strike[155].bid == 2.0
+        assert snaps.upsert_many([]) == 0
+
+    def test_upsert_many_with_many_tickers(self, db):
+        contracts, snaps = ContractRepo(db), SnapshotRepo(db)
+        tickers = [f"T{i}" for i in range(700)]      # más tickers que variables por consulta
+        for t in tickers:
+            contracts.replace_for_ticker(t, [OptionContract(t, (NOW + timedelta(days=30)).date(), 10.0)])
+        batch = [ContractSnapshot(OptionContract(t, (NOW + timedelta(days=30)).date(), 10.0), NOW, bid=1.0, ask=1.1) for t in tickers]
+        assert snaps.upsert_many(batch) == 700 and len(snaps.all()) == 700
+
     def test_snapshot_for_unknown_contract(self, db):
         assert SnapshotRepo(db).upsert(ContractSnapshot(self._c(150), NOW)) is False
 

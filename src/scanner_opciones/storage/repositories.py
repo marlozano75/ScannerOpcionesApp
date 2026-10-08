@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, TickerInfo
@@ -324,28 +324,50 @@ class SnapshotRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
 
+    _UPSERT = (
+        "INSERT OR REPLACE INTO snapshots (contract_id, updated_at, bid, ask, last, delta, iv, "
+        "open_interest, spread_pct, yield_pct, yield_annualized_pct, iv_rank, iv_percentile, "
+        "initial_margin, bid_size, margin_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    )
+
+    @staticmethod
+    def _row(contract_id: int, snap: ContractSnapshot) -> tuple:
+        return (
+            contract_id, snap.updated_at.isoformat(), snap.bid, snap.ask, snap.last, snap.delta,
+            snap.iv, snap.open_interest, snap.spread_pct, snap.yield_pct,
+            snap.yield_annualized_pct, snap.iv_rank, snap.iv_percentile, snap.initial_margin, snap.bid_size,
+            snap.margin_at.isoformat() if snap.margin_at else None,
+        )
+
     def upsert(self, snap: ContractSnapshot) -> bool:
         """Guarda el snapshot. False si el contrato no existe en `contracts`."""
-        c = snap.contract
-        r = self.db.conn.execute(
-            "SELECT id FROM contracts WHERE ticker=? AND expiry=? AND strike=? AND right=?",
-            (c.ticker, c.expiry.isoformat(), c.strike, c.right.value),
-        ).fetchone()
-        if r is None:
-            return False
-        with self.db.conn:
-            self.db.conn.execute(
-                "INSERT OR REPLACE INTO snapshots (contract_id, updated_at, bid, ask, last, delta, iv, "
-                "open_interest, spread_pct, yield_pct, yield_annualized_pct, iv_rank, iv_percentile, "
-                "initial_margin, bid_size, margin_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    r["id"], snap.updated_at.isoformat(), snap.bid, snap.ask, snap.last, snap.delta,
-                    snap.iv, snap.open_interest, snap.spread_pct, snap.yield_pct,
-                    snap.yield_annualized_pct, snap.iv_rank, snap.iv_percentile, snap.initial_margin, snap.bid_size,
-                    snap.margin_at.isoformat() if snap.margin_at else None,
-                ),
-            )
-        return True
+        return self.upsert_many([snap]) == 1
+
+    def upsert_many(self, snaps: Sequence[ContractSnapshot]) -> int:
+        """Guarda varios snapshots en UNA transacción (un commit por snapshot era el cuello de botella del
+        refresco: ~3 ms cada uno). Los ids de contrato se resuelven de una vez por ticker. Devuelve cuántos se
+        guardaron: los contratos que no existen en `contracts` se descartan."""
+        if not snaps:
+            return 0
+        tickers = sorted({s.contract.ticker for s in snaps})
+        ids: dict[tuple, int] = {}
+        for i in range(0, len(tickers), 500):      # SQLite limita las variables de una consulta
+            chunk = tickers[i:i + 500]
+            marks = ",".join("?" * len(chunk))
+            for r in self.db.conn.execute(
+                f"SELECT id, ticker, expiry, strike, right FROM contracts WHERE ticker IN ({marks})", chunk
+            ):
+                ids[(r["ticker"], r["expiry"], r["strike"], r["right"])] = r["id"]
+        rows = []
+        for snap in snaps:
+            c = snap.contract
+            cid = ids.get((c.ticker, c.expiry.isoformat(), c.strike, c.right.value))
+            if cid is not None:
+                rows.append(self._row(cid, snap))
+        if rows:
+            with self.db.conn:
+                self.db.conn.executemany(self._UPSERT, rows)
+        return len(rows)
 
     def all(self, ticker: Optional[str] = None) -> list[ContractSnapshot]:
         sql = (

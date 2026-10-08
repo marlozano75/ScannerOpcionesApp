@@ -101,3 +101,51 @@ async def test_refresh_stops_on_disconnection_and_cancels_the_prefetch():
     from scanner_opciones.domain.errors import BrokerDisconnectedError
     with pytest.raises(BrokerDisconnectedError):
         await env.refresh.run()
+
+
+async def test_margins_are_not_requested_after_consecutive_what_if_failures():
+    """Si TWS no responde, no se espera el tiempo máximo por cada contrato que pasa el escaneo."""
+    from scanner_opciones.domain.errors import DataUnavailableError
+    from scanner_opciones.jobs import refresh as refresh_module
+
+    env = Env()
+    await _prepare_refresh(env)
+    asked = []
+
+    async def silent(contract, quantity=1):
+        asked.append(contract)
+        raise DataUnavailableError("TWS no respondió")
+    env.gw.what_if_margin = silent
+    env.settings = Settings.model_validate({"scanner": {"initial": {"min_annual_yield_pct": 0}}})
+    env.refresh.settings = env.settings
+    refresh_module.MARGIN_MAX_FAILURES, saved = 1, refresh_module.MARGIN_MAX_FAILURES
+    try:
+        report = await env.refresh.run()
+    finally:
+        refresh_module.MARGIN_MAX_FAILURES = saved
+    assert len(asked) == 1 and report.margins_requested == 1     # tras el primer fallo no se piden más
+    assert report.refreshed == 2                                   # los snapshots se guardan igualmente, sin margen
+
+
+async def test_account_timeout_is_reported_instead_of_hanging(monkeypatch):
+    from scanner_opciones.app import service as service_module
+
+    svc, gw = await started_service()
+
+    async def silent():
+        await asyncio.Event().wait()
+    gw.get_account_summary = silent
+    monkeypatch.setattr(service_module, "STEP_TIMEOUT_SECONDS", 0.05)
+    assert await svc.refresh_account() is True
+    assert "portfolio" in svc.state.errors and "Timeout" in svc.state.errors["portfolio"]
+
+
+def test_sdk_log_level_survives_later_imports():
+    import logging
+    from scanner_opciones.marketdata.tastytrade import quiet_sdk_logging
+
+    quiet_sdk_logging(logging.WARNING)
+    import importlib
+    import tastytrade.streamer   # noqa: F401 - un import posterior no debe volver a ponerlo en DEBUG
+    importlib.import_module("tastytrade.instruments")
+    assert logging.getLogger("tastytrade").level == logging.WARNING
