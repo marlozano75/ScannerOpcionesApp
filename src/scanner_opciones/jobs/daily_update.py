@@ -5,8 +5,8 @@ import asyncio
 import logging
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime
 from typing import Awaitable, Callable, Optional, TypeVar
 
 from scanner_opciones.broker.base import BrokerGateway
@@ -17,6 +17,7 @@ from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.price_history import update_history
 from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
+from scanner_opciones.marketdata.fundamentals import FundamentalsProvider, resolve_eps
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.storage.repositories import (
     BarRepo, ContractRepo, TickerInfoRepo, WatchlistRepo,
@@ -55,7 +56,9 @@ class DailyUpdater:
         candles: Optional[CandleProvider] = None,
         bars: Optional[BarRepo] = None,
         syncer: Optional[ContractSyncer] = None,
+        fundamentals: Optional[FundamentalsProvider] = None,
     ) -> None:
+        self.fundamentals = fundamentals
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
         self.candles = candles
@@ -164,6 +167,64 @@ class DailyUpdater:
                 log.warning("IV Rank/Percentile no disponibles, se conservan los guardados: %s", exc)
         return out
 
+    @staticmethod
+    def _quality_fields(info: TickerInfo) -> dict:
+        return dict(
+            eps_ttm=info.eps_ttm, positive_quarters=info.positive_quarters, reported_quarters=info.reported_quarters,
+            market_cap=info.market_cap, option_liquidity=info.option_liquidity, next_earnings=info.next_earnings,
+            eps_surprise_pct=info.eps_surprise_pct, fundamentals_at=info.fundamentals_at,
+        )
+
+    def _quarters_stale(self, info: TickerInfo, today: date) -> bool:
+        """¿Hay que bajar de nuevo el historial trimestral? Sí si no se bajó nunca, si pasó el plazo configurado
+        o si desde entonces ha llegado la fecha de unos resultados (hay un trimestre nuevo)."""
+        if info.fundamentals_at is None or info.positive_quarters is None:
+            return True
+        age = (today - info.fundamentals_at.date()).days
+        if age >= self.settings.scanner.quality.refresh_days:
+            return True
+        return info.next_earnings is not None and info.fundamentals_at.date() <= info.next_earnings < today
+
+    async def update_fundamentals(self, tickers: list[str]) -> int:
+        """Datos de calidad (EPS, trimestres, capitalización, liquidez, resultados) de `tickers`. Los fundamentales
+        salen de la petición de métricas (barata, siempre); el historial trimestral solo de los que lo tienen
+        desactualizado. Es independiente de la actualización diaria «pendiente de hoy». Devuelve cuántas fichas
+        actualizó. Un fallo del proveedor se registra y deja los datos como estaban."""
+        if not tickers or self.fundamentals is None:
+            return 0
+        started = time.monotonic()
+        infos = {t: i for t in tickers if (i := self.ticker_info.get(t)) is not None}
+        if not infos:
+            return 0
+        try:
+            funds = await self.fundamentals.get_fundamentals(list(infos))
+        except VolatilityError as exc:
+            log.warning("Datos de calidad no disponibles, se conservan los guardados: %s", exc)
+            return 0
+        today = self.now().date()
+        stale = [t for t, i in infos.items() if self._quarters_stale(i, today)]
+        quarters = await self.fundamentals.get_quarterly_eps(stale) if stale else {}
+        updated = []
+        for ticker, known in infos.items():
+            fund, q = funds.get(ticker), quarters.get(ticker)
+            if fund is None and q is None:
+                continue
+            fields = self._quality_fields(known)
+            if q is not None:
+                fields.update(positive_quarters=sum(1 for x in q if x > 0), reported_quarters=len(q),
+                              fundamentals_at=self.now())
+            eps = resolve_eps(fund.eps_ttm if fund else None, q or [])
+            if eps is not None:
+                fields["eps_ttm"] = eps          # sin EPS válido ni historial nuevo se conserva el que había
+            if fund is not None:
+                fields.update(market_cap=fund.market_cap, option_liquidity=fund.option_liquidity,
+                              next_earnings=fund.next_earnings, eps_surprise_pct=fund.eps_surprise_pct)
+            updated.append(replace(known, **fields))
+        n = self.ticker_info.update_quality(updated)
+        log.info("Datos de calidad: %d fichas actualizadas (%d con historial trimestral nuevo) en %.1f s",
+                 n, len(quarters), time.monotonic() - started)
+        return n
+
     async def update_history(self, tickers: list[str]) -> int:
         """Completa el histórico de cierres diarios de `tickers` (solo los días que faltan).
         Es independiente de la actualización diaria «pendiente de hoy»: se hace siempre que falte histórico.
@@ -223,6 +284,7 @@ class DailyUpdater:
                 days_to_ex_dividend=ex_div,
                 iv_rank=rank, iv_percentile=percentile,
                 updated_daily_at=now, price_at=price_at,
+                **(self._quality_fields(known) if known is not None else {}),   # la actualización diaria no los toca
             )
         )
         self.watchlist.mark_daily_updated(ticker, now)

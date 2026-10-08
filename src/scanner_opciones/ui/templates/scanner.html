@@ -126,10 +126,46 @@
     </div>
   </div>
 
+  <div class="section-title">Calidad de la empresa <span style="letter-spacing:.04em;text-transform:none;font-weight:400">(datos de tastytrade; los tickers sin dato se descartan, salvo en el filtro de resultados)</span></div>
+  <div class="panels">
+    <div class="panel tech">
+      <h3><span class="n">8</span>Rentabilidad</h3>
+      <label class="opt" style="flex-direction:row;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
+        <input type="checkbox" name="q_profit" id="q_profit" {{ 'checked' if form.q_profit }}> <b>Beneficios en los últimos 12 meses</b></label>
+      <div class="filters">
+        <label>Trimestres con beneficios (de los últimos 4)
+          <select name="q_quarters" id="q_quarters">
+            <option value="" {{ 'selected' if form.q_quarters == '' }}>Cualquiera</option>
+            {% for n in quality_opts.quarters %}<option value="{{ n }}" {{ 'selected' if form.q_quarters == n|string }}>{{ n }} o más</option>{% endfor %}</select></label>
+      </div>
+      <p class="note">EPS de 12 meses mayor que 0 (si tastytrade no lo da, la suma de los 4 últimos trimestres). Exigir 3 de 4 evita que un único trimestre con pérdidas extraordinarias descarte una empresa sana.</p>
+    </div>
+    <div class="panel tech">
+      <h3><span class="n">9</span>Tamaño y liquidez</h3>
+      <div class="filters">
+        <label>Capitalización mínima
+          <select name="q_mcap" id="q_mcap">
+            <option value="" {{ 'selected' if form.q_mcap == '' }}>Cualquiera</option>
+            {% for v, label in quality_opts.mcaps %}<option value="{{ v }}" {{ 'selected' if form.q_mcap == v }}>{{ label }}</option>{% endfor %}</select></label>
+        <label>Liquidez de las opciones (1-5)
+          <select name="q_liq" id="q_liq">
+            <option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>
+            {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más</option>{% endfor %}</select></label>
+      </div>
+      <p class="note">La liquidez es la valoración de tastytrade de las opciones del ticker (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers: úsala con cuidado.</p>
+    </div>
+    <div class="panel tech">
+      <h3><span class="n">10</span>Resultados antes del vencimiento</h3>
+      <label class="opt" style="flex-direction:row;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
+        <input type="checkbox" name="q_earn" id="q_earn" {{ 'checked' if form.q_earn }}> <b>Evitar vencimientos con resultados</b></label>
+      <p class="note">Se descartan los <b>contratos</b> cuyo vencimiento es igual o posterior a la próxima fecha de resultados: no se vende una put que atraviese un informe. Sin fecha conocida no se descarta nada. En plena temporada de resultados casi todos los tickers publican en las próximas semanas.</p>
+    </div>
+  </div>
+
   <div class="section-title">Liquidez y volatilidad</div>
   <div class="panels">
     <div class="panel wide">
-      <h3><span class="n">8</span>Filtros opcionales</h3>
+      <h3><span class="n">11</span>Filtros opcionales</h3>
       <div class="filters">
         <label class="opt"><span><input type="checkbox" name="use_oi" {{ 'checked' if form.use_oi }}> OI mínimo</span>
           <input name="oi" size="7" value="{{ form.oi }}"></label>
@@ -195,7 +231,7 @@
     document.getElementById('trend_days_label').style.opacity = (off || !low) ? .45 : 1;
   };
   techSync();
-  document.querySelectorAll('.tech select, .tech input[name^=price_], #support').forEach(function (el) {
+  document.querySelectorAll('.tech select, .tech input[name^=price_], #support, #q_profit, #q_earn').forEach(function (el) {
     el.addEventListener('change', function () { techSync(); form.submit(); });
   });
   document.querySelectorAll('label.opt').forEach(function (l) {

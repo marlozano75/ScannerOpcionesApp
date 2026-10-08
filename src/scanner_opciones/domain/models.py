@@ -19,6 +19,15 @@ class TickerInfo:
     iv_percentile: Optional[float] = None
     updated_daily_at: Optional[datetime] = None
     price_at: Optional[datetime] = None   # cuándo se obtuvo `underlying_price`
+    # calidad de la empresa (filtros «Calidad» del scanner); None = sin dato
+    eps_ttm: Optional[float] = None            # beneficio por acción de los últimos 12 meses
+    positive_quarters: Optional[int] = None    # de los últimos `reported_quarters` trimestres, cuántos con EPS > 0
+    reported_quarters: Optional[int] = None
+    market_cap: Optional[float] = None         # USD
+    option_liquidity: Optional[int] = None     # 1-5, la valoración de tastytrade de la liquidez de sus opciones
+    next_earnings: Optional[date] = None       # fecha prevista de los próximos resultados (si ya pasó, es la última)
+    eps_surprise_pct: Optional[float] = None   # último EPS frente al consenso, en %
+    fundamentals_at: Optional[datetime] = None  # cuándo se descargó el historial trimestral
 
 
 @dataclass(frozen=True)

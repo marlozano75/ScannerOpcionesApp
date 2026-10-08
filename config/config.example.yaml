@@ -22,6 +22,11 @@ daily_update:
   concurrency: 4         # tickers que se actualizan a la vez
 
 scanner:
+  quality:                 # opciones del bloque «Calidad de la empresa» del scanner
+    market_cap_options_m: [500, 1000, 2000, 5000, 10000, 50000]   # capitalización mínima ofrecida (millones de $)
+    liquidity_options: [2, 3, 4]            # liquidez mínima de las opciones (1-5, de tastytrade)
+    positive_quarters_options: [2, 3, 4]    # trimestres con beneficios exigidos de los últimos 4
+    refresh_days: 7                         # cada cuántos días se baja de nuevo el historial trimestral
   catalog_margin_pct: 5    # puntos de más por arriba y por abajo que se GUARDAN (el rango cotizado sigue al precio)
   candidates:              # rango visible y cotizado, respecto al precio actual
     strike_below_pct_min: 10   # strikes desde un 10 % ...

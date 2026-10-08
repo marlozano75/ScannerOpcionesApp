@@ -47,6 +47,19 @@ class ScanCriteria:
     min_days_since_touch: Optional[int] = None
     min_price: Optional[float] = None     # precio del subyacente (vacío = sin límite)
     max_price: Optional[float] = None
+    # calidad de la empresa (ver scanner/quality.py); los valores por defecto no filtran nada
+    require_profitable: bool = False              # EPS de los últimos 12 meses > 0 (sin dato = se descarta)
+    min_positive_quarters: Optional[int] = None   # trimestres con beneficios exigidos de los últimos 4
+    min_market_cap_m: Optional[float] = None      # capitalización mínima, en millones de dólares
+    min_option_liquidity: Optional[int] = None    # liquidez de las opciones (1-5) mínima
+    avoid_earnings: bool = False                  # descarta los vencimientos posteriores a la próxima fecha de resultados
+
+    @property
+    def quality_active(self) -> bool:
+        return (
+            self.require_profitable or self.avoid_earnings or self.min_positive_quarters is not None
+            or self.min_market_cap_m is not None or self.min_option_liquidity is not None
+        )
 
     @property
     def technical_active(self) -> bool:

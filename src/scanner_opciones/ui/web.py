@@ -47,6 +47,11 @@ def _num(v: Optional[float], digits: int = 2) -> str:
     return "—" if v is None else f"{v:.{digits}f}"
 
 
+def _mcap_label(m: float) -> str:
+    """Capitalización mínima en millones de dólares, legible: 2000 -> «2 B$» (miles de millones)."""
+    return f"{m / 1000:g} B$" if m >= 1000 else f"{m:g} M$"
+
+
 def _days_label(days: int) -> str:
     """7 -> «1 semana», 30 -> «1 mes», 365 -> «1 año»; otros valores, «N días»."""
     for size, one, many in ((365, "año", "años"), (30, "mes", "meses"), (7, "semana", "semanas")):
@@ -314,6 +319,10 @@ def create_app(
             "touch": "" if base.min_days_since_touch is None else str(base.min_days_since_touch),
             "price_min": _fmt(base.min_price) if base.min_price is not None else "",
             "price_max": _fmt(base.max_price) if base.max_price is not None else "",
+            "q_profit": base.require_profitable, "q_earn": base.avoid_earnings,
+            "q_quarters": "" if base.min_positive_quarters is None else str(base.min_positive_quarters),
+            "q_mcap": "" if base.min_market_cap_m is None else _fmt(base.min_market_cap_m),
+            "q_liq": "" if base.min_option_liquidity is None else str(base.min_option_liquidity),
             **{k: getattr(base, k) for k in MA_LINES},
             "ma_frame": base.ma_frame,
             **{k: getattr(base, k) for k in MA_CROSSES},
@@ -370,6 +379,18 @@ def create_app(
                         raise ValueError(f"{label} no puede ser negativo")
                 if None not in (overrides["min_price"], overrides["max_price"]) and overrides["min_price"] > overrides["max_price"]:
                     raise ValueError("el precio mínimo no puede superar el máximo")
+                qcfg = service.settings.scanner.quality
+                form["q_profit"], form["q_earn"] = "q_profit" in qp, "q_earn" in qp
+                overrides["require_profitable"], overrides["avoid_earnings"] = form["q_profit"], form["q_earn"]
+                for key, field_name, cast, allowed, label in (
+                    ("q_quarters", "min_positive_quarters", int, qcfg.positive_quarters_options, "Trimestres con beneficios"),
+                    ("q_mcap", "min_market_cap_m", float, qcfg.market_cap_options_m, "Capitalización mínima"),
+                    ("q_liq", "min_option_liquidity", int, qcfg.liquidity_options, "Liquidez de opciones"),
+                ):
+                    form[key] = qp.get(key, "").strip()
+                    overrides[field_name] = _required(form[key], cast, label) if form[key] else None
+                    if overrides[field_name] is not None and overrides[field_name] not in allowed:
+                        raise ValueError(f"{label} no permitida")
                 form["touch"] = qp.get("touch", "").strip()
                 overrides["min_days_since_touch"] = _required(form["touch"], int, "Días desde el último toque") if form["touch"] else None
                 if overrides["min_days_since_touch"] is not None and overrides["min_days_since_touch"] not in tcfg.touch_min_days_options:
@@ -443,6 +464,10 @@ def create_app(
                           windows=[(m, f"{m} {'mes' if m == 1 else 'meses'}") for m in service.settings.scanner.technical.trend_windows_months],
                           durations=[(d, _days_label(d)) for d in service.settings.scanner.technical.trend_durations],
                           touches=[(d, _days_label(d)) for d in service.settings.scanner.technical.touch_min_days_options]),
+                      quality_opts=dict(
+                          quarters=service.settings.scanner.quality.positive_quarters_options,
+                          mcaps=[(_fmt(m), _mcap_label(m)) for m in service.settings.scanner.quality.market_cap_options_m],
+                          liquidity=service.settings.scanner.quality.liquidity_options),
                       report=service.state.last_refresh_report, **parsed)
 
     @app.get("/data-version")

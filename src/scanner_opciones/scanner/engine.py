@@ -13,6 +13,7 @@ from scanner_opciones.metrics.yields import (
 from scanner_opciones.portfolio.diversification import CandidateImpact, candidate_impact
 from scanner_opciones.scanner.criteria import ScanCriteria
 from scanner_opciones.scanner.filters import reject_reason
+from scanner_opciones.scanner.quality import quality_reject
 from scanner_opciones.scanner.technical import TechnicalFilter
 from scanner_opciones.config.settings import TechnicalSettings
 
@@ -58,6 +59,8 @@ def run_scan(
         info = infos.get(c.ticker)
         price = info.underlying_price if info else None
         why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile)
+        if why is None and criteria.quality_active:
+            why = quality_reject(info, c.expiry, criteria, today)
         if why is None and tech is not None:
             why = tech.reject(c.ticker, price, c.strike)
         if why is not None:

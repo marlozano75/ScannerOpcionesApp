@@ -88,24 +88,45 @@ class TickerInfoRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
 
+    _COLUMNS = (
+        "ticker", "sector", "category", "underlying_price", "days_to_ex_dividend", "iv_rank", "iv_percentile",
+        "updated_daily_at", "price_at", "eps_ttm", "positive_quarters", "reported_quarters", "market_cap",
+        "option_liquidity", "next_earnings", "eps_surprise_pct", "fundamentals_at",
+    )
+
     def upsert(self, info: TickerInfo) -> None:
+        cols = self._COLUMNS
+        values = (
+            info.ticker, info.sector, info.category, info.underlying_price, info.days_to_ex_dividend,
+            info.iv_rank, info.iv_percentile,
+            info.updated_daily_at.isoformat() if info.updated_daily_at else None,
+            info.price_at.isoformat() if info.price_at else None,
+            info.eps_ttm, info.positive_quarters, info.reported_quarters, info.market_cap, info.option_liquidity,
+            info.next_earnings.isoformat() if info.next_earnings else None, info.eps_surprise_pct,
+            info.fundamentals_at.isoformat() if info.fundamentals_at else None,
+        )
+        updates = ", ".join(f"{c}=excluded.{c}" for c in cols[1:])
         with self.db.conn:
             self.db.conn.execute(
-                "INSERT INTO ticker_info (ticker, sector, category, underlying_price, "
-                "days_to_ex_dividend, iv_rank, iv_percentile, updated_daily_at, price_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?) "
-                "ON CONFLICT(ticker) DO UPDATE SET sector=excluded.sector, "
-                "category=excluded.category, underlying_price=excluded.underlying_price, "
-                "days_to_ex_dividend=excluded.days_to_ex_dividend, iv_rank=excluded.iv_rank, "
-                "iv_percentile=excluded.iv_percentile, updated_daily_at=excluded.updated_daily_at, "
-                "price_at=excluded.price_at",
-                (
-                    info.ticker, info.sector, info.category, info.underlying_price,
-                    info.days_to_ex_dividend, info.iv_rank, info.iv_percentile,
-                    info.updated_daily_at.isoformat() if info.updated_daily_at else None,
-                    info.price_at.isoformat() if info.price_at else None,
-                ),
+                f"INSERT INTO ticker_info ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))}) "
+                f"ON CONFLICT(ticker) DO UPDATE SET {updates}",
+                values,
             )
+
+    def update_quality(self, infos: Iterable[TickerInfo]) -> int:
+        """Guarda solo los campos de calidad (EPS, trimestres, capitalización, liquidez, resultados) de las fichas
+        ya existentes, sin tocar el resto, en una sola transacción. Devuelve cuántas fichas actualizó."""
+        rows = [
+            (i.eps_ttm, i.positive_quarters, i.reported_quarters, i.market_cap, i.option_liquidity,
+             i.next_earnings.isoformat() if i.next_earnings else None, i.eps_surprise_pct,
+             i.fundamentals_at.isoformat() if i.fundamentals_at else None, i.ticker)
+            for i in infos
+        ]
+        with self.db.conn:
+            cur = self.db.conn.executemany(
+                "UPDATE ticker_info SET eps_ttm=?, positive_quarters=?, reported_quarters=?, market_cap=?, "
+                "option_liquidity=?, next_earnings=?, eps_surprise_pct=?, fundamentals_at=? WHERE ticker=?", rows)
+        return cur.rowcount
 
     def delete(self, ticker: str) -> None:
         with self.db.conn:
@@ -140,6 +161,10 @@ class TickerInfoRepo:
             iv_rank=r["iv_rank"], iv_percentile=r["iv_percentile"],
             updated_daily_at=_dt(r["updated_daily_at"]),
             price_at=_dt(r["price_at"]),
+            eps_ttm=r["eps_ttm"], positive_quarters=r["positive_quarters"], reported_quarters=r["reported_quarters"],
+            market_cap=r["market_cap"], option_liquidity=r["option_liquidity"],
+            next_earnings=date.fromisoformat(r["next_earnings"]) if r["next_earnings"] else None,
+            eps_surprise_pct=r["eps_surprise_pct"], fundamentals_at=_dt(r["fundamentals_at"]),
         )
 
     def get(self, ticker: str) -> Optional[TickerInfo]:

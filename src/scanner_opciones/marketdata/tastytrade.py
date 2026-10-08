@@ -16,6 +16,7 @@ from typing import Any, Awaitable, Callable, Optional, Sequence
 from scanner_opciones.domain.errors import CandleError, OptionDataError, PriceError, VolatilityError
 from scanner_opciones.domain.models import OptionQuote, VixData
 from scanner_opciones.marketdata.candles import DailyBars
+from scanner_opciones.marketdata.fundamentals import Fundamentals, clean_eps
 from scanner_opciones.marketdata.options import MarketExtras, OptionListing, listing_key
 from scanner_opciones.marketdata.volatility import IVMetrics
 
@@ -30,6 +31,10 @@ CANDLE_BATCH_SIZE = 50   # suscripciones a velas por lote (con todos a la vez ta
 
 SUBSCRIBE_CHUNK = 400   # símbolos por mensaje de suscripción DXLink (un mensaje no puede pasar de 64 KB: ~1000 símbolos)
 VIX_FUTURES_PRODUCT = "VX"
+
+EarningsFetch = Callable[[str], Awaitable[list[tuple[date, float]]]]   # símbolo -> (fecha del informe, EPS)
+EARNINGS_CONCURRENCY = 4          # peticiones REST del historial de resultados a la vez
+EARNINGS_LOOKBACK_DAYS = 500      # para tener al menos 4 trimestres reportados
 
 VixFetch = Callable[[int, int], Awaitable[VixData]]   # días de cierres, futuros por delante
 ChainFetch = Callable[[str], Awaitable[OptionListing]]                            # símbolo de tastytrade -> puts existentes
@@ -76,7 +81,7 @@ class TastytradeVolatility:
         fetch: Optional[Fetch] = None, fetch_quotes: Optional[Fetch] = None,
         fetch_candles: Optional[CandleFetch] = None,
         fetch_chain: Optional[ChainFetch] = None, fetch_option_quotes: Optional[OptionQuotesFetch] = None,
-        fetch_vix: Optional[VixFetch] = None,
+        fetch_vix: Optional[VixFetch] = None, fetch_earnings: Optional[EarningsFetch] = None,
         quote_wait: float = 20.0, settle: float = 3.0, option_batch_size: int = 400,
     ) -> None:
         self._client_secret = client_secret
@@ -87,6 +92,7 @@ class TastytradeVolatility:
         self._fetch_chain = fetch_chain or self._sdk_fetch_chain
         self._fetch_option_quotes = fetch_option_quotes or self._sdk_fetch_option_quotes
         self._fetch_vix = fetch_vix or self._sdk_fetch_vix
+        self._fetch_earnings = fetch_earnings or self._sdk_fetch_earnings
         self._quote_wait, self._settle, self._option_batch = quote_wait, settle, option_batch_size
         self._session: Any = None
 
@@ -260,6 +266,65 @@ class TastytradeVolatility:
             prices.get("VIX", last_close), closes[-history_days:],
             [(exp, prices[sym]) for exp, sym in upcoming if sym in prices], datetime.now(),
         )
+
+    async def _sdk_fetch_earnings(self, symbol: str) -> list[tuple[date, float]]:
+        from tastytrade.metrics import get_earnings
+
+        start = date.today() - timedelta(days=EARNINGS_LOOKBACK_DAYS)
+        events = await get_earnings(self._open_session(), symbol, start)
+        return sorted((e.occurred_date, float(e.eps)) for e in events if e.eps is not None)
+
+    async def get_fundamentals(self, tickers: list[str]) -> dict[str, Fundamentals]:
+        """EPS de 12 meses, capitalización, liquidez de opciones, próximos resultados y sorpresa del último EPS,
+        de las *market metrics* (la misma petición que el IV Rank)."""
+        names = {tasty_symbol(t): t for t in tickers}
+        symbols = list(names)
+        out: dict[str, Fundamentals] = {}
+        for i in range(0, len(symbols), BATCH_SIZE):
+            batch = symbols[i:i + BATCH_SIZE]
+            try:
+                items = await self._fetch(batch)
+            except Exception as exc:
+                self._session = None
+                raise VolatilityError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
+            for item in items:
+                if item.symbol not in batch:
+                    continue
+                earnings = getattr(item, "earnings", None)
+                actual = getattr(earnings, "actual_eps", None)
+                consensus = getattr(earnings, "consensus_estimate", None)
+                surprise = None
+                if actual is not None and consensus is not None and float(consensus) != 0.0:
+                    surprise = round((float(actual) - float(consensus)) / abs(float(consensus)) * 100, 1)
+                eps = getattr(item, "earnings_per_share", None)
+                cap = getattr(item, "market_cap", None)
+                out[names[item.symbol]] = Fundamentals(
+                    eps_ttm=clean_eps(float(eps)) if eps is not None else None,
+                    market_cap=float(cap) if cap else None,
+                    option_liquidity=getattr(item, "liquidity_rating", None),
+                    next_earnings=getattr(earnings, "expected_report_date", None),
+                    eps_surprise_pct=surprise,
+                )
+        return out
+
+    async def get_quarterly_eps(self, tickers: list[str]) -> dict[str, list[float]]:
+        """EPS de los últimos 4 trimestres reportados de cada ticker. Una petición por ticker (EARNINGS_CONCURRENCY a
+        la vez); los que fallan no aparecen: ya se volverá a intentar."""
+        sem = asyncio.Semaphore(EARNINGS_CONCURRENCY)
+        out: dict[str, list[float]] = {}
+
+        async def one(ticker: str) -> None:
+            async with sem:
+                try:
+                    events = await self._fetch_earnings(tasty_symbol(ticker))
+                except Exception as exc:
+                    log.info("Historial de resultados no disponible para %s: %s", ticker, exc)
+                    return
+            if events:
+                out[ticker] = [eps for _, eps in sorted(events)[-4:]]
+
+        await asyncio.gather(*(one(t) for t in tickers))
+        return out
 
     async def get_vix(self, history_days: int, futures_ahead: int) -> VixData:
         try:

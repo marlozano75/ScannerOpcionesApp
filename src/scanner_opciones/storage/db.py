@@ -88,6 +88,17 @@ MIGRATIONS: list[str] = [
     ALTER TABLE ticker_info DROP COLUMN sma_long;
     ALTER TABLE ticker_info DROP COLUMN trend_at;
     """,
+    # v13: calidad de la empresa (EPS, trimestres positivos, capitalización, liquidez, resultados)
+    """
+    ALTER TABLE ticker_info ADD COLUMN eps_ttm REAL;
+    ALTER TABLE ticker_info ADD COLUMN positive_quarters INTEGER;
+    ALTER TABLE ticker_info ADD COLUMN reported_quarters INTEGER;
+    ALTER TABLE ticker_info ADD COLUMN market_cap REAL;
+    ALTER TABLE ticker_info ADD COLUMN option_liquidity INTEGER;
+    ALTER TABLE ticker_info ADD COLUMN next_earnings TEXT;
+    ALTER TABLE ticker_info ADD COLUMN eps_surprise_pct REAL;
+    ALTER TABLE ticker_info ADD COLUMN fundamentals_at TEXT;
+    """,
 ]
 
 

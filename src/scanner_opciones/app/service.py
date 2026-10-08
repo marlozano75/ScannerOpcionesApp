@@ -30,6 +30,7 @@ from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     BarRepo, ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
+from scanner_opciones.marketdata.fundamentals import FundamentalsProvider
 from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
@@ -79,6 +80,7 @@ class AppService:
         volatility: Optional[VolatilityProvider] = None,
         prices: Optional[PriceProvider] = None,
         candles: Optional[CandleProvider] = None,
+        fundamentals: Optional[FundamentalsProvider] = None,
     ) -> None:
         self.gateway = gateway
         self.settings = settings
@@ -92,7 +94,7 @@ class AppService:
         self.bars = BarRepo(db)
         syncer = ContractSyncer(gateway, self.contracts, settings)  # comparte la cadena en caché
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.contracts, settings,
-                                  now, volatility, prices, candles, self.bars, syncer)
+                                  now, volatility, prices, candles, self.bars, syncer, fundamentals)
         self.refresh_job = RefreshJob(
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
             volatility, prices, syncer,
@@ -248,7 +250,7 @@ class AppService:
     async def start(self) -> None:
         # El histórico de cierres solo depende de tastytrade y se guarda en la base de datos: se completa lo
         # primero (unos segundos), sin esperar al broker ni al primer refresco, que tarda minutos.
-        history = asyncio.ensure_future(self._update_history())
+        history = asyncio.ensure_future(self._update_history_and_fundamentals())
         try:
             await self.gateway.connect()
         except BrokerError as exc:
@@ -422,6 +424,7 @@ class AppService:
             self.exclude_unsupported(report)
             self.state.last_daily_report = report
             await self._update_history()
+            await self._update_fundamentals()
             return report
 
     async def _update_history(self) -> None:
@@ -435,6 +438,20 @@ class AppService:
             log.exception("No se pudo actualizar el histórico de cierres")
         finally:
             self.state.activity = None
+            self.state.data_version += 1
+
+    async def _update_history_and_fundamentals(self) -> None:
+        await self._update_history()
+        await self._update_fundamentals()
+
+    async def _update_fundamentals(self) -> None:
+        """Datos de calidad de toda la watchlist (EPS, trimestres, capitalización, liquidez, resultados). Un fallo
+        no interrumpe nada: los filtros de calidad trabajan con lo guardado."""
+        try:
+            await self.daily.update_fundamentals(self.watchlist.list())
+        except Exception:
+            log.exception("No se pudieron actualizar los datos de calidad")
+        finally:
             self.state.data_version += 1
 
     def record_today_prices(self) -> int:

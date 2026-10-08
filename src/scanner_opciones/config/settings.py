@@ -175,6 +175,14 @@ class TechnicalSettings(_Model):
     touch_min_days_options: tuple[int, ...] = (7, 14, 30, 60, 90, 180, 365)   # opciones de «Días mín. desde el último toque»
 
 
+class QualitySettings(_Model):
+    """Filtros de calidad de la empresa del scanner (beneficios, trimestres, tamaño, liquidez, resultados)."""
+    market_cap_options_m: list[float] = [500, 1000, 2000, 5000, 10000, 50000]   # capitalización mínima ofrecida (M$)
+    liquidity_options: list[int] = [2, 3, 4]               # liquidez mínima de las opciones (1-5, de tastytrade)
+    positive_quarters_options: list[int] = [2, 3, 4]       # trimestres con beneficios exigidos de los últimos 4
+    refresh_days: int = Field(7, ge=1)                     # cada cuántos días se vuelve a bajar el historial trimestral
+
+
 class ScannerSettings(_Model):
     price_reference: PriceReferenceSettings = PriceReferenceSettings()
     candidates: CandidateRange = CandidateRange()
@@ -186,6 +194,7 @@ class ScannerSettings(_Model):
     filter_values: FilterValues = FilterValues()
     presets: tuple[ScannerPreset, ...] = DEFAULT_PRESETS
     technical: TechnicalSettings = TechnicalSettings()
+    quality: QualitySettings = QualitySettings()
 
     @property
     def catalog(self) -> CandidateRange:
