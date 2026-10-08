@@ -69,7 +69,8 @@ class IbkrSettings(_Model):
 
 class RefreshSettings(_Model):
     interval_minutes: float = Field(5, gt=0)
-    batch_size: int = Field(50, ge=1)  # contratos por petición de cotizaciones
+    batch_size: int = Field(50, ge=1)  # contratos por petición de cotizaciones a IBKR (con tastytrade manda market_data.quote_batch_size)
+    account_interval_minutes: float = Field(1, gt=0)  # cada cuánto se refrescan cuenta, posiciones y VIX (independiente del mercado)
     margin_max_age_minutes: float = Field(60, ge=0)  # reutiliza el margen (what-if) guardado hasta esta edad
 
 
@@ -234,7 +235,7 @@ class MarketDataSettings(_Model):
     source: Literal["tastytrade", "ibkr"] = "tastytrade"   # «ibkr» recupera el comportamiento anterior (todo por TWS)
     quote_wait_seconds: float = Field(20, gt=0)   # espera máxima por lote de cotizaciones DXLink
     settle_seconds: float = Field(3, gt=0)        # sin datos nuevos durante tanto tiempo, el lote se da por terminado
-    quote_batch_size: int = Field(400, ge=1)      # suscripciones DXLink a opciones por lote (probado hasta 400)
+    quote_batch_size: int = Field(2500, ge=1, le=3000)  # contratos por conexión DXLink (probado: 3000 sí, 4000 no) y por petición de cotizaciones
     listing_ttl_minutes: float = Field(30, gt=0)  # cuánto se reutiliza la lista de contratos de un ticker
 
 

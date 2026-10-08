@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional, Protocol, Sequence
 
-from scanner_opciones.domain.models import OptionQuote
+from scanner_opciones.domain.models import OptionQuote, VixData
 
 # (vencimiento, strike redondeado a 2 decimales) -> símbolo de streaming del proveedor
 OptionListing = dict[tuple[date, float], str]
@@ -43,6 +43,10 @@ class OptionDataProvider(Protocol):
         """Lanza `VolatilityError` si el proveedor falla."""
         ...
 
+    async def get_vix(self, history_days: int, futures_ahead: int) -> VixData:
+        """VIX (último cierre y precio en vivo) y los próximos futuros. Lanza `OptionDataError` si falla."""
+        ...
+
 
 @dataclass
 class FakeOptionData:
@@ -51,6 +55,7 @@ class FakeOptionData:
     quotes: dict[str, OptionQuote] = field(default_factory=dict)
     prices: dict[str, float] = field(default_factory=dict)
     extras: dict[str, MarketExtras] = field(default_factory=dict)
+    vix: VixData = field(default_factory=VixData)
     error: Optional[Exception] = None
     calls: list[tuple] = field(default_factory=list)
 
@@ -77,3 +82,9 @@ class FakeOptionData:
         self.calls.append(("get_market_extras", tuple(tickers)))
         self._maybe_fail()
         return {t: self.extras[t] for t in tickers if t in self.extras}
+
+    async def get_vix(self, history_days: int, futures_ahead: int) -> VixData:
+        self.calls.append(("get_vix", history_days, futures_ahead))
+        self._maybe_fail()
+        return VixData(self.vix.current, self.vix.last_closes[-history_days:], self.vix.futures[:futures_ahead],
+                       self.vix.updated_at)

@@ -1,6 +1,7 @@
 """Refresco periódico de cotizaciones y métricas de contratos candidatos (RF-07)."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field, replace
@@ -106,30 +107,44 @@ class RefreshJob:
         if only_unquoted:
             all_contracts = [c for c in all_contracts if self._snap_key(c) not in prev]
         report.stored, report.in_scope = len(stored), len(all_contracts)
-        size = self.settings.refresh.batch_size
-        for i in range(0, len(all_contracts), size):
-            batch = all_contracts[i : i + size]
+        # con tastytrade el gateway fija un lote grande (una conexión DXLink admite miles de suscripciones)
+        size = getattr(self.gateway, "quote_batch_size", None) or self.settings.refresh.batch_size
+        batches = [all_contracts[i:i + size] for i in range(0, len(all_contracts), size)]
+
+        async def fetch(batch: list):
             try:
-                quotes = await self.gateway.get_quotes(batch)
-            except BrokerDisconnectedError:
-                raise
-            except BrokerError as exc:
-                for t in {c.ticker for c in batch}:
-                    report.errors[t] = str(exc)
-                log.warning("Cotizaciones fallidas: %s", exc)
-                continue
-            for contract in batch:
-                quote = quotes.get(contract)
-                if quote is None:
-                    report.without_quote += 1
+                return await self.gateway.get_quotes(batch)
+            except BrokerError as exc:   # incluye BrokerDisconnectedError: se trata al consumir el resultado
+                return exc
+
+        # El siguiente lote se pide mientras se guardan los snapshots y se piden los márgenes (IBKR) del actual.
+        pending = asyncio.ensure_future(fetch(batches[0])) if batches else None
+        try:
+            for index, batch in enumerate(batches):
+                quotes = await pending
+                pending = asyncio.ensure_future(fetch(batches[index + 1])) if index + 1 < len(batches) else None
+                if isinstance(quotes, BrokerDisconnectedError):
+                    raise quotes
+                if isinstance(quotes, BrokerError):
+                    for t in {c.ticker for c in batch}:
+                        report.errors[t] = str(quotes)
+                    log.warning("Cotizaciones fallidas: %s", quotes)
                     continue
-                previous = prev.get(self._snap_key(contract))
-                snap = self._build_snapshot(contract, quote, infos.get(contract.ticker), previous)
-                if snap.updated_at != self.now():
-                    report.quotes_kept += 1
-                snap = await self._maybe_add_margin(snap, infos.get(contract.ticker), criteria, report, previous)
-                if self.snapshots.upsert(snap):
-                    report.refreshed += 1
+                for contract in batch:
+                    quote = quotes.get(contract)
+                    if quote is None:
+                        report.without_quote += 1
+                        continue
+                    previous = prev.get(self._snap_key(contract))
+                    snap = self._build_snapshot(contract, quote, infos.get(contract.ticker), previous)
+                    if snap.updated_at != self.now():
+                        report.quotes_kept += 1
+                    snap = await self._maybe_add_margin(snap, infos.get(contract.ticker), criteria, report, previous)
+                    if self.snapshots.upsert(snap):
+                        report.refreshed += 1
+        finally:
+            if pending is not None and not pending.done():
+                pending.cancel()
         log.info(
             "Refresco: %d contratos cotizados (de %d guardados) en %.1f s (subyacentes %.1f s); "
             "márgenes pedidos %d, reutilizados %d; sin precio nuevo (se conserva el anterior): %d; "
@@ -147,21 +162,33 @@ class RefreshJob:
     async def _sync_catalog(self, tickers: list[str], infos: dict, today, report: RefreshReport) -> None:
         """Recalcula la ventana guardada de cada ticker con su precio actual: valida y guarda solo los
         contratos que faltan y retira los que quedan fuera del margen. Un fallo no interrumpe el refresco."""
-        for ticker in tickers:
+        sem = asyncio.Semaphore(self.settings.daily_update.concurrency)
+
+        async def one(ticker: str) -> None:
             price = infos[ticker].underlying_price
             if not price:
-                continue
-            try:
-                chain = await self.syncer.chain(ticker, today)
-                removed, added = await self.syncer.sync(ticker, chain, price, today)
-            except BrokerDisconnectedError:
-                raise
-            except BrokerError as exc:
-                report.errors[ticker] = str(exc)
-                log.warning("Catálogo de contratos no actualizado para %s: %s", ticker, exc)
-                continue
+                return
+            async with sem:
+                try:
+                    chain = await self.syncer.chain(ticker, today)
+                    removed, added = await self.syncer.sync(ticker, chain, price, today)
+                except BrokerDisconnectedError:
+                    raise
+                except BrokerError as exc:
+                    report.errors[ticker] = str(exc)
+                    log.warning("Catálogo de contratos no actualizado para %s: %s", ticker, exc)
+                    return
             report.contracts_added += added
             report.contracts_removed += removed
+
+        tasks = [asyncio.ensure_future(one(t)) for t in tickers]
+        try:
+            await asyncio.gather(*tasks)
+        except BaseException:
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
 
     async def _refresh_underlyings(
         self, tickers: list[str], infos: dict, report: RefreshReport, moved: Optional[set] = None

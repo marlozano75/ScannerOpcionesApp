@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Optional, Sequence
 
 from scanner_opciones.domain.errors import CandleError, OptionDataError, PriceError, VolatilityError
-from scanner_opciones.domain.models import OptionQuote
+from scanner_opciones.domain.models import OptionQuote, VixData
 from scanner_opciones.marketdata.candles import DailyBars
 from scanner_opciones.marketdata.options import MarketExtras, OptionListing, listing_key
 from scanner_opciones.marketdata.volatility import IVMetrics
@@ -28,6 +28,10 @@ CandleFetch = Callable[[Sequence[str], int, float], Awaitable[dict[str, DailyBar
 CANDLE_BATCH_SIZE = 50   # suscripciones a velas por lote (con todos a la vez tastytrade corta: «subscription size too big»)
 
 
+SUBSCRIBE_CHUNK = 400   # símbolos por mensaje de suscripción DXLink (un mensaje no puede pasar de 64 KB: ~1000 símbolos)
+VIX_FUTURES_PRODUCT = "VX"
+
+VixFetch = Callable[[int, int], Awaitable[VixData]]   # días de cierres, futuros por delante
 ChainFetch = Callable[[str], Awaitable[OptionListing]]                            # símbolo de tastytrade -> puts existentes
 OptionQuotesFetch = Callable[[Sequence[str]], Awaitable[dict[str, OptionQuote]]]  # símbolos DXLink -> cotizaciones
 
@@ -64,6 +68,7 @@ class TastytradeVolatility:
         fetch: Optional[Fetch] = None, fetch_quotes: Optional[Fetch] = None,
         fetch_candles: Optional[CandleFetch] = None,
         fetch_chain: Optional[ChainFetch] = None, fetch_option_quotes: Optional[OptionQuotesFetch] = None,
+        fetch_vix: Optional[VixFetch] = None,
         quote_wait: float = 20.0, settle: float = 3.0, option_batch_size: int = 400,
     ) -> None:
         self._client_secret = client_secret
@@ -73,6 +78,7 @@ class TastytradeVolatility:
         self._fetch_candles = fetch_candles or self._sdk_fetch_candles
         self._fetch_chain = fetch_chain or self._sdk_fetch_chain
         self._fetch_option_quotes = fetch_option_quotes or self._sdk_fetch_option_quotes
+        self._fetch_vix = fetch_vix or self._sdk_fetch_vix
         self._quote_wait, self._settle, self._option_batch = quote_wait, settle, option_batch_size
         self._session: Any = None
 
@@ -143,8 +149,9 @@ class TastytradeVolatility:
         return out
 
     async def _sdk_fetch_option_quotes(self, symbols: Sequence[str]) -> dict[str, OptionQuote]:
-        """Quote + Greeks + Summary por DXLink. Un lote de suscripciones por vez: termina cuando todos tienen
-        cotización y griegas, cuando pasan `settle` s sin datos nuevos (el resto no cotiza) o al agotar `wait`."""
+        """Quote + Greeks + Summary por DXLink, en grupos de `option_batch_size` contratos (una conexión cada uno).
+        Un grupo termina cuando todos tienen cotización y griegas, cuando pasan `settle` s sin datos nuevos (el
+        resto no cotiza) o al agotar `wait`."""
         from tastytrade.dxfeed import Greeks, Quote, Summary
         from tastytrade.streamer import DXLinkStreamer
 
@@ -166,35 +173,38 @@ class TastytradeVolatility:
         def fill_summary(d: dict, e: Any) -> None:
             d.update(oi=num(e.open_interest))
 
-        async with DXLinkStreamer(self._open_session()) as streamer:
-            async def read(event_class: Any, fill: Callable[[dict, Any], None]) -> None:
-                async for ev in streamer.listen(event_class):
-                    if ev.event_symbol in got:
-                        fill(got[ev.event_symbol], ev)
+        async def fetch_group(group: list[str]) -> None:
+            """Una conexión por grupo (reutilizar la del grupo anterior falla con miles de suscripciones). Se
+            suscribe todo seguido, en mensajes de SUBSCRIBE_CHUNK, y se espera una sola vez."""
+            async with DXLinkStreamer(self._open_session()) as streamer:
+                async def read(event_class: Any, fill: Callable[[dict, Any], None]) -> None:
+                    async for ev in streamer.listen(event_class):
+                        if ev.event_symbol in got:
+                            fill(got[ev.event_symbol], ev)
 
-            tasks = [asyncio.create_task(read(c, f))
-                     for c, f in ((Quote, fill_quote), (Greeks, fill_greeks), (Summary, fill_summary))]
-            try:
-                loop = asyncio.get_running_loop()
-                for i in range(0, len(symbols), self._option_batch):
-                    batch = list(symbols[i:i + self._option_batch])
-                    for cls in (Quote, Greeks, Summary):
-                        await streamer.subscribe(cls, batch)
+                tasks = [asyncio.create_task(read(c, f))
+                         for c, f in ((Quote, fill_quote), (Greeks, fill_greeks), (Summary, fill_summary))]
+                try:
+                    loop = asyncio.get_running_loop()
+                    for j in range(0, len(group), SUBSCRIBE_CHUNK):
+                        for cls in (Quote, Greeks, Summary):
+                            await streamer.subscribe(cls, group[j:j + SUBSCRIBE_CHUNK])
                     start = last_change = loop.time()
                     last_n = -1
                     while loop.time() - start < self._quote_wait:
-                        n = sum(1 for s in batch if got[s].get("quoted") and got[s].get("greeks"))
+                        n = sum(1 for sym in group if got[sym].get("quoted") and got[sym].get("greeks"))
                         if n != last_n:
                             last_n, last_change = n, loop.time()
-                        if n == len(batch) or (n > 0 and loop.time() - last_change > self._settle):
+                        if n == len(group) or (n > 0 and loop.time() - last_change > self._settle):
                             break
                         await asyncio.sleep(0.25)
-                    for cls in (Quote, Greeks, Summary):
-                        await streamer.unsubscribe(cls, batch)
-            finally:
-                for t in tasks:
-                    t.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+                finally:
+                    for t in tasks:
+                        t.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
+
+        for i in range(0, len(symbols), self._option_batch):
+            await fetch_group(list(symbols[i:i + self._option_batch]))
         out: dict[str, OptionQuote] = {}
         for s, d in got.items():
             if not (d.get("quoted") or d.get("greeks")):
@@ -205,6 +215,50 @@ class TastytradeVolatility:
                 open_interest=int(oi) if oi is not None else None, bid_size=int(bs) if bs is not None else None,
             )
         return out
+
+    async def _sdk_fetch_vix(self, history_days: int, futures_ahead: int) -> VixData:
+        """VIX: cierres diarios (velas) y precio en vivo; futuros VX activos por vencimiento con su último precio.
+        Todo por DXLink. Sin precio en vivo se usa el último cierre; un futuro sin operaciones no aparece."""
+        from tastytrade.dxfeed import Trade
+        from tastytrade.instruments import Future
+        from tastytrade.streamer import DXLinkStreamer
+
+        today = datetime.now().date()
+        closes = (await self._fetch_candles(["VIX"], max(history_days * 2 + 4, 10), 20.0)).get("VIX", [])
+        session = self._open_session()
+        upcoming = sorted(
+            ((f.expiration_date, f.streamer_symbol) for f in await Future.get(session, product_codes=[VIX_FUTURES_PRODUCT])
+             if f.active and f.expiration_date >= today),
+        )[:futures_ahead]
+        symbols = ["VIX"] + [sym for _, sym in upcoming]
+        prices: dict[str, float] = {}
+        async with DXLinkStreamer(session) as streamer:
+            await streamer.subscribe(Trade, symbols)
+
+            async def read() -> None:
+                async for ev in streamer.listen(Trade):
+                    price = float(ev.price)
+                    if ev.event_symbol in symbols and price == price and price > 0:
+                        prices[ev.event_symbol] = price
+                        if len(prices) == len(symbols):
+                            return
+
+            try:
+                await asyncio.wait_for(read(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+        last_close = closes[-1][1] if closes else None
+        return VixData(
+            prices.get("VIX", last_close), closes[-history_days:],
+            [(exp, prices[sym]) for exp, sym in upcoming if sym in prices], datetime.now(),
+        )
+
+    async def get_vix(self, history_days: int, futures_ahead: int) -> VixData:
+        try:
+            return await self._fetch_vix(history_days, futures_ahead)
+        except Exception as exc:
+            self._session = None
+            raise OptionDataError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
 
     async def get_put_listing(self, ticker: str) -> OptionListing:
         try:

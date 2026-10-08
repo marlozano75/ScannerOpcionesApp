@@ -1,6 +1,7 @@
 """`HybridGateway`: un `BrokerGateway` que saca de un proveedor externo (tastytrade) la cadena de opciones, las
 cotizaciones de opciones, los precios de los subyacentes y los ex-dividendos, y deja en el broker real (IBKR)
-lo que solo él puede dar: cuenta, posiciones, margen what-if, sector y VIX.
+lo que solo él puede dar: cuenta, posiciones, margen what-if y sector. El VIX y sus futuros también salen del
+proveedor.
 
 Si el proveedor falla, cada consulta cae al broker interior y se avisa en el log: la app sigue funcionando
 como antes, solo más lenta. No importa `ib_async` ni el SDK del proveedor.
@@ -10,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict
+from dataclasses import replace
 from datetime import datetime
 from typing import Callable, Optional, Sequence
 
@@ -30,8 +32,11 @@ class HybridGateway:
     def __init__(
         self, inner: BrokerGateway, provider: OptionDataProvider, settings: MarketDataSettings,
         now: Callable[[], datetime] = datetime.now, clock: Callable[[], float] = time.monotonic,
+        fallback_batch: int = 50,
     ) -> None:
         self.inner = inner
+        self.fallback_batch = fallback_batch      # contratos por petición cuando se cae a IBKR (límite de líneas de TWS)
+        self.quote_batch_size = settings.quote_batch_size   # contratos por petición de cotizaciones (lo lee el refresco)
         self.provider = provider
         self.s = settings
         self._now = now
@@ -61,7 +66,16 @@ class HybridGateway:
         return await self.inner.what_if_margin(contract, quantity)   # los contratos sin con_id los cualifica IBKR
 
     async def get_vix_data(self, history_days: int, futures_ahead: int) -> VixData:
-        return await self.inner.get_vix_data(history_days, futures_ahead)
+        """VIX y futuros de tastytrade; si falla o no trae ningún dato, de IBKR."""
+        try:
+            vix = await self.provider.get_vix(history_days, futures_ahead)
+        except OptionDataError as exc:
+            log.warning("VIX no disponible en el proveedor, se pide a IBKR: %s", exc)
+            return await self.inner.get_vix_data(history_days, futures_ahead)
+        if vix.current is None and not vix.last_closes:
+            log.warning("El proveedor no devolvió datos del VIX, se piden a IBKR")
+            return await self.inner.get_vix_data(history_days, futures_ahead)
+        return vix if vix.updated_at is not None else replace(vix, updated_at=self._now())
 
     def historical_request_counts(self) -> dict[str, int]:
         return self.inner.historical_request_counts()
@@ -178,7 +192,7 @@ class HybridGateway:
                 listing = await self._listing(ticker)
             except OptionDataError as exc:
                 log.warning("Cotizaciones no disponibles en el proveedor, se piden a IBKR: %s", exc)
-                return await self.inner.get_quotes(contracts)
+                return await self._inner_quotes(contracts)
             for c in contracts:
                 if c.ticker == ticker and (sym := listing.get(listing_key(c.expiry, c.strike))):
                     symbols[sym] = c
@@ -187,5 +201,12 @@ class HybridGateway:
         except OptionDataError as exc:
             log.warning("Cotizaciones de %d contratos no disponibles en el proveedor, se piden a IBKR: %s",
                         len(symbols), exc)
-            return await self.inner.get_quotes(contracts)
+            return await self._inner_quotes(contracts)
         return {symbols[s]: q for s, q in quotes.items() if s in symbols}
+
+    async def _inner_quotes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, OptionQuote]:
+        """Respaldo con IBKR, en lotes pequeños: TWS admite pocas líneas de mercado simultáneas."""
+        out: dict[OptionContract, OptionQuote] = {}
+        for i in range(0, len(contracts), self.fallback_batch):
+            out.update(await self.inner.get_quotes(contracts[i:i + self.fallback_batch]))
+        return out

@@ -12,7 +12,8 @@ ibkr:
 
 refresh:
   interval_minutes: 5    # con datos diferidos se usa como mínimo delayed_minutes (no hay datos nuevos antes)
-  batch_size: 50             # contratos por petición de cotizaciones (con market_data.source tastytrade puede ser ~400)
+  batch_size: 50             # contratos por petición de cotizaciones a IBKR (también en el respaldo; con tastytrade manda market_data.quote_batch_size)
+  account_interval_minutes: 1   # cada cuánto se refrescan cuenta, posiciones y VIX, aparte del ciclo de mercado
   margin_max_age_minutes: 60   # reutiliza el margen (what-if) guardado hasta esta edad
 
 daily_update:
@@ -85,12 +86,13 @@ tastytrade:
 # De dónde salen la cadena, las cotizaciones de opciones, los precios de los subyacentes y los ex-dividendos.
 # La cuenta, las posiciones, el margen what-if, el sector y el VIX son siempre de IBKR.
 #   tastytrade: DXLink; mucho más rápido (sin validar contratos uno a uno) y sin límites de TWS. Si falla, cae a IBKR.
+#   El VIX y sus futuros también salen de tastytrade (con IBKR de respaldo).
 #   ibkr: todo por TWS (comportamiento anterior; versión guardada en la etiqueta git «version-ibkr-datos»).
 market_data:
   source: tastytrade
   quote_wait_seconds: 20     # espera máxima por lote de cotizaciones
   settle_seconds: 3          # sin datos nuevos durante tanto tiempo, el lote se da por terminado
-  quote_batch_size: 400      # suscripciones DXLink por lote (probado hasta 400)
+  quote_batch_size: 2500     # contratos por conexión DXLink y por petición de cotizaciones (probado: 3000 sí, 4000 no)
   listing_ttl_minutes: 30    # cuánto se reutiliza la lista de contratos de un ticker
 
 # Histórico de cierres diarios (tastytrade) en el que se basan los filtros técnicos del scanner.

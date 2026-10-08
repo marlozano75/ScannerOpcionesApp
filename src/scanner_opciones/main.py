@@ -47,19 +47,22 @@ def build_app(settings: Settings):
     def factory(mode: AccountMode) -> BrokerGateway:
         ibkr = IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
         # «tastytrade»: cadena, cotizaciones, precios y ex-dividendos de tastytrade; cuenta, margen, sector y VIX de IBKR
-        return HybridGateway(ibkr, tasty, md) if md.source == "tastytrade" else ibkr
+        return HybridGateway(ibkr, tasty, md, fallback_batch=settings.refresh.batch_size) if md.source == "tastytrade" else ibkr
 
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty)
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
+    account_runner = PeriodicRunner(service.refresh_account, settings.refresh.account_interval_minutes * 60)
     startup_task: list[asyncio.Task] = []
 
     async def on_startup() -> None:
         # No bloquea la UI si TWS tarda o no está disponible
         startup_task.append(asyncio.create_task(service.start()))
         runner.start()
+        account_runner.start()
 
     async def on_shutdown() -> None:
         await runner.stop()
+        await account_runner.stop()
         for t in startup_task:
             t.cancel()
         await service.stop()

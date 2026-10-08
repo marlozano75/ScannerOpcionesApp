@@ -203,3 +203,57 @@ async def test_market_extras_failure_is_a_volatility_error():
 
     with pytest.raises(VolatilityError):
         await provider_with(fetch=fetch).get_market_extras(["AAPL"])
+
+
+# ---- VIX, lotes de respaldo y cotizaciones en grupos ---------------------------------------------------------
+from scanner_opciones.domain.models import VixData   # noqa: E402
+
+
+async def test_vix_comes_from_the_provider():
+    vix = VixData(15.6, [(date(2026, 10, 7), 15.4), (date(2026, 10, 8), 15.58)], [(date(2026, 10, 21), 17.67)], None)
+    gw, inner, prov = build(FakeOptionData(vix=vix), FakeGateway(connected=True, vix=VixData(99.0)))
+    out = await gw.get_vix_data(5, 3)
+    assert out.current == 15.6 and out.futures == [(date(2026, 10, 21), 17.67)]
+    assert out.updated_at == datetime(2026, 10, 8, 12)        # la hora de la aplicación si el proveedor no la da
+    assert prov.calls[-1] == ("get_vix", 5, 3)
+
+
+async def test_vix_falls_back_to_the_broker_on_failure_or_empty_answer():
+    inner = FakeGateway(connected=True, vix=VixData(18.0, [(date(2026, 10, 8), 18.0)]))
+    gw, _, _ = build(FakeOptionData(error=OptionDataError("caído")), inner)
+    assert (await gw.get_vix_data(5, 3)).current == 18.0
+    gw2, _, _ = build(FakeOptionData(), inner)                 # el proveedor responde sin datos
+    assert (await gw2.get_vix_data(5, 3)).current == 18.0
+
+
+async def test_fallback_quotes_go_to_the_broker_in_small_batches():
+    cs = [contract(float(k)) for k in range(200, 207)]
+    seen = []
+
+    class Spy(FakeGateway):
+        async def get_quotes(self, contracts):
+            seen.append(len(contracts))
+            return await super().get_quotes(contracts)
+
+    inner = Spy(connected=True, quotes={c: OptionQuote(bid=1.0, ask=1.1) for c in cs})
+    gw = HybridGateway(inner, FakeOptionData(error=OptionDataError("caído")), MarketDataSettings(), fallback_batch=3)
+    assert len(await gw.get_quotes(cs)) == 7 and seen == [3, 3, 1]
+
+
+def test_quote_batch_size_is_exposed_for_the_refresh():
+    gw, _, _ = build()
+    assert gw.quote_batch_size == MarketDataSettings().quote_batch_size == 2500
+
+
+async def test_provider_vix_wraps_failures_and_returns_the_fetch():
+    expected = VixData(15.0, [(date(2026, 10, 8), 15.0)])
+
+    async def ok(history_days, futures_ahead):
+        return expected
+
+    async def boom(history_days, futures_ahead):
+        raise RuntimeError("sin red")
+
+    assert await provider_with(fetch_vix=ok).get_vix(5, 3) is expected
+    with pytest.raises(OptionDataError):
+        await provider_with(fetch_vix=boom).get_vix(5, 3)

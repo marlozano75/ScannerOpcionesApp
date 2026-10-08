@@ -63,6 +63,7 @@ class AppState:
     last_refresh_report: Optional[RefreshReport] = None
     errors: dict[str, str] = field(default_factory=dict)  # área -> último error
     activity: Optional[str] = None   # tarea en curso (se muestra en la interfaz)
+    last_account_refresh: Optional[datetime] = None   # último refresco de cuenta, posiciones y VIX
     data_version: int = 0            # sube al terminar un refresco: las páginas abiertas lo consultan para recargarse
 
 
@@ -102,7 +103,8 @@ class AppService:
         self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
         self.manual_tickers: list[str] = self._load_manual()   # fuente «Manual»: tickers escritos a mano
         self.restore_universe()
-        self._lock = asyncio.Lock()  # evita ejecuciones solapadas
+        self._lock = asyncio.Lock()  # evita ejecuciones solapadas de los jobs de mercado
+        self._account_lock = asyncio.Lock()  # cuenta, posiciones y VIX: aparte, para que un ciclo largo de mercado no los retrase
         self._background: set = set()
 
     # ---- Universo: los ficheros cargados sobreviven a los reinicios --------------------------
@@ -244,13 +246,15 @@ class AppService:
     async def start(self) -> None:
         # El histórico de cierres solo depende de tastytrade y se guarda en la base de datos: se completa lo
         # primero (unos segundos), sin esperar al broker ni al primer refresco, que tarda minutos.
-        await self._update_history()
+        history = asyncio.ensure_future(self._update_history())
         try:
             await self.gateway.connect()
         except BrokerError as exc:
+            await history
             self.state.connected = False
             self.state.errors["connection"] = str(exc)
             return
+        await history
         self.state.connected = True
         self.state.errors.pop("connection", None)
         self.cleanup_orphans()
@@ -440,31 +444,48 @@ class AppService:
         return await self.refresh_all(include_market=False)
 
     async def refresh_all(self, include_market: bool = True) -> bool:
-        """Cartera, riesgo, VIX y contratos (`include_market=False`: sin cotizaciones de subyacentes,
-        opciones ni márgenes). False si se omitió por solapamiento o falta de conexión."""
+        """Cuenta, riesgo y VIX más los contratos (`include_market=False`: solo cuenta, riesgo y VIX, sin
+        cotizaciones de subyacentes, opciones ni márgenes). La cuenta se refresca a la vez que el mercado y con
+        su propio bloqueo. False si se omitió por solapamiento o falta de conexión."""
+        if not include_market:
+            ok = await self.refresh_account()
+            if ok:   # mercado cerrado: el refresco solo de cuenta es el refresco del ciclo
+                self.state.last_refresh = self.now()
+                self.state.data_version += 1
+            return ok
         if self.busy:
             log.info("Refresco omitido: hay otra ejecución en curso")
             return False
         async with self._lock:
+            account = asyncio.ensure_future(self.refresh_account())   # ~1 s; no espera al mercado
             try:
-                self.state.activity = (
-                    "Refrescando cartera, VIX y cotizaciones" if include_market
-                    else "Refrescando cartera y VIX (mercado cerrado)"
-                )
+                self.state.activity = "Refrescando cartera, VIX y cotizaciones"
                 self.cleanup_orphans()
-                await self._refresh_portfolio()
-                await self._refresh_vix()
-                if include_market:
-                    self.state.last_refresh_report = await self.refresh_job.run()
-                    self.record_today_prices()
-                    self.meta.set(LAST_FULL_REFRESH, self.now().isoformat())
+                self.state.last_refresh_report = await self.refresh_job.run()
+                self.record_today_prices()
+                self.meta.set(LAST_FULL_REFRESH, self.now().isoformat())
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return False
             finally:
                 self.state.activity = None
+                await asyncio.gather(account, return_exceptions=True)
             self.state.last_refresh = self.now()
             self.state.data_version += 1
+            return True
+
+    async def refresh_account(self) -> bool:
+        """Cuenta, posiciones, riesgo y VIX. Va por su cuenta (bloqueo propio): no espera a la actualización diaria
+        ni a un ciclo largo de cotizaciones. False si ya hay uno en curso o se perdió la conexión."""
+        if self._account_lock.locked():
+            return False
+        async with self._account_lock:
+            try:
+                await asyncio.gather(self._refresh_portfolio(), self._refresh_vix())
+            except BrokerDisconnectedError as exc:
+                self._disconnected(exc)
+                return False
+            self.state.last_account_refresh = self.now()
             return True
 
     async def refresh_new_contracts(self) -> bool:
