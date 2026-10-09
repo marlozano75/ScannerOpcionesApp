@@ -107,6 +107,21 @@
 </main>
 <script>{% include "sortable.js" %}</script>
 <script>document.querySelectorAll('table.sortable').forEach(function (t, i) { SortableTables.init(t, i); });</script>
+<script>
+/* Conserva la posición de desplazamiento al volver a la misma página justo después de salir de ella
+   (cambiar un selector envía el formulario y recarga la página, que si no vuelve arriba). */
+(function () {
+  var KEY = 'scroll-pos';
+  try {
+    var saved = JSON.parse(sessionStorage.getItem(KEY) || 'null');
+    sessionStorage.removeItem(KEY);
+    if (saved && saved.path === location.pathname && Date.now() - saved.t < 15000) window.scrollTo(0, saved.y);
+  } catch (e) { /* sin almacenamiento */ }
+  window.addEventListener('pagehide', function () {
+    try { sessionStorage.setItem(KEY, JSON.stringify({ path: location.pathname, y: window.scrollY, t: Date.now() })); } catch (e) { /* sin almacenamiento */ }
+  });
+})();
+</script>
 {% if watch_data %}<script>
 /* Recarga la tabla cuando termina un refresco (cambia data_version). Si has tocado el formulario
    no recarga (perderías lo escrito): muestra un aviso con enlace para recargar. */
