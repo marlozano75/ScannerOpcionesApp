@@ -41,6 +41,8 @@
   table.sticky-tk.with-sel .sel { left:0; width:34px; min-width:34px; text-align:center; padding-left:6px; padding-right:6px; }
   table.sticky-tk.with-sel .tk { left:34px; }
   .banner { padding:10px 14px; border-radius:8px; margin-bottom:12px; }
+  .banner.closable { position:relative; padding-right:36px; }
+  .banner .close { position:absolute; top:6px; right:8px; background:none; border:none; padding:2px 6px; font-size:18px; line-height:1; color:inherit; cursor:pointer; }
   .banner.err { background:#f9e3df; border:1px solid #ecb5ad; } .banner.info { background:#e8eaf3; border:1px solid #c5cbe0; }
   button, .btn { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:7px 14px; cursor:pointer; font:inherit; font-weight:600; }
   button:hover { filter:brightness(1.15); }
@@ -100,6 +102,12 @@
   {% if delay_minutes %}<div class="banner info">🕒 Datos diferidos de IBKR (≈ {{ delay_minutes|round|int }} min de retraso): las cotizaciones y la IV reflejan ese momento, no el actual.</div>{% endif %}
   {% if market_closed %}<div class="banner info">🌙 Mercado cerrado: el refresco automático solo actualiza cartera y VIX (abre {{ next_open.strftime('%d/%m %H:%M') }} hora de Nueva York). «Refrescar ahora» cotiza igualmente.</div>{% endif %}
   {% if state.activity %}<div class="banner info">⏳ {{ state.activity }}{% if pacing_wait >= 1 %} — esperando el límite de peticiones históricas de IBKR (≈ {{ (pacing_wait / 60)|round(1) }} min; es normal al cargar muchos tickers nuevos){% endif %} — la página se actualiza sola.</div>{% endif %}
+  {% if excluded_notice %}<div class="banner info closable" id="excluded-notice">
+    <button type="button" class="close" title="Cerrar aviso" aria-label="Cerrar aviso"
+      onclick="fetch('/excluded/dismiss', { method: 'POST' }); document.getElementById('excluded-notice').remove();">×</button>
+    <strong>Tickers quitados de la watchlist</strong> (no sirven para esta aplicación):
+    {% for t, reason in excluded_notice.items() %}<div><strong>{{ t }}</strong>: {{ reason }}</div>{% endfor %}
+  </div>{% endif %}
   {% for area, msg in state.errors.items() %}
     <div class="banner err"><strong>{{ area }}:</strong> {{ msg }}</div>
   {% endfor %}

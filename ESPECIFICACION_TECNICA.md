@@ -369,7 +369,7 @@ ScannerOpcionesApp/
 - Las cifras de rentabilidad del experto (p. ej. 86 % a 5 años) son sus backtests y no se han verificado; sirven la lógica de los filtros, no los porcentajes. La métrica «Pasivo/Patr.» (pasivo total) no es comparable a su Debt/Equity (deuda financiera): mediana 1,52 frente a 0,56 en el Universo.
 
 ### Tickers inservibles (2026-10-08)
-- Petición del usuario: los tickers que dan problemas permanentes (ANSS: IBKR no lo reconoce; UI: sin cadena de opciones) no deben estar en la watchlist. `UnsupportedTickerError` (subclase de `DataUnavailableError`) solo se lanza para esos dos casos; la actualización diaria los saca de la watchlist, borra sus contratos y ficha, y los recuerda en `meta.watchlist_excluded` para que no vuelvan al cargar el Universo. Los fallos pasajeros se siguen tratando como error normal. «Permitir de nuevo» en la pestaña Watchlist revierte la exclusión.
+- Petición del usuario: los tickers que dan problemas permanentes (ANSS: IBKR no lo reconoce; UI: sin cadena de opciones) no deben estar en la watchlist. `UnsupportedTickerError` (subclase de `DataUnavailableError`) solo se lanza para esos dos casos; la actualización diaria los saca de la watchlist, borra sus contratos y ficha, y lo avisa una sola vez (ticker y motivo) con un aviso que se cierra con una «×». Los fallos pasajeros se siguen tratando como error normal. *Cambio 2026-10-09 (petición del usuario):* la exclusión ya no es permanente ni se lista en la pestaña Watchlist: no se impide volver a añadirlos (si siguen sin servir, se quitan y se avisa de nuevo).
 
 ### Universo, rediseño y Contratos (2026-10-06)
 - El ticker de cada fila se corta en el primer `-` o `.` (`PBR-A` → `PBR`, `BRK.B` → `BRK`). Si un fichero guardado está corrupto se ignora al arrancar.
