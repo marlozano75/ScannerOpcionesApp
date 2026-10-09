@@ -129,3 +129,18 @@ def test_last_months_keeps_only_the_recent_bars():
     assert len(window) == 61 and window[-1] == bars[-1] and window[0][0] >= TODAY - timedelta(days=61)
     assert ta.last_months(bars, TODAY, 24) == bars                        # 24 meses cubre todo el histórico
     assert ta.last_months([], TODAY, 6) == []
+
+
+def test_strike_history_monthly_closes_and_last_touch():
+    # un cierre por día natural durante ~2 años: baja hasta 80 hace 40 días y vuelve a 120
+    values = [100] * 650 + [80] + [90] * 38 + [120] * 40
+    bars = series(values)
+    h = ta.strike_history(bars, 85.0, TODAY, months=24)
+    assert 23 <= len(h.months) <= 25 and h.months[-1][1] == 120.0
+    assert h.touch is not None and h.touch[1] == 80.0 and h.touch[2] == (TODAY - h.touch[0]).days
+    assert 38 <= h.touch[2] <= 80
+    assert h.above == len([1 for _, p in h.months if p > 85.0])
+    assert h.closest[1] == min(h.months, key=lambda b: abs(b[1] - 85.0))[1]
+    never = ta.strike_history(bars, 50.0, TODAY)
+    assert never.touch is None and never.above == len(never.months) and never.history_days > 700
+    assert ta.strike_history([], 85.0, TODAY).months == []

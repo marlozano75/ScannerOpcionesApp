@@ -173,6 +173,8 @@ class TechnicalSettings(_Model):
     support_cluster_gap_days: int = Field(20, ge=1)       # separación mínima entre dos toques de episodios distintos
     support_pivot_width: int = Field(3, ge=1)
     ma_slope_candles: int = Field(5, ge=1)                # pendiente de una media: se compara con su valor de hace N velas (de las elegidas: días, semanas o meses)
+    chart_months: int = Field(24, ge=3, le=48)            # meses de cierres del gráfico del strike
+    chart_near_pct: float = Field(5, ge=0)                # un cierre mensual a menos de este % por encima del strike se marca en amarillo
     touch_min_days_options: tuple[int, ...] = (10, 20, 30, 45, 60, 90, 120, 180, 252, 365)   # opciones de «Días mín. desde el último toque»
 
 

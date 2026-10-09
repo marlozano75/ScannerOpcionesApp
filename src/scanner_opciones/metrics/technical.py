@@ -165,6 +165,30 @@ def best_support(zones: Sequence[Zone], price: float) -> Optional[Zone]:
 
 
 # ---- strike ---------------------------------------------------------------------------------------
+@dataclass(frozen=True)
+class StrikeHistory:
+    """Cierres mensuales frente a un strike, para el gráfico del Scanner."""
+    months: list[tuple[date, float]]               # último cierre de cada mes (el último es el precio actual)
+    above: int                                     # meses con cierre por encima del strike
+    closest: Optional[tuple[date, float]]          # cierre mensual más cercano al strike
+    touch: Optional[tuple[date, float, int]]       # último cierre diario en o por debajo del strike: (día, cierre, días)
+    history_days: int                              # días de histórico disponibles (para «sin toques en N días»)
+
+
+def strike_history(bars: Bars, strike: float, today: date, months: int = 24) -> StrikeHistory:
+    """Cierres mensuales de los últimos `months` meses frente al `strike` y el último toque del strike
+    (último cierre diario ≤ strike en todo el histórico guardado)."""
+    monthly = resample(last_months(bars, today, months), "monthly")[-months:]
+    closest = min(monthly, key=lambda b: abs(b[1] - strike)) if monthly else None
+    touch = None
+    for d, px in reversed(bars):
+        if px <= strike:
+            touch = (d, px, (today - d).days)
+            break
+    span = (bars[-1][0] - bars[0][0]).days if bars else 0
+    return StrikeHistory(monthly, sum(1 for _, px in monthly if px > strike), closest, touch, span)
+
+
 def days_since_touch(bars: Bars, strike: float, today: date) -> Optional[int]:
     """Días desde el último cierre en o por debajo del strike; None si no ha ocurrido en el histórico."""
     for d, px in reversed(bars):

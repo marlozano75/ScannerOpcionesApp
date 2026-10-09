@@ -275,7 +275,7 @@ def test_ticker_column_is_sticky_in_scanner(client_and_service):
     refresh(client)
     scanner = client.get("/scanner").text
     assert 'class="sortable sticky-tk with-sel" id="scan-results"' in scanner
-    assert '<th class="tk">Ticker</th>' in scanner and '<td class="tk">AAPL</td>' in scanner
+    assert '<th class="tk">Ticker</th>' in scanner and '<td class="tk" data-sort="AAPL"><a href="#" class="chart-link" data-ticker="AAPL"' in scanner
     assert '<th class="sel"></th>' in scanner and '<td class="sel"><input type="checkbox"' in scanner   # casilla también fija
     assert "table.sticky-tk .tk { left:0;" in scanner and "position:sticky" in scanner
 
@@ -652,6 +652,22 @@ def test_technical_filters_warn_when_closes_are_missing(client_and_service):
     assert "Faltan cierres diarios de" in out and "tickers" in out                # el histórico de la prueba está vacío
     svc.bars.upsert("AAPL", [(date(2026, 9, 1), 100.0)])
     assert "Faltan cierres diarios" not in client.get(base + "&ma50=above").text   # con histórico de toda la watchlist, sin aviso
+
+
+def test_strike_chart_endpoint_and_link(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    assert 'class="chart-link" data-ticker="AAPL"' in client.get("/scanner").text and 'id="strike-dialog"' in client.get("/scanner").text
+    assert "Sin histórico de cierres" in client.get("/chart/strike?ticker=AAPL&strike=75").text
+    today = svc.now().date()
+    bars = [(today - timedelta(days=700 - i), 100.0 + (i % 40) - (30 if 200 < i < 215 else 0)) for i in range(700)]
+    svc.bars.upsert("AAPL", bars)
+    last_low = max(d for d, p in bars if p <= 75.0)
+    out = client.get("/chart/strike?ticker=AAPL&strike=75").text
+    assert "<svg" in out and "STRIKE $75.00" in out and "ACTUAL $" in out
+    assert f"hace {(today - last_low).days} días" in out and "meses por encima del strike $75.00" in out
+    assert "Sin toques del strike" in client.get("/chart/strike?ticker=AAPL&strike=10").text
+    assert client.get("/chart/strike?ticker=AAPL&strike=abc").status_code == 422
 
 
 def test_trend_window_months_form(client_and_service):

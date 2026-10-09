@@ -11,7 +11,7 @@
 {%- endmacro %}
 
 {% macro cells(r) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
-<td class="tk">{{ c.ticker }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
+<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el historial de cierres frente al strike y el último toque">{{ c.ticker }}</a></td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
 <td>{{ c.strike|num }}</td><td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
 <td class="hl">{{ r.yield_ref_annualized_pct|pct }}</td><td>{{ r.yield_bid_annualized_pct|pct }}</td>
 <td>{{ s.delta|num }}</td><td>{{ (s.iv * 100)|pct if s.iv is not none else '—' }}</td><td>{{ s.iv_rank|pct(0) }}</td><td>{{ s.iv_percentile|pct(0) }}</td>

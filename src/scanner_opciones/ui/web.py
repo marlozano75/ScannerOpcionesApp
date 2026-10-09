@@ -18,8 +18,10 @@ from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.domain.models import TickerInfo
+from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
+from scanner_opciones.ui.charts import strike_chart_html
 from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
@@ -581,6 +583,7 @@ def create_app(
                           frame_shown, service.settings.trend.history_days, service.settings.scanner.technical.ma_slope_candles),
                       tech_opts=dict(
                           slope_candles=service.settings.scanner.technical.ma_slope_candles,
+                          chart_months=service.settings.scanner.technical.chart_months,
                           windows=[(m, f"{m} {'mes' if m == 1 else 'meses'}") for m in service.settings.scanner.technical.trend_windows_months],
                           durations=[(d, _days_label(d)) for d in service.settings.scanner.technical.trend_durations],
                           touches=[(d, _days_label(d)) for d in service.settings.scanner.technical.touch_min_days_options]),
@@ -599,6 +602,17 @@ def create_app(
                '<path d="M6 22l7-8 5 5 8-10" fill="none" stroke="#fff" stroke-width="3" '
                'stroke-linecap="round" stroke-linejoin="round"/></svg>')
         return Response(svg, media_type="image/svg+xml")
+
+    @app.get("/chart/strike", response_class=HTMLResponse)
+    async def strike_chart(ticker: str, strike: float):
+        """Gráfico de cierres mensuales del ticker frente al strike, con los días desde el último toque
+        (fragmento HTML que el Scanner muestra en una ventana)."""
+        closes = service.bars.closes(ticker)
+        if not closes or strike <= 0:
+            return HTMLResponse('<p class="muted">Sin histórico de cierres de este ticker: se descarga con la actualización diaria.</p>')
+        tcfg = service.settings.scanner.technical
+        history = strike_history(sorted(closes.items()), strike, service.now().date(), tcfg.chart_months)
+        return HTMLResponse(strike_chart_html(history, ticker, strike, tcfg.chart_near_pct))
 
     @app.get("/data-version")
     async def data_version():
