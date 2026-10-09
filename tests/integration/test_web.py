@@ -678,8 +678,20 @@ def test_moving_average_candles_and_comparisons_form(client_and_service):
     assert 'name="slope_ma50"' in r.text and 'name="slope_ema20"' in r.text and "Ascendente" in r.text
     assert '<option value="up" selected>Ascendente' in client.get(base + "&slope_ma100=up").text
     assert "Parámetro no válido" in client.get(base + "&slope_ma50=gte").text
-    out = client.get(base + "&ma_frame=weekly&cmp_ema9_ema20=gte&cmp_ma100_ma200=lte").text
+    out = client.get(base + "&ma_frame=weekly&cmp_ema9_ema20=gte&cmp_ma50_ma100=lte").text
     assert '<option value="weekly" selected>Semanales (semanas)' in out
     assert '<option value="gte" selected>' in out and '<option value="lte" selected>' in out
+    # velas semanales / mensuales: las medias que no caben en el histórico no se ofrecen y su valor se descarta
+    weekly = client.get(base + "&ma_frame=weekly&ma200=above&slope_ma200=up&cmp_ma100_ma200=gte&ma100=above").text
+    assert 'name="ma100"' in weekly and 'name="ma200"' not in weekly
+    assert 'name="slope_ma200"' not in weekly and 'name="cmp_ma100_ma200"' not in weekly and 'name="cmp_ma50_ma100"' in weekly
+    assert "1 condición" in weekly                                   # solo cuenta MA 100: lo de la MA 200 se descartó
+    monthly = client.get(base + "&ma_frame=monthly&ma50=above").text
+    for gone in ("ma50", "ma100", "ma200", "slope_ma50", "cmp_ema20_ma50", "cmp_ma50_ma100"):
+        assert f'name="{gone}"' not in monthly, gone
+    for kept in ("ema9", "ema20", "slope_ema9", "slope_ema20", "cmp_ema9_ema20"):
+        assert f'name="{kept}"' in monthly, kept
+    assert "Sin condiciones" in monthly
+    assert 'name="ma200"' in client.get(base + "&ma_frame=daily").text
     for bad in ("ma_frame=yearly", "cmp_ema9_ema20=above", "cmp_ma50_ma100=equal"):
         assert "Parámetro no válido" in client.get(base + "&" + bad).text, bad

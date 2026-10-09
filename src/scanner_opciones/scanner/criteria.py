@@ -18,6 +18,22 @@ MA_CROSSES = {
 MA_SLOPES = {f"slope_{k}": k for k in MA_LINES}
 
 
+def frame_capacity(frame: str, history_days: int) -> int:
+    """Velas que caben en el histórico guardado (`trend.history_days`): con 1400 días tastytrade da 944 diarias,
+    198 semanales y 46 mensuales (las diarias son solo sesiones bursátiles)."""
+    return {"daily": history_days * 944 // 1400, "weekly": history_days // 7 - 2, "monthly": history_days // 30}[frame]
+
+
+def unavailable_ma_fields(frame: str, history_days: int, slope_candles: int) -> set[str]:
+    """Campos de medias que no se pueden calcular con las velas `frame` y ese histórico: la media necesita tantas
+    velas como su periodo, una comparación las de ambas líneas y la pendiente además `slope_candles` más."""
+    cap = frame_capacity(frame, history_days)
+    lines = {k for k, (_, n) in MA_LINES.items() if n > cap}
+    slopes = {f: k for f, k in MA_SLOPES.items() if MA_LINES[k][1] + slope_candles > cap}
+    crosses = {f for f, (a, b) in MA_CROSSES.items() if a in lines or b in lines}
+    return lines | crosses | set(slopes)
+
+
 # Filtros de solvencia / calidad del flujo de caja: (campo del criterio, atributo de TickerInfo, "max"|"min", etiqueta)
 SOLVENCY_RULES = (
     ("max_debt_to_equity", "debt_to_equity", "max", "deuda/patrimonio"),

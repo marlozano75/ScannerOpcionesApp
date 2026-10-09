@@ -18,7 +18,7 @@ from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.domain.models import TickerInfo
-from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES
+from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
@@ -491,6 +491,10 @@ def create_app(
                 overrides["trend_min_days"] = _required(form["trend_days"], int, "Antigüedad del mínimo")
                 if overrides["trend_min_days"] not in tcfg.trend_durations:
                     raise ValueError("antigüedad del mínimo no permitida")
+                # las medias que no se pueden calcular con esas velas no se ofrecen: se descarta su valor
+                for key in unavailable_ma_fields(form["ma_frame"], service.settings.trend.history_days, tcfg.ma_slope_candles):
+                    form[key] = "any"
+                    overrides[key] = "any"
                 form["support"] = "support" in qp
                 overrides["require_support"] = form["support"]
                 for key, field_name, label in (("price_min", "min_price", "Precio mín."), ("price_max", "max_price", "Precio máx.")):
@@ -563,6 +567,9 @@ def create_app(
                 PriceReference.MID: "mid (media bid/ask)",
                 PriceReference.BID_PLUS_SPREAD: f"bid + {c.price_spread_pct:g}% del spread",
             }[c.price_reference]
+        frame_shown = parsed["form"]["ma_frame"]
+        if frame_shown not in ("daily", "weekly", "monthly"):    # parámetro no válido: se muestra el de la configuración
+            frame_shown = service.criteria().ma_frame
         cand = service.settings.scanner.candidates
         presets = [dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
                         dte_max=p.dte_max if p.dte_max is not None else cand.dte_max,
@@ -570,6 +577,8 @@ def create_app(
         return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
                       candidates=service.settings.scanner.candidates,
                       margin=service.settings.scanner.catalog_margin_pct,
+                      ma_hidden=unavailable_ma_fields(
+                          frame_shown, service.settings.trend.history_days, service.settings.scanner.technical.ma_slope_candles),
                       tech_opts=dict(
                           slope_candles=service.settings.scanner.technical.ma_slope_candles,
                           windows=[(m, f"{m} {'mes' if m == 1 else 'meses'}") for m in service.settings.scanner.technical.trend_windows_months],
