@@ -1,0 +1,21 @@
+El autor clasifica las acciones según dos dimensiones principales: el **análisis y gestión de la deuda** (dividiéndolas en *Baja deuda*, *Deuda gestionada* y *Mala deuda*) y la **eficiencia en el flujo de caja** (diferenciando entre empresas simplemente *"cautelosas"* y empresas verdaderamente *"buenas"*).
+
+A continuación se resumen los rangos específicos, los términos explícitos que utiliza el autor y los resultados históricos asociados:
+
+| Categoría / Métrica | Rango / Umbral del Autor | Clasificación / Términos del Autor | Rendimiento Histórico |
+| :--- | :--- | :--- | :--- |
+| **Relación Deuda / Patrimonio (D/E)** | `D/E ≤ 0.5` (o idealmente `< 1.0`) | **Baja Deuda (*Low Debt*)** | **297%** a 10 años |
+| **Cobertura de Intereses** | `< 3x` ganancia operativa / intereses | **Mala Deuda (*Bad Debt*)** / Preocupación seria | **29%** a 10 años |
+| **Cobertura de Intereses** | `≥ 3x` ganancia operativa / intereses | **Deuda Gestionada (*Managed Debt*)** | **153%** a 10 años |
+| **Cobertura de Intereses** | Cifras de dos dígitos (`> 10x` o superior) | **Nivel Ideal / Excelente** | Máxima seguridad |
+| **Deuda a Corto Plazo** | `Efectivo ≥ Deuda Corriente` | **Posición Sólida** (Sin riesgo inmediato) | Protege de insolvencia |
+| **Filtro 1: Flujo Op. / Deuda** | `> 30%` de la deuda total | **Pasa Filtro 1** (Flujo solvente) | **77%** mediana a 5 años |
+| **Filtro 2: CapEx / Flujo Op.** | `< 35%` del flujo operativo | **Pasa Filtro 2** (Inversión sostenible) | **80%** mediana a 5 años |
+| **Filtro 3: Recompra Neta** | `> 2%` de la capitalización de mercado | **Pasa Filtro 3** (Retorno al accionista) | **82%** mediana a 5 años |
+| **Filtro 4: FCF ROA** | `> 12%` de los activos totales | **Empresas Buenas (*Good Businesses*)** | **86%** mediana a 5 años |
+
+### Distinciones clave del autor:
+* **"Baja deuda" vs. "Deuda gestionada":** Un ratio `D/E > 1.0` no califica automáticamente como peligroso si la empresa cubre sus intereses al menos **3 veces** con sus ganancias (*Deuda gestionada*), logrando un retorno del **153%**. Sin embargo, si la cobertura cae por debajo de **3x**, pasa a ser *"Mala deuda"* y su rendimiento colapsa al **29%**.
+* **Empresas "Cautelosas" vs. "Buenas":** Cumplir los tres primeros filtros de flujo de caja demuestra prudencia financiera (*empresas cautelosas*), pero solo al superar el **12% de FCF sobre activos** (*FCF ROA*) la empresa demuestra ser verdaderamente *"buena"* convirtiendo lo que posee en efectivo real.
+
+💡 ¿Te gustaría que apliquemos estos criterios a una empresa específica de tu interés para ver en qué categoría encajaría?
