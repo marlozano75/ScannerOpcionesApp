@@ -115,6 +115,17 @@ async def test_add_watchlist_triggers_daily_update_for_new_only():
     assert svc.state.last_daily_report.updated == ["KO"]
 
 
+async def test_the_interface_does_not_wait_for_the_daily_update_of_new_tickers():
+    svc, gw = await started_service()
+    gw.prices["KO"] = 60.0
+    svc.state.last_daily_report = None
+    new, kept, removed = await svc.replace_watchlist(parse_text("AAPL KO"), background=True)
+    assert (new, kept, removed) == (["KO"], ["AAPL"], [])
+    assert svc.state.last_daily_report is None and svc.state.activity   # aún en curso, con aviso en la cabecera
+    await svc.wait_idle()
+    assert svc.state.last_daily_report.updated == ["KO"] and svc.state.activity is None
+
+
 async def test_scan_returns_enriched_results():
     svc, gw = await started_service()
     out = svc.scan(svc.criteria())

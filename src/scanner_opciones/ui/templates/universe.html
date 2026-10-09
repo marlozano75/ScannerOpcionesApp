@@ -99,6 +99,7 @@
             title="Quita de la watchlist (con sus contratos) los tickers que no estén en la selección">Sustituir watchlist con la selección</button>
     <span class="muted">Las filas marcadas son las visibles tras el filtro; desmarca las que no quieras.</span>
   </p>
+  <div class="banner info" id="rk-working" hidden>⏳ Aplicando la selección a la watchlist…</div>
   <div class="scroll"><table class="sortable" id="universe-table">
     <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th><th>Fuentes (nº)</th>
       <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th><th>Deuda/Patr.</th><th>Cobertura int.</th><th>Efectivo/Deuda CP</th><th>Flujo op./Deuda</th><th>CapEx/Flujo op.</th><th>FCF/Activos</th><th>Recompra neta</th>
@@ -129,6 +130,11 @@
   function confirmReplace() {
     return confirm('Se quitarán de la watchlist, con sus contratos y cotizaciones, los tickers que no estén en la selección. ¿Sustituir la watchlist?');
   }
+  document.getElementById('rk-apply').addEventListener('submit', function () {
+    // aviso inmediato; los botones se desactivan después de enviar (desactivarlos antes quitaría «mode» del envío)
+    document.getElementById('rk-working').hidden = false;
+    setTimeout(function () { document.querySelectorAll('#rk-apply button').forEach(function (b) { b.disabled = true; }); }, 0);
+  });
   var master = document.getElementById('q_solv_master');
   master.addEventListener('change', function () {
     ['q_de', 'q_cov', 'q_cash', 'q_ocfd'].forEach(function (n) { document.querySelector('#quality-form select[name=' + n + ']').value = master.value; });

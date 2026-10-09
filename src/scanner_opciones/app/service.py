@@ -316,14 +316,21 @@ class AppService:
         """El usuario cierra el aviso de tickers excluidos."""
         self.excluded_notice.clear()
 
-    async def add_watchlist(self, parsed: ParseResult) -> list[str]:
-        """Añade tickers y lanza la actualización diaria de los nuevos (RF-05)."""
+    async def add_watchlist(self, parsed: ParseResult, background: bool = False) -> list[str]:
+        """Añade tickers y lanza la actualización diaria de los nuevos (RF-05). `background=True` (la interfaz) no la
+        espera: la lanza en segundo plano, en cola tras lo que esté en curso, y la cabecera muestra el progreso."""
         new = self.watchlist.add(parsed.tickers, self.now())
         if new and self.state.connected:
-            await self.run_daily(new)
+            if background:
+                self.state.activity = self.state.activity or f"En cola: actualización diaria de {len(new)} tickers nuevos"
+                self.launch(self.run_daily_then_refresh(new, wait=True))
+            else:
+                await self.run_daily(new)
         return new
 
-    async def replace_watchlist(self, parsed: ParseResult) -> tuple[list[str], list[str], list[str]]:
+    async def replace_watchlist(
+        self, parsed: ParseResult, background: bool = False,
+    ) -> tuple[list[str], list[str], list[str]]:
         """Sustituye la watchlist por la lista dada: quita (con sus contratos) los tickers que no
         están en ella, conserva los que siguen (con sus datos) y añade los nuevos con su actualización
         diaria. Devuelve (nuevos, conservados, quitados). Una lista sin tickers válidos NO vacía la
@@ -336,7 +343,7 @@ class AppService:
         for ticker in removed:
             self.remove_ticker(ticker)
         kept = [t for t in current if t in wanted]
-        new = await self.add_watchlist(parsed)
+        new = await self.add_watchlist(parsed, background)
         return new, kept, removed
 
     def remove_ticker(self, ticker: str) -> dict[str, int]:

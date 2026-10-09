@@ -255,7 +255,7 @@ def create_app(
     # ---- watchlist -------------------------------------------------------------------------
     @app.get("/watchlist", response_class=HTMLResponse)
     async def watchlist(request: Request, message: str = ""):
-        return render(request, "watchlist.html", no_autorefresh=True, tickers=service.watchlist.list(),
+        return render(request, "watchlist.html", tickers=service.watchlist.list(),
                       infos=service.ticker_info.all(), message=message)
 
     @app.post("/excluded/dismiss")
@@ -269,16 +269,19 @@ def create_app(
         rejected = f", {len(parsed.rejected)} rechazados" if parsed.rejected else ""
         if parsed.rejected:
             rejected += ": " + ", ".join(t for t, _ in parsed.rejected)
+        def pending(new: list[str]) -> str:
+            return (" · los nuevos se están actualizando en segundo plano (el progreso aparece arriba)"
+                    if new and service.state.connected else "")
         if mode == "replace":
             try:
-                new, kept, removed = await service.replace_watchlist(parsed)
+                new, kept, removed = await service.replace_watchlist(parsed, background=True)
             except ValueError as exc:
                 return f"Error: {exc}; no se ha cambiado la watchlist"
             gone = f" ({', '.join(removed)})" if removed else ""
             return (f"Watchlist sustituida: {len(new)} nuevos, {len(kept)} conservados, "
-                    f"{len(removed)} quitados{gone}, {parsed.duplicates} repetidos{rejected}")
-        new = await service.add_watchlist(parsed)
-        return f"{len(new)} nuevos, {parsed.duplicates} repetidos{rejected or ', 0 rechazados'}"
+                    f"{len(removed)} quitados{gone}, {parsed.duplicates} repetidos{rejected}{pending(new)}")
+        new = await service.add_watchlist(parsed, background=True)
+        return f"{len(new)} nuevos, {parsed.duplicates} repetidos{rejected or ', 0 rechazados'}{pending(new)}"
 
     # ---- Universo (ficheros .xlsx de RankedStocks y HelloStocks elegidos por el usuario) ------
     @app.get("/universe", response_class=HTMLResponse)
