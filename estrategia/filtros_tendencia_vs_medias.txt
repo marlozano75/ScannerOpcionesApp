@@ -1,0 +1,51 @@
+FILTROS DE TENDENCIA vs MEDIAS CON PENDIENTE ASCENDENTE
+=========================================================
+
+Son dos formas distintas de medir "tendencia alcista", y se pueden combinar.
+
+1. FILTROS DE TENDENCIA (estructura del precio)
+-----------------------------------------------
+- Que miden: los maximos y minimos del propio precio (estructura al estilo Dow).
+  * "Minimo sin romper": el ultimo minimo relevante no ha perdido el anterior.
+  * "Maximos y minimos crecientes": cada maximo y cada minimo superan al previo.
+- Datos: siempre cierres diarios, ventana de 1 a 24 meses (trend_window_months).
+  No usan velas semanales ni mensuales.
+- Reaccion: rapida y sin suavizado. Un solo minimo roto lo invalida.
+- Pregunta que responden: ha mantenido el precio una escalera ascendente en los
+  ultimos N meses?
+
+2. MEDIAS CON PENDIENTE ASCENDENTE (direccion del promedio)
+-----------------------------------------------------------
+- Que miden: si la media (MA50, MA100, MA200, EMA9 o EMA20) sube. Se compara su
+  valor actual con el de hace ma_slope_candles velas. Opciones: cualquiera,
+  ascendente o descendente.
+- Datos: velas diarias, semanales o mensuales. Con semanales/mensuales el
+  formulario oculta las medias que no caben en el historico.
+- Reaccion: suavizada y con retraso. Una media tarda en girar: ignora ruido pero
+  llega tarde a los cambios.
+- Pregunta que responden: va el precio medio de las ultimas N velas a mas?
+- Companeros del mismo bloque:
+  * Precio frente a media.
+  * Comparaciones entre medias (MA_CROSSES, p. ej. MA50 > MA200).
+
+3. COMO SE COMPLEMENTAN
+-----------------------
+Pueden discrepar, y esa discrepancia es la informacion util:
+
+  Situacion                                 Tendencia (estructura)        Pendiente de media
+  ----------------------------------------  ----------------------------  -----------------------
+  Giro reciente al alza                     Si: max. y min. crecientes    No: la MA200 aun baja
+  Correccion dentro de una tendencia larga  No: rompio un minimo          Si: la MA200 sigue subiendo
+  Tendencia sana                            Si                            Si
+
+- Estructura: dice si el precio se comporta bien ahora.
+- Pendiente: confirma que el contexto de fondo acompana y que no es un rebote
+  dentro de una tendencia bajista.
+- Para vender puts: una combinacion razonable es minimo sin romper (ventana de 6
+  a 12 meses) mas MA200 ascendente y MA50 > MA200. Encima se anaden la zona de
+  soporte y los "dias desde el ultimo toque" del strike, que ya relacionan la
+  tendencia con el strike concreto.
+
+Las medias y las pendientes son informacion de tendencia; la estructura es otro
+tipo de evidencia sobre la misma tendencia. Por eso apilarlos reduce falsos
+positivos, pero tambien el numero de candidatos, y mas con ventanas largas.
