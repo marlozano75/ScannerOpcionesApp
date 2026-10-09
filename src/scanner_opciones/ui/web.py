@@ -18,7 +18,7 @@ from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.domain.models import TickerInfo
-from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES
+from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
@@ -445,6 +445,7 @@ def create_app(
             **{k: getattr(base, k) for k in MA_LINES},
             "ma_frame": base.ma_frame,
             **{k: getattr(base, k) for k in MA_CROSSES},
+            **{k: getattr(base, k) for k in MA_SLOPES},
         }
         tcfg = service.settings.scanner.technical
         optional = {
@@ -476,6 +477,7 @@ def create_app(
                     *((k, k, ("any", "above", "below")) for k in MA_LINES),
                     ("ma_frame", "ma_frame", ("daily", "weekly", "monthly")),
                     *((k, k, ("any", "gte", "lte")) for k in MA_CROSSES),
+                    *((k, k, ("any", "up", "down")) for k in MA_SLOPES),
                 ):
                     form[key] = qp.get(key, form[key])
                     if form[key] not in allowed:
@@ -569,6 +571,7 @@ def create_app(
                       candidates=service.settings.scanner.candidates,
                       margin=service.settings.scanner.catalog_margin_pct,
                       tech_opts=dict(
+                          slope_candles=service.settings.scanner.technical.ma_slope_candles,
                           windows=[(m, f"{m} {'mes' if m == 1 else 'meses'}") for m in service.settings.scanner.technical.trend_windows_months],
                           durations=[(d, _days_label(d)) for d in service.settings.scanner.technical.trend_durations],
                           touches=[(d, _days_label(d)) for d in service.settings.scanner.technical.touch_min_days_options]),

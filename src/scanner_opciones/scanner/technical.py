@@ -10,7 +10,7 @@ from typing import Optional
 
 from scanner_opciones.config.settings import TechnicalSettings
 from scanner_opciones.metrics import technical as ta
-from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, ScanCriteria
+from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, ScanCriteria
 
 _LABELS = {"ma50": "MA50", "ma100": "MA100", "ma200": "MA200", "ema9": "EMA9", "ema20": "EMA20"}
 _FRAME_NAMES = {"daily": "diarias", "weekly": "semanales", "monthly": "mensuales"}
@@ -23,14 +23,19 @@ class TechnicalFilter:
         self.c, self.cfg, self.bars, self.today = criteria, cfg, bars, today
         self._ticker_cache: dict[str, Optional[str]] = {}
         self._zone_cache: dict[str, Optional[ta.Zone]] = {}
-        self._lines_cache: dict[str, tuple[dict[str, Optional[float]], int]] = {}
+        self._lines_cache: dict[str, tuple[dict[str, Optional[float]], dict[str, Optional[float]], int]] = {}
 
-    def _lines(self, ticker: str) -> tuple[dict[str, Optional[float]], int]:
-        """Valor de cada media con las velas elegidas (`ma_frame`) y cuántas velas hay."""
+    def _lines(self, ticker: str) -> tuple[dict[str, Optional[float]], dict[str, Optional[float]], int]:
+        """Valor actual de cada media con las velas elegidas (`ma_frame`), su valor de hace `ma_slope_candles`
+        velas (para la pendiente) y cuántas velas hay."""
         if ticker not in self._lines_cache:
             closes = [px for _, px in ta.resample(self.bars.get(ticker, []), self.c.ma_frame)]
-            lines = {k: (ta.sma if kind == "sma" else ta.ema)(closes, n) for k, (kind, n) in MA_LINES.items()}
-            self._lines_cache[ticker] = (lines, len(closes))
+            back = closes[: -self.cfg.ma_slope_candles]
+            lines, before = {}, {}
+            for k, (kind, n) in MA_LINES.items():
+                fn = ta.sma if kind == "sma" else ta.ema
+                lines[k], before[k] = fn(closes, n), fn(back, n)
+            self._lines_cache[ticker] = (lines, before, len(closes))
         return self._lines_cache[ticker]
 
     def reject(self, ticker: str, price: float, strike: float) -> Optional[str]:
@@ -78,7 +83,7 @@ class TechnicalFilter:
                 )
             if not ok:
                 return f"tendencia {'alcista' if up else 'bajista'}: {why}"
-        lines, n_bars = self._lines(ticker)
+        lines, before, n_bars = self._lines(ticker)
         frame = _FRAME_NAMES[c.ma_frame]
 
         def missing(key: str) -> str:
@@ -103,4 +108,16 @@ class TechnicalFilter:
             if (a >= b) if side == "gte" else (a <= b):
                 continue
             return f"{_LABELS[short]} {'<' if side == 'gte' else '>'} {_LABELS[long_]} ({frame})"
+        for field, key in MA_SLOPES.items():
+            side = getattr(c, field)
+            if side == "any":
+                continue
+            if lines[key] is None:
+                return missing(key)
+            if before[key] is None:
+                return (f"sin datos para la pendiente de {_LABELS[key]} ({n_bars} velas {frame}, hacen falta "
+                        f"{MA_LINES[key][1] + cfg.ma_slope_candles})")
+            if (lines[key] > before[key]) if side == "up" else (lines[key] < before[key]):
+                continue
+            return f"{_LABELS[key]} no {'sube' if side == 'up' else 'baja'} ({frame}, últimas {cfg.ma_slope_candles} velas)"
         return None

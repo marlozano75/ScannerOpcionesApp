@@ -140,6 +140,23 @@ async def test_moving_averages_with_weekly_and_monthly_candles():
     assert strikes(svc, ema9="below", ma_frame="monthly") == [75.0, 80.0]    # la EMA 9 mensual sí (12 velas ≥ 9)
 
 
+async def test_moving_average_slope():
+    svc = await service_with_history([74 + i * 0.1 for i in range(260)])      # sube sin parar
+    for field in ("slope_ma50", "slope_ma100", "slope_ma200", "slope_ema9", "slope_ema20"):
+        assert strikes(svc, **{field: "up"}) == [75.0, 80.0], field
+        assert strikes(svc, **{field: "down"}) == [], field
+    svc = await service_with_history([126 - i * 0.1 for i in range(260)])     # baja sin parar
+    for field in ("slope_ma50", "slope_ema9"):
+        assert strikes(svc, **{field: "down"}) == [75.0, 80.0], field
+        assert strikes(svc, **{field: "up"}) == [], field
+    svc = await service_with_history([100] * 60)                             # plana (como el precio de hoy): ni sube ni baja
+    assert strikes(svc, slope_ma50="up") == [] and strikes(svc, slope_ma50="down") == []
+    svc = await service_with_history([74 + i * 0.1 for i in range(52)])      # 52 velas: la MA 50 existe pero no la de hace 5
+    out = svc.scan(svc.criteria().with_filters(strike_below_pct_min=1, min_annual_yield_pct=0, dte_max=45, slope_ma50="up"),
+                   include_rejections=True)
+    assert out.rejections and all("pendiente de MA50" in why for why in out.rejections.values())
+
+
 async def test_comparisons_between_averages():
     rising = [74 + i * 0.1 for i in range(260)]                          # sube sin parar: las cortas por encima de las largas
     svc = await service_with_history(rising)

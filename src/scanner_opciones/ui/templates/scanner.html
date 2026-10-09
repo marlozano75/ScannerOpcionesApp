@@ -22,7 +22,7 @@
 {% set trend_on = form.trend_dir != 'off' %}
 {% set levels_on = form.support or form.touch != '' %}
 {% set price_on = form.price_min != '' or form.price_max != '' %}
-{% set ma_keys = ('ma50', 'ma100', 'ma200', 'ema9', 'ema20', 'cmp_ema9_ema20', 'cmp_ema20_ma50', 'cmp_ma50_ma100', 'cmp_ma100_ma200') %}
+{% set ma_keys = ('ma50', 'ma100', 'ma200', 'ema9', 'ema20', 'cmp_ema9_ema20', 'cmp_ema20_ma50', 'cmp_ma50_ma100', 'cmp_ma100_ma200', 'slope_ma50', 'slope_ma100', 'slope_ma200', 'slope_ema9', 'slope_ema20') %}
 {% for k in ma_keys %}{% if form[k] and form[k] != 'any' %}{% set ns.ma_count = ns.ma_count + 1 %}{% endif %}{% endfor %}
 {% set ma_count = ns.ma_count %}
 {% set frame_names = {'daily': 'diarias', 'weekly': 'semanales', 'monthly': 'mensuales'} %}
@@ -243,9 +243,20 @@
               <option value="lte" {{ 'selected' if form[key] == 'lte' }}>{{ short }} ≤ {{ long }}</option></select></label>
           {% endfor %}
         </div>
+        <div class="fx-sub">Pendiente de la media</div>
+        <div class="fgrid">
+          {% for key, label in (('slope_ma50', 'MA 50'), ('slope_ma100', 'MA 100'), ('slope_ma200', 'MA 200'), ('slope_ema9', 'EMA 9'), ('slope_ema20', 'EMA 20')) %}
+          <label class="field">{{ label }}
+            <select name="{{ key }}">
+              <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
+              <option value="up" {{ 'selected' if form[key] == 'up' }}>Ascendente</option>
+              <option value="down" {{ 'selected' if form[key] == 'down' }}>Descendente</option></select></label>
+          {% endfor %}
+        </div>
         <p class="note">Pon cualquier combinación de líneas en <b>Por encima</b> o <b>Por debajo</b> para exigir que el precio esté de ese lado; <b>Cualquiera</b> la ignora y todas las activas deben cumplirse.
           Las velas pueden ser diarias, semanales o mensuales (MA 50 = 50 días, semanas o meses). tastytrade solo da ~3,8 años de historia (≈198 semanas, 46 meses):
-          las medias más largas con velas mensuales (y la MA 200 semanal) no se pueden calcular y descartan el ticker.</p>
+          las medias más largas con velas mensuales (y la MA 200 semanal) no se pueden calcular y descartan el ticker.
+          La <b>pendiente</b> compara la media de hoy con la de hace {{ tech_opts.slope_candles }} velas (las elegidas arriba): ascendente si es mayor, descendente si es menor.</p>
       {% endcall %}
 
       {% call section('sec-quality', 'Calidad de la empresa', (quality | join(' · ')) or 'Sin filtros', quality|length > 0) %}

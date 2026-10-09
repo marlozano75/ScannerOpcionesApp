@@ -75,6 +75,7 @@ scanner:
     support_min_clusters: 2
     support_cluster_gap_days: 20
     support_pivot_width: 3
+    ma_slope_candles: 5            # pendiente de una media: se compara con su valor de hace N velas (días, semanas o meses según las velas elegidas)
     touch_min_days_options: [10, 20, 30, 45, 60, 90, 120, 180, 252, 365]
   filter_values:                 # valores de las cajas de los filtros opcionales cuando están desmarcados
     min_oi: 100

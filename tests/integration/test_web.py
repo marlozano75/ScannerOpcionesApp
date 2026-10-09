@@ -675,6 +675,9 @@ def test_moving_average_candles_and_comparisons_form(client_and_service):
     for name in ("ma_frame", "cmp_ema9_ema20", "cmp_ema20_ma50", "cmp_ma50_ma100", "cmp_ma100_ma200"):
         assert f'name="{name}"' in r.text, name
     assert "EMA9 ≥ EMA20" in r.text and "MA100 ≤ MA200" in r.text
+    assert 'name="slope_ma50"' in r.text and 'name="slope_ema20"' in r.text and "Ascendente" in r.text
+    assert '<option value="up" selected>Ascendente' in client.get(base + "&slope_ma100=up").text
+    assert "Parámetro no válido" in client.get(base + "&slope_ma50=gte").text
     out = client.get(base + "&ma_frame=weekly&cmp_ema9_ema20=gte&cmp_ma100_ma200=lte").text
     assert '<option value="weekly" selected>Semanales (semanas)' in out
     assert '<option value="gte" selected>' in out and '<option value="lte" selected>' in out
