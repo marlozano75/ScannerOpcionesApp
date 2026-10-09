@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from scanner_opciones.app.service import AppService, SelectedContract
@@ -584,6 +584,15 @@ def create_app(
                           leverage=[_fmt(v) for v in service.settings.scanner.quality.leverage_options],
                           edgar=bool(service.settings.edgar.contact.strip())),
                       report=service.state.last_refresh_report, **parsed)
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def favicon():
+        """Icono de la pestaña; sin esta ruta el navegador provoca un 404 en el log."""
+        svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+               '<rect width="32" height="32" rx="6" fill="#1f6feb"/>'
+               '<path d="M6 22l7-8 5 5 8-10" fill="none" stroke="#fff" stroke-width="3" '
+               'stroke-linecap="round" stroke-linejoin="round"/></svg>')
+        return Response(svg, media_type="image/svg+xml")
 
     @app.get("/data-version")
     async def data_version():
