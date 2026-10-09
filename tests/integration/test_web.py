@@ -203,10 +203,13 @@ def test_price_reference_selector_defaults_and_columns(client_and_service):
     assert 'name="ref"' in r.text and 'name="ref_x"' in r.text
     assert 'value="bid_plus_spread" selected' in r.text and 'name="ref_x" id="ref_x" size="5" value="25"' in r.text
     assert "precio de venta: bid + 25% del spread" in r.text
-    assert "<th>Prima ref.</th>" in r.text and "<th>Yield bid</th><th>Yield bid anual</th>" in r.text
-    # columnas de decisión primero; «Yield anual» destacado y orden por defecto
-    assert '<th>Prima ref.</th><th class="hl" data-sort-default="desc">Yield anual</th><th>Yield</th>' in r.text
-    assert r.text.index(">Yield anual</th>") < r.text.index("<th>Bid</th>") < r.text.index('<th class="txt">Sector</th>')
+    # columnas agrupadas: ticker, sector y precio juntos; yields juntos (el anual destacado y orden por defecto); delta con la IV
+    assert '<th class="tk">Ticker</th><th class="txt">Sector</th><th>Precio</th><th>Strike</th>' in r.text
+    assert '<th class="hl" data-sort-default="desc">Yield anual</th><th>Yield bid anual</th>' in r.text
+    assert "<th>Delta</th><th>IV</th><th>IV Rank</th><th>IV Pctl</th>" in r.text
+    for gone in ("Vence", "Prima ref.", "Yield", "Bid", "Ask", "Last", "Margen ini.", "Yield bid", "Hora precio",
+                 "Ex-div (d)", "FCF (M$)", "Actualizado"):
+        assert f"<th>{gone}</th>" not in r.text
     assert 'id="ref_x_label" hidden' not in r.text                    # X visible con «Bid + X % del spread»
     mid = client.get(BASE + "&ref=mid&ref_x=25")
     assert "precio de venta: mid (media bid/ask)" in mid.text and 'id="ref_x_label" hidden' in mid.text
@@ -226,8 +229,8 @@ def test_price_reference_changes_which_contracts_pass(client_and_service):
     assert "Ningún contrato cumple" in client.get(url + "&ref=bid_plus_spread&ref_x=25").text   # 0.70/75 = 0.93 %
     assert "contratos cumplen" in client.get(url + "&ref=mid&ref_x=25").text              # 1.00/75 = 1.33 %
     assert "contratos cumplen" in client.get(url + "&ref=bid_plus_spread&ref_x=75").text  # 1.30/75 = 1.73 % con X=75 %
-    # la columna «Yield bid» muestra siempre el del bid, aunque el filtro use otra referencia
-    assert "0.5%" in client.get(url + "&ref=mid&ref_x=25").text
+    # la columna «Yield bid anual» se muestra siempre, aunque el filtro use otra referencia
+    assert "<th>Yield bid anual</th>" in client.get(url + "&ref=mid&ref_x=25").text
 
 
 @pytest.mark.parametrize("qs", [

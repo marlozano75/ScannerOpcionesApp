@@ -134,7 +134,7 @@ async def test_scanner_form_reads_the_financial_fields_and_shows_the_columns():
     base = "/scanner?submitted=1&discount=1&dte_min=1&dte_max=45&min_yield=0&ref=bid"
     with make_client(svc) as client:
         page = client.get(base).text
-        assert "Apalancamiento y caja" in page and "Pasivo/Patr." in page and "FCF (M$)" in page and "3.5" in page
+        assert "Apalancamiento y caja" in page and "Pasivo/Patr." in page and "3.5" in page
         assert "falta <code>edgar.contact</code>" in page                  # sin contacto configurado se avisa
         assert "Ningún contrato" in client.get(base + "&q_lev=2").text
         assert "Ningún contrato" in client.get(base + "&q_fcf=on").text

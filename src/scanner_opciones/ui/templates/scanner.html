@@ -305,13 +305,12 @@
     {% if out %}
     <form method="post" action="/simulate" class="table-form">
       <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
-        <tr><th class="sel"></th>{{ cols.head() }}<th data-nosort>Cant.</th><th>Actualizado</th></tr>
+        <tr><th class="sel"></th>{{ cols.head() }}<th data-nosort>Cant.</th></tr>
         {% for r in out.results %}{% set c = r.snapshot.contract %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
           <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
             {{ cols.cells(r) }}
-            <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px"></td>
-            {{ cols.updated(r.snapshot) }}</tr>
+            <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px"></td></tr>
         {% else %}<tr><td colspan="40" class="muted empty">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
       </table></div>
       {% if out.results %}<div class="table-actions"><button id="simulate-btn">Simular seleccionados</button><span id="sel-count">Ninguno seleccionado</span></div>{% endif %}
