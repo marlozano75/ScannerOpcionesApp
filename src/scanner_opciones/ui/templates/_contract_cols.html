@@ -1,26 +1,32 @@
-{# Columnas comunes del scanner y de «Contratos»: se mantienen en un solo sitio. #}
+{# Columnas comunes del scanner y de «Contratos»: se mantienen en un solo sitio.
+   Orden según cómo se decide una venta: contrato, rentabilidad y riesgo primero; cotización, calidad y cartera después.
+   «Yield anual» es la columna destacada (`hl`) y la que ordena por defecto. #}
 {% macro head() -%}
-<th class="tk">Ticker</th><th>Sector</th><th>Precio</th><th>Precio act.</th><th>Vence</th><th>DTE</th><th>Strike</th><th>Desc.</th><th>Bid</th><th>Bid size</th><th>Ask</th><th>Last</th>
-<th>Delta</th><th>IV</th><th>OI</th><th>Spread</th><th>Prima ref.</th><th>Yield</th><th>Yield anual</th><th>Yield bid</th><th>Yield bid anual</th><th>IV Rank</th><th>IV Pctl</th>
-<th>Margen ini.</th><th>Ex-div (d)</th><th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th><th>+Peso sector</th><th>Peso semana</th><th>% cartera si asignado</th>
+<th class="tk">Ticker</th><th>Vence</th><th>DTE</th><th>Strike</th><th>Desc.</th><th>Prima ref.</th><th class="hl" data-sort-default="desc">Yield anual</th><th>Yield</th>
+<th>Delta</th><th>IV Rank</th><th>Resultados</th><th>Margen ini.</th>
+<th>Bid</th><th>Ask</th><th>Bid size</th><th>Last</th><th>Spread</th><th>OI</th><th>IV</th><th>IV Pctl</th><th>Yield bid</th><th>Yield bid anual</th>
+<th>Precio</th><th>Hora precio</th><th>Ex-div (d)</th><th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Pasivo/Patr.</th><th>FCF (M$)</th>
+<th class="txt">Sector</th><th>+Peso sector</th><th>Peso semana</th><th>% cartera si asignado</th>
 {%- endmacro %}
 
-{% macro cells(r) -%}{% set s = r.snapshot %}{% set c = s.contract -%}
-<td class="tk">{{ c.ticker }}</td><td>{{ r.impact.sector }}</td><td>{{ r.info.underlying_price|num if r.info else '—' }}</td><td>{{ r.info.price_at.strftime('%Y-%m-%d %H:%M') if r.info and r.info.price_at else '—' }}</td><td>{{ c.expiry }}</td><td>{{ r.dte }}</td><td>{{ c.strike|num }}</td>
-<td>{{ r.strike_distance_pct|pct }}</td><td>{{ s.bid|num }}</td><td>{{ s.bid_size if s.bid_size is not none else '—' }}</td><td>{{ s.ask|num }}</td><td>{{ s.last|num }}</td>
-<td>{{ s.delta|num }}</td><td>{{ (s.iv * 100)|pct if s.iv is not none else '—' }}</td><td>{{ s.open_interest if s.open_interest is not none else '—' }}</td>
-<td>{{ s.spread_pct|pct }}</td><td>{{ r.reference_price|num }}</td><td>{{ r.yield_ref_pct|pct }}</td><td>{{ r.yield_ref_annualized_pct|pct }}</td><td>{{ r.yield_bid_pct|pct }}</td><td>{{ r.yield_bid_annualized_pct|pct }}</td>
-<td>{{ s.iv_rank|pct(0) }}</td><td>{{ s.iv_percentile|pct(0) }}</td><td>{{ s.initial_margin|money }}</td>
-<td>{{ r.info.days_to_ex_dividend if r.info and r.info.days_to_ex_dividend is not none else '—' }}</td>
-{%- set i = r.info %}
+{% macro cells(r) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
+<td class="tk">{{ c.ticker }}</td><td>{{ c.expiry }}</td><td>{{ r.dte }}</td><td>{{ c.strike|num }}</td><td>{{ r.strike_distance_pct|pct }}</td>
+<td>{{ r.reference_price|num }}</td><td class="hl">{{ r.yield_ref_annualized_pct|pct }}</td><td>{{ r.yield_ref_pct|pct }}</td>
+<td>{{ s.delta|num }}</td><td>{{ s.iv_rank|pct(0) }}</td>
+<td{% if i and i.next_earnings and i.next_earnings >= s.updated_at.date() and i.next_earnings <= c.expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% elif i and i.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(i.eps_surprise_pct) }} %"{% endif %}>{{ i.next_earnings if i and i.next_earnings else '—' }}</td>
+<td>{{ s.initial_margin|money }}</td>
+<td>{{ s.bid|num }}</td><td>{{ s.ask|num }}</td><td>{{ s.bid_size if s.bid_size is not none else '—' }}</td><td>{{ s.last|num }}</td>
+<td>{{ s.spread_pct|pct }}</td><td>{{ s.open_interest if s.open_interest is not none else '—' }}</td><td>{{ (s.iv * 100)|pct if s.iv is not none else '—' }}</td>
+<td>{{ s.iv_percentile|pct(0) }}</td><td>{{ r.yield_bid_pct|pct }}</td><td>{{ r.yield_bid_annualized_pct|pct }}</td>
+<td>{{ i.underlying_price|num if i else '—' }}</td><td>{{ i.price_at.strftime('%Y-%m-%d %H:%M') if i and i.price_at else '—' }}</td>
+<td>{{ i.days_to_ex_dividend if i and i.days_to_ex_dividend is not none else '—' }}</td>
 <td>{{ i.eps_ttm|num if i and i.eps_ttm is not none else '—' }}</td>
 <td>{{ i.positive_quarters ~ '/' ~ i.reported_quarters if i and i.positive_quarters is not none else '—' }}</td>
 <td>{{ (i.market_cap / 1e9)|num if i and i.market_cap else '—' }}</td>
 <td>{{ i.option_liquidity if i and i.option_liquidity is not none else '—' }}</td>
-<td{% if i and i.next_earnings and i.next_earnings >= s.updated_at.date() and i.next_earnings <= c.expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% elif i and i.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(i.eps_surprise_pct) }} %"{% endif %}>{{ i.next_earnings if i and i.next_earnings else '—' }}</td>
 <td>{{ i.liabilities_to_equity|num if i and i.liabilities_to_equity is not none else '—' }}</td>
 <td>{{ (i.fcf_ttm / 1e6)|money if i and i.fcf_ttm is not none else '—' }}</td>
-<td>{{ r.impact.sector_weight_increase_pct|pct }}</td><td>{{ r.impact.week_weight_pct|pct }}</td>
+<td class="txt">{{ r.impact.sector }}</td><td>{{ r.impact.sector_weight_increase_pct|pct }}</td><td>{{ r.impact.week_weight_pct|pct }}</td>
 <td>{{ r.impact.assignment_pct_of_portfolio|pct }}</td>
 {%- endmacro %}
 

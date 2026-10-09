@@ -204,6 +204,9 @@ def test_price_reference_selector_defaults_and_columns(client_and_service):
     assert 'value="bid_plus_spread" selected' in r.text and 'name="ref_x" id="ref_x" size="5" value="25"' in r.text
     assert "precio de venta: bid + 25% del spread" in r.text
     assert "<th>Prima ref.</th>" in r.text and "<th>Yield bid</th><th>Yield bid anual</th>" in r.text
+    # columnas de decisión primero; «Yield anual» destacado y orden por defecto
+    assert '<th>Prima ref.</th><th class="hl" data-sort-default="desc">Yield anual</th><th>Yield</th>' in r.text
+    assert r.text.index(">Yield anual</th>") < r.text.index("<th>Bid</th>") < r.text.index('<th class="txt">Sector</th>')
     assert 'id="ref_x_label" hidden' not in r.text                    # X visible con «Bid + X % del spread»
     mid = client.get(BASE + "&ref=mid&ref_x=25")
     assert "precio de venta: mid (media bid/ask)" in mid.text and 'id="ref_x_label" hidden' in mid.text

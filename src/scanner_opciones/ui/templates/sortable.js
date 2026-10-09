@@ -87,7 +87,7 @@
         if (i === col) th.setAttribute('aria-sort', dir === 'desc' ? 'descending' : 'ascending');
         else th.removeAttribute('aria-sort');
       });
-      current = { col: col, dir: dir };
+      current = { col: col, dir: dir, label: ths[col].textContent.trim() };
       try { sessionStorage.setItem(key, JSON.stringify(current)); } catch (e) { /* sin almacenamiento */ }
     }
 
@@ -106,10 +106,21 @@
       th.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
     });
 
-    try {   // recupera el orden elegido (p. ej. tras volver a escanear)
+    var restored = false;
+    try {   // recupera el orden elegido (p. ej. tras volver a escanear); se ignora si la columna ha cambiado de sitio
       var saved = JSON.parse(sessionStorage.getItem(key) || 'null');
-      if (saved && ths[saved.col] && ths[saved.col].classList.contains('sortable-th')) apply(saved.col, saved.dir);
+      var th = saved && ths[saved.col];
+      if (th && th.classList.contains('sortable-th') && (!saved.label || saved.label === th.textContent.trim())) {
+        apply(saved.col, saved.dir);
+        restored = true;
+      }
     } catch (e) { /* ignorar */ }
+    if (!restored) {   // sin orden elegido: el de la columna marcada con data-sort-default="asc|desc"
+      ths.forEach(function (th, col) {
+        var dir = th.getAttribute('data-sort-default');
+        if (dir && !current && th.classList.contains('sortable-th')) apply(col, dir === 'asc' ? 'asc' : 'desc');
+      });
+    }
   }
 
   var api = { cellText: cellText, parseValue: parseValue, compare: compare, isNumericColumn: isNumericColumn,
