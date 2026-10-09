@@ -164,7 +164,7 @@ class TechnicalSettings(_Model):
     trend_pivot_width: int = Field(3, ge=1)               # días a cada lado que debe superar un máximo/mínimo local (método «máximos y mínimos»)
     trend_swings_required: int = Field(3, ge=2)           # últimos máximos y mínimos que deben ser crecientes (o decrecientes)
     trend_min_progress_pct: float = Field(5, ge=0)        # avance mínimo desde el mínimo (o máximo) sin romper
-    trend_durations: tuple[int, ...] = (7, 14, 30, 60, 90, 180, 365)   # antigüedad mínima del mínimo, en días
+    trend_durations: tuple[int, ...] = (7, 14, 21, 30, 60, 90, 120, 180, 270, 365)   # antigüedad mínima del mínimo, en días
     trend_windows_months: tuple[int, ...] = (1, 2, 3, 6, 9, 12, 18, 24)   # ventana de la tendencia: últimos N meses de cierres
     support_lookback_days: int = Field(365, ge=30)
     support_band_pct: float = Field(1.5, gt=0)            # banda de la zona y ruptura máxima tolerada
