@@ -172,7 +172,7 @@ class TechnicalSettings(_Model):
     support_min_clusters: int = Field(2, ge=1)
     support_cluster_gap_days: int = Field(20, ge=1)       # separación mínima entre dos toques de episodios distintos
     support_pivot_width: int = Field(3, ge=1)
-    touch_min_days_options: tuple[int, ...] = (7, 14, 30, 60, 90, 180, 365)   # opciones de «Días mín. desde el último toque»
+    touch_min_days_options: tuple[int, ...] = (10, 20, 30, 45, 60, 90, 120, 180, 252, 365)   # opciones de «Días mín. desde el último toque»
 
 
 LEVELS = ("flexible", "standard", "strict")   # grados de exigencia, del más laxo al más estricto

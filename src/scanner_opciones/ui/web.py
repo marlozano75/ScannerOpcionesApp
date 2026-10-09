@@ -51,7 +51,9 @@ def _num(v: Optional[float], digits: int = 2) -> str:
 
 
 def _days_label(days: int) -> str:
-    """7 -> «1 semana», 30 -> «1 mes», 365 -> «1 año»; otros valores, «N días»."""
+    """7 -> «1 semana», 30 -> «1 mes», 365 -> «1 año», 252 -> «252 días (~1 año bursátil)»; otros valores, «N días»."""
+    if days == 252:
+        return "252 días (~1 año bursátil)"
     for size, one, many in ((365, "año", "años"), (30, "mes", "meses"), (7, "semana", "semanas")):
         if days % size == 0:
             n = days // size
