@@ -79,7 +79,7 @@
   th[aria-sort=descending]::after { content:' \25BC'; font-size:10px; }
 </style>
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 <header>
   <strong class="brand">Scanner de Opciones</strong>
   <nav>
@@ -117,16 +117,26 @@
 <script>document.querySelectorAll('table.sortable').forEach(function (t, i) { SortableTables.init(t, i); });</script>
 <script>
 /* Conserva la posición de desplazamiento al volver a la misma página justo después de salir de ella
-   (cambiar un selector envía el formulario y recarga la página, que si no vuelve arriba). */
+   (cambiar un selector envía el formulario y recarga la página, que si no vuelve arriba). Además de la
+   ventana, guarda la de los elementos con id y `data-keep-scroll` (las columnas del Scanner). */
 (function () {
   var KEY = 'scroll-pos';
+  var boxes = function () { return document.querySelectorAll('[data-keep-scroll][id]'); };
   try {
     var saved = JSON.parse(sessionStorage.getItem(KEY) || 'null');
     sessionStorage.removeItem(KEY);
-    if (saved && saved.path === location.pathname && Date.now() - saved.t < 15000) window.scrollTo(0, saved.y);
+    if (saved && saved.path === location.pathname && Date.now() - saved.t < 15000) {
+      window.scrollTo(0, saved.y);
+      boxes().forEach(function (el) {
+        var pos = (saved.boxes || {})[el.id];
+        if (pos) { el.scrollTop = pos[0]; el.scrollLeft = pos[1]; }
+      });
+    }
   } catch (e) { /* sin almacenamiento */ }
   window.addEventListener('pagehide', function () {
-    try { sessionStorage.setItem(KEY, JSON.stringify({ path: location.pathname, y: window.scrollY, t: Date.now() })); } catch (e) { /* sin almacenamiento */ }
+    var pos = {};
+    boxes().forEach(function (el) { pos[el.id] = [el.scrollTop, el.scrollLeft]; });
+    try { sessionStorage.setItem(KEY, JSON.stringify({ path: location.pathname, y: window.scrollY, boxes: pos, t: Date.now() })); } catch (e) { /* sin almacenamiento */ }
   });
 })();
 </script>

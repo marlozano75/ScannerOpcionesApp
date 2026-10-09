@@ -1,219 +1,354 @@
 {% extends "base.html" %}
 {% import "_contract_cols.html" as cols %}
+{% block body_class %}app-shell{% endblock %}
 {% macro num(name, size, value, max=none) -%}
-  <span class="stepper"><input name="{{ name }}" id="{{ name }}" size="{{ size }}" value="{{ value }}"{% if max is not none %} data-max="{{ max }}"{% endif %}>
-    <button type="button" class="step secondary" data-d="-1" title="Restar 1 y escanear">−</button><button type="button" class="step secondary" data-d="1" title="Sumar 1 y escanear">+</button></span>
+  <span class="stepper"><input name="{{ name }}" id="{{ name }}" size="{{ size }}" value="{{ value }}" inputmode="decimal"{% if max is not none %} data-max="{{ max }}"{% endif %}>
+    <button type="button" class="step" data-d="-1" title="Restar 1 y escanear">−</button><button type="button" class="step" data-d="1" title="Sumar 1 y escanear">+</button></span>
+{%- endmacro %}
+{# Sección plegable del panel de filtros: título, resumen de su estado y punto si filtra algo #}
+{% macro section(id, title, summary, active=false) -%}
+  <details class="fx{{ ' on' if active }}" id="{{ id }}">
+    <summary><span class="fx-dot"></span><span class="fx-title">{{ title }}</span><span class="fx-state">{{ summary }}</span></summary>
+    <div class="fx-body">{{ caller() }}</div>
+  </details>
 {%- endmacro %}
 {% block content %}
+{# ---- estado de cada bloque (resumen y si está activo) ---- #}
+{% set ref_names = {'bid': 'Bid', 'mid': 'Mid', 'bid_plus_spread': 'Bid + ' ~ form.ref_x ~ ' % spread'} %}
+{% set ns = namespace(window_label=form.trend_window ~ ' meses', touch_label='', ma_count=0) %}
+{% for m, label in tech_opts.windows %}{% if form.trend_window == m|string %}{% set ns.window_label = label %}{% endif %}{% endfor %}
+{% for d, label in tech_opts.touches %}{% if form.touch == d|string %}{% set ns.touch_label = label %}{% endif %}{% endfor %}
+{% set window_label, touch_label = ns.window_label, ns.touch_label %}
+{% set trend_on = form.trend_dir != 'off' %}
+{% set levels_on = form.support or form.touch != '' %}
+{% set price_on = form.price_min != '' or form.price_max != '' %}
+{% set ma_keys = ('ma50', 'ma100', 'ma200', 'ema9', 'ema20', 'cmp_ema9_ema20', 'cmp_ema20_ma50', 'cmp_ma50_ma100', 'cmp_ma100_ma200') %}
+{% for k in ma_keys %}{% if form[k] and form[k] != 'any' %}{% set ns.ma_count = ns.ma_count + 1 %}{% endif %}{% endfor %}
+{% set ma_count = ns.ma_count %}
+{% set frame_names = {'daily': 'diarias', 'weekly': 'semanales', 'monthly': 'mensuales'} %}
+{% set quality = [] %}
+{% if form.q_profit %}{% set _ = quality.append('Beneficios 12 m') %}{% endif %}
+{% if form.q_quarters %}{% set _ = quality.append(form.q_quarters ~ '/4 trimestres') %}{% endif %}
+{% if form.q_liq %}{% set _ = quality.append('Liquidez ≥ ' ~ form.q_liq) %}{% endif %}
+{% if form.q_earn %}{% set _ = quality.append('Sin resultados') %}{% endif %}
+{% if form.q_lev %}{% set _ = quality.append('Pasivo/patr. ≤ ' ~ form.q_lev) %}{% endif %}
+{% if form.q_fcf %}{% set _ = quality.append('FCF > 0') %}{% endif %}
+{% set optional = [] %}
+{% for key, use, label, sign in (('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤'), ('ivr', 'use_ivr', 'IV Rank', '≥'), ('ivp', 'use_ivp', 'IV Pctl', '≥')) %}
+  {% if form[use] %}{% set _ = optional.append(label ~ ' ' ~ sign ~ ' ' ~ form[key]) %}{% endif %}
+{% endfor %}
+{# chips de filtros activos (lado de resultados): (sección, texto) #}
+{% set chips = [] %}
+{% if trend_on %}{% set _ = chips.append(('sec-trend', ('Tendencia alcista' if form.trend_dir == 'up' else 'Tendencia bajista') ~ ' · ' ~ window_label)) %}{% endif %}
+{% if form.support %}{% set _ = chips.append(('sec-levels', 'Zona de soporte')) %}{% endif %}
+{% if form.touch %}{% set _ = chips.append(('sec-levels', 'Sin toque ' ~ touch_label)) %}{% endif %}
+{% if price_on %}{% set _ = chips.append(('sec-price', 'Precio ' ~ (form.price_min or '0') ~ '–' ~ (form.price_max or '∞'))) %}{% endif %}
+{% if ma_count %}{% set _ = chips.append(('sec-ma', ma_count ~ ' cond. de medias (' ~ frame_names[form.ma_frame] ~ ')')) %}{% endif %}
+{% for q in quality %}{% set _ = chips.append(('sec-quality', q)) %}{% endfor %}
+{% for o in optional %}{% set _ = chips.append(('sec-optional', o)) %}{% endfor %}
+
 <style>
-  .stepper { display:inline-flex; gap:2px; align-items:center; }
-  .stepper button.step { padding:4px 8px; line-height:1; }
-  .presets { margin:8px 0 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  /* ---- Scanner: filtros a la izquierda, resultados a la derecha; cada columna con su propio desplazamiento ---- */
+  body.app-shell { height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  body.app-shell > main { flex:1; min-height:0; display:flex; flex-direction:column; max-width:none; width:100%; padding:14px 18px 0; }
+  .shell { flex:1; min-height:0; display:grid; grid-template-columns:340px minmax(0,1fr); gap:18px; }
+
+  /* columna de filtros */
+  .side { min-height:0; display:flex; flex-direction:column; border-right:1px solid var(--line); }
+  .side-head { display:flex; align-items:center; gap:8px; padding:2px 14px 12px 0; border-bottom:1px solid var(--line); }
+  .side-head h2 { margin:0; font-size:15px; }
+  .side-head .count { color:var(--mute); font-size:12px; }
+  .side-head .actions { margin-left:auto; display:flex; gap:6px; }
+  .side-head .actions .btn, .side-head .actions button { padding:5px 12px; font-size:13px; }
+  .side-scroll { flex:1; min-height:0; overflow-y:auto; padding:0 14px 28px 0; }
+  .presets { display:flex; flex-wrap:wrap; gap:6px; padding:12px 0; border-bottom:1px solid var(--line); }
+  .presets .lbl { width:100%; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+  .preset { background:transparent; color:var(--ink); border:1px solid var(--line-strong); border-radius:999px; padding:4px 11px; font-size:12px; font-weight:600; }
+  .preset:hover { border-color:var(--accent); filter:none; }
+  .preset.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+  .fx { border-bottom:1px solid var(--line); }
+  .fx > summary { list-style:none; cursor:pointer; display:flex; align-items:center; gap:8px; padding:11px 0; user-select:none; }
+  .fx > summary::-webkit-details-marker { display:none; }
+  .fx > summary::after { content:''; width:6px; height:6px; margin:0 2px 0 4px; flex:none; border-right:1.5px solid var(--mute); border-bottom:1.5px solid var(--mute);
+                         transform:rotate(-45deg); transition:transform .15s; }
+  .fx[open] > summary::after { transform:rotate(45deg); }
+  .fx-dot { width:7px; height:7px; flex:none; border-radius:50%; border:1.5px solid var(--line-strong); }
+  .fx.on .fx-dot { background:var(--accent); border-color:var(--accent); }
+  .fx-title { font-size:13px; font-weight:600; white-space:nowrap; }
+  .fx-state { margin-left:auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--mute); }
+  .fx.on .fx-state { color:var(--ink); }
+  .fx-body { padding:2px 0 16px; display:flex; flex-direction:column; gap:12px; }
+  .fx-sub { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); margin-top:4px; }
+
+  .fgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
+  .fgrid .full { grid-column:1 / -1; }
+  .field { display:flex; flex-direction:column; gap:4px; min-width:0; font-size:12px; color:var(--mute); }
+  .field select, .field > input { width:100%; }
+  .side input, .side select { padding:6px 8px; font-size:13px; border-radius:6px; }
+  .stepper { display:flex; align-items:stretch; min-width:0; }
+  .stepper input { flex:1; min-width:0; width:100%; border-radius:6px 0 0 6px; }
+  .stepper button.step { background:var(--field); color:var(--ink); border:1px solid var(--line-strong); border-left:0; border-radius:0; padding:0 9px; font-weight:400; }
+  .stepper button.step:last-child { border-radius:0 6px 6px 0; }
+  .stepper button.step:hover { background:var(--card); filter:none; }
+  .check { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); cursor:pointer; }
+  .check input { margin:0; }
+  .opt-row { display:grid; grid-template-columns:1fr 92px; align-items:center; gap:10px; font-size:13px; }
+  .side .note { border:0; padding:0; font-size:12px; color:var(--mute); line-height:1.45; }
+  .side .note b { color:var(--ink); font-weight:600; }
+
+  /* columna de resultados */
+  .results { min-height:0; display:flex; flex-direction:column; }
+  .summary { padding:0 0 12px; }
+  .summary .headline { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .summary .big { font-size:28px; font-weight:700; line-height:1; letter-spacing:-.01em; }
+  .summary .applied { margin:6px 0 0; font-size:12px; color:var(--mute); }
+  .chips { margin-top:10px; }
+  .chips button.chip { font-size:12px; padding:3px 10px; font-weight:600; background:var(--field); color:var(--ink); }
+  .chips button.chip:hover { filter:none; border-color:var(--accent); }
+  .summary .banner { margin:10px 0 0; font-size:13px; }
+  .table-form { flex:1; min-height:0; display:flex; flex-direction:column; }
+  .table-form .scroll { flex:1; min-height:0; overflow:auto; }
+  #scan-results tr:first-child th { position:sticky; top:0; z-index:2; background:var(--panel); box-shadow:inset 0 -1px 0 var(--line-strong); }
+  #scan-results tr:first-child th.tk, #scan-results tr:first-child th.sel { z-index:3; }
+  #scan-results td { padding:5px 10px; font-size:13px; font-variant-numeric:tabular-nums; }
+  #scan-results td input[type=number] { padding:2px 6px; font-size:13px; border-radius:5px; }
+  #scan-results tr:hover td { background:var(--card); }
+  .table-actions { display:flex; align-items:center; gap:12px; padding:10px 0 12px; font-size:13px; color:var(--mute); }
+  .empty { padding:40px 20px; text-align:center; color:var(--mute); }
+
+  @media (max-width: 900px) {
+    body.app-shell { height:auto; overflow:visible; }
+    body.app-shell > main { display:block; padding:14px 16px 32px; }
+    .shell { display:block; }
+    .side { border-right:0; margin-bottom:20px; }
+    .side-scroll { overflow:visible; padding-right:0; }
+    .side-head { padding-right:0; }
+    .table-form .scroll { max-height:75vh; }
+  }
 </style>
-<h2 style="margin-top:4px">Scanner de puts vendidas</h2>
-<form method="get" action="/scanner" id="scan-form">
-  <input type="hidden" name="submitted" value="1">
-  {% if presets %}<div class="presets"><span class="muted">Configuraciones:</span>
-    {% for p in presets %}<button type="button" class="secondary preset" data-discount="{{ p.discount }}" data-dte-min="{{ p.dte_min }}"
-      data-dte-max="{{ p.dte_max }}" data-yield="{{ p.min_yield }}"
-      title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield anual mín. {{ p.min_yield }} %">{{ p.name }}
-      <span class="muted">({{ p.discount }}% · DTE {{ p.dte_min }}–{{ p.dte_max }} · {{ p.min_yield }}%)</span></button>{% endfor %}
-  </div>{% endif %}
 
-  <div class="section-title">Contrato</div>
-  <div class="panels">
-    <div class="panel">
-      <h3><span class="n">1</span>Strike y vencimiento</h3>
-      <div class="filters">
-        <label>Descuento mín. del strike (%) {{ num("discount", 6, form.discount, 99) }}</label>
-        <label>DTE mín. {{ num("dte_min", 5, form.dte_min) }}</label>
-        <label>DTE máx. {{ num("dte_max", 5, form.dte_max) }}</label>
+<div class="shell">
+  <aside class="side">
+    <div class="side-head">
+      <h2>Filtros</h2><span class="count">{{ chips|length }} activo{{ '' if chips|length == 1 else 's' }}</span>
+      <div class="actions">
+        <a href="/scanner?reset=1" class="btn secondary" title="Vuelve a los valores iniciales de la configuración">Restablecer</a>
+        <button form="scan-form">Escanear</button>
       </div>
-      <p class="note">Solo se escanean los contratos guardados: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }} % por debajo
-        del precio y DTE {{ candidates.dte_min }}–{{ candidates.dte_max }} (más un margen de ±{{ margin|num(0) }} % que se guarda pero no se cotiza). El descuento máximo es el del rango guardado.</p>
     </div>
-    <div class="panel">
-      <h3><span class="n">2</span>Rentabilidad</h3>
-      <div class="filters">
-        <label>Yield anual mín. (%) {{ num("min_yield", 6, form.min_yield) }}</label>
-        <label>Precio de venta de referencia
-          <select name="ref" id="ref">
-            <option value="bid" {{ 'selected' if form.ref == 'bid' }}>Bid</option>
-            <option value="mid" {{ 'selected' if form.ref == 'mid' }}>Mid (media bid/ask)</option>
-            <option value="bid_plus_spread" {{ 'selected' if form.ref == 'bid_plus_spread' }}>Bid + X % del spread</option>
-          </select></label>
-        <label id="ref_x_label" {{ 'hidden' if form.ref != 'bid_plus_spread' }}>X (% del spread) {{ num("ref_x", 5, form.ref_x, 100) }}</label>
-      </div>
-      <p class="note">El yield se calcula con el precio de venta elegido: <b>bid</b>, <b>mid</b> o el bid más un porcentaje X del spread.
-        Todos los contratos se cotizan cada {{ refresh_minutes|round|int }} min.</p>
-    </div>
-  </div>
+    <div class="side-scroll" id="side-scroll" data-keep-scroll>
+    <form method="get" action="/scanner" id="scan-form">
+      <input type="hidden" name="submitted" value="1">
+      {% if presets %}<div class="presets"><span class="lbl">Configuraciones</span>
+        {% for p in presets %}{% set is_on = form.discount == p.discount and form.dte_min == p.dte_min|string and form.dte_max == p.dte_max|string and form.min_yield == p.min_yield %}
+        <button type="button" class="preset{{ ' active' if is_on }}" data-discount="{{ p.discount }}" data-dte-min="{{ p.dte_min }}"
+          data-dte-max="{{ p.dte_max }}" data-yield="{{ p.min_yield }}"
+          title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield anual mín. {{ p.min_yield }} %">{{ p.name }}</button>{% endfor %}
+      </div>{% endif %}
 
-  <div class="section-title">Tendencia y niveles <span style="letter-spacing:.04em;text-transform:none;font-weight:400">(con los cierres diarios guardados)</span></div>
-  <div class="panels">
-    <div class="panel tech">
-      <h3><span class="n">3</span>Filtro de tendencia</h3>
-      <div class="filters">
-        <label>Tendencia
-          <select name="trend_dir" id="trend_dir">
-            <option value="off" {{ 'selected' if form.trend_dir == 'off' }}>Off</option>
-            <option value="up" {{ 'selected' if form.trend_dir == 'up' }}>Alcista</option>
-            <option value="down" {{ 'selected' if form.trend_dir == 'down' }}>Bajista</option></select></label>
-        <label>Ventana
-          <select name="trend_window" id="trend_window">
-            {% for m, label in tech_opts.windows %}<option value="{{ m }}" {{ 'selected' if form.trend_window == m|string }}>{{ label }}</option>{% endfor %}</select></label>
-      </div>
-      <div class="filters">
-        <label>Método
-          <select name="trend_method" id="trend_method">
-            <option value="low" {{ 'selected' if form.trend_method == 'low' }}>Mínimo (máximo) sin romper</option>
-            <option value="swings" {{ 'selected' if form.trend_method == 'swings' }}>Máximos y mínimos crecientes (decrecientes)</option></select></label>
-        <label id="trend_days_label">Antigüedad mín. del mínimo (máximo)
-          <select name="trend_days" id="trend_days">
-            {% for d, label in tech_opts.durations %}<option value="{{ d }}" {{ 'selected' if form.trend_days == d|string }}>{{ label }}</option>{% endfor %}</select></label>
-      </div>
-      <p class="note"><b>Alcista</b>: el mínimo de la ventana (1–24 meses de cierres diarios) que el precio no ha vuelto a romper debe tener al menos esa antigüedad y el precio
-        debe haber avanzado desde él; <b>bajista</b> es lo mismo con el máximo. Con «máximos y mínimos crecientes» se comparan los últimos extremos locales. Un solo cierre que lo rompa descarta el ticker. <b>Off</b> lo ignora.</p>
-    </div>
-    <div class="panel tech">
-      <h3><span class="n">4</span>Zona de soporte</h3>
-      <label class="opt" style="flex-direction:row;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
-        <input type="checkbox" name="support" id="support" {{ 'checked' if form.support }}> <b>Exigir una zona de precio probada</b></label>
-      <p class="note">Nivel tocado <b>3+ veces</b> en <b>2+ episodios</b> durante el último año, sin cierres que lo pierdan en más de 1,5 %. El strike debe estar en esa zona o por debajo.</p>
-    </div>
-    <div class="panel tech">
-      <h3><span class="n">5</span>Días mín. desde el último toque</h3>
-      <select name="touch" id="touch">
-        <option value="" {{ 'selected' if form.touch == '' }}>Cualquiera — sin mínimo</option>
-        {% for d, label in tech_opts.touches %}<option value="{{ d }}" {{ 'selected' if form.touch == d|string }}>{{ label }}</option>{% endfor %}</select>
-      <p class="note">Se excluyen los strikes que un cierre haya visitado (cierre ≤ strike) dentro de ese plazo. <b>Más días = más seguro</b>: el strike lleva más tiempo sin ser amenazado.</p>
-    </div>
-    <div class="panel tech">
-      <h3><span class="n">6</span>Precio del subyacente</h3>
-      <div class="filters">
-        <label style="flex-direction:row;align-items:center;gap:6px"><input name="price_min" size="8" placeholder="Mín." value="{{ form.price_min }}"> – <input name="price_max" size="8" placeholder="Máx." value="{{ form.price_max }}"></label>
-      </div>
-      <p class="note">Filtra por el último precio de la acción. Deja ambos vacíos para incluirlas todas (valor por defecto).</p>
-    </div>
-    <div class="panel tech wide">
-      <h3><span class="n">7</span>Medias móviles / EMA</h3>
-      <div class="filters">
-        <label>Velas de las medias
+      {% call section('sec-contract', 'Strike y vencimiento', '≥ ' ~ form.discount ~ ' % · DTE ' ~ form.dte_min ~ '–' ~ form.dte_max) %}
+        <div class="fgrid">
+          <label class="field full">Descuento mín. del strike (%) {{ num("discount", 6, form.discount, 99) }}</label>
+          <label class="field">DTE mín. {{ num("dte_min", 5, form.dte_min) }}</label>
+          <label class="field">DTE máx. {{ num("dte_max", 5, form.dte_max) }}</label>
+        </div>
+        <p class="note">Solo se escanean los contratos guardados: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }} % por debajo
+          del precio y DTE {{ candidates.dte_min }}–{{ candidates.dte_max }} (más un margen de ±{{ margin|num(0) }} % que se guarda pero no se cotiza). El descuento máximo es el del rango guardado.</p>
+      {% endcall %}
+
+      {% call section('sec-yield', 'Rentabilidad', '≥ ' ~ form.min_yield ~ ' % · ' ~ ref_names.get(form.ref, form.ref)) %}
+        <div class="fgrid">
+          <label class="field">Yield anual mín. (%) {{ num("min_yield", 6, form.min_yield) }}</label>
+          <label class="field">Precio de venta
+            <select name="ref" id="ref">
+              <option value="bid" {{ 'selected' if form.ref == 'bid' }}>Bid</option>
+              <option value="mid" {{ 'selected' if form.ref == 'mid' }}>Mid (media bid/ask)</option>
+              <option value="bid_plus_spread" {{ 'selected' if form.ref == 'bid_plus_spread' }}>Bid + X % del spread</option>
+            </select></label>
+          <label class="field" id="ref_x_label" {{ 'hidden' if form.ref != 'bid_plus_spread' }}>X (% del spread) {{ num("ref_x", 5, form.ref_x, 100) }}</label>
+        </div>
+        <p class="note">El yield se calcula con el precio de venta elegido: <b>bid</b>, <b>mid</b> o el bid más un porcentaje X del spread.
+          Todos los contratos se cotizan cada {{ refresh_minutes|round|int }} min.</p>
+      {% endcall %}
+
+      {% call section('sec-trend', 'Tendencia', ((('Alcista' if form.trend_dir == 'up' else 'Bajista') ~ ' · ' ~ window_label) if trend_on else 'Off'), trend_on) %}
+        <div class="fgrid">
+          <label class="field">Tendencia
+            <select name="trend_dir" id="trend_dir">
+              <option value="off" {{ 'selected' if form.trend_dir == 'off' }}>Off</option>
+              <option value="up" {{ 'selected' if form.trend_dir == 'up' }}>Alcista</option>
+              <option value="down" {{ 'selected' if form.trend_dir == 'down' }}>Bajista</option></select></label>
+          <label class="field">Ventana
+            <select name="trend_window" id="trend_window">
+              {% for m, label in tech_opts.windows %}<option value="{{ m }}" {{ 'selected' if form.trend_window == m|string }}>{{ label }}</option>{% endfor %}</select></label>
+          <label class="field full">Método
+            <select name="trend_method" id="trend_method">
+              <option value="low" {{ 'selected' if form.trend_method == 'low' }}>Mínimo (máximo) sin romper</option>
+              <option value="swings" {{ 'selected' if form.trend_method == 'swings' }}>Máximos y mínimos crecientes (decrecientes)</option></select></label>
+          <label class="field full" id="trend_days_label">Antigüedad mín. del mínimo (máximo)
+            <select name="trend_days" id="trend_days">
+              {% for d, label in tech_opts.durations %}<option value="{{ d }}" {{ 'selected' if form.trend_days == d|string }}>{{ label }}</option>{% endfor %}</select></label>
+        </div>
+        <p class="note"><b>Alcista</b>: el mínimo de la ventana (1–24 meses de cierres diarios) que el precio no ha vuelto a romper debe tener al menos esa antigüedad y el precio
+          debe haber avanzado desde él; <b>bajista</b> es lo mismo con el máximo. Con «máximos y mínimos crecientes» se comparan los últimos extremos locales. Un solo cierre que lo rompa descarta el ticker. <b>Off</b> lo ignora.</p>
+      {% endcall %}
+
+      {% set levels_summary = ([('Soporte' if form.support else ''), (('Sin toque ' ~ touch_label) if form.touch else '')] | select | join(' · ')) or 'Sin exigencias' %}
+      {% call section('sec-levels', 'Soporte y último toque', levels_summary, levels_on) %}
+        <label class="check"><input type="checkbox" name="support" id="support" {{ 'checked' if form.support }}> Exigir una zona de precio probada</label>
+        <p class="note">Nivel tocado <b>3+ veces</b> en <b>2+ episodios</b> durante el último año, sin cierres que lo pierdan en más de 1,5 %. El strike debe estar en esa zona o por debajo.</p>
+        <label class="field">Días mín. desde el último toque
+          <select name="touch" id="touch">
+            <option value="" {{ 'selected' if form.touch == '' }}>Cualquiera — sin mínimo</option>
+            {% for d, label in tech_opts.touches %}<option value="{{ d }}" {{ 'selected' if form.touch == d|string }}>{{ label }}</option>{% endfor %}</select></label>
+        <p class="note">Se excluyen los strikes que un cierre haya visitado (cierre ≤ strike) dentro de ese plazo. <b>Más días = más seguro</b>: el strike lleva más tiempo sin ser amenazado.</p>
+      {% endcall %}
+
+      {% call section('sec-price', 'Precio del subyacente', ((form.price_min or '0') ~ ' – ' ~ (form.price_max or '∞')) if price_on else 'Cualquiera', price_on) %}
+        <div class="fgrid">
+          <label class="field">Mínimo <input name="price_min" placeholder="Mín." value="{{ form.price_min }}" inputmode="decimal"></label>
+          <label class="field">Máximo <input name="price_max" placeholder="Máx." value="{{ form.price_max }}" inputmode="decimal"></label>
+        </div>
+        <p class="note">Filtra por el último precio de la acción. Deja ambos vacíos para incluirlas todas (valor por defecto).</p>
+      {% endcall %}
+
+      {% call section('sec-ma', 'Medias móviles / EMA', ((ma_count ~ ' condici' ~ ('ón' if ma_count == 1 else 'ones') ~ ' · ' ~ frame_names[form.ma_frame]) if ma_count else 'Sin condiciones'), ma_count > 0) %}
+        <label class="field">Velas de las medias
           <select name="ma_frame" id="ma_frame">
             <option value="daily" {{ 'selected' if form.ma_frame == 'daily' }}>Diarias (días)</option>
             <option value="weekly" {{ 'selected' if form.ma_frame == 'weekly' }}>Semanales (semanas)</option>
             <option value="monthly" {{ 'selected' if form.ma_frame == 'monthly' }}>Mensuales (meses)</option></select></label>
-        {% for key, label in (('ma50', 'MA 50'), ('ma100', 'MA 100'), ('ma200', 'MA 200'), ('ema9', 'EMA 9'), ('ema20', 'EMA 20')) %}
-        <label>{{ label }}
-          <select name="{{ key }}">
-            <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
-            <option value="above" {{ 'selected' if form[key] == 'above' }}>Precio por encima</option>
-            <option value="below" {{ 'selected' if form[key] == 'below' }}>Precio por debajo</option></select></label>
-        {% endfor %}
-      </div>
-      <div class="filters">
-        {% for key, short, long in (('cmp_ema9_ema20', 'EMA9', 'EMA20'), ('cmp_ema20_ma50', 'EMA20', 'MA50'), ('cmp_ma50_ma100', 'MA50', 'MA100'), ('cmp_ma100_ma200', 'MA100', 'MA200')) %}
-        <label>{{ short }} frente a {{ long }}
-          <select name="{{ key }}">
-            <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
-            <option value="gte" {{ 'selected' if form[key] == 'gte' }}>{{ short }} ≥ {{ long }}</option>
-            <option value="lte" {{ 'selected' if form[key] == 'lte' }}>{{ short }} ≤ {{ long }}</option></select></label>
-        {% endfor %}
-      </div>
-      <p class="note">Pon cualquier combinación de líneas en <b>Por encima</b> o <b>Por debajo</b> para exigir que el precio esté de ese lado; <b>Cualquiera</b> la ignora y todas las activas deben cumplirse.
-        Las velas pueden ser diarias, semanales o mensuales (MA 50 = 50 días, semanas o meses). tastytrade solo da ~3,8 años de historia (≈198 semanas, 46 meses):
-        las medias más largas con velas mensuales (y la MA 200 semanal) no se pueden calcular y descartan el ticker.</p>
-    </div>
-  </div>
+        <div class="fx-sub">Precio frente a la media</div>
+        <div class="fgrid">
+          {% for key, label in (('ma50', 'MA 50'), ('ma100', 'MA 100'), ('ma200', 'MA 200'), ('ema9', 'EMA 9'), ('ema20', 'EMA 20')) %}
+          <label class="field">{{ label }}
+            <select name="{{ key }}">
+              <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
+              <option value="above" {{ 'selected' if form[key] == 'above' }}>Precio por encima</option>
+              <option value="below" {{ 'selected' if form[key] == 'below' }}>Precio por debajo</option></select></label>
+          {% endfor %}
+        </div>
+        <div class="fx-sub">Entre medias</div>
+        <div class="fgrid">
+          {% for key, short, long in (('cmp_ema9_ema20', 'EMA9', 'EMA20'), ('cmp_ema20_ma50', 'EMA20', 'MA50'), ('cmp_ma50_ma100', 'MA50', 'MA100'), ('cmp_ma100_ma200', 'MA100', 'MA200')) %}
+          <label class="field">{{ short }} frente a {{ long }}
+            <select name="{{ key }}">
+              <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
+              <option value="gte" {{ 'selected' if form[key] == 'gte' }}>{{ short }} ≥ {{ long }}</option>
+              <option value="lte" {{ 'selected' if form[key] == 'lte' }}>{{ short }} ≤ {{ long }}</option></select></label>
+          {% endfor %}
+        </div>
+        <p class="note">Pon cualquier combinación de líneas en <b>Por encima</b> o <b>Por debajo</b> para exigir que el precio esté de ese lado; <b>Cualquiera</b> la ignora y todas las activas deben cumplirse.
+          Las velas pueden ser diarias, semanales o mensuales (MA 50 = 50 días, semanas o meses). tastytrade solo da ~3,8 años de historia (≈198 semanas, 46 meses):
+          las medias más largas con velas mensuales (y la MA 200 semanal) no se pueden calcular y descartan el ticker.</p>
+      {% endcall %}
 
-  <div class="section-title">Calidad de la empresa <span style="letter-spacing:.04em;text-transform:none;font-weight:400">(datos de tastytrade; los tickers sin dato se descartan, salvo en el filtro de resultados)</span></div>
-  <div class="panels">
-    <div class="panel tech">
-      <h3><span class="n">8</span>Rentabilidad</h3>
-      <label class="opt" style="flex-direction:row;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
-        <input type="checkbox" name="q_profit" id="q_profit" {{ 'checked' if form.q_profit }}> <b>Beneficios en los últimos 12 meses</b></label>
-      <div class="filters">
-        <label>Trimestres con beneficios (de los últimos 4)
+      {% call section('sec-quality', 'Calidad de la empresa', (quality | join(' · ')) or 'Sin filtros', quality|length > 0) %}
+        <p class="note">Datos de tastytrade; los tickers sin dato se descartan, salvo en el filtro de resultados.</p>
+        <div class="fx-sub">Rentabilidad</div>
+        <label class="check"><input type="checkbox" name="q_profit" id="q_profit" {{ 'checked' if form.q_profit }}> Beneficios en los últimos 12 meses</label>
+        <label class="field">Trimestres con beneficios (de los últimos 4)
           <select name="q_quarters" id="q_quarters">
             <option value="" {{ 'selected' if form.q_quarters == '' }}>Cualquiera</option>
             {% for n in quality_opts.quarters %}<option value="{{ n }}" {{ 'selected' if form.q_quarters == n|string }}>{{ n }} o más</option>{% endfor %}</select></label>
-      </div>
-      <p class="note">EPS de 12 meses mayor que 0 (si tastytrade no lo da, la suma de los 4 últimos trimestres). Exigir 3 de 4 evita que un único trimestre con pérdidas extraordinarias descarte una empresa sana.</p>
-    </div>
-    <div class="panel tech">
-      <h3><span class="n">9</span>Liquidez</h3>
-      <div class="filters">
-        <label>Liquidez de las opciones (1-5)
+        <p class="note">EPS de 12 meses mayor que 0 (si tastytrade no lo da, la suma de los 4 últimos trimestres). Exigir 3 de 4 evita que un único trimestre con pérdidas extraordinarias descarte una empresa sana.</p>
+        <div class="fx-sub">Liquidez</div>
+        <label class="field">Liquidez de las opciones (1-5)
           <select name="q_liq" id="q_liq">
             <option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>
             {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más</option>{% endfor %}</select></label>
-      </div>
-      <p class="note">La liquidez es la valoración de tastytrade de las opciones del ticker (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers: úsala con cuidado.</p>
-    </div>
-    <div class="panel tech">
-      <h3><span class="n">10</span>Resultados antes del vencimiento</h3>
-      <label class="opt" style="flex-direction:row;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
-        <input type="checkbox" name="q_earn" id="q_earn" {{ 'checked' if form.q_earn }}> <b>Evitar vencimientos con resultados</b></label>
-      <p class="note">Se descartan los <b>contratos</b> cuyo vencimiento es igual o posterior a la próxima fecha de resultados: no se vende una put que atraviese un informe. Sin fecha conocida no se descarta nada. En plena temporada de resultados casi todos los tickers publican en las próximas semanas.</p>
-    </div>
-  </div>
-
-  <div class="panels">
-    <div class="panel tech">
-      <h3><span class="n">11</span>Apalancamiento y caja</h3>
-      <div class="filters">
-        <label>Pasivo / patrimonio máximo
+        <p class="note">La liquidez es la valoración de tastytrade de las opciones del ticker (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers: úsala con cuidado.</p>
+        <div class="fx-sub">Resultados antes del vencimiento</div>
+        <label class="check"><input type="checkbox" name="q_earn" id="q_earn" {{ 'checked' if form.q_earn }}> Evitar vencimientos con resultados</label>
+        <p class="note">Se descartan los <b>contratos</b> cuyo vencimiento es igual o posterior a la próxima fecha de resultados: no se vende una put que atraviese un informe. Sin fecha conocida no se descarta nada.</p>
+        <div class="fx-sub">Apalancamiento y caja</div>
+        <label class="field">Pasivo / patrimonio máximo
           <select name="q_lev" id="q_lev">
             <option value="" {{ 'selected' if form.q_lev == '' }}>Cualquiera</option>
             {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if form.q_lev == v }}>{{ v }}</option>{% endfor %}</select></label>
-      </div>
-      <label class="opt" style="flex-direction:row;align-items:center;gap:8px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
-        <input type="checkbox" name="q_fcf" id="q_fcf" {{ 'checked' if form.q_fcf }}> <b>Flujo de caja libre positivo (12 meses)</b></label>
-      <p class="note">Datos de la SEC (balance e informes trimestrales). Las <b>financieras</b> (bancos, aseguradoras) quedan exentas. Se descartan los tickers sin dato:
-        los emisores extranjeros (ADR) suelen no tenerlo, y también quien tenga patrimonio negativo.
-        {% if not quality_opts.edgar %}<b>Sin datos: falta <code>edgar.contact</code> en config.yaml</b> (la SEC exige un contacto en las peticiones).{% endif %}</p>
-    </div>
-  </div>
+        <label class="check"><input type="checkbox" name="q_fcf" id="q_fcf" {{ 'checked' if form.q_fcf }}> Flujo de caja libre positivo (12 meses)</label>
+        <p class="note">Datos de la SEC. Las <b>financieras</b> quedan exentas. Se descartan los tickers sin dato (los ADR suelen no tenerlo) y los de patrimonio negativo.
+          {% if not quality_opts.edgar %}<b>Sin datos: falta <code>edgar.contact</code> en config.yaml</b> (la SEC exige un contacto en las peticiones).{% endif %}</p>
+      {% endcall %}
 
-  <div class="section-title">Liquidez y volatilidad</div>
-  <div class="panels">
-    <div class="panel wide">
-      <h3><span class="n">12</span>Filtros opcionales</h3>
-      <div class="filters">
-        <label class="opt"><span><input type="checkbox" name="use_oi" {{ 'checked' if form.use_oi }}> OI mínimo</span>
-          <input name="oi" size="7" value="{{ form.oi }}"></label>
-        <label class="opt"><span><input type="checkbox" name="use_bidsize" {{ 'checked' if form.use_bidsize }}> Bid size mínimo</span>
-          <input name="bidsize" size="7" value="{{ form.bidsize }}"></label>
-        <label class="opt"><span><input type="checkbox" name="use_spread" {{ 'checked' if form.use_spread }}> Spread máx. (%)</span>
-          <input name="spread" size="7" value="{{ form.spread }}"></label>
-        <label class="opt"><span><input type="checkbox" name="use_ivr" {{ 'checked' if form.use_ivr }}> IV Rank mín.</span>
-          <input name="ivr" size="7" value="{{ form.ivr }}"></label>
-        <label class="opt"><span><input type="checkbox" name="use_ivp" {{ 'checked' if form.use_ivp }}> IV Percentile mín.</span>
-          <input name="ivp" size="7" value="{{ form.ivp }}"></label>
-      </div>
-      <p class="note">Márcalos para aplicarlos: la caja muestra el valor por defecto aunque el filtro esté desactivado.</p>
+      {% call section('sec-optional', 'Filtros opcionales', (optional | join(' · ')) or 'Sin filtros', optional|length > 0) %}
+        {% for key, use, label in (('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)'), ('ivr', 'use_ivr', 'IV Rank mín.'), ('ivp', 'use_ivp', 'IV Percentile mín.')) %}
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
+          <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
+        {% endfor %}
+        <p class="note">Márcalos para aplicarlos: la caja muestra el valor por defecto aunque el filtro esté desactivado.</p>
+      {% endcall %}
+    </form>
     </div>
-  </div>
-  <p style="margin:16px 0 4px"><button>Escanear</button>
-    <a href="/scanner?reset=1" class="btn secondary" title="Vuelve a los valores iniciales de la configuración">Restablecer</a></p>
-</form>
-<div class="card" style="margin-top:12px">
-  {% if criteria %}
-  <p class="muted" style="margin:0">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
-    yield anual ≥ {{ criteria.min_annual_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
-    {% if report %}· última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados){% endif %}.</p>
-  {% endif %}
-  {% for w in warnings %}<div class="banner info" style="margin:10px 0 0">{{ w }}</div>{% endfor %}
+  </aside>
+
+  <section class="results">
+    <div class="summary">
+      {% if out %}
+      <div class="headline"><span class="big">{{ out.results|length }}</span>
+        <span>contratos cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></span></div>
+      {% endif %}
+      {% if criteria %}
+      <p class="applied">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
+        yield anual ≥ {{ criteria.min_annual_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
+        {% if report %}· última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados){% endif %}.</p>
+      {% endif %}
+      {% if chips %}<div class="chips">{% for sec, text in chips %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}</div>{% endif %}
+      {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
+      {% for w in warnings %}<div class="banner info">{{ w }}</div>{% endfor %}
+    </div>
+    {% if out %}
+    <form method="post" action="/simulate" class="table-form">
+      <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
+        <tr><th class="sel"></th>{{ cols.head() }}<th data-nosort>Cant.</th><th>Actualizado</th></tr>
+        {% for r in out.results %}{% set c = r.snapshot.contract %}
+          {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
+          <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
+            {{ cols.cells(r) }}
+            <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px"></td>
+            {{ cols.updated(r.snapshot) }}</tr>
+        {% else %}<tr><td colspan="40" class="muted empty">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
+      </table></div>
+      {% if out.results %}<div class="table-actions"><button id="simulate-btn">Simular seleccionados</button><span id="sel-count">Ninguno seleccionado</span></div>{% endif %}
+    </form>
+    {% endif %}
+  </section>
 </div>
+
 <script>
-  // Configuraciones preconfiguradas: cargan sus valores en el formulario (el resto de filtros se conserva) y escanean
   const form = document.getElementById('scan-form');
-  // X solo se muestra con «Bid + X % del spread»; cambiar el precio de referencia escanea
+  // Secciones plegables: se recuerda cuáles están abiertas (por defecto, las dos primeras)
+  (function () {
+    const KEY = 'scan-open';
+    let open = null;
+    try { open = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (e) { /* sin almacenamiento */ }
+    if (!open) open = { 'sec-contract': true, 'sec-yield': true };
+    document.querySelectorAll('details.fx').forEach(function (d) {
+      d.open = !!open[d.id];
+      d.addEventListener('toggle', function () {
+        open[d.id] = d.open;
+        try { sessionStorage.setItem(KEY, JSON.stringify(open)); } catch (e) { /* sin almacenamiento */ }
+      });
+    });
+    // un chip de filtro activo abre su sección en la columna de filtros
+    document.querySelectorAll('button.chip[data-open]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        const d = document.getElementById(b.dataset.open);
+        d.open = true;
+        d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  })();
+  // X solo se muestra con «Bid + X % del spread»
   document.getElementById('ref').addEventListener('change', function () {
     document.getElementById('ref_x_label').hidden = (this.value !== 'bid_plus_spread');
-    form.submit();
   });
-  document.getElementById('ref_x').addEventListener('change', function () { form.submit(); });   // editar X escanea
+  ['ref_x', 'price_min', 'price_max'].forEach(function (n) {
+    const el = form.querySelector('[name=' + n + ']');
+    el.addEventListener('change', function () { form.submit(); });   // editar X o el precio escanea
+  });
+  // Configuraciones preconfiguradas: cargan sus valores en el formulario (el resto de filtros se conserva) y escanean
   document.querySelectorAll('button.preset').forEach(function (b) {
     b.addEventListener('click', function () {
       document.getElementById('discount').value = b.dataset.discount;
@@ -237,39 +372,33 @@
       timer = setTimeout(function () { form.submit(); }, 400);
     });
   });
-  // Tendencia y niveles: cualquier cambio escanea; con la tendencia en Off se atenúan sus opciones
+  // Con la tendencia en Off se atenúan sus opciones
   const techSync = function () {
     const off = document.getElementById('trend_dir').value === 'off', low = document.getElementById('trend_method').value === 'low';
     ['trend_method', 'trend_window'].forEach(function (id) { document.getElementById(id).parentElement.style.opacity = off ? .45 : 1; });
     document.getElementById('trend_days_label').style.opacity = (off || !low) ? .45 : 1;
   };
   techSync();
-  document.querySelectorAll('.tech select, .tech input[name^=price_], #support, #q_profit, #q_earn, #q_fcf').forEach(function (el) {
+  // Cualquier selector o casilla escanea al cambiar
+  form.querySelectorAll('select, input[type=checkbox]').forEach(function (el) {
     el.addEventListener('change', function () { techSync(); form.submit(); });
   });
+  // Casillas con valor (OI, bid size…): la caja se atenúa mientras el filtro está desmarcado
   document.querySelectorAll('label.opt').forEach(function (l) {
     const cb = l.querySelector('input[type=checkbox]'), tx = l.querySelector('input:not([type=checkbox])');
-    if (!tx) return;
     const sync = function () { tx.style.opacity = cb.checked ? 1 : .45; };
     cb.addEventListener('change', sync); sync();
-    cb.addEventListener('change', function () { form.submit(); });   // marcar o desmarcar un filtro opcional escanea
   });
+  // Contador de contratos marcados para simular
+  (function () {
+    const counter = document.getElementById('sel-count');
+    if (!counter) return;
+    const update = function () {
+      const n = document.querySelectorAll('#scan-results input[name=sel]:checked').length;
+      counter.textContent = n ? (n + (n === 1 ? ' contrato seleccionado' : ' contratos seleccionados')) : 'Ninguno seleccionado';
+    };
+    document.getElementById('scan-results').addEventListener('change', update);
+    update();
+  })();
 </script>
-{% if error %}<div class="banner err">{{ error }}</div>{% endif %}
-{% if out %}
-<form method="post" action="/simulate" class="card" style="margin-top:16px">
-  <h2>{{ out.results|length }} contratos cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></h2>
-  <div class="scroll"><table class="sortable sticky-tk with-sel" id="scan-results">
-    <tr><th class="sel"></th>{{ cols.head() }}<th data-nosort>Cant.</th><th>Actualizado</th></tr>
-    {% for r in out.results %}{% set c = r.snapshot.contract %}
-      {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
-      <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
-        {{ cols.cells(r) }}
-        <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px"></td>
-        {{ cols.updated(r.snapshot) }}</tr>
-    {% else %}<tr><td colspan="30" class="muted">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
-  </table></div>
-  {% if out.results %}<p><button>Simular seleccionados</button></p>{% endif %}
-</form>
-{% endif %}
 {% endblock %}

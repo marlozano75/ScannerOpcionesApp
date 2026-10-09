@@ -531,7 +531,7 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     html = client.get("/scanner?reset=1").text
     form = html.split('id="scan-form"')[1].split("</form>")[0]
     # dos configuraciones; la segunda toma el DTE máx. de la ventana guardada (35)
-    assert form.count('class="secondary preset"') == 2
+    assert form.count('type="button" class="preset') == 2
     assert 'data-discount="10" data-dte-min="1"' in form and 'data-dte-max="15" data-yield="20"' in form
     assert 'data-discount="20" data-dte-min="16"' in form and 'data-dte-max="35" data-yield="13"' in form
     # − / + en las cajas principales, no en los filtros opcionales
@@ -542,7 +542,7 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     assert 'data-d=' not in opt and "checked" not in opt
     # las cajas opcionales traen su valor por defecto aunque estén desmarcadas
     for name, value in (("oi", "100"), ("bidsize", "20"), ("spread", "35"), ("ivr", "30"), ("ivp", "50")):
-        assert f'<input name="{name}" size="7" value="{value}">' in opt
+        assert f'<input name="{name}" value="{value}"' in opt
     # los valores de una configuración escanean sin error
     r = client.get("/scanner?submitted=1&discount=20&dte_min=16&dte_max=35&min_yield=13")
     assert r.status_code == 200 and "Parámetro no válido" not in r.text
@@ -629,7 +629,7 @@ def test_last_price_filter_form(client_and_service):
     r = client.get("/scanner")
     assert 'name="price_min"' in r.text and 'name="price_max"' in r.text
     out = client.get(base + "&price_min=20&price_max=150.5").text
-    assert 'name="price_min" size="8" placeholder="Mín." value="20"' in out and 'value="150.5"' in out
+    assert 'name="price_min" placeholder="Mín." value="20"' in out and 'value="150.5"' in out
     assert "Aplicado" in out
     assert "Parámetro no válido" in client.get(base + "&price_min=200&price_max=100").text
     assert "Parámetro no válido" in client.get(base + "&price_min=abc").text
