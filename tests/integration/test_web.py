@@ -668,6 +668,13 @@ def test_strike_chart_endpoint_and_link(client_and_service):
     assert f"hace {(today - last_low).days} días" in out and "meses por encima del strike $75.00" in out
     assert "Sin toques del strike" in client.get("/chart/strike?ticker=AAPL&strike=10").text
     assert client.get("/chart/strike?ticker=AAPL&strike=abc").status_code == 422
+    # miniatura de cada fila: imagen SVG propia que se carga al hacerse visible
+    page = client.get("/scanner").text
+    assert '<img loading="lazy" width="110" height="30" alt="" src="/chart/mini.svg?ticker=AAPL&amp;strike=' in page
+    assert "<th data-nosort>Historial</th>" in page
+    mini = client.get("/chart/mini.svg?ticker=AAPL&strike=75")
+    assert mini.headers["content-type"].startswith("image/svg+xml") and "<path" in mini.text and "stroke-dasharray" in mini.text
+    assert "<path" not in client.get("/chart/mini.svg?ticker=NOPE&strike=75").text     # sin histórico: solo un guion
 
 
 def test_trend_window_months_form(client_and_service):

@@ -114,3 +114,33 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     svg = (f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="Cierres mensuales de {escape(ticker)} frente al strike" '
            f'class="sh-svg">{"".join(g)}</svg>')
     return f'<div class="sh-wrap">{summary}{touch_line}{legend}{svg}</div>'
+
+
+MW, MH = 110, 30
+
+
+def strike_mini_svg(h: StrikeHistory, strike: float, near_pct: float) -> str:
+    """Miniatura (imagen SVG independiente, sin `currentColor`) del gráfico del strike para cada fila de la tabla:
+    curva de cierres mensuales, strike punteado, último punto (con el color de su cierre) y aro naranja del último toque."""
+    head = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {MW} {MH}" width="{MW}" height="{MH}">'
+    if len(h.months) < 2:
+        return head + f'<text x="{MW / 2}" y="{MH / 2 + 4}" text-anchor="middle" font-size="11" fill="#8b94a3">—</text></svg>'
+    lo = min(strike, min(p for _, p in h.months), h.touch[1] if h.touch else strike)
+    hi = max(strike, max(p for _, p in h.months))
+    pad = (hi - lo) * 0.12 or hi * 0.05
+    lo, hi = lo - pad, hi + pad
+    t0 = h.months[0][0].toordinal()
+    span = max(h.months[-1][0].toordinal() - t0, 1)
+    x = lambda d: 3 + (d.toordinal() - t0) / span * (MW - 6)
+    y = lambda v: 3 + (hi - v) / (hi - lo) * (MH - 6)
+    pts = [(x(d), y(p)) for d, p in h.months]
+    sy = y(strike)
+    last = h.months[-1][1]
+    colour = RED if last <= strike else (YELLOW if last <= strike * (1 + near_pct / 100) else BLUE)
+    parts = [f'<path d="{_smooth(pts)} L{pts[-1][0]:.1f},{MH - 2} L{pts[0][0]:.1f},{MH - 2} Z" fill="{BLUE}" opacity=".12"/>',
+             f'<path d="{_smooth(pts)}" fill="none" stroke="{BLUE}" stroke-width="1.5"/>',
+             f'<line x1="2" x2="{MW - 2}" y1="{sy:.1f}" y2="{sy:.1f}" stroke="{RED}" stroke-width="1" stroke-dasharray="3 2"/>',
+             f'<circle cx="{pts[-1][0]:.1f}" cy="{pts[-1][1]:.1f}" r="2.6" fill="{colour}"/>']
+    if h.touch and h.touch[0].toordinal() >= t0:
+        parts.append(f'<circle cx="{x(h.touch[0]):.1f}" cy="{y(h.touch[1]):.1f}" r="3.6" fill="none" stroke="{ORANGE}" stroke-width="1.4"/>')
+    return head + "".join(parts) + "</svg>"

@@ -21,7 +21,7 @@ from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
-from scanner_opciones.ui.charts import strike_chart_html
+from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
@@ -613,6 +613,15 @@ def create_app(
         tcfg = service.settings.scanner.technical
         history = strike_history(sorted(closes.items()), strike, service.now().date(), tcfg.chart_months)
         return HTMLResponse(strike_chart_html(history, ticker, strike, tcfg.chart_near_pct))
+
+    @app.get("/chart/mini.svg")
+    async def strike_mini(ticker: str, strike: float):
+        """Miniatura del gráfico del strike para las filas del Scanner (se pide al hacerse visible la fila)."""
+        tcfg = service.settings.scanner.technical
+        closes = service.bars.closes(ticker)
+        history = strike_history(sorted(closes.items()), strike, service.now().date(), tcfg.chart_months)
+        return Response(strike_mini_svg(history, strike, tcfg.chart_near_pct), media_type="image/svg+xml",
+                        headers={"Cache-Control": "max-age=300"})
 
     @app.get("/data-version")
     async def data_version():

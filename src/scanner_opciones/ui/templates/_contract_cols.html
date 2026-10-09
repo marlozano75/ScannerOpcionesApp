@@ -2,7 +2,7 @@
    yields, delta con la volatilidad, liquidez del contrato, calidad de la empresa y cartera.
    «Yield anual» es la columna destacada (`hl`) y la que ordena por defecto. El vencimiento sale al pasar el ratón por el DTE. #}
 {% macro head() -%}
-<th class="tk">Ticker</th><th class="txt">Sector</th><th>Precio</th><th>Strike</th><th>Desc.</th><th>DTE</th>
+<th class="tk">Ticker</th><th class="txt">Sector</th><th>Precio</th><th>Strike</th><th data-nosort>Historial</th><th>Desc.</th><th>DTE</th>
 <th class="hl" data-sort-default="desc">Yield anual</th><th>Yield bid anual</th>
 <th>Delta</th><th>IV</th><th>IV Rank</th><th>IV Pctl</th>
 <th>Spread</th><th>Bid size</th><th>OI</th><th>Liq. opc.</th>
@@ -12,7 +12,7 @@
 
 {% macro cells(r) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
 <td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el historial de cierres frente al strike y el último toque">{{ c.ticker }}</a></td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
-<td>{{ c.strike|num }}</td><td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+<td>{{ c.strike|num }}</td><td class="mini"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el gráfico grande"><img loading="lazy" width="110" height="30" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ c.strike }}"></a></td><td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
 <td class="hl">{{ r.yield_ref_annualized_pct|pct }}</td><td>{{ r.yield_bid_annualized_pct|pct }}</td>
 <td>{{ s.delta|num }}</td><td>{{ (s.iv * 100)|pct if s.iv is not none else '—' }}</td><td>{{ s.iv_rank|pct(0) }}</td><td>{{ s.iv_percentile|pct(0) }}</td>
 <td>{{ s.spread_pct|pct }}</td><td>{{ s.bid_size if s.bid_size is not none else '—' }}</td><td>{{ s.open_interest if s.open_interest is not none else '—' }}</td>
