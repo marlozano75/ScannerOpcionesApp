@@ -206,7 +206,8 @@
           <label class="field full">Método
             <select name="trend_method" id="trend_method">
               <option value="low" {{ 'selected' if form.trend_method == 'low' }}>Mínimo (máximo) sin romper</option>
-              <option value="swings" {{ 'selected' if form.trend_method == 'swings' }}>Máximos y mínimos crecientes (decrecientes)</option></select></label>
+              <option value="swings" {{ 'selected' if form.trend_method == 'swings' }}>Máximos y mínimos crecientes (decrecientes)</option>
+              <option value="lows" {{ 'selected' if form.trend_method == 'lows' }}>Solo mínimos crecientes (máximos decrecientes)</option></select></label>
           <label class="field full" id="trend_days_label">Antigüedad mín. del mínimo (máximo)
             <select name="trend_days" id="trend_days">
               {% for d, label in tech_opts.durations %}<option value="{{ d }}" {{ 'selected' if form.trend_days == d|string }}>{{ label }}</option>{% endfor %}</select></label>

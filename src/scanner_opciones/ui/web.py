@@ -475,7 +475,7 @@ def create_app(
                 form["ref_x"] = qp.get("ref_x", form["ref_x"]).strip()   # ausente = valor de la configuración
                 for key, field_name, allowed in (
                     ("trend_dir", "trend_direction", ("off", "up", "down")),
-                    ("trend_method", "trend_method", ("low", "swings")),
+                    ("trend_method", "trend_method", ("low", "swings", "lows")),
                     *((k, k, ("any", "above", "below")) for k in MA_LINES),
                     ("ma_frame", "ma_frame", ("daily", "weekly", "monthly")),
                     *((k, k, ("any", "gte", "lte")) for k in MA_CROSSES),

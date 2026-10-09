@@ -75,8 +75,9 @@ class TechnicalFilter:
         if c.trend_direction != "off":
             up = c.trend_direction == "up"
             window = ta.last_months(series, self.today, c.trend_window_months)
-            if c.trend_method == "swings":
-                ok, why = ta.trend_swings(window, up, price, cfg.trend_pivot_width, cfg.trend_swings_required)
+            if c.trend_method in ("swings", "lows"):
+                ok, why = ta.trend_swings(window, up, price, cfg.trend_pivot_width, cfg.trend_swings_required,
+                                          only_extreme=c.trend_method == "lows")
             else:
                 ok, why = ta.trend_unbroken_extreme(
                     window, up, price, self.today, c.trend_min_days, cfg.trend_min_progress_pct

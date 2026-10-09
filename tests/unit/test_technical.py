@@ -82,6 +82,18 @@ class TestSwings:
         ok, why = ta.trend_swings(series([100 - v for v in self.UP] + [76.0, 99.0]), False, 76.0, 2, 3)
         assert not ok and "roto" in why                                                # espejo: un cierre sobre el último máximo
 
+    def test_only_lows_ignores_the_highs(self):
+        falling_highs = series([16, 16, 20, 16, 16, 10, 16, 16, 19, 16, 16, 11, 16, 16, 18, 16, 16, 12, 16, 16, 17, 16, 16])
+        assert not ta.trend_swings(falling_highs, True, 16.0, 2, 3)[0]                 # máximos 20, 19, 18, 17: bajan
+        assert ta.trend_swings(falling_highs, True, 16.0, 2, 3, only_extreme=True)[0]  # pero los mínimos 10, 11, 12 suben
+        ok, why = ta.trend_swings(series(self.DOWN), True, -21.0, 2, 3, only_extreme=True)
+        assert not ok and "mínimos no crecientes" in why
+
+    def test_only_highs_for_a_downtrend(self):
+        falling = series([100 - v for v in self.UP])
+        assert ta.trend_swings(falling, False, 73.0, 2, 3, only_extreme=True)[0]
+        assert not ta.trend_swings(series(self.UP), False, 27.0, 2, 3, only_extreme=True)[0]
+
 
 class TestSupport:
     def zones(self, values, **kw):

@@ -93,23 +93,28 @@ def trend_unbroken_extreme(
 
 
 def trend_swings(
-    bars: Bars, up: bool, price: float, pivot_width: int, required: int,
+    bars: Bars, up: bool, price: float, pivot_width: int, required: int, only_extreme: bool = False,
 ) -> tuple[bool, str]:
     """Con los cierres diarios de `bars`. Alcista: los últimos `required` máximos y mínimos locales son crecientes
     y **ningún cierre posterior al último mínimo, ni el precio actual, lo ha vuelto a romper**. Bajista: máximos
-    y mínimos decrecientes y ningún cierre posterior al último máximo lo ha superado."""
+    y mínimos decrecientes y ningún cierre posterior al último máximo lo ha superado. Con `only_extreme` solo
+    cuentan los mínimos (alcista) o los máximos (bajista): los otros pivotes no se miran."""
     values = [px for _, px in bars]
     highs, lows = pivots(values, pivot_width)
-    if len(highs) < required or len(lows) < required:
+    needed_highs = 0 if only_extreme and up else required
+    needed_lows = 0 if only_extreme and not up else required
+    if len(highs) < needed_highs or len(lows) < needed_lows or (not highs and not lows):
         return False, "pocos máximos/mínimos para evaluar"
     hv, lv = [values[i] for i in highs[-required:]], [values[i] for i in lows[-required:]]
     if up:
-        ok = all(b > a for a, b in zip(hv, hv[1:])) and all(b > a for a, b in zip(lv, lv[1:]))
+        ok = (only_extreme or all(b > a for a, b in zip(hv, hv[1:]))) and all(b > a for a, b in zip(lv, lv[1:]))
         broken = min(values[lows[-1] + 1:] + [price]) < lv[-1]
     else:
-        ok = all(b < a for a, b in zip(hv, hv[1:])) and all(b < a for a, b in zip(lv, lv[1:]))
+        ok = all(b < a for a, b in zip(hv, hv[1:])) and (only_extreme or all(b < a for a, b in zip(lv, lv[1:])))
         broken = max(values[highs[-1] + 1:] + [price]) > hv[-1]
     if not ok:
+        if only_extreme:
+            return False, "mínimos no crecientes" if up else "máximos no decrecientes"
         return False, "máximos y mínimos " + ("no crecientes" if up else "no decrecientes")
     if broken:
         return False, "se ha roto el último " + ("mínimo" if up else "máximo")
