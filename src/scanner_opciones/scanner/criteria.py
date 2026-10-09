@@ -62,7 +62,6 @@ class ScanCriteria:
     # calidad de la empresa (ver scanner/quality.py); los valores por defecto no filtran nada
     require_profitable: bool = False              # EPS de los últimos 12 meses > 0 (sin dato = se descarta)
     min_positive_quarters: Optional[int] = None   # trimestres con beneficios exigidos de los últimos 4
-    min_market_cap_m: Optional[float] = None      # capitalización mínima, en millones de dólares
     min_option_liquidity: Optional[int] = None    # liquidez de las opciones (1-5) mínima
     avoid_earnings: bool = False                  # descarta los vencimientos posteriores a la próxima fecha de resultados
     max_liabilities_to_equity: Optional[float] = None   # pasivo/patrimonio máximo (las financieras no se miden)
@@ -81,7 +80,7 @@ class ScanCriteria:
         """¿Hay algún filtro de calidad de la empresa (no cuenta el de resultados, que es por contrato)?"""
         return (
             self.require_profitable or self.min_positive_quarters is not None
-            or self.min_market_cap_m is not None or self.min_option_liquidity is not None
+            or self.min_option_liquidity is not None
             or self.max_liabilities_to_equity is not None or self.require_positive_fcf
             or any(getattr(self, field) is not None for field, *_ in SOLVENCY_RULES)
         )
@@ -90,7 +89,7 @@ class ScanCriteria:
     def quality_active(self) -> bool:
         return (
             self.require_profitable or self.avoid_earnings or self.min_positive_quarters is not None
-            or self.min_market_cap_m is not None or self.min_option_liquidity is not None
+            or self.min_option_liquidity is not None
             or self.max_liabilities_to_equity is not None or self.require_positive_fcf
             or any(getattr(self, field) is not None for field, *_ in SOLVENCY_RULES)
         )

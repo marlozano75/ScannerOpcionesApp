@@ -33,7 +33,7 @@ def test_profitability_needs_positive_eps(eps, ok):
 
 
 def test_unknown_ticker_fails_the_filters_that_need_data():
-    for kw in ({"require_profitable": True}, {"min_positive_quarters": 3}, {"min_market_cap_m": 1000.0},
+    for kw in ({"require_profitable": True}, {"min_positive_quarters": 3},
                {"min_option_liquidity": 2}):
         assert quality_reject(None, EXPIRY, BASE.with_filters(**kw), TODAY) is not None
 
@@ -45,11 +45,9 @@ def test_consistency_counts_positive_quarters():
     assert quality_reject(info(positive_quarters=None), EXPIRY, crit, TODAY) is not None
 
 
-def test_market_cap_is_in_millions_and_liquidity_is_a_rating():
-    crit = BASE.with_filters(min_market_cap_m=2000.0, min_option_liquidity=3)
-    good = info(market_cap=5e9, option_liquidity=3)
-    assert quality_reject(good, EXPIRY, crit, TODAY) is None
-    assert "capitalización" in quality_reject(info(market_cap=1.9e9, option_liquidity=4), EXPIRY, crit, TODAY)
+def test_liquidity_is_a_rating_and_market_cap_does_not_filter():
+    crit = BASE.with_filters(min_option_liquidity=3)
+    assert quality_reject(info(market_cap=1e8, option_liquidity=3), EXPIRY, crit, TODAY) is None   # una empresa pequeña pasa
     assert "liquidez" in quality_reject(info(market_cap=5e9, option_liquidity=2), EXPIRY, crit, TODAY)
 
 

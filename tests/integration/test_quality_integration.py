@@ -146,10 +146,9 @@ async def test_scanner_applies_the_quality_filters():
     assert strikes(svc) == [75.0, 80.0]
     assert strikes(svc, require_profitable=True) == []
     assert strikes(svc, min_positive_quarters=3) == []
-    assert strikes(svc, min_market_cap_m=2000.0) == []
     good = TickerInfo("AAPL", eps_ttm=5.0, positive_quarters=4, reported_quarters=4, market_cap=9e9, option_liquidity=3)
     svc.quality.save([good])
-    assert strikes(svc, require_profitable=True, min_positive_quarters=3, min_market_cap_m=2000.0,
+    assert strikes(svc, require_profitable=True, min_positive_quarters=3,
                    min_option_liquidity=3) == [75.0, 80.0]
 
 
@@ -175,9 +174,8 @@ async def test_scanner_form_reads_the_quality_fields():
         assert "Ningún contrato" not in page
         assert "Ningún contrato" in client.get(base + "&q_profit=on").text           # EPS negativo
         assert "Ningún contrato" in client.get(base + "&q_quarters=3").text
-        assert "Ningún contrato" in client.get(base + "&q_mcap=2000").text
+        assert 'name="q_mcap"' not in page and "Ningún contrato" not in client.get(base + "&q_mcap=2000").text   # ya no filtra
         assert "no permitida" in client.get(base + "&q_quarters=1").text              # fuera de las opciones configuradas
-        assert "no permitida" in client.get(base + "&q_mcap=123").text
         checked = client.get(base + "&q_profit=on&q_earn=on&q_liq=3").text
         assert 'name="q_profit" id="q_profit" checked' in checked and 'name="q_earn" id="q_earn" checked' in checked
 

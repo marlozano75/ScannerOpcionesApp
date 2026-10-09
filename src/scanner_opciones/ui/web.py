@@ -50,11 +50,6 @@ def _num(v: Optional[float], digits: int = 2) -> str:
     return "—" if v is None else f"{v:.{digits}f}"
 
 
-def _mcap_label(m: float) -> str:
-    """Capitalización mínima en millones de dólares, legible: 2000 -> «2 B$» (miles de millones)."""
-    return f"{m / 1000:g} B$" if m >= 1000 else f"{m:g} M$"
-
-
 def _days_label(days: int) -> str:
     """7 -> «1 semana», 30 -> «1 mes», 365 -> «1 año»; otros valores, «N días»."""
     for size, one, many in ((365, "año", "años"), (30, "mes", "meses"), (7, "semana", "semanas")):
@@ -67,7 +62,6 @@ def _days_label(days: int) -> str:
 # Filtros de calidad de la empresa: (campo del formulario, campo del criterio, tipo, lista de opciones, etiqueta)
 QUALITY_SELECTS = (
     ("q_quarters", "min_positive_quarters", int, "positive_quarters_options", "Trimestres con beneficios"),
-    ("q_mcap", "min_market_cap_m", float, "market_cap_options_m", "Capitalización mínima"),
     ("q_liq", "min_option_liquidity", int, "liquidity_options", "Liquidez de opciones"),
     ("q_lev", "max_liabilities_to_equity", float, "leverage_options", "Apalancamiento máximo"),
 )
@@ -112,7 +106,6 @@ def quality_form(base) -> dict:
     return {
         "q_profit": base.require_profitable, "q_earn": base.avoid_earnings, "q_fcf": base.require_positive_fcf,
         "q_quarters": "" if base.min_positive_quarters is None else str(base.min_positive_quarters),
-        "q_mcap": "" if base.min_market_cap_m is None else _fmt(base.min_market_cap_m),
         "q_liq": "" if base.min_option_liquidity is None else str(base.min_option_liquidity),
         "q_lev": "" if base.max_liabilities_to_equity is None else _fmt(base.max_liabilities_to_equity),
         **{key: "" for key, *_ in SOLVENCY_UI},
@@ -335,7 +328,6 @@ def create_app(
                       with_quality=with_quality, quality_active=criteria.ticker_quality_active,
                       quality_opts=dict(
                           quarters=qcfg.positive_quarters_options,
-                          mcaps=[(_fmt(m), _mcap_label(m)) for m in qcfg.market_cap_options_m],
                           liquidity=qcfg.liquidity_options, leverage=[_fmt(v) for v in qcfg.leverage_options],
                           edgar=bool(service.settings.edgar.contact.strip())),
                       solvency=solvency_controls(qcfg, qform), levels=list(qcfg.level_labels.items()),
@@ -577,7 +569,6 @@ def create_app(
                           touches=[(d, _days_label(d)) for d in service.settings.scanner.technical.touch_min_days_options]),
                       quality_opts=dict(
                           quarters=service.settings.scanner.quality.positive_quarters_options,
-                          mcaps=[(_fmt(m), _mcap_label(m)) for m in service.settings.scanner.quality.market_cap_options_m],
                           liquidity=service.settings.scanner.quality.liquidity_options,
                           leverage=[_fmt(v) for v in service.settings.scanner.quality.leverage_options],
                           edgar=bool(service.settings.edgar.contact.strip())),

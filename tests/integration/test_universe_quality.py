@@ -83,9 +83,10 @@ def test_every_selected_row_is_visible_and_checked(client_and_service):
     assert all("checked" in row for row in page.split("<tr>") if 'name="sel"' in row)
 
 
-def test_size_and_quarters_filters(client_and_service):
+def test_quarters_filter_and_market_cap_is_only_a_column(client_and_service):
     client, svc = setup(client_and_service)
-    assert shown(client.get("/universe?submitted=1&q_mcap=2000").text) == {"DK", "KO", "ADBE", "AIG", "ACN", "ALL"}   # GCT 1,2 B$ y PAYS caen
+    page = client.get("/universe?submitted=1&q_mcap=2000").text
+    assert 'name="q_mcap"' not in page and shown(page) == ALL_TICKERS     # la capitalización ya no filtra (un q_mcap se ignora)
     assert shown(client.get("/universe?submitted=1&q_quarters=4").text) == {"KO", "ADBE", "ACN", "ALL"}
 
 
@@ -110,9 +111,8 @@ def test_leverage_and_cash_flow_filters_exempt_financial_companies(client_and_se
 
 def test_filters_combine_and_can_leave_nothing(client_and_service):
     client, svc = setup(client_and_service)
-    page = client.get("/universe?submitted=1&q_profit=on&q_quarters=4&q_mcap=2000&q_lev=2&q_fcf=on").text
+    page = client.get("/universe?submitted=1&q_profit=on&q_quarters=4&q_lev=2&q_fcf=on").text
     assert shown(page) == {"ADBE", "ACN", "ALL"}
-    assert shown(client.get("/universe?submitted=1&q_mcap=50000&q_lev=1").text) == {"ACN", "ALL"}   # ≥ 50 B$ y pasivo/patrimonio ≤ 1 (ALL: financiera)
 
 
 def test_if_no_quality_data_has_been_downloaded_the_filters_leave_nothing(client_and_service):
@@ -132,7 +132,7 @@ def test_without_filters_nothing_is_dropped_even_with_missing_data(client_and_se
 
 def test_invalid_filter_values_are_rejected_and_nothing_is_filtered(client_and_service):
     client, svc = setup(client_and_service)
-    for bad in ("q_mcap=123", "q_quarters=1", "q_lev=7", "q_quarters=abc"):
+    for bad in ("q_quarters=1", "q_lev=7", "q_quarters=abc"):
         page = client.get(f"/universe?submitted=1&q_profit=on&{bad}").text
         assert "Parámetro no válido" in page and shown(page) == ALL_TICKERS
 

@@ -204,8 +204,7 @@ class SolvencyThresholds(_Model):
 
 
 class QualitySettings(_Model):
-    """Filtros de calidad de la empresa del scanner (beneficios, trimestres, tamaño, liquidez, resultados)."""
-    market_cap_options_m: list[float] = [500, 1000, 2000, 5000, 10000, 50000]   # capitalización mínima ofrecida (M$)
+    """Filtros de calidad de la empresa del scanner (beneficios, trimestres, liquidez, resultados)."""
     liquidity_options: list[int] = [2, 3, 4]               # liquidez mínima de las opciones (1-5, de tastytrade)
     positive_quarters_options: list[int] = [2, 3, 4]       # trimestres con beneficios exigidos de los últimos 4
     leverage_options: list[float] = [1, 2, 3, 5]           # pasivo/patrimonio máximo ofrecido (no aplica a las financieras)

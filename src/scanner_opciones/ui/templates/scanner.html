@@ -141,12 +141,8 @@
       <p class="note">EPS de 12 meses mayor que 0 (si tastytrade no lo da, la suma de los 4 últimos trimestres). Exigir 3 de 4 evita que un único trimestre con pérdidas extraordinarias descarte una empresa sana.</p>
     </div>
     <div class="panel tech">
-      <h3><span class="n">9</span>Tamaño y liquidez</h3>
+      <h3><span class="n">9</span>Liquidez</h3>
       <div class="filters">
-        <label>Capitalización mínima
-          <select name="q_mcap" id="q_mcap">
-            <option value="" {{ 'selected' if form.q_mcap == '' }}>Cualquiera</option>
-            {% for v, label in quality_opts.mcaps %}<option value="{{ v }}" {{ 'selected' if form.q_mcap == v }}>{{ label }}</option>{% endfor %}</select></label>
         <label>Liquidez de las opciones (1-5)
           <select name="q_liq" id="q_liq">
             <option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>

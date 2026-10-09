@@ -58,9 +58,6 @@
     <label>Trimestres con beneficios
       <select name="q_quarters"><option value="">Cualquiera</option>
         {% for n in quality_opts.quarters %}<option value="{{ n }}" {{ 'selected' if qform.q_quarters == n|string }}>{{ n }} de 4 o más</option>{% endfor %}</select></label>
-    <label>Capitalización mínima
-      <select name="q_mcap"><option value="">Cualquiera</option>
-        {% for v, label in quality_opts.mcaps %}<option value="{{ v }}" {{ 'selected' if qform.q_mcap == v }}>{{ label }}</option>{% endfor %}</select></label>
     <label>Pasivo / patrimonio máx.
       <select name="q_lev"><option value="">Cualquiera</option>
         {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if qform.q_lev == v }}>{{ v }}</option>{% endfor %}</select></label>
