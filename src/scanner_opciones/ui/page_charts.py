@@ -1,10 +1,7 @@
-"""Gráficos de resumen de la Watchlist y del Universo."""
+"""Gráficos de resumen de la Watchlist."""
 from __future__ import annotations
 
 from statistics import median
-from typing import Iterable, Optional
-
-from markupsafe import Markup
 
 from scanner_opciones.ui import viz
 
@@ -35,22 +32,3 @@ def watchlist_overview(tickers: list[str], infos: dict) -> dict:
         "ex_div_soon": soon,
     }
 
-
-def universe_overview(rows: Iterable, ident: dict, in_watchlist: set, qinfos: dict) -> dict:
-    """Sectores de la vista actual y cuántos están ya en la watchlist / tienen datos de calidad."""
-    tickers = [r.ticker for r in rows]
-    n = len(tickers)
-    sectors: dict[str, int] = {}
-    for t in tickers:
-        sectors[(ident.get(t, ("", ""))[1] or NO_SECTOR)] = sectors.get((ident.get(t, ("", ""))[1] or NO_SECTOR), 0) + 1
-    quality = sum(1 for t in tickers if t in qinfos and qinfos[t].financials_at is not None)
-    watch = sum(1 for t in tickers if t in in_watchlist)
-
-    def meter(count: int, label: str) -> Markup:
-        pct = 100 * count / n if n else 0
-        return viz.hbars([(label, pct, f"{count} de {n} acciones")], fmt=lambda v: f"{v:.0f} %", max_value=100.0)
-    return {
-        "sectors": viz.hbars(_sector_rows(sectors), fmt=lambda v: f"{v:.0f}", message="Sin acciones"),
-        "in_watchlist": meter(watch, "En watchlist"), "with_quality": meter(quality, "Con datos de la SEC"),
-        "n": n, "watch": watch, "quality": quality,
-    }

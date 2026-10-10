@@ -382,9 +382,8 @@ def create_app(
                 else describe(current.name, current.criteria)
         identity_cols = {"company", "empresa", "sector"} | set(SYMBOL_HEADERS)   # van delante: no se repiten al final
         skip = {i for i, c in enumerate(table.columns) if _plain(c.name) in identity_cols} if table else set()
-        overview = page_charts.universe_overview(rows, ident, set(service.watchlist.list()), qinfos)
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message,
-                      ident=ident, skip=skip, ov=overview,
+                      ident=ident, skip=skip,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
                       all_count=len(member), manual=[(n, len(t)) for n, t in service.manual_sources.items()],

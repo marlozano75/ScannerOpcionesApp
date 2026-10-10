@@ -37,14 +37,16 @@ def test_every_scanner_filter_section_is_in_the_page_and_explanations_are_notes_
     assert "if (!open) {" in page and "open[d.id] = true" in page                             # primera visita: todo abierto
 
 
-def test_the_watchlist_and_universe_have_overviews(client_and_service):
+def test_the_watchlist_has_an_overview_and_the_universe_a_side_menu_of_sources(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     watch = client.get("/watchlist").text
     assert "Dónde está la volatilidad" in watch and "Tickers por sector" in watch
     load_rank(client)
     uni = client.get("/universe?reset=1").text
-    assert "Acciones por sector" in uni and "Cobertura" in uni and "En watchlist" in uni
+    assert 'class="src-menu"' in uni and 'class="shell uni"' in uni and "Cargar ficheros" in uni and "Añadir tickers" in uni
+    assert "Acciones por sector" not in uni and "Ficheros cargados" not in uni and "Explorar por fuente" not in uni   # fuera lo informativo
+    assert re.search(r'class="src-item active" href="/universe\?reset=1"', uni)              # «Todas» marcada
     assert 'class="help-scope"' in uni
 
 

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Universo{% endblock %}
+{% block body_class %}app-shell{% endblock %}
 {% block content %}
 {% macro metric(v, kind, ex) -%}
   {%- if v is none %}<td class="muted">{{ 'n/a' if ex else '—' }}</td>
@@ -8,53 +9,56 @@
   {%- endif %}
 {%- endmacro %}
 {% if message %}<div class="banner info">{{ message }}</div>{% endif %}
-<div class="section-title">Fuentes <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--mute)">· pulsa «i» en cada bloque para ver cómo funciona</span></div>
-<div class="panels" style="align-items:start">
-  <div class="panel">
-    <h3><span class="n">1</span>Cargar ficheros</h3>
-    <form method="post" action="/universe/load" enctype="multipart/form-data" class="row" id="load-form">
-      <input type="file" name="files" accept=".xlsx,.xlsm,.html,.htm" multiple required onchange="if (this.files.length) this.form.submit()">
-    </form>
-    <p class="note">Elige el .xlsx que descargas de <b>RankedStocks</b> (una hoja: la fuente es «RankedStocks») y de <b>HelloStocks</b>
-      el .xlsx (una pestaña por estrategia) o la página de estrategias guardada desde el navegador (.html, con las listas desplegadas:
-      cada estrategia es una fuente y se avisa de las que no se guardaron). La app solo lee los ficheros que eliges, no se conecta a ninguna web.
-      Una descarga nueva sustituye a la anterior de la misma fuente; los ficheros se conservan al reiniciar.</p>
-  </div>
-  <div class="panel">
-    <h3><span class="n">2</span>Ficheros cargados</h3>
-    {% for name, at, names in files %}
-      <div class="row" style="align-items:center">
-        <div style="flex:1 1 auto"><b>{{ name }}</b> <span class="muted">· {{ at.strftime('%d/%m %H:%M') }} · {{ names|length }} fuente{{ 's' if names|length != 1 }}</span></div>
-      </div>
-    {% else %}<p class="muted" style="margin:0">Aún no hay ningún fichero cargado.</p>{% endfor %}
-    {% for name, n in manual %}
-      <div class="row" style="align-items:center">
-        <div style="flex:1 1 auto"><b>{{ name }}</b> <span class="muted">· lista propia · {{ n }} ticker{{ 'es' if n != 1 }}</span></div>
-      </div>
-    {% endfor %}
-    <p class="note" style="margin:8px 0 0">Para quitar tickers (o toda una fuente), elige la fuente abajo.</p>
-  </div>
-  <div class="panel">
-    <h3><span class="n">3</span>Añadir tickers</h3>
-    <form method="post" action="/universe/manual">
-      <input type="text" name="source" list="manual-sources" maxlength="40" placeholder="Nombre de la fuente (obligatorio)" required>
-      <datalist id="manual-sources">{% for name, n in manual %}<option value="{{ name }}">{% endfor %}</datalist>
-      <textarea name="text" rows="2" style="min-height:56px" placeholder="AAPL, MSFT, KO ... (separados por comas o espacios)" required></textarea>
-      <p><button>Añadir a la fuente</button></p>
-    </form>
-    <p class="note">Escribe un nombre nuevo para crear una fuente o uno existente para ampliarla. Se añaden los que tengan opciones y aún no estén en esa fuente; las fuentes propias se conservan al reiniciar.</p>
-  </div>
-</div>
+<style>
+  .shell.uni { grid-template-columns:300px minmax(0,1fr); }
+  .uni-main { min-height:0; overflow-y:auto; padding-right:4px; }
+  .side-tools { padding:12px 0 6px; }
+  .filebtn { display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:7px 14px; border-radius:8px; background:var(--accent); color:#fff; font-weight:600; font-size:13px; }
+  .filebtn:hover { filter:brightness(1.15); }
+  .side .fx-body input[type=text], .side .fx-body textarea { width:100%; }
+  .src-menu { display:flex; flex-direction:column; gap:2px; padding:10px 0 18px; }
+  .src-item { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; color:var(--ink); text-decoration:none; font-size:13px; }
+  .src-item:hover { background:var(--card); }
+  .src-item.active { background:var(--accent); color:#fff; }
+  .src-item b { flex:none; width:18px; font-size:11px; opacity:.65; text-align:right; }
+  .src-item .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .src-item small { flex:none; opacity:.7; font-variant-numeric:tabular-nums; }
+  #rk-apply .scroll { max-height:calc(100vh - 300px); overflow:auto; }
+  #rk-apply table.sortable tr:first-child th { position:sticky; top:0; z-index:2; background:var(--panel); box-shadow:inset 0 -1px 0 var(--line-strong); }
+  @media (max-width: 900px) { #rk-apply .scroll { max-height:75vh; } }
+</style>
+<div class="shell uni">
+  <aside class="side">
+    <div class="side-head"><h2>Fuentes</h2><span class="count">{{ sources|length }}</span></div>
+    <div class="side-scroll" id="uni-side" data-keep-scroll>
+      <form method="post" action="/universe/load" enctype="multipart/form-data" class="side-tools" id="load-form">
+        <label class="filebtn" title="Archivos .xlsx o .html de RankedStocks y HelloStocks">Cargar ficheros
+          <input type="file" name="files" accept=".xlsx,.xlsm,.html,.htm" multiple required hidden onchange="if (this.files.length) this.form.submit()"></label>
+      </form>
+      <details class="fx" id="sec-add">
+        <summary><span class="fx-dot"></span><span class="fx-title">Añadir tickers</span></summary>
+        <div class="fx-body">
+          <form method="post" action="/universe/manual" style="display:flex;flex-direction:column;gap:8px">
+            <input type="text" name="source" list="manual-sources" maxlength="40" placeholder="Nombre de la fuente" required>
+            <datalist id="manual-sources">{% for name, n in manual %}<option value="{{ name }}">{% endfor %}</datalist>
+            <textarea name="text" rows="2" style="min-height:56px" placeholder="AAPL, MSFT, KO …" required></textarea>
+            <div><button>Añadir a la fuente</button></div>
+          </form>
+        </div>
+      </details>
+      <nav class="src-menu" aria-label="Fuentes">
+        <a class="src-item {{ 'active' if not src }}" href="/universe?reset=1"><b></b><span class="nm">Todas</span><small>{{ all_count }}</small></a>
+        {% for s in sources %}<a class="src-item {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}" title="{{ s.name }}"><b>{{ numbers[s.name] }}</b><span class="nm">{{ s.name }}</span><small>{{ s.table.rows|length }}</small></a>{% endfor %}
+      </nav>
+    </div>
+  </aside>
+  <section class="uni-main" id="uni-main" data-keep-scroll>
+{% if not table %}<p class="muted" style="margin-top:18px">Aún no hay fuentes: carga un fichero (.xlsx o .html) o añade tickers a mano con el menú de la izquierda.</p>{% endif %}
 {% if table %}
-<div class="section-title">Explorar por fuente</div>
-<div class="chips" style="margin-bottom:14px">
-  <a class="chip {{ 'active' if not src }}" href="/universe?reset=1">Todas<small>{{ all_count }}</small></a>
-  {% for s in sources %}<a class="chip {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}"><b>{{ numbers[s.name] }}</b> · {{ s.name }}<small>{{ s.table.rows|length }}</small></a>{% endfor %}
-</div>
 {% if source_info %}
-<div class="card source-info" style="margin-bottom:14px">
-  <h2 style="margin-top:0">{{ source_info.title }}</h2>
-  <p style="margin:4px 0"><b>{{ source_info.summary }}</b></p>
+<details class="card source-info" id="source-info" style="margin-bottom:14px" open>
+  <summary style="cursor:pointer;font-size:16px;font-weight:700">{{ source_info.title }} <span class="muted" style="font-size:13px;font-weight:400">· cómo selecciona esta fuente</span></summary>
+  <p style="margin:8px 0 4px"><b>{{ source_info.summary }}</b></p>
   {% if source_info.criteria %}
   <div class="scroll" style="max-width:420px;margin-top:6px"><table>
     <tr><th>Métrica</th><th>Condición (todas deben cumplirse)</th></tr>
@@ -62,7 +66,14 @@
   </table></div>
   {% endif %}
   {% if source_info.details %}<ul style="margin:6px 0 0;padding-left:18px">{% for d in source_info.details %}<li class="muted">{{ d }}</li>{% endfor %}</ul>{% endif %}
-</div>
+</details>
+<script>
+  (function () {   // recuerda si se plegó la tarjeta de la fuente
+    var d = document.getElementById('source-info');
+    try { if (sessionStorage.getItem('uni-info') === '0') d.open = false; } catch (e) { /* sin almacenamiento */ }
+    d.addEventListener('toggle', function () { try { sessionStorage.setItem('uni-info', d.open ? '1' : '0'); } catch (e) { /* idem */ } });
+  })();
+</script>
 {% endif %}
 {% if not edgar %}<div class="banner info"><b>Falta <code>edgar.contact</code> en config.yaml</b>: sin él no hay datos de pasivo/patrimonio ni de flujo de caja.</div>{% endif %}
 <div class="help-scope" style="margin:0 0 14px;min-height:24px;padding-right:32px">
@@ -71,21 +82,6 @@
     Datos de calidad disponibles para <b>{{ with_quality }}</b> de {{ rows|length }} acciones mostradas.</p>
   <span class="muted" style="font-size:13px">Columnas de calidad solo informativas · filtros en el Scanner</span>
 </div>
-{% if ov and ov.n %}
-<div class="vgrid" style="margin-bottom:14px">
-  <div class="vcard">
-    <p class="vt">Acciones por sector</p>
-    <p class="vs">{{ ov.n }} acciones en esta vista.</p>
-    {{ ov.sectors }}
-  </div>
-  <div class="vcard">
-    <p class="vt">Cobertura</p>
-    <p class="vs">Qué parte de esta vista tiene ya cada cosa.</p>
-    {{ ov.in_watchlist }}{{ ov.with_quality }}
-    <p class="vs" style="margin:8px 0 0">Los datos de la SEC alimentan los filtros de calidad del Scanner; las que no los tienen se descartan en esos filtros.</p>
-  </div>
-</div>
-{% endif %}
 <form method="post" action="/universe/apply" class="card" id="rk-apply">
   <h2>{{ rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
   {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
@@ -140,6 +136,8 @@
     {% else %}<tr><td colspan="{{ table.columns|length - skip|length + 24 }}" class="muted">Sin filas.</td></tr>{% endfor %}
   </table></div>
 </form>
+  </section>
+</div>
 <script>
   function confirmReplace() {
     return confirm('Se quitarán de la watchlist, con sus contratos y cotizaciones, los tickers que no estén en la selección. ¿Sustituir la watchlist?');
