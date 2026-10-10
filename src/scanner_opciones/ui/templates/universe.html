@@ -25,23 +25,24 @@
     {% for name, at, names in files %}
       <div class="row" style="align-items:center">
         <div style="flex:1 1 auto"><b>{{ name }}</b> <span class="muted">· {{ at.strftime('%d/%m %H:%M') }} · {{ names|length }} fuente{{ 's' if names|length != 1 }}</span></div>
-        <form class="inline" method="post" action="/universe/remove"><input type="hidden" name="file" value="{{ name }}"><button class="secondary">Quitar</button></form>
       </div>
     {% else %}<p class="muted" style="margin:0">Aún no hay ningún fichero cargado.</p>{% endfor %}
-    {% if manual_count %}
+    {% for name, n in manual %}
       <div class="row" style="align-items:center">
-        <div style="flex:1 1 auto"><b>Manual</b> <span class="muted">· {{ manual_count }} ticker{{ 'es' if manual_count != 1 }}</span></div>
-        <form class="inline" method="post" action="/universe/manual/clear" onsubmit="return confirm('¿Vaciar la fuente Manual?')"><button class="secondary">Vaciar</button></form>
+        <div style="flex:1 1 auto"><b>{{ name }}</b> <span class="muted">· lista propia · {{ n }} ticker{{ 'es' if n != 1 }}</span></div>
       </div>
-    {% endif %}
+    {% endfor %}
+    <p class="note" style="margin:8px 0 0">Para quitar tickers (o toda una fuente), elige la fuente abajo.</p>
   </div>
   <div class="panel">
     <h3><span class="n">3</span>Añadir tickers</h3>
     <form method="post" action="/universe/manual">
+      <input type="text" name="source" list="manual-sources" maxlength="40" placeholder="Nombre de la fuente (obligatorio)" required>
+      <datalist id="manual-sources">{% for name, n in manual %}<option value="{{ name }}">{% endfor %}</datalist>
       <textarea name="text" rows="2" placeholder="AAPL, MSFT, KO ... (separados por comas o espacios)" required></textarea>
-      <p><button>Añadir a la fuente Manual</button></p>
+      <p><button>Añadir a la fuente</button></p>
     </form>
-    <p class="note">Se añaden solo los que no estén ya en otra fuente y tengan opciones; la fuente <b>Manual</b> se conserva al reiniciar.</p>
+    <p class="note">Escribe un nombre nuevo para crear una fuente o uno existente para ampliarla. Se añaden los que tengan opciones y aún no estén en esa fuente; las fuentes propias se conservan al reiniciar.</p>
   </div>
 </div>
 {% if table %}
@@ -50,6 +51,13 @@
   <a class="chip {{ 'active' if not src }}" href="/universe?reset=1">Todas<small>{{ all_count }}</small></a>
   {% for s in sources %}<a class="chip {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}"><b>{{ numbers[s.name] }}</b> · {{ s.name }}<small>{{ s.table.rows|length }}</small></a>{% endfor %}
 </div>
+{% if source_info %}
+<div class="card source-info" style="margin-bottom:14px">
+  <h2 style="margin-top:0">{{ source_info.title }}</h2>
+  <p style="margin:4px 0"><b>{{ source_info.summary }}</b></p>
+  {% if source_info.details %}<ul style="margin:6px 0 0;padding-left:18px">{% for d in source_info.details %}<li class="muted">{{ d }}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% endif %}
 <div class="section-title">Filtros de calidad <span style="letter-spacing:.04em;text-transform:none;font-weight:400">(antes de añadir a la watchlist · datos de tastytrade y de la SEC; el que no tiene dato se descarta)</span></div>
 <form method="get" action="/universe" id="quality-form" class="card" style="margin-bottom:14px">
   <input type="hidden" name="submitted" value="1"><input type="hidden" name="src" value="{{ '' if src == 'all' else src }}">
@@ -94,12 +102,24 @@
 <form method="post" action="/universe/apply" class="card" id="rk-apply">
   <h2>{{ rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas
     {% if quality_active %}· {{ excluded }} descartadas por calidad (de {{ total_rows }}){% endif %}</span></h2>
+  {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
   <p>
     <button name="mode" value="add">Añadir selección a la watchlist</button>
     <button name="mode" value="replace" class="secondary" onclick="return confirmReplace()"
             title="Quita de la watchlist (con sus contratos) los tickers que no estén en la selección">Sustituir watchlist con la selección</button>
     <span class="muted">Las filas marcadas son las visibles tras el filtro; desmarca las que no quieras.</span>
   </p>
+  {% if src %}
+  <p>
+    <button class="secondary" type="submit" formaction="/universe/source/remove" name="scope" value="selected" data-removing
+            onclick="return confirm('Se quitarán de la fuente «{{ src }}» los tickers marcados (los que pasan el filtro). ¿Continuar?')"
+            title="Quita de esta fuente solo los tickers marcados; no toca la watchlist">Quitar los marcados de esta fuente</button>
+    <button class="secondary" type="submit" formaction="/universe/source/remove" name="scope" value="all" data-removing
+            onclick="return confirm('Se quitarán TODOS los tickers de la fuente «{{ src }}», y la fuente desaparecerá. ¿Continuar?')"
+            title="Quita todos los tickers de esta fuente; no toca la watchlist">Quitar toda la fuente</button>
+    <span class="muted">Un fichero nuevo de esta fuente la restaura entera.</span>
+  </p>
+  {% endif %}
   <div class="banner info" id="rk-working" hidden>⏳ Aplicando la selección a la watchlist…</div>
   <div class="scroll"><table class="sortable" id="universe-table">
     <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th><th>Fuentes (nº)</th>
@@ -131,7 +151,8 @@
   function confirmReplace() {
     return confirm('Se quitarán de la watchlist, con sus contratos y cotizaciones, los tickers que no estén en la selección. ¿Sustituir la watchlist?');
   }
-  document.getElementById('rk-apply').addEventListener('submit', function () {
+  document.getElementById('rk-apply').addEventListener('submit', function (e) {
+    if (e.submitter && e.submitter.hasAttribute('data-removing')) return;      // quitar de la fuente no toca la watchlist
     // aviso inmediato; los botones se desactivan después de enviar (desactivarlos antes quitaría «mode» del envío)
     document.getElementById('rk-working').hidden = false;
     setTimeout(function () { document.querySelectorAll('#rk-apply button').forEach(function (b) { b.disabled = true; }); }, 0);

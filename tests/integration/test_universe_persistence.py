@@ -26,7 +26,7 @@ def test_a_service_with_an_in_memory_database_never_writes_universe_files(tmp_pa
     sources, content = sources_of(tmp_path)
     assert svc._universe_dir() is None
     svc.set_universe_file(HELLO_NAME, sources, content)
-    svc.remove_universe_file(HELLO_NAME)
+    svc.remove_source(sources[0].name)
     assert not (tmp_path / "data").exists() and not any(p.name == "universe" for p in tmp_path.rglob("*"))
 
 

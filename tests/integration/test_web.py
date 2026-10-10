@@ -405,21 +405,69 @@ def test_all_view_has_one_row_per_ticker_with_every_source(client_and_service):
 
 
 
-def test_manual_source_adds_only_new_tickers_persists_and_reports_the_known_ones(tmp_path):
+def test_manual_source_needs_a_name_persists_and_reports_the_ones_already_in_it(tmp_path):
     svc, app = _start(tmp_path)
     with TestClient(app) as client:
         load_rank(client)                                                               # KO ya está en RankedStocks
-        r = client.post("/universe/manual", data={"text": "ko, nvda amd 123"}, follow_redirects=True)
-        assert "Añadidos a Manual: NVDA, AMD" in r.text and "Ya incluidos: KO (RankedStocks)" in r.text
-        assert "Rechazados: 123" in r.text
-        assert [s.name for s in svc.universe_sources][-1] == "Manual"
-        again = client.post("/universe/manual", data={"text": "NVDA"}, follow_redirects=True)
-        assert "Ya incluidos: NVDA (Manual)" in again.text and svc.manual_tickers == ["NVDA", "AMD"]
-        assert "Manual" in client.get("/universe").text
-    assert _start(tmp_path)[0].manual_tickers == ["NVDA", "AMD"]                        # sobrevive al reinicio
+        r = client.post("/universe/manual", data={"text": "ko, nvda amd 123", "source": "Mis ideas"}, follow_redirects=True)
+        assert "Añadidos a Mis ideas: KO, NVDA, AMD" in r.text and "Rechazados: 123" in r.text   # KO se añade: es otra fuente
+        assert [s.name for s in svc.universe_sources][-1] == "Mis ideas"
+        again = client.post("/universe/manual", data={"text": "NVDA", "source": "mis  IDEAS"}, follow_redirects=True)
+        assert "Ya incluidos: NVDA (Mis ideas)" in again.text and svc.manual_sources == {"Mis ideas": ["KO", "NVDA", "AMD"]}
+        assert "Mis ideas" in client.get("/universe").text
+        nameless = client.post("/universe/manual", data={"text": "TSLA", "source": "  "}, follow_redirects=True)
+        assert "Pon un nombre a la fuente" in nameless.text and "TSLA" not in svc.manual_sources["Mis ideas"]
+        clash = client.post("/universe/manual", data={"text": "TSLA", "source": "rankedstocks"}, follow_redirects=True)
+        assert "ya es una fuente de un fichero" in clash.text
+    assert _start(tmp_path)[0].manual_sources == {"Mis ideas": ["KO", "NVDA", "AMD"]}   # sobrevive al reinicio
+
+
+def test_the_old_single_manual_list_is_migrated_to_a_source_called_manual(tmp_path):
+    svc, _ = _start(tmp_path)
+    svc.meta.set("universe_manual", '["NVDA", "AMD"]')
+    assert svc._load_manual() == {"Manual": ["NVDA", "AMD"]}
+
+
+def test_tickers_can_be_removed_from_a_manual_source_and_the_source_disappears_when_empty(tmp_path):
+    svc, app = _start(tmp_path)
     with TestClient(app) as client:
-        client.post("/universe/manual/clear")
-    assert svc.manual_tickers == []
+        client.post("/universe/manual", data={"text": "NVDA AMD KO", "source": "Mis ideas"})
+        r = client.post("/universe/source/remove", data={"src": "Mis ideas", "scope": "selected", "sel": ["NVDA", "KO"]},
+                        follow_redirects=True)
+        assert "Quitados 2 tickers de Mis ideas" in r.text and svc.manual_sources == {"Mis ideas": ["AMD"]}
+        gone = client.post("/universe/source/remove", data={"src": "Mis ideas", "scope": "all"}, follow_redirects=True)
+        assert "Quitados 1 ticker de Mis ideas" in gone.text and svc.manual_sources == {}
+        unknown = client.post("/universe/source/remove", data={"src": "Nada", "scope": "all"}, follow_redirects=True)
+        assert "no existe" in unknown.text
+
+
+def test_tickers_removed_from_a_file_source_stay_out_after_a_restart_until_a_new_file_replaces_it(tmp_path):
+    svc, app = _start(tmp_path)
+    with TestClient(app) as client:
+        load_hello(client)
+        before = {r.ticker for s in svc.universe_sources if s.name == LOWER for r in s.table.rows}
+        assert "KO" in before
+        client.post("/universe/source/remove", data={"src": LOWER, "scope": "selected", "sel": ["KO"]})
+        assert "KO" not in {r.ticker for s in svc.universe_sources if s.name == LOWER for r in s.table.rows}
+        assert "KO" in {r.ticker for s in svc.universe_sources if s.name == DEFENSIVE for r in s.table.rows}   # solo de esa fuente
+    svc2, app2 = _start(tmp_path)                                                       # reinicio
+    assert "KO" not in {r.ticker for s in svc2.universe_sources if s.name == LOWER for r in s.table.rows}
+    with TestClient(app2) as client:
+        client.post("/universe/source/remove", data={"src": LOWER, "scope": "all"})
+        assert LOWER not in [s.name for s in svc2.universe_sources]
+        load_hello(client)                                                              # un fichero nuevo la restaura entera
+        assert {r.ticker for s in svc2.universe_sources if s.name == LOWER for r in s.table.rows} == before
+
+
+def test_a_selected_source_explains_its_criteria_and_there_is_no_file_removal(client_and_service):
+    client, svc, gw, _ = client_and_service
+    load_rank(client)
+    load_hello(client)
+    page = client.get(f"/universe?src={LOWER}").text
+    assert "Finanzas sólidas, buen crecimiento y precio bajo" in page and "Quitar toda la fuente" in page
+    assert "RS Score" in client.get("/universe?src=RankedStocks").text
+    todas = client.get("/universe?reset=1").text                                     # «Todas»: sin botones de quitar
+    assert 'action="/universe/remove"' not in todas and "Quitar toda la fuente" not in todas
 
 
 def test_apply_add_keeps_existing_and_adds_the_selection(client_and_service):
@@ -461,8 +509,9 @@ def test_a_newer_file_of_the_same_source_replaces_the_old_one_and_files_can_be_r
                         follow_redirects=True)
     assert list(svc.universe_files) == [HELLO_NAME, "RankedStocks_2026.10.04.xlsx"]    # el de 10.01 ya no está
     assert "2 acciones" in client.get("/universe?src=RankedStocks").text and newer.status_code == 200
-    r = client.post("/universe/remove", data={"file": HELLO_NAME}, follow_redirects=True)
-    assert "quitado del universo" in r.text and [s.name for s in svc.universe_sources] == ["RankedStocks"]
+    for name in [s.name for s in svc.universe_sources if s.name != "RankedStocks"]:
+        client.post("/universe/source/remove", data={"src": name, "scope": "all"})
+    assert [s.name for s in svc.universe_sources] == ["RankedStocks"]
     assert "<th>Fuentes</th>" in client.get("/universe?src=desconocida").text          # fuente desconocida: vista «Todas»
 
 
@@ -587,8 +636,7 @@ def test_universe_files_survive_a_restart(tmp_path):
     assert svc2.universe_files[RANK_NAME][0] == NOW
     with TestClient(app2) as client:
         assert "universe-table" in client.get("/universe").text
-        client.post("/universe/remove", data={"file": RANK_NAME})
-    assert not (tmp_path / "universe" / RANK_NAME).exists()
+        client.post("/universe/source/remove", data={"src": "RankedStocks", "scope": "all"})
     assert [s.name for s in _start(tmp_path)[0].universe_sources] == [LOWER, DEFENSIVE, VALUE]
 
 

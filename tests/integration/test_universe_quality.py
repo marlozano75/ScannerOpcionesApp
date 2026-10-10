@@ -162,7 +162,7 @@ def test_quality_scope_is_the_watchlist_plus_the_whole_universe(client_and_servi
     load_hello(client)
     scope = set(svc.quality_scope())
     assert {"KO", "ADBE", "AIG", "ACN", "ALL"} <= scope and "AAPL" in scope      # AAPL: watchlist; el resto: Universo
-    svc.manual_tickers.append("ZZZZ")
+    svc.manual_sources["Mis listas"] = ["ZZZZ"]
     assert "ZZZZ" in svc.quality_scope()
 
 

@@ -22,6 +22,7 @@ from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
+from scanner_opciones.universe.descriptions import describe, describe_manual
 from scanner_opciones.universe.hellostocks_html import HTML_SUFFIXES, missing_strategies
 from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
@@ -327,11 +328,16 @@ def create_app(
                 kept.append(row)
         excluded, rows = total_rows - len(kept), kept
         with_quality = sum(1 for r in rows if r.ticker in qinfos)
-        files = [(name, at, [s.name for s in srcs]) for name, (at, srcs) in service.universe_files.items()]
+        active = {s.name for s in sources}
+        files = [(name, at, [s.name for s in srcs if s.name in active]) for name, (at, srcs) in service.universe_files.items()]
+        info = None
+        if current is not None:
+            info = describe_manual(current.name) if current.name in service.manual_sources else                 describe(current.name, tuple(c.name for c in current.table.columns))
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
-                      all_count=len(member), manual_count=len(service.manual_tickers), in_watchlist=set(service.watchlist.list()),
+                      all_count=len(member), manual=[(n, len(t)) for n, t in service.manual_sources.items()],
+                      source_info=info, in_watchlist=set(service.watchlist.list()),
                       qform=qform, qerror=qerror, qinfos=qinfos, excluded=excluded, total_rows=total_rows,
                       with_quality=with_quality, quality_active=criteria.ticker_quality_active,
                       quality_opts=dict(
@@ -388,14 +394,17 @@ def create_app(
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
 
     @app.post("/universe/manual")
-    async def universe_manual(text: str = Form("")):
-        """Añade tickers escritos a mano a la fuente «Manual» (solo los que no están ya en otra fuente)."""
+    async def universe_manual(text: str = Form(""), source: str = Form("")):
+        """Añade tickers escritos a mano a una fuente con nombre (se crea si no existe)."""
         parsed = parse_text(text)
-        log.info("Universo: tickers manuales recibidos: %s", parsed.tickers)
-        res = await service.add_manual_tickers(parsed)
+        log.info("Universo: tickers manuales recibidos para «%s»: %s", source, parsed.tickers)
+        try:
+            res = await service.add_manual_tickers(parsed, source)
+        except WatchlistError as exc:
+            return RedirectResponse(f"/universe?{urlencode({'message': f'Error: {exc}'})}", status_code=303)
         parts = []
         if res["added"]:
-            parts.append(f"Añadidos a Manual: {', '.join(res['added'])}")
+            parts.append(f"Añadidos a {res['source']}: {', '.join(res['added'])}")
         if res["already"]:
             parts.append("Ya incluidos: " + ", ".join(f"{t} ({' · '.join(n)})" for t, n in res["already"].items()))
         if res["no_options"]:
@@ -408,17 +417,20 @@ def create_app(
         remembered.pop("universe", None)
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
 
-    @app.post("/universe/manual/clear")
-    async def universe_manual_clear():
-        n = service.clear_manual()
+    @app.post("/universe/source/remove")
+    async def universe_source_remove(request: Request):
+        """Quita de una fuente los tickers marcados (`scope=selected`) o todos (`scope=all`)."""
+        form = await request.form()
+        source, scope = str(form.get("src", "")), str(form.get("scope", "selected"))
+        try:
+            n = service.remove_source(source) if scope == "all" else                 service.remove_source_tickers(source, [str(t) for t in form.getlist("sel")])
+        except WatchlistError as exc:
+            return RedirectResponse(f"/universe?{urlencode({'message': f'Error: {exc}'})}", status_code=303)
         remembered.pop("universe", None)
-        return RedirectResponse(f"/universe?{urlencode({'message': f'Fuente Manual vaciada ({n} tickers)'})}", status_code=303)
-
-    @app.post("/universe/remove")
-    async def universe_remove(file: str = Form(...)):
-        service.remove_universe_file(file)
-        remembered.pop("universe", None)
-        return RedirectResponse(f"/universe?{urlencode({'message': f'{file} quitado del universo'})}", status_code=303)
+        msg = f"Quitados {n} ticker{'s' if n != 1 else ''} de {source}"
+        still = any(s.name == source for s in service.universe_sources)
+        query = {"message": msg, **({"src": source} if still else {})}
+        return RedirectResponse(f"/universe?{urlencode(query)}", status_code=303)
 
     @app.post("/universe/apply")
     async def universe_apply(request: Request):
