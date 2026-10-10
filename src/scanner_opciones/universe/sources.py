@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from scanner_opciones.domain.errors import WatchlistError
+from scanner_opciones.universe.hellostocks_html import HTML_SUFFIXES, load_html_sheets
 from scanner_opciones.rankedstocks.loader import (
     SYMBOL_HEADERS, TEXT, RankedTable, _cell_text, _plain, build_table, clean_header, clean_ticker,
 )
@@ -62,13 +63,7 @@ def sheet_to_source(file: str, sheet: str, rows: list[list[object]], ranked_name
     return Source(name, file, build_table(name, _with_source(name, rows, symbol)))
 
 
-def load_sources(path: str | Path, file: str | None = None) -> list[Source]:
-    """Todas las hojas del .xlsx como fuentes (las hojas sin datos útiles se ignoran, salvo que ninguna sirva)."""
-    p = Path(path)
-    if not p.is_file():
-        raise WatchlistError(f"No existe el archivo: {p}")
-    if p.suffix.lower() not in {".xlsx", ".xlsm"}:
-        raise WatchlistError(f"Formato no soportado: {p.suffix or '(sin extensión)'} (el universo debe ser un .xlsx)")
+def _excel_sheets(p: Path, file: str | None) -> list[tuple[str, list[list[object]]]]:
     try:
         from openpyxl import load_workbook
 
@@ -76,9 +71,24 @@ def load_sources(path: str | Path, file: str | None = None) -> list[Source]:
     except Exception as exc:  # openpyxl lanza tipos variados con archivos corruptos
         raise WatchlistError(f"No se pudo abrir el Excel {file or p.name}: {exc}") from exc
     try:
-        sheets = [(ws.title, [list(r) for r in ws.iter_rows(values_only=True)]) for ws in wb.worksheets]
+        return [(ws.title, [list(r) for r in ws.iter_rows(values_only=True)]) for ws in wb.worksheets]
     finally:
         wb.close()
+
+
+def load_sources(path: str | Path, file: str | None = None) -> list[Source]:
+    """Todas las hojas del .xlsx (o todas las estrategias del .html de HelloStocks) como fuentes; las que no
+    tienen datos útiles se ignoran, salvo que ninguna sirva."""
+    p = Path(path)
+    if not p.is_file():
+        raise WatchlistError(f"No existe el archivo: {p}")
+    suffix = p.suffix.lower()
+    if suffix in HTML_SUFFIXES:                    # página de HelloStocks guardada desde el navegador
+        sheets = load_html_sheets(p)
+    elif suffix in {".xlsx", ".xlsm"}:
+        sheets = _excel_sheets(p, file)
+    else:
+        raise WatchlistError(f"Formato no soportado: {p.suffix or '(sin extensión)'} (el universo debe ser un .xlsx o un .html de HelloStocks)")
     sources: list[Source] = []
     errors: list[str] = []
     for title, rows in sheets:

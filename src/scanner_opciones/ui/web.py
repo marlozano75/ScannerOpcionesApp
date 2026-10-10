@@ -22,6 +22,7 @@ from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
+from scanner_opciones.universe.hellostocks_html import HTML_SUFFIXES, missing_strategies
 from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
@@ -342,7 +343,7 @@ def create_app(
 
     @app.post("/universe/load")
     async def universe_load(files: list[UploadFile]):
-        done, errors, notes = [], [], ""
+        done, errors, notes = [], [], []
         log.info("Universo: petición de carga con %d fichero(s): %s", len(files), [f.filename for f in files])
         for upload in files:
             name = Path(upload.filename or "").name
@@ -356,6 +357,8 @@ def create_app(
                 path = Path(tmp.name)
             try:
                 sources = load_sources(path, name)
+                if path.suffix.lower() in HTML_SUFFIXES:        # página de HelloStocks: avisa de listas sin descargar
+                    notes += [f"{name}: {w}" for w in missing_strategies(path)]
                 sources, removed, checked = await service.prune_without_options(sources)
             except WatchlistError as exc:
                 log.warning("Universo: %s no se pudo cargar: %s", name, exc)
@@ -375,11 +378,11 @@ def create_app(
             done.append(f"{name} ({len(sources)} fuente{'s' if len(sources) != 1 else ''}, {sum(len(s.table.rows) for s in sources)} filas)"
                         + (f", {removed} tickers sin opciones descartados" if removed else ""))
             if not checked:
-                notes = "Aviso: no se pudo comprobar qué tickers tienen opciones; se han cargado todos"
+                notes.append("no se pudo comprobar qué tickers tienen opciones; se han cargado todos")
         remembered.pop("universe", None)   # otras columnas: los filtros anteriores no valen
         msg = "Cargado: " + ", ".join(done) if done else ""
         if notes:
-            msg += (" · " if msg else "") + notes
+            msg += (" · " if msg else "") + "Aviso: " + "; ".join(dict.fromkeys(notes))
         if errors:
             msg += (" · " if msg else "") + "Error: " + "; ".join(errors)
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)

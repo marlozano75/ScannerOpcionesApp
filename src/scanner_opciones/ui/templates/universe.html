@@ -13,10 +13,11 @@
   <div class="panel">
     <h3><span class="n">1</span>Cargar ficheros</h3>
     <form method="post" action="/universe/load" enctype="multipart/form-data" class="row" id="load-form">
-      <input type="file" name="files" accept=".xlsx" multiple required onchange="if (this.files.length) this.form.submit()">
+      <input type="file" name="files" accept=".xlsx,.xlsm,.html,.htm" multiple required onchange="if (this.files.length) this.form.submit()">
     </form>
-    <p class="note">Elige los .xlsx que descargas de <b>RankedStocks</b> (una hoja: la fuente es «RankedStocks») y de <b>HelloStocks</b>
-      (una pestaña por estrategia: la fuente es el nombre de cada pestaña). La app solo lee los ficheros que eliges, no se conecta a ninguna web.
+    <p class="note">Elige el .xlsx que descargas de <b>RankedStocks</b> (una hoja: la fuente es «RankedStocks») y de <b>HelloStocks</b>
+      el .xlsx (una pestaña por estrategia) o la página de estrategias guardada desde el navegador (.html, con las listas desplegadas:
+      cada estrategia es una fuente y se avisa de las que no se guardaron). La app solo lee los ficheros que eliges, no se conecta a ninguna web.
       Una descarga nueva sustituye a la anterior de la misma fuente; los ficheros se conservan al reiniciar.</p>
   </div>
   <div class="panel">
