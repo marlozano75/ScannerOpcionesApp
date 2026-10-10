@@ -84,6 +84,8 @@ SOLVENCY_UI = (
     ("q_capex", "max_capex_to_ocf", "capex_to_ocf", "CapEx / flujo operativo", "≤", "%"),
     ("q_fcfa", "min_fcf_to_assets", "fcf_to_assets", "FCF / activos", "≥", "%"),
     ("q_bb", "min_net_buyback_pct", "net_buyback_pct", "Recompra neta de acciones", "≥", "pct"),
+    ("q_roic", "min_roic", "roic", "ROIC", "≥", "%"),
+    ("q_loss", "max_loss_years", "loss_years", "Años con pérdidas (últimos 10)", "≤", ""),
 )
 SOLVENCY_CORE = ("q_de", "q_cov", "q_cash", "q_ocfd")   # el bloque «Solvencia»; los otros tres son indicadores opcionales
 

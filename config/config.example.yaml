@@ -36,6 +36,8 @@ scanner:
       capex_to_ocf:       {flexible: 0.60, standard: 0.35, strict: 0.20}   # inversión / flujo operativo, máximo
       fcf_to_assets:      {flexible: 0.04, standard: 0.08, strict: 0.12}   # flujo de caja libre / activos, mínimo
       net_buyback_pct:    {flexible: 0.0,  standard: 1.0,  strict: 2.0}    # reducción del nº de acciones (%), mínimo
+      roic:               {flexible: 0.08, standard: 0.12, strict: 0.20}   # ROIC = resultado operativo tras impuestos / (deuda + patrimonio), mínimo (SUPOSICIÓN: el vídeo no da umbral)
+      loss_years:         {flexible: 2,    standard: 1,    strict: 0}      # años con pérdidas de los últimos 10 años fiscales, máximo
     level_labels: {flexible: Flexible, standard: Estándar, strict: Estricto}
     manageable_debt:                 # «deuda baja o manejable»: pasa con deuda/patrimonio ≤ max O cobertura de intereses ≥ min
       max_debt_to_equity: 0.5

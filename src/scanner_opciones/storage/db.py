@@ -142,7 +142,13 @@ MIGRATIONS: list[str] = [
     ALTER TABLE ticker_quality ADD COLUMN net_buyback_pct REAL;
     UPDATE ticker_quality SET financials_at = NULL;
     """,
-
+    # v17: ROIC y estabilidad de los beneficios (años con pérdidas de los últimos 10 años fiscales). Se vuelve a consultar EDGAR.
+    """
+    ALTER TABLE ticker_quality ADD COLUMN roic REAL;
+    ALTER TABLE ticker_quality ADD COLUMN loss_years INTEGER;
+    ALTER TABLE ticker_quality ADD COLUMN fiscal_years INTEGER;
+    UPDATE ticker_quality SET financials_at = NULL;
+    """,
 ]
 
 

@@ -166,8 +166,27 @@ def test_migration_v16_adds_the_columns_and_forces_a_new_edgar_pass(tmp_path):
     raw.close()
     db = Database(path)
     row = db.conn.execute("SELECT * FROM ticker_quality WHERE ticker = 'AAPL'").fetchone()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 16
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 17
     assert row["eps_ttm"] == 8.7 and row["fcf_ttm"] == 1e9                  # no se pierde nada
     assert row["financials_at"] is None and row["debt_to_equity"] is None   # EDGAR se vuelve a consultar
     assert {"debt_to_equity", "interest_coverage", "cash_to_short_debt", "ocf_to_debt", "capex_to_ocf", "fcf_to_assets",
             "net_buyback_pct"} <= set(row.keys())
+
+
+# ---- migración v17: ROIC y años con pérdidas ------------------------------------------------------------------
+def test_migration_v17_adds_roic_and_loss_years_and_forces_a_new_edgar_pass(tmp_path):
+    from scanner_opciones.storage.db import MIGRATIONS, Database
+    path = tmp_path / "v16.db"
+    raw = sqlite3.connect(path)
+    for version, script in enumerate(MIGRATIONS[:16], start=1):
+        raw.executescript(script)
+        raw.execute(f"PRAGMA user_version = {version}")
+    raw.execute("INSERT INTO ticker_quality (ticker, eps_ttm, financials_at, debt_to_equity) VALUES ('AAPL', 8.7, '2026-10-01T10:00:00', 1.5)")
+    raw.commit()
+    raw.close()
+    db = Database(path)
+    row = db.conn.execute("SELECT * FROM ticker_quality WHERE ticker = 'AAPL'").fetchone()
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 17
+    assert row["eps_ttm"] == 8.7 and row["debt_to_equity"] == 1.5           # no se pierde nada
+    assert row["financials_at"] is None                                     # EDGAR se vuelve a consultar
+    assert {"roic", "loss_years", "fiscal_years"} <= set(row.keys()) and row["roic"] is None

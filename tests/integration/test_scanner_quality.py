@@ -139,3 +139,60 @@ def test_the_scanner_page_has_the_lazy_impact_panel(client_and_service):
     refresh(client)
     page = client.get(BASE).text
     assert 'id="impact-box"' in page and 'data-url="/scanner/impact"' in page
+
+
+# ---- ROIC y años con pérdidas ---------------------------------------------------------------------------------
+def test_roic_and_loss_years_rules_use_the_configured_levels():
+    t = Settings().scanner.quality.thresholds
+    assert (t.roic["flexible"], t.roic["standard"], t.roic["strict"]) == (0.08, 0.12, 0.20)
+    assert (t.loss_years["flexible"], t.loss_years["standard"], t.loss_years["strict"]) == (2, 1, 0)
+    good = TickerInfo("A", roic=0.25, loss_years=0, fiscal_years=10)
+    middling = TickerInfo("B", roic=0.10, loss_years=1, fiscal_years=10)
+    assert reject(good, min_roic=t.roic["strict"], max_loss_years=0) is None
+    assert "ROIC inferior" in reject(middling, min_roic=t.roic["standard"])
+    assert reject(middling, min_roic=t.roic["flexible"], max_loss_years=1) is None
+    assert "años con pérdidas" in reject(middling, max_loss_years=0)
+
+
+def test_missing_roic_or_short_history_counts_as_not_meeting_but_exempt_sectors_pass():
+    assert reject(TickerInfo("A"), min_roic=0.1) is not None                       # sin dato
+    assert reject(TickerInfo("A", loss_years=None, fiscal_years=4), max_loss_years=2) is not None    # menos de 5 años de historia
+    bank = TickerInfo("JPM", sector="Financial Services")
+    assert reject(bank, min_roic=0.2, max_loss_years=0) is None                    # exenta: no se mide
+
+
+def test_the_scanner_form_offers_roic_and_loss_years_with_their_thresholds(client_and_service):
+    client, svc, gw, _ = client_and_service
+    page = client.get("/scanner?reset=1").text
+    assert 'name="q_roic"' in page and 'name="q_loss"' in page
+    assert "Estándar (≥ 12 %)" in page and "Estricto (≥ 20 %)" in page and "Flexible (≤ 2)" in page and "Estricto (≤ 0)" in page
+
+
+def test_roic_and_loss_years_filter_the_scan_and_show_in_the_chips(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    svc.quality.save([TickerInfo("AAPL", eps_ttm=5.0, roic=0.10, loss_years=0, fiscal_years=10)])
+    assert "ROIC: Estricto" in client.get(BASE + "&q_roic=strict").text
+    shown = lambda q: {v.split("|")[0] for v in re.findall(r'name="sel" value="([^"]*)"', client.get(BASE + q).text)}   # noqa: E731
+    assert "AAPL" in shown("&q_roic=flexible") and "AAPL" not in shown("&q_roic=standard")  # 10 % ≥ 8 % pero < 12 %
+    assert "AAPL" in shown("&q_loss=strict")                                                # ningún año con pérdidas
+
+
+def test_the_universe_shows_the_new_columns(client_and_service):
+    client, svc, gw, _ = client_and_service
+    from tests.integration.test_web import load_rank
+    load_rank(client)
+    svc.quality.save([TickerInfo("KO", roic=0.16, loss_years=2, fiscal_years=10)])
+    page = client.get("/universe").text
+    assert "<th>ROIC</th>" in page and "<th>Años con pérdidas</th>" in page
+    ko = [row for row in page.split("<tr>") if 'value="KO"' in row][0]
+    assert "16%" in ko and "2/10" in ko and 'title="Años fiscales con pérdidas de los últimos 10"' in ko
+
+
+def test_quality_repo_round_trips_the_new_fields():
+    from scanner_opciones.storage.db import Database
+    from scanner_opciones.storage.repositories import QualityRepo
+    repo = QualityRepo(Database(":memory:"))
+    repo.save([TickerInfo("KO", roic=0.16, loss_years=2, fiscal_years=10)])
+    got = repo.get("KO")
+    assert (got.roic, got.loss_years, got.fiscal_years) == (0.16, 2, 10)

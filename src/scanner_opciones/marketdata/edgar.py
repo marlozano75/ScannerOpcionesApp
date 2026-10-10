@@ -42,6 +42,12 @@ TAXONOMIES = {
         other_debt=("ConvertibleNotesPayable", "ConvertibleNotesPayableNoncurrent", "ConvertibleDebtNoncurrent", "ConvertibleDebt",
                     "SeniorNotes", "NotesPayable", "LongTermNotesPayable", "SecuredDebt", "UnsecuredDebt", "LineOfCredit"),
         op_income=("OperatingIncomeLoss",),
+        # ROIC: tasa efectiva = impuestos / beneficio antes de impuestos; beneficios de cada año fiscal (años con pérdidas)
+        tax=("IncomeTaxExpenseBenefit",),
+        pretax=("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic"),
+        net_income=("NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"),
         interest=("InterestExpense", "InterestExpenseNonoperating", "InterestExpenseDebt", "InterestAndDebtExpense"),
     ),
     "ifrs-full": dict(
@@ -49,6 +55,7 @@ TAXONOMIES = {
         liabilities=("Liabilities",), liabilities_and_equity=("EquityAndLiabilities",),
         ocf=("CashFlowsFromUsedInOperatingActivities", "CashFlowsFromUsedInOperatingActivitiesContinuingOperations"),
         capex=("PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "PurchaseOfPropertyPlantAndEquipment"),
+        net_income=("ProfitLoss",),
     ),
 }
 
@@ -170,6 +177,43 @@ def _debt(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabiliti
     return debt, current
 
 
+TAX_FALLBACK = 0.21        # tasa federal de EE. UU. cuando la efectiva no se puede calcular o es absurda (negativa, > 40 %)
+PROFIT_YEARS = 10          # años fiscales que se miran para contar años con pérdidas
+MIN_PROFIT_YEARS = 5       # con menos historia no se juzga la estabilidad (sin dato)
+
+
+def _roic(tree: dict, tags: dict, fresh: str, equity: Optional[float], debt: Optional[float]) -> Optional[float]:
+    """ROIC = resultado operativo después de impuestos (12 meses) / capital invertido (deuda financiera + patrimonio).
+    El capital incluye el efectivo, como en la definición del analista («dinero que se pone en el negocio: caja, deuda,
+    maquinaria…»). Sin capital positivo o sin resultado operativo, None. Las pérdidas operativas no generan escudo fiscal."""
+    op = _flow_value(tree, tags.get("op_income", ()), fresh)
+    if op is None or debt is None or equity is None or debt + equity <= 0:
+        return None
+    tax, pretax = _flow_value(tree, tags.get("tax", ()), fresh), _flow_value(tree, tags.get("pretax", ()), fresh)
+    rate = TAX_FALLBACK
+    if tax is not None and pretax is not None and pretax > 0 and 0 <= tax / pretax <= 0.40:
+        rate = tax / pretax
+    return (op * (1.0 - rate) if op > 0 else op) / (debt + equity)
+
+
+def _fiscal_profit(tree: dict, tags: dict, fresh: str) -> tuple[Optional[int], Optional[int]]:
+    """(años con pérdidas, años evaluados) entre los últimos `PROFIT_YEARS` años fiscales (10-K/20-F). Sin al menos
+    `MIN_PROFIT_YEARS` años de historia, o sin un año fiscal reciente, los años con pérdidas son None."""
+    net: dict[str, float] = {}
+    for tag in tags.get("net_income", ()):
+        best: dict[str, dict] = {}
+        for f in tree.get(tag, {}).get("units", {}).get("USD", []):
+            if "start" in f and 350 <= _days(f["start"], f["end"]) <= 380 and f.get("form", "") in ANNUAL_FORMS:
+                if f["end"] not in best or f.get("filed", "") > best[f["end"]].get("filed", ""):
+                    best[f["end"]] = f
+        for end, f in best.items():       # la primera etiqueta que dé el año manda: otras rellenan los años que le faltan
+            net.setdefault(end, f["val"])
+    ends = sorted(net)[-PROFIT_YEARS:]
+    if not ends or ends[-1] < fresh:
+        return None, None
+    return (sum(1 for e in ends if net[e] < 0) if len(ends) >= MIN_PROFIT_YEARS else None), len(ends)
+
+
 def _net_buyback_pct(tree: dict, fresh: str) -> Optional[float]:
     """Reducción (en %) del nº de acciones diluidas medias entre los dos últimos años fiscales (10-K)."""
     facts = tree.get("WeightedAverageNumberOfDilutedSharesOutstanding", {}).get("units", {}).get("shares", [])
@@ -219,7 +263,8 @@ def _solvency(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabi
               ocf: Optional[float], capex: Optional[float], fcf: Optional[float]) -> dict[str, Optional[float]]:
     """Cociente de solvencia y de calidad del flujo de caja. NO_LIMIT = sin deuda / sin intereses / sin deuda corriente."""
     out: dict[str, Optional[float]] = dict.fromkeys(
-        ("debt_to_equity", "interest_coverage", "cash_to_short_debt", "ocf_to_debt", "capex_to_ocf", "fcf_to_assets", "net_buyback_pct"))
+        ("debt_to_equity", "interest_coverage", "cash_to_short_debt", "ocf_to_debt", "capex_to_ocf", "fcf_to_assets", "net_buyback_pct",
+         "roic", "loss_years", "fiscal_years"))
     debt, current = _debt(tree, tags, fresh, equity, liabilities)
     if debt is not None and equity is not None and equity > 0:
         out["debt_to_equity"] = debt / equity
@@ -239,6 +284,8 @@ def _solvency(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabi
     if fcf is not None and assets is not None and assets > 0:
         out["fcf_to_assets"] = fcf / assets
     out["net_buyback_pct"] = _net_buyback_pct(tree, fresh)
+    out["roic"] = _roic(tree, tags, fresh, equity, debt)
+    out["loss_years"], out["fiscal_years"] = _fiscal_profit(tree, tags, fresh)
     return out
 
 

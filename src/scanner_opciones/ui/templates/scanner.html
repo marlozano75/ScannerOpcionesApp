@@ -466,7 +466,7 @@
   // Combinaciones de calidad: rellenan los filtros de solvencia y escanean («Ninguno» los quita)
   document.querySelectorAll('button.qpreset').forEach(function (b) {
     b.addEventListener('click', function () {
-      ['q_de', 'q_cov', 'q_cash', 'q_ocfd', 'q_capex', 'q_fcfa', 'q_bb'].forEach(function (n) { document.getElementById(n).value = ''; });
+      ['q_de', 'q_cov', 'q_cash', 'q_ocfd', 'q_capex', 'q_fcfa', 'q_bb', 'q_roic', 'q_loss'].forEach(function (n) { document.getElementById(n).value = ''; });
       const levels = JSON.parse(b.dataset.levels);
       Object.keys(levels).forEach(function (n) { document.getElementById(n).value = levels[n]; });
       document.getElementById('q_manage').checked = b.dataset.manage === '1';

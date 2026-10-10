@@ -91,7 +91,7 @@
   <div class="banner info" id="rk-working" hidden>⏳ Aplicando la selección a la watchlist…</div>
   <div class="scroll"><table class="sortable" id="universe-table">
     <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th><th>Fuentes (nº)</th><th>Ticker</th><th>Empresa</th><th>Sector</th>
-      <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th><th>Deuda/Patr.</th><th>Cobertura int.</th><th>Efectivo/Deuda CP</th><th>Flujo op./Deuda</th><th>CapEx/Flujo op.</th><th>FCF/Activos</th><th>Recompra neta</th>
+      <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th><th>Deuda/Patr.</th><th>Cobertura int.</th><th>Efectivo/Deuda CP</th><th>Flujo op./Deuda</th><th>CapEx/Flujo op.</th><th>FCF/Activos</th><th>Recompra neta</th><th>ROIC</th><th>Años con pérdidas</th>
       {% for col in table.columns %}{% if loop.index0 not in skip %}<th>{{ col.name }}</th>{% endif %}{% endfor %}</tr>
     {% for row in rows %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ row.ticker }}" checked></td>
@@ -109,12 +109,14 @@
         <td{% if q and q.fcf_ttm is not none %} data-sort="{{ q.fcf_ttm }}"{% if q.fcf_ttm <= 0 %} style="color:#b3361b"{% endif %}{% endif %}>{{ (q.fcf_ttm / 1e6)|money if q and q.fcf_ttm is not none else '—' }}</td>
         {%- set ex = row.ticker in exempt_tickers %}
         {{ metric(q.debt_to_equity if q else none, 'n', ex) }}{{ metric(q.interest_coverage if q else none, 'x', ex) }}{{ metric(q.cash_to_short_debt if q else none, 'x', ex) }}
-        {{ metric(q.ocf_to_debt if q else none, 'f', ex) }}{{ metric(q.capex_to_ocf if q else none, 'f', ex) }}{{ metric(q.fcf_to_assets if q else none, 'f', ex) }}{{ metric(q.net_buyback_pct if q else none, 'p', ex) }}
+        {{ metric(q.ocf_to_debt if q else none, 'f', ex) }}{{ metric(q.capex_to_ocf if q else none, 'f', ex) }}{{ metric(q.fcf_to_assets if q else none, 'f', ex) }}{{ metric(q.net_buyback_pct if q else none, 'p', ex) }}{{ metric(q.roic if q else none, 'f', ex) }}
+        {%- if q and q.loss_years is not none %}<td data-sort="{{ q.loss_years }}"{% if q.loss_years > 1 %} style="color:#b3361b"{% endif %} title="Años fiscales con pérdidas de los últimos {{ q.fiscal_years }}">{{ q.loss_years }}/{{ q.fiscal_years }}</td>
+        {%- else %}<td class="muted">{{ 'n/a' if ex else '—' }}</td>{% endif %}
         {% for cell in row.cells %}{% if loop.index0 not in skip %}
           {% if cell.value is not none %}<td data-sort="{{ cell.value }}">{{ cell.text }}</td>
           {% else %}<td>{{ cell.text }}</td>{% endif %}
         {% endif %}{% endfor %}</tr>
-    {% else %}<tr><td colspan="{{ table.columns|length - skip|length + 20 }}" class="muted">Sin filas.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="{{ table.columns|length - skip|length + 22 }}" class="muted">Sin filas.</td></tr>{% endfor %}
   </table></div>
 </form>
 <script>

@@ -257,7 +257,8 @@ class DailyUpdater:
                     ocf_to_debt=fin.ocf_to_debt,
                     capex_to_ocf=fin.capex_to_ocf,
                     fcf_to_assets=fin.fcf_to_assets,
-                    net_buyback_pct=fin.net_buyback_pct))
+                    net_buyback_pct=fin.net_buyback_pct,
+                    roic=fin.roic, loss_years=fin.loss_years, fiscal_years=fin.fiscal_years))
             done += self.quality.save(updated)
         log.info("Balance y flujo de caja (SEC EDGAR): %d de %d fichas actualizadas en %.1f s", done, len(stale),
                  time.monotonic() - started)

@@ -40,6 +40,9 @@ class TickerInfo:
     capex_to_ocf: Optional[float] = None        # inversión en inmovilizado / flujo de caja operativo
     fcf_to_assets: Optional[float] = None       # flujo de caja libre / activos totales
     net_buyback_pct: Optional[float] = None     # reducción del nº de acciones diluidas en el último año fiscal, en %
+    roic: Optional[float] = None                # ROIC: resultado operativo tras impuestos / (deuda financiera + patrimonio)
+    loss_years: Optional[int] = None            # años fiscales con pérdidas de los últimos 10 (None con menos de 5 de historia)
+    fiscal_years: Optional[int] = None          # años fiscales evaluados (hasta 10)
 
 
 @dataclass(frozen=True)

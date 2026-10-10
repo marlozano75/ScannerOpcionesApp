@@ -86,3 +86,70 @@ def test_net_buyback_is_the_drop_in_diluted_shares_between_the_last_two_fiscal_y
 def test_stale_balance_gives_no_ratios():
     old = {k: [dict(f, end="2019-06-30", **({"start": "2018-07-01"} if "start" in f else {})) for f in v] for k, v in BASE.items()}
     assert parse_company_facts(gaap(**old), TODAY) is None
+
+
+# ---- ROIC: resultado operativo tras impuestos / (deuda financiera + patrimonio) -----------------------------
+TAX = [flow("2025-01-01", "2025-12-31", 180.0), flow("2026-01-01", "2026-06-30", 100.0, "10-Q"), flow("2025-01-01", "2025-06-30", 60.0, "10-Q")]       # 220
+PRETAX = [flow("2025-01-01", "2025-12-31", 900.0), flow("2026-01-01", "2026-06-30", 500.0, "10-Q"), flow("2025-01-01", "2025-06-30", 300.0, "10-Q")]    # 1100
+PRETAX_TAG = "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"
+
+
+def test_roic_uses_the_effective_tax_rate_and_debt_plus_equity_as_invested_capital():
+    f = parse(LongTermDebt=[inst("2026-06-30", 200.0)], OperatingIncomeLoss=OP, IncomeTaxExpenseBenefit=TAX, **{PRETAX_TAG: PRETAX})
+    # operativo 1100 × (1 − 220/1100 = 20 %) = 880 sobre capital 200 + 400
+    assert f.roic == pytest.approx(880 / 600)
+
+
+def test_roic_falls_back_to_the_statutory_rate_when_the_effective_one_is_absurd():
+    f = parse(LongTermDebt=[inst("2026-06-30", 200.0)], OperatingIncomeLoss=OP)               # sin impuestos: 21 %
+    assert f.roic == pytest.approx(1100 * 0.79 / 600)
+    negative_tax = [flow("2025-01-01", "2025-12-31", -50.0)]
+    f = parse(LongTermDebt=[inst("2026-06-30", 200.0)], OperatingIncomeLoss=OP, IncomeTaxExpenseBenefit=negative_tax,
+              **{PRETAX_TAG: [flow("2025-01-01", "2025-12-31", 1000.0)]})
+    assert f.roic == pytest.approx(1100 * 0.79 / 600)                                         # tasa negativa: se descarta
+
+
+def test_roic_without_debt_tags_on_a_credible_balance_is_operating_profit_over_equity():
+    f = parse(Liabilities=[inst("2026-06-30", 400.0)], OperatingIncomeLoss=OP)               # sin deuda creíble
+    assert f.roic == pytest.approx(1100 * 0.79 / 400)
+
+
+def test_operating_losses_give_a_negative_roic_without_a_tax_shield():
+    f = parse(LongTermDebt=[inst("2026-06-30", 200.0)], OperatingIncomeLoss=[flow("2025-01-01", "2025-12-31", -300.0)])
+    assert f.roic == pytest.approx(-300 / 600)
+
+
+def test_roic_needs_operating_income_and_positive_capital():
+    assert parse(LongTermDebt=[inst("2026-06-30", 200.0)]).roic is None                       # sin resultado operativo
+    f = parse(StockholdersEquity=[inst("2026-06-30", -300.0)], LongTermDebt=[inst("2026-06-30", 200.0)], OperatingIncomeLoss=OP)
+    assert f.roic is None                                                                     # capital invertido ≤ 0
+
+
+# ---- estabilidad de los beneficios: años con pérdidas de los últimos 10 años fiscales ------------------------
+def annual(profits, last_year=2025, tag="NetIncomeLoss"):
+    """Beneficio neto anual (10-K) de los años que terminan en `last_year`, `last_year − 1`…, del más reciente al más antiguo."""
+    return {tag: [flow(f"{last_year - i}-01-01", f"{last_year - i}-12-31", v) for i, v in enumerate(profits)]}
+
+
+def test_loss_years_counts_the_fiscal_years_with_losses_among_the_last_ten():
+    f = parse(**annual([50, 40, -5, 30, 20, 10, 9, -2, 8, 7, -100, -100]))                    # 12 años: solo cuentan los 10 últimos
+    assert (f.loss_years, f.fiscal_years) == (2, 10)
+
+
+def test_a_company_with_losses_every_year_in_a_short_history_is_still_judged_after_five_years():
+    assert parse(**annual([5, 4, 3, 2])).loss_years is None and parse(**annual([5, 4, 3, 2])).fiscal_years == 4    # <5 años: sin dato
+    f = parse(**annual([5, -4, 3, 2, 1]))
+    assert (f.loss_years, f.fiscal_years) == (1, 5)
+
+
+def test_loss_years_ignores_quarters_duplicates_and_stale_histories():
+    quarters = [flow("2025-10-01", "2025-12-31", -999.0, "10-Q")]                              # un trimestre no es un año fiscal
+    rows = annual([10, 9, 8, 7, 6])["NetIncomeLoss"] + quarters + [flow("2025-01-01", "2025-12-31", -1.0, "10-K/A", filed="2026-03-01")]
+    f = parse(NetIncomeLoss=rows)
+    assert (f.loss_years, f.fiscal_years) == (1, 5)                                           # la enmienda más reciente manda
+    assert parse(**annual([1, 2, 3, 4, 5, 6], last_year=2022)).loss_years is None             # último año fiscal de hace años
+
+
+def test_loss_years_fills_missing_years_from_the_alternative_tag():
+    f = parse(NetIncomeLoss=annual([5, 4])["NetIncomeLoss"], ProfitLoss=[flow(f"{2025 - i}-01-01", f"{2025 - i}-12-31", -1.0) for i in range(2, 7)])
+    assert (f.loss_years, f.fiscal_years) == (5, 7)                                           # 2 años de NetIncomeLoss + 5 de ProfitLoss

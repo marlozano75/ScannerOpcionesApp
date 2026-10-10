@@ -43,6 +43,8 @@ SOLVENCY_RULES = (
     ("max_capex_to_ocf", "capex_to_ocf", "max", "capex / flujo operativo"),
     ("min_fcf_to_assets", "fcf_to_assets", "min", "FCF / activos"),
     ("min_net_buyback_pct", "net_buyback_pct", "min", "recompra neta de acciones"),
+    ("min_roic", "roic", "min", "ROIC"),
+    ("max_loss_years", "loss_years", "max", "años con pérdidas (últimos 10)"),
 )
 
 
@@ -98,6 +100,8 @@ class ScanCriteria:
     max_capex_to_ocf: Optional[float] = None      # inversión en inmovilizado / flujo operativo (fracción)
     min_fcf_to_assets: Optional[float] = None     # flujo de caja libre / activos (fracción)
     min_net_buyback_pct: Optional[float] = None   # reducción del nº de acciones en el último año (%)
+    min_roic: Optional[float] = None              # ROIC: resultado operativo tras impuestos / (deuda + patrimonio) (fracción)
+    max_loss_years: Optional[int] = None          # años con pérdidas máximos de los últimos 10 años fiscales
     # «deuda baja o manejable»: pasa con deuda/patrimonio ≤ manageable_max_de O con cobertura de intereses ≥ manageable_min_cover
     require_manageable_debt: bool = False
     manageable_max_de: float = 0.5
