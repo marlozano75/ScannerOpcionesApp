@@ -9,16 +9,19 @@
   {%- endif %}
 {%- endmacro %}
 {% if groups %}<div class="msgs">{% for g in groups %}
-  <div class="msg {{ g.kind }}">{% if g.title %}<span class="mt">{{ g.title }}</span>{% endif %}
-    {%- if g.chips %}<span class="mi">{% for it in g.chips %}<code>{{ it }}</code>{% endfor %}</span>{% endif %}
-    {%- if g.note %}<span class="mn">{{ g.note }}</span>{% endif %}</div>{% endfor %}</div>{% endif %}
+  {%- if g.chips %}<details class="msg {{ g.kind }}"><summary><span class="mt">{{ g.title }}</span><span class="mn">{{ g.chips|length }}{{ ' · ' ~ g.note if g.note }}</span></summary>
+    <span class="mi">{% for it in g.chips %}<code>{{ it }}</code>{% endfor %}</span></details>
+  {%- else %}<div class="msg {{ g.kind }}">{% if g.title %}<span class="mt">{{ g.title }}</span>{% endif %}{% if g.note %}<span class="mn">{{ g.note }}</span>{% endif %}</div>{% endif %}{% endfor %}</div>{% endif %}
 <style>
-  .msgs { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
-  .msg { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; padding:8px 12px; border-radius:8px; border:1px solid var(--c-line); border-left:5px solid var(--c); background:var(--c-bg); font-size:13px; }
+  .msgs { display:flex; flex-wrap:wrap; align-items:flex-start; gap:5px; margin-bottom:10px; max-height:30vh; overflow:auto; }
+  .msg { --c:#555; --c-bg:#eee; --c-line:#ddd; display:inline-flex; flex-wrap:wrap; align-items:center; gap:2px 8px; max-width:100%; padding:2px 10px; border-radius:999px; border:1px solid var(--c-line); background:var(--c-bg); font-size:12px; line-height:1.5; }
+  .msg summary { display:inline-flex; gap:8px; align-items:center; cursor:pointer; list-style:none; } .msg summary::-webkit-details-marker { display:none; }
+  .msg summary::before { content:"▸"; color:var(--c); font-size:10px; } .msg[open] summary::before { content:"▾"; }
+  .msg[open] { border-radius:10px; padding:4px 10px 6px; flex-basis:100%; }
   .msg .mt { font-weight:700; color:var(--c); }
-  .msg .mi { display:inline-flex; flex-wrap:wrap; gap:4px; }
-  .msg .mi code { padding:1px 8px; border-radius:999px; background:#fff; border:1px solid var(--c-line); color:var(--ink); font-size:12px; }
-  .msg .mn { color:var(--mute); font-size:12px; }
+  .msg .mi { display:flex; flex-wrap:wrap; gap:3px; flex-basis:100%; margin-top:4px; }
+  .msg .mi code { padding:0 7px; border-radius:999px; background:#fff; border:1px solid var(--c-line); color:var(--ink); font-size:11px; }
+  .msg .mn { color:var(--mute); }
   .msg.ok { --c:#1f7a5c; --c-bg:#e6f4ee; --c-line:#b7dccd; }
   .msg.del { --c:#b3361b; --c-bg:#fbebe7; --c-line:#ecb5ad; }
   .msg.skip { --c:#5d6678; --c-bg:#eef0f4; --c-line:#d3d8e2; }
@@ -46,6 +49,9 @@
   .src-menu { display:flex; flex-direction:column; gap:2px; padding:10px 0 18px; }
   .src-item { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; color:var(--ink); text-decoration:none; font-size:13px; }
   .src-item:hover { background:var(--card); }
+  .src-item.hist { margin-bottom:8px; border:1px dashed #b88a2e; background:#fbf3df; color:#6b4b00; }
+  .src-item.hist b { opacity:1; }
+  .src-item.hist:hover { background:#f6e8c4; } .src-item.hist.active { background:#b88a2e; color:#fff; border-style:solid; }
   .src-item.active { background:var(--accent); color:#fff; }
   .src-item b { flex:none; width:18px; font-size:11px; opacity:.65; text-align:right; }
   .src-item .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -84,7 +90,7 @@
         </div>
       </details>
       <nav class="src-menu" aria-label="Fuentes">
-        <a class="src-item {{ 'active' if view == 'history' }}" href="/universe?view=history"><b>⏱</b><span class="nm">Historial de carga</span></a>
+        <a class="src-item hist {{ 'active' if view == 'history' }}" href="/universe?view=history"><b>⏱</b><span class="nm">Historial de carga</span></a>
         <a class="src-item {{ 'active' if not src and view != 'history' }}" href="/universe?reset=1"><b></b><span class="nm">Todas</span><small>{{ all_count }}</small></a>
         {% for s in sources %}<a class="src-item {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}" title="{{ s.name }}"><b>{{ numbers[s.name] }}</b><span class="nm">{{ s.name }}</span><small>{{ s.table.rows|length }}</small></a>{% endfor %}
       </nav>
