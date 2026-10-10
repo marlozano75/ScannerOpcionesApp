@@ -268,7 +268,8 @@ class AppService:
         """Añade a la fuente manual `source` (se crea si no existe) los tickers que no están ya en ella y que tienen
         opciones; con `replace_source` la lista de la fuente pasa a ser exactamente los tickers dados (con opciones).
         Devuelve `source`, `added`, `new_in_universe` (de los añadidos, los que no estaban en ninguna fuente),
-        `already` (ticker -> [fuente]), `no_options`, `checked` y `removed` (solo al sustituir)."""
+        `already` (ticker -> [fuente]), `no_options`, `checked`, y al sustituir `removed` (los que ya no están) y `kept`
+        (los que ya tenía la fuente). «Nuevo en el Universo» = ni en otra fuente ni en la lista anterior de esta."""
         name = self._manual_name(source)
         in_universe = {row.ticker for src in self.universe_sources for row in src.table.rows}
         old = list(self.manual_sources.get(name, []))
@@ -287,12 +288,13 @@ class AppService:
         elif new:
             checked = False
         removed: list[str] = []
+        kept: list[str] = []
         if replace_source:
             if not new:
                 raise WatchlistError("No hay ningún ticker válido con el que sustituir la fuente; no se ha cambiado")
             keep = {clean_ticker(t) for t in new}
             removed = [t for t in old if clean_ticker(t) not in keep]
-            in_universe -= {clean_ticker(t) for t in old}      # lo que ya traía esta fuente no es nuevo en el Universo
+            kept = [t for t in new if clean_ticker(t) in {clean_ticker(o) for o in old}]
             self.manual_sources[name] = list(new)
             self._save_manual()
         elif new:
@@ -303,7 +305,7 @@ class AppService:
             await self.complete_info(new)
             self.kick_quality_update()
         return {"source": name, "added": new, "new_in_universe": [t for t in new if clean_ticker(t) not in in_universe],
-                "already": already, "no_options": no_options, "checked": checked, "removed": removed}
+                "already": already, "no_options": no_options, "checked": checked, "removed": removed, "kept": kept}
 
     def remove_source_tickers(self, source: str, tickers) -> int:
         """Quita tickers de una fuente (manual o de fichero); devuelve cuántos. Si se quitan todos, la fuente

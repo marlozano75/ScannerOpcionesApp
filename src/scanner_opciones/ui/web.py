@@ -479,9 +479,14 @@ def create_app(
             parts.append(_grp("del", f"Quitados de {src_name}", res["removed"]))
         if res["added"]:
             fresh = len(res["new_in_universe"])
-            parts.append(_grp("ok", f"{'Ahora en' if mode == 'replace' else 'Añadidos a'} {src_name}", res["added"],
-                              f"{fresh} nuevo{'s' if fresh != 1 else ''} en el Universo"
-                              + (", el resto ya estaban en otras fuentes" if fresh != len(res["added"]) else "")))
+            tail = f"{fresh} nuevo{'s' if fresh != 1 else ''} en el Universo"                    + (", el resto ya estaban en otras fuentes" if fresh != len(res["added"]) - len(res["kept"]) else "")
+            if mode == "replace":
+                fresh_list = [t for t in res["added"] if t not in res["kept"]]
+                if fresh_list:
+                    parts.append(_grp("ok", f"Nuevos en {src_name}", fresh_list, tail))
+                parts.append(_grp("skip", f"Conservados en {src_name}", [], f"{len(res['kept'])} ticker{'s' if len(res['kept']) != 1 else ''} que ya estaban"))
+            else:
+                parts.append(_grp("ok", f"Añadidos a {src_name}", res["added"], tail))
         if res["already"]:
             parts.append(_grp("skip", "Ya incluidos", [f"{t} ({' · '.join(n)})" for t, n in res["already"].items()]))
         if res["no_options"]:

@@ -81,6 +81,13 @@ async def test_replacing_a_manual_source_swaps_its_tickers_and_every_load_goes_t
     assert AppService(FakeGateway(), db, Settings(), lambda: NOW).universe_history[0]["at"].startswith("2026-10-10")
 
 
+async def test_replacing_a_source_only_counts_as_new_what_the_source_and_the_universe_did_not_have(tmp_path):
+    svc, _, _ = make(tmp_path)
+    await svc.add_manual_tickers(parse_text("AAA, BBB, CCC"), "Mis ideas")
+    res = await svc.add_manual_tickers(parse_text("AAA, BBB, CCC, DDD"), "Mis ideas", replace_source=True)
+    assert res["kept"] == ["AAA", "BBB", "CCC"] and res["new_in_universe"] == ["DDD"] and res["removed"] == []
+
+
 async def test_replacing_with_no_valid_ticker_keeps_the_source(tmp_path):
     import pytest
     from scanner_opciones.domain.errors import WatchlistError
