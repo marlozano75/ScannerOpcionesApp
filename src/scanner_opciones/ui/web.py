@@ -96,22 +96,59 @@ def _threshold_text(value: float, unit: str) -> str:
     return f"{value:g}{unit}"
 
 
-def solvency_controls(qcfg, form: dict) -> list[dict]:
-    """Selectores de solvencia para la plantilla: cada opción lleva su umbral («Estándar (≤ 1)»)."""
+def solvency_controls(qcfg, form: dict, counts: Optional[dict] = None) -> list[dict]:
+    """Selectores de solvencia para la plantilla: cada opción lleva su umbral («Estándar (≤ 1)») y, si se dan los
+    recuentos, cuántos tickers de la watchlist pasan ese grado («· 124/281»): así se ve lo restrictivo que es."""
     out = []
-    for key, _, metric, label, sign, unit in SOLVENCY_UI:
+    for key, field_name, metric, label, sign, unit in SOLVENCY_UI:
         thresholds = getattr(qcfg.thresholds, metric)
         out.append(dict(
             key=key, label=label, core=key in SOLVENCY_CORE, value=form.get(key, ""),
-            options=[(level, f"{text} ({sign} {_threshold_text(thresholds[level], unit)})") for level, text in qcfg.level_labels.items()],
+            options=[(level, f"{text} ({sign} {_threshold_text(thresholds[level], unit)})"
+                      + _count_text(counts, (field_name, thresholds[level])))
+                     for level, text in qcfg.level_labels.items()],
         ))
     return out
+
+
+def _count_text(counts: Optional[dict], key) -> str:
+    """« · 124/281» para una opción de filtro, o nada si no hay recuentos."""
+    if not counts or key not in counts["by_option"]:
+        return ""
+    return f" · {counts['by_option'][key]}/{counts['total']}"
+
+
+def quality_counts(infos: dict, tickers: list[str], base, qcfg) -> dict:
+    """Cuántos tickers de `tickers` pasan CADA opción de calidad por separado (los exentos por sector pasan; un dato que
+    falta no pasa). Sirve para ver de antemano cuánto descarta una selección. Los filtros de calidad ven al ticker, no
+    al contrato, así que el recuento es de tickers."""
+    from scanner_opciones.domain.models import TickerInfo
+    from scanner_opciones.scanner.quality import ticker_quality_reject
+
+    def passing(**overrides) -> int:
+        c = base.with_filters(**overrides)
+        return sum(1 for t in tickers if ticker_quality_reject(infos.get(t) or TickerInfo(t), c, qcfg.exempt_sectors) is None)
+
+    by: dict = {("require_profitable", True): passing(require_profitable=True),
+                ("require_positive_fcf", True): passing(require_positive_fcf=True),
+                ("require_manageable_debt", True): passing(require_manageable_debt=True)}
+    for n in qcfg.positive_quarters_options:
+        by[("min_positive_quarters", n)] = passing(min_positive_quarters=n)
+    for n in qcfg.liquidity_options:
+        by[("min_option_liquidity", n)] = passing(min_option_liquidity=n)
+    for v in qcfg.leverage_options:
+        by[("max_liabilities_to_equity", float(v))] = passing(max_liabilities_to_equity=float(v))
+    for _, field_name, metric, *_ in SOLVENCY_UI:
+        for value in getattr(qcfg.thresholds, metric).values():
+            by[(field_name, value)] = passing(**{field_name: value})
+    return {"total": len(tickers), "by_option": by}
 
 
 def quality_form(base) -> dict:
     """Valores del formulario de calidad a partir de los criterios (sin filtros por defecto)."""
     return {
         "q_profit": base.require_profitable, "q_earn": base.avoid_earnings, "q_fcf": base.require_positive_fcf,
+        "q_manage": base.require_manageable_debt,
         "q_quarters": "" if base.min_positive_quarters is None else str(base.min_positive_quarters),
         "q_liq": "" if base.min_option_liquidity is None else str(base.min_option_liquidity),
         "q_lev": "" if base.max_liabilities_to_equity is None else _fmt(base.max_liabilities_to_equity),
@@ -123,7 +160,7 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
     """Lee los filtros de calidad de la URL (scanner y Universo comparten parser). Cada valor se valida contra las
     listas permitidas de la configuración. `earnings`: el filtro de resultados es por contrato, solo existe en el scanner.
     `liquidity`: la liquidez de las opciones solo se filtra en el scanner (en el Universo es solo un indicador).
-    `solvency`: los filtros de solvencia con grado de exigencia solo existen en el Universo."""
+    `solvency`: los filtros de solvencia con grado de exigencia y el de «deuda baja o manejable» (scanner)."""
     form["q_profit"], form["q_fcf"] = "q_profit" in qp, "q_fcf" in qp
     overrides["require_profitable"], overrides["require_positive_fcf"] = form["q_profit"], form["q_fcf"]
     if earnings:
@@ -137,6 +174,8 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
         if overrides[field_name] is not None and overrides[field_name] not in getattr(qcfg, options):
             raise ValueError(f"{label} no permitida")
     if solvency:
+        form["q_manage"] = "q_manage" in qp
+        overrides["require_manageable_debt"] = form["q_manage"]
         for key, field_name, metric, label, _, _ in SOLVENCY_UI:
             level = qp.get(key, "").strip()
             if level and level not in qcfg.level_labels:
@@ -305,37 +344,25 @@ def create_app(
             for r in s_.table.rows:
                 member.setdefault(r.ticker, []).append(numbers[s_.name])
         rows = list(table.rows) if table is not None else []
-        # filtros de calidad de la empresa (ANTES de decidir qué entra en la watchlist)
-        qp, qcfg, base = request.query_params, service.settings.scanner.quality, service.criteria()
-        qform, criteria, qerror = quality_form(base), base, None
-        if "submitted" in qp:
-            try:
-                overrides: dict = {}
-                read_quality(qp, qform, overrides, qcfg, earnings=False, liquidity=False, solvency=True)
-                criteria = base.with_filters(**overrides)
-            except ValueError as exc:
-                qerror = f"Parámetro no válido: {exc}"
+        # los datos de calidad son columnas informativas; los filtros están en el Scanner
+        qcfg = service.settings.scanner.quality
         qinfos = service.quality.all()
         ident = service.universe_identity()                               # ticker -> (empresa, sector) de todo el Universo
-        total_rows, excluded = len(rows), 0
         sectors = {t: i.sector for t, i in service.ticker_info.all().items()}
         sector_col = next((i for i, c in enumerate(table.columns) if c.name.strip().lower() == "sector"), None) if table else None
         exempt_tickers: set[str] = set()
-        kept = []
         for row in rows:
             info = replace(qinfos.get(row.ticker) or TickerInfo(row.ticker),
                            sector=_sector_of(row, sector_col, sectors) or ident.get(row.ticker, ("", ""))[1] or None)
             if is_exempt(info, qcfg.exempt_sectors):
                 exempt_tickers.add(row.ticker)
-            if not criteria.ticker_quality_active or ticker_quality_reject(info, criteria, qcfg.exempt_sectors) is None:
-                kept.append(row)
-        excluded, rows = total_rows - len(kept), kept
         with_quality = sum(1 for r in rows if r.ticker in qinfos)
         active = {s.name for s in sources}
         files = [(name, at, [s.name for s in srcs if s.name in active]) for name, (at, srcs) in service.universe_files.items()]
         info = None
         if current is not None:
-            info = describe_manual(current.name) if current.name in service.manual_sources                 else describe(current.name, current.criteria)
+            info = describe_manual(current.name) if current.name in service.manual_sources \
+                else describe(current.name, current.criteria)
         identity_cols = {"company", "empresa", "sector"} | set(SYMBOL_HEADERS)   # van delante: no se repiten al final
         skip = {i for i, c in enumerate(table.columns) if _plain(c.name) in identity_cols} if table else set()
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message,
@@ -344,13 +371,7 @@ def create_app(
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
                       all_count=len(member), manual=[(n, len(t)) for n, t in service.manual_sources.items()],
                       source_info=info, in_watchlist=set(service.watchlist.list()),
-                      qform=qform, qerror=qerror, qinfos=qinfos, excluded=excluded, total_rows=total_rows,
-                      with_quality=with_quality, quality_active=criteria.ticker_quality_active,
-                      quality_opts=dict(
-                          quarters=qcfg.positive_quarters_options,
-                          liquidity=qcfg.liquidity_options, leverage=[_fmt(v) for v in qcfg.leverage_options],
-                          edgar=bool(service.settings.edgar.contact.strip())),
-                      solvency=solvency_controls(qcfg, qform), levels=list(qcfg.level_labels.items()),
+                      qinfos=qinfos, with_quality=with_quality, edgar=bool(service.settings.edgar.contact.strip()),
                       exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors))
 
     @app.post("/universe/load")
@@ -531,7 +552,7 @@ def create_app(
                         raise ValueError(f"{label} no puede ser negativo")
                 if None not in (overrides["min_price"], overrides["max_price"]) and overrides["min_price"] > overrides["max_price"]:
                     raise ValueError("el precio mínimo no puede superar el máximo")
-                read_quality(qp, form, overrides, service.settings.scanner.quality, earnings=True)
+                read_quality(qp, form, overrides, service.settings.scanner.quality, earnings=True, solvency=True)
                 form["touch"] = qp.get("touch", "").strip()
                 overrides["min_days_since_touch"] = _required(form["touch"], int, "Días desde el último toque") if form["touch"] else None
                 if overrides["min_days_since_touch"] is not None and overrides["min_days_since_touch"] not in tcfg.touch_min_days_options:
@@ -574,6 +595,14 @@ def create_app(
             error = f"Parámetro no válido: {exc}"
         return dict(form=form, criteria=criteria, error=error, warnings=warnings)
 
+    @app.get("/scanner/impact", response_class=HTMLResponse)
+    async def scanner_impact(request: Request):
+        """Panel «¿Cuánto descarta cada filtro?» (fragmento HTML, se carga al abrir el panel del scanner)."""
+        parsed = parse_scan(request.query_params)
+        if parsed["criteria"] is None:
+            return render(request, "_impact.html", error=parsed["error"] or "Parámetros no válidos", report=None)
+        return render(request, "_impact.html", error=None, report=service.scan_impact(parsed["criteria"]))
+
     @app.get("/scanner", response_class=HTMLResponse)
     async def scanner(request: Request, debug: int = 0):
         if (back := recall(request, "scanner")) is not None:
@@ -601,7 +630,20 @@ def create_app(
         presets = [dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
                         dte_max=p.dte_max if p.dte_max is not None else cand.dte_max,
                         min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
+        qcfg = service.settings.scanner.quality
+        counts = quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg)
+        labels = {key: label for key, _, _, label, _, _ in SOLVENCY_UI}
+        q_presets = [dict(name=p.name, levels=p.levels, manage=p.manageable_debt,
+                          title=" · ".join([f"{labels[k]}: {qcfg.level_labels[v]}" for k, v in p.levels.items()]
+                                           + (["Deuda baja o manejable"] if p.manageable_debt else [])),
+                          is_on=all(parsed["form"].get(k) == v for k, v in p.levels.items())
+                          and parsed["form"].get("q_manage") == p.manageable_debt
+                          and bool(p.levels or p.manageable_debt)) for p in qcfg.presets]
         return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
+                      solvency=solvency_controls(qcfg, parsed["form"], counts), q_presets=q_presets,
+                      count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
+                      levels=list(qcfg.level_labels.items()), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
+                      exempt_names=", ".join(qcfg.exempt_sectors),
                       candidates=service.settings.scanner.candidates,
                       margin=service.settings.scanner.catalog_margin_pct,
                       ma_hidden=unavailable_ma_fields(

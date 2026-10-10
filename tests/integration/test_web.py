@@ -401,7 +401,7 @@ def test_all_view_has_one_row_per_ticker_with_every_source(client_and_service):
     assert "RankedStocks" in ko[0] and LOWER in ko[0] and DEFENSIVE in ko[0] and 'data-sort="3.0"' in ko[0]
     assert "Coca-Cola" in ko[0] and "Consumer Defensive" in ko[0]
     assert "8 acciones" in r.text                                                 # DK KO GCT PAYS + ADBE AIG ACN ALL
-    assert 'id="rk-filters"' not in r.text and 'id="quality-form"' in r.text           # solo el panel de calidad
+    assert 'id="rk-filters"' not in r.text and 'id="quality-form"' not in r.text       # sin filtros: los de calidad están en el Scanner
 
 
 
@@ -589,7 +589,7 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     html = client.get("/scanner?reset=1").text
     form = html.split('id="scan-form"')[1].split("</form>")[0]
     # dos configuraciones; la segunda toma el DTE máx. de la ventana guardada (35)
-    assert form.count('type="button" class="preset') == 2
+    assert form.count('type="button" class="preset"') == 2                       # (los de calidad llevan class="preset qpreset")
     assert 'data-discount="10" data-dte-min="1"' in form and 'data-dte-max="15" data-yield="20"' in form
     assert 'data-discount="20" data-dte-min="16"' in form and 'data-dte-max="35" data-yield="13"' in form
     # − / + en las cajas principales, no en los filtros opcionales

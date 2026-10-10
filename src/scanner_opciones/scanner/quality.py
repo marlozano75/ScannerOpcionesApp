@@ -48,6 +48,13 @@ def ticker_quality_reject(
         return f"pasivo/patrimonio superior a {criteria.max_liabilities_to_equity:g} (o sin dato / patrimonio negativo)"
     if criteria.require_positive_fcf and (info is None or info.fcf_ttm is None or info.fcf_ttm <= 0):
         return "flujo de caja libre ≤ 0 (o sin dato)"
+    if criteria.require_manageable_debt:
+        de = info.debt_to_equity if info is not None else None
+        cover = info.interest_coverage if info is not None else None
+        if not ((de is not None and de <= criteria.manageable_max_de)
+                or (cover is not None and cover >= criteria.manageable_min_cover)):
+            return (f"deuda alta y mal cubierta (deuda/patrimonio > {criteria.manageable_max_de:g} y cobertura "
+                    f"< {criteria.manageable_min_cover:g}×, o sin dato)")
     for field, attr, kind, label in SOLVENCY_RULES:
         limit = getattr(criteria, field)
         if limit is None:

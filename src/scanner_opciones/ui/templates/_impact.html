@@ -1,0 +1,25 @@
+{# Fragmento del panel «¿Cuánto descarta cada filtro?» (se carga al abrir el panel) #}
+{% if error %}<p class="muted">{{ error }}</p>
+{% elif not report.filters %}<p class="muted" style="margin:0">No hay ningún filtro activo: pasan los {{ report.window }} contratos del rango de strike y DTE.</p>
+{% else %}
+<p style="margin:0 0 8px">De <b>{{ report.window }}</b> contratos con descuento y DTE dentro del rango, pasan <b>{{ report.final }}</b>
+  ({{ (100 * report.final / report.window)|round(1) if report.window else 0 }} %) con todos los filtros activos.</p>
+{% if report.final == 0 %}<p class="banner info" style="margin:0 0 8px">Ningún contrato pasa todos los filtros a la vez. Quitar uno solo no basta
+  (la columna «Solo él descarta» lo muestra): relaja primero los más restrictivos, que son los de arriba.</p>{% endif %}
+<table class="impact">
+  <tr><th>Filtro</th><th title="Contratos que pasan si solo se aplica este filtro">Solo este filtro deja</th>
+    <th title="Contratos que descarta únicamente este filtro: los recuperarías al quitarlo">Solo él descarta</th><th></th></tr>
+  {% for f in report.filters %}
+  {% set pct = (100 * f.alone / report.window) if report.window else 0 %}
+  <tr>
+    <td>{{ f.label }}</td>
+    <td><span class="bar"><span style="width:{{ pct|round(0) }}%"></span></span> {{ f.alone }} <span class="muted">({{ pct|round(0)|int }} %)</span></td>
+    <td>{{ f.exclusive }}</td>
+    <td>{% if pct < 25 %}<span class="tag hard">muy restrictivo</span>{% elif pct < 60 %}<span class="tag mid">restrictivo</span>{% else %}<span class="tag soft">suave</span>{% endif %}
+      {% if f.exclusive == 0 %}<span class="tag none" title="Los demás filtros ya descartan todo lo que este descartaría">redundante</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+<p class="note" style="margin:8px 0 0"><b>Solo este filtro deja</b>: lo restrictivo que es por sí mismo (menos = más restrictivo).
+  <b>Solo él descarta</b>: lo que aporta sobre los demás filtros; si es 0, quitarlo no cambia el resultado.</p>
+{% endif %}

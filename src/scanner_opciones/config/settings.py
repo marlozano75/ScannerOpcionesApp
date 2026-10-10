@@ -208,13 +208,48 @@ class SolvencyThresholds(_Model):
         return self
 
 
+class ManageableDebt(_Model):
+    """«Deuda baja o manejable»: pasa la empresa con poca deuda (deuda/patrimonio ≤ máximo) o con la deuda bien cubierta
+    (resultado operativo / intereses ≥ mínimo). Solo se descarta la deuda alta Y mal cubierta."""
+    max_debt_to_equity: float = Field(0.5, ge=0)
+    min_interest_coverage: float = Field(3.0, ge=0)
+
+
+class QualityPreset(_Model):
+    """Botón del scanner que rellena los filtros de calidad (y escanea). `levels`: parámetro del formulario ->
+    grado de exigencia (q_de, q_cov, q_cash, q_ocfd, q_capex, q_fcfa, q_bb)."""
+    name: str
+    levels: dict[str, str] = {}
+    manageable_debt: bool = False
+
+    @model_validator(mode="after")
+    def _check(self) -> "QualityPreset":
+        unknown = set(self.levels) - {"q_de", "q_cov", "q_cash", "q_ocfd", "q_capex", "q_fcfa", "q_bb"}
+        if unknown:
+            raise ValueError(f"filtros desconocidos en el preset «{self.name}»: {', '.join(sorted(unknown))}")
+        if bad := set(self.levels.values()) - set(LEVELS):
+            raise ValueError(f"grados desconocidos en el preset «{self.name}»: {', '.join(sorted(bad))}")
+        return self
+
+
+# Los filtros del vídeo de un analista: los cuatro de caja (flujo operativo > 30 % de la deuda, capex < 35 % del flujo,
+# recompra neta > 2 %, FCF > 12 % de los activos) y los tres de deuda (deuda/patrimonio < 1, efectivo ≥ deuda a corto plazo,
+# cobertura de intereses ≥ 3).
+DEFAULT_QUALITY_PRESETS = (
+    QualityPreset(name="Caja (4 filtros)", levels={"q_ocfd": "standard", "q_capex": "standard", "q_bb": "strict", "q_fcfa": "strict"}),
+    QualityPreset(name="Deuda sana", levels={"q_de": "standard", "q_cash": "standard", "q_cov": "standard"}),
+)
+
+
 class QualitySettings(_Model):
-    """Filtros de calidad de la empresa del scanner (beneficios, trimestres, liquidez, resultados)."""
+    """Filtros de calidad de la empresa del scanner (beneficios, trimestres, liquidez, resultados, solvencia)."""
     liquidity_options: list[int] = [2, 3, 4]               # liquidez mínima de las opciones (1-5, de tastytrade)
     positive_quarters_options: list[int] = [2, 3, 4]       # trimestres con beneficios exigidos de los últimos 4
     leverage_options: list[float] = [1, 2, 3, 5]           # pasivo/patrimonio máximo ofrecido (no aplica a las financieras)
     refresh_days: int = Field(7, ge=1)                     # cada cuántos días se vuelve a bajar el historial trimestral
     thresholds: SolvencyThresholds = SolvencyThresholds()  # umbrales de los filtros de solvencia por grado de exigencia
+    manageable_debt: ManageableDebt = ManageableDebt()     # umbrales del filtro «deuda baja o manejable»
+    presets: tuple[QualityPreset, ...] = DEFAULT_QUALITY_PRESETS   # botones que rellenan los filtros (ninguno activo por defecto)
     level_labels: dict[str, str] = {"flexible": "Flexible", "standard": "Estándar", "strict": "Estricto"}
     # sectores a los que NO se miden la deuda, la caja ni la solvencia (pasan sin medirse): trozos del nombre del sector
     exempt_sectors: list[str] = ["financ", "energy", "utilit", "material", "real estate"]

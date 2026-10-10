@@ -64,56 +64,18 @@
   {% if source_info.details %}<ul style="margin:6px 0 0;padding-left:18px">{% for d in source_info.details %}<li class="muted">{{ d }}</li>{% endfor %}</ul>{% endif %}
 </div>
 {% endif %}
-<div class="section-title">Filtros de calidad <span style="letter-spacing:.04em;text-transform:none;font-weight:400">(antes de añadir a la watchlist · datos de tastytrade y de la SEC; el que no tiene dato se descarta)</span></div>
-<form method="get" action="/universe" id="quality-form" class="card" style="margin-bottom:14px">
-  <input type="hidden" name="submitted" value="1"><input type="hidden" name="src" value="{{ '' if src == 'all' else src }}">
-  <div class="filters" style="align-items:flex-end">
-    <label class="opt" style="flex-direction:row;align-items:center;gap:6px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
-      <input type="checkbox" name="q_profit" {{ 'checked' if qform.q_profit }}> <b>Beneficios (12 m)</b></label>
-    <label>Trimestres con beneficios
-      <select name="q_quarters"><option value="">Cualquiera</option>
-        {% for n in quality_opts.quarters %}<option value="{{ n }}" {{ 'selected' if qform.q_quarters == n|string }}>{{ n }} de 4 o más</option>{% endfor %}</select></label>
-    <label>Pasivo / patrimonio máx.
-      <select name="q_lev"><option value="">Cualquiera</option>
-        {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if qform.q_lev == v }}>{{ v }}</option>{% endfor %}</select></label>
-    <label class="opt" style="flex-direction:row;align-items:center;gap:6px;font-size:14px;text-transform:none;letter-spacing:0;color:var(--ink)">
-      <input type="checkbox" name="q_fcf" {{ 'checked' if qform.q_fcf }}> <b>Flujo de caja libre &gt; 0</b></label>
-    <a class="btn secondary" href="/universe{{ '?src=' ~ (src|urlencode) if src != 'all' else '' }}">Quitar filtros</a>
-  </div>
-  <div class="filters" style="align-items:flex-end;margin-top:10px">
-    <label title="Aplica el mismo grado a los cuatro filtros de solvencia">Solvencia: grado para los cuatro
-      <select id="q_solv_master"><option value="">— elegir —</option>
-        {% for level, label in levels %}<option value="{{ level }}">{{ label }}</option>{% endfor %}</select></label>
-    {% for f in solvency if f.core %}
-    <label>{{ f.label }}
-      <select name="{{ f.key }}"><option value="">Sin filtro</option>
-        {% for level, text in f.options %}<option value="{{ level }}" {{ 'selected' if f.value == level }}>{{ text }}</option>{% endfor %}</select></label>
-    {% endfor %}
-  </div>
-  <div class="filters" style="align-items:flex-end;margin-top:10px">
-    <span class="muted" style="align-self:center">Opcionales (sin filtro por defecto):</span>
-    {% for f in solvency if not f.core %}
-    <label>{{ f.label }}
-      <select name="{{ f.key }}"><option value="">Sin filtro</option>
-        {% for level, text in f.options %}<option value="{{ level }}" {{ 'selected' if f.value == level }}>{{ text }}</option>{% endfor %}</select></label>
-    {% endfor %}
-  </div>
-  <p class="note" style="margin:8px 0 0">Las financieras (bancos, aseguradoras) quedan exentas del pasivo/patrimonio y del flujo de caja.
-    Los umbrales de cada grado están en <code>scanner.quality.thresholds</code>. <b>Exentos</b> (pasan sin medirse el pasivo, la solvencia y la caja, y se ven como «n/a»): sectores con «{{ exempt_names }}» en su nombre.
-    Datos de calidad disponibles para <b>{{ with_quality }}</b> de {{ rows|length }} acciones mostradas.
-    {% if not quality_opts.edgar %}<b>Falta <code>edgar.contact</code> en config.yaml</b>: sin él no hay datos de pasivo/patrimonio ni de flujo de caja.{% endif %}
-    Los filtros de resultados antes del vencimiento y de liquidez de las opciones están en el Scanner; aquí la liquidez es solo un indicador.</p>
-</form>
-{% if qerror %}<div class="banner err">{{ qerror }}</div>{% endif %}
+<p class="note" style="margin:0 0 14px">Las columnas de calidad (datos de tastytrade y de la SEC) son solo informativas: los <b>filtros de calidad están en el Scanner</b>.
+  Sectores exentos del pasivo, la solvencia y la caja (se ven como «n/a»): los que llevan «{{ exempt_names }}» en su nombre.
+  Datos de calidad disponibles para <b>{{ with_quality }}</b> de {{ rows|length }} acciones mostradas.
+  {% if not edgar %}<b>Falta <code>edgar.contact</code> en config.yaml</b>: sin él no hay datos de pasivo/patrimonio ni de flujo de caja.{% endif %}</p>
 <form method="post" action="/universe/apply" class="card" id="rk-apply">
-  <h2>{{ rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas
-    {% if quality_active %}· {{ excluded }} descartadas por calidad (de {{ total_rows }}){% endif %}</span></h2>
+  <h2>{{ rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
   {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
   <p>
     <button name="mode" value="add">Añadir selección a la watchlist</button>
     <button name="mode" value="replace" class="secondary" onclick="return confirmReplace()"
             title="Quita de la watchlist (con sus contratos) los tickers que no estén en la selección">Sustituir watchlist con la selección</button>
-    <span class="muted">Las filas marcadas son las visibles tras el filtro; desmarca las que no quieras.</span>
+    <span class="muted">Desmarca las que no quieras añadir.</span>
   </p>
   {% if src %}
   <p>
@@ -152,7 +114,7 @@
           {% if cell.value is not none %}<td data-sort="{{ cell.value }}">{{ cell.text }}</td>
           {% else %}<td>{{ cell.text }}</td>{% endif %}
         {% endif %}{% endfor %}</tr>
-    {% else %}<tr><td colspan="{{ table.columns|length - skip|length + 20 }}" class="muted">Sin filas{% if quality_active %}: ningún ticker cumple los filtros de calidad{% endif %}.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="{{ table.columns|length - skip|length + 20 }}" class="muted">Sin filas.</td></tr>{% endfor %}
   </table></div>
 </form>
 <script>
@@ -164,13 +126,6 @@
     // aviso inmediato; los botones se desactivan después de enviar (desactivarlos antes quitaría «mode» del envío)
     document.getElementById('rk-working').hidden = false;
     setTimeout(function () { document.querySelectorAll('#rk-apply button').forEach(function (b) { b.disabled = true; }); }, 0);
-  });
-  var master = document.getElementById('q_solv_master');
-  master.addEventListener('change', function () {
-    ['q_de', 'q_cov', 'q_cash', 'q_ocfd'].forEach(function (n) { document.querySelector('#quality-form select[name=' + n + ']').value = master.value; });
-  });
-  document.querySelectorAll('#quality-form select, #quality-form input[type=checkbox]').forEach(function (el) {
-    el.addEventListener('change', function () { document.getElementById('quality-form').submit(); });
   });
   (function () {
     var boxes = function () { return document.querySelectorAll('#rk-apply input[name=sel]'); };

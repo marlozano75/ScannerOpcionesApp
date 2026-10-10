@@ -37,6 +37,13 @@ scanner:
       fcf_to_assets:      {flexible: 0.04, standard: 0.08, strict: 0.12}   # flujo de caja libre / activos, mínimo
       net_buyback_pct:    {flexible: 0.0,  standard: 1.0,  strict: 2.0}    # reducción del nº de acciones (%), mínimo
     level_labels: {flexible: Flexible, standard: Estándar, strict: Estricto}
+    manageable_debt:                 # «deuda baja o manejable»: pasa con deuda/patrimonio ≤ max O cobertura de intereses ≥ min
+      max_debt_to_equity: 0.5
+      min_interest_coverage: 3.0
+    presets:                         # botones del bloque de solvencia del scanner (rellenan los selectores y escanean; ninguno activo por defecto)
+      - { name: "Caja (4 filtros)", levels: { q_ocfd: standard, q_capex: standard, q_bb: strict, q_fcfa: strict } }
+      - { name: "Deuda sana",       levels: { q_de: standard, q_cash: standard, q_cov: standard } }
+      # opcional: manageable_debt: true marca también «deuda baja o manejable»
     # sectores a los que NO se mide el pasivo, la solvencia ni el flujo de caja (pasan sin medirse): trozos del nombre
     exempt_sectors: [financ, energy, utilit, material, real estate]
   catalog_margin_pct: 5    # puntos de más por arriba y por abajo que se GUARDAN (el rango cotizado sigue al precio)

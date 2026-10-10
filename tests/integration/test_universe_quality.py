@@ -1,9 +1,10 @@
-"""Filtros de calidad en la vista del Universo: se filtra ANTES de decidir qué pasa a la watchlist."""
+"""Calidad de la empresa: las columnas del Universo son informativas y los filtros (los mismos de siempre) están en el Scanner."""
 import re
 from datetime import date, datetime, timedelta
 
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.fundamentals import FakeFundamentals, Fundamentals
+from tests.integration.quality_helpers import passing
 from tests.integration.test_web import DEFENSIVE, LOWER, client_and_service, load_hello, load_rank  # noqa: F401
 
 # Universo del test: RankedStocks DK KO GCT PAYS + HelloStocks KO ADBE | KO AIG | ACN ALL (AIG y ALL son financieras)
@@ -47,18 +48,26 @@ def setup(client_and_service):
     return client, svc
 
 
-def test_universe_shows_the_quality_indicators_and_the_filter_panel(client_and_service):
+def test_universe_shows_the_quality_indicators_but_no_filter_form(client_and_service):
     client, svc = setup(client_and_service)
     page = client.get("/universe").text
     for header in ("EPS 12 m", "Trim. +", "Cap. (B$)", "Liq. opc.", "Resultados", "Pasivo/Patr.", "FCF (M$)"):
         assert f"<th>{header}</th>" in page
-    assert 'id="quality-form"' in page and "Filtros de calidad" in page
+    assert 'id="quality-form"' not in page and "Filtros de calidad</div>" not in page      # los filtros están en el Scanner
+    assert "filtros de calidad están en el Scanner" in page
     assert shown(page) == ALL_TICKERS and "8 acciones" in page
     ko = [row for row in page.split("<tr>") if 'value="KO"' in row][0]
     assert "3/4" not in ko and "4/4" in ko and "2026-10-20" in ko and "+4 %" in ko     # trimestres, resultados, sorpresa
     assert 'data-sort="2.5"' in ko                                                      # ordenable por EPS
     pays = [row for row in page.split("<tr>") if 'value="PAYS"' in row][0]
     assert "—" in pays                                                                  # sin datos de calidad: guion
+
+
+def test_a_filter_in_the_universe_url_is_ignored(client_and_service):
+    """Los filtros ya no existen en el Universo: una URL antigua con `submitted=1&q_profit=on` muestra todo."""
+    client, svc = setup(client_and_service)
+    page = client.get("/universe?submitted=1&q_profit=on&q_quarters=4&q_de=strict").text
+    assert shown(page) == ALL_TICKERS and "descartadas por calidad" not in page
 
 
 def test_negative_values_are_marked_in_red(client_and_service):
@@ -69,86 +78,57 @@ def test_negative_values_are_marked_in_red(client_and_service):
 
 def test_profit_filter_leaves_only_profitable_companies(client_and_service):
     client, svc = setup(client_and_service)
-    page = client.get("/universe?submitted=1&q_profit=on").text
-    assert shown(page) == {"KO", "GCT", "ADBE", "ACN", "ALL"}            # fuera DK y AIG (EPS ≤ 0) y PAYS (sin dato)
-    assert "5 acciones" in page and "3 descartadas por calidad (de 8)" in page
-    assert 'name="q_profit" checked' in page                              # el formulario conserva el filtro
+    assert passing(svc, "q_profit=on") == {"KO", "GCT", "ADBE", "ACN", "ALL"}      # fuera DK y AIG (EPS ≤ 0) y PAYS (sin dato)
 
 
-def test_every_selected_row_is_visible_and_checked(client_and_service):
+def test_quarters_filter(client_and_service):
     client, svc = setup(client_and_service)
-    page = client.get("/universe?submitted=1&q_profit=on&q_quarters=3").text
-    assert shown(page) == {"KO", "GCT", "ADBE", "ACN", "ALL"}
-    assert page.count('name="sel"') == page.count('name="sel" value') == len(shown(page))
-    assert all("checked" in row for row in page.split("<tr>") if 'name="sel"' in row)
+    assert passing(svc, "q_profit=on&q_quarters=3") == {"KO", "GCT", "ADBE", "ACN", "ALL"}
+    assert passing(svc, "q_quarters=4") == {"KO", "ADBE", "ACN", "ALL"}
 
 
-def test_quarters_filter_and_market_cap_is_only_a_column(client_and_service):
+def test_market_cap_is_only_a_column(client_and_service):
     client, svc = setup(client_and_service)
-    page = client.get("/universe?submitted=1&q_mcap=2000").text
-    assert 'name="q_mcap"' not in page and shown(page) == ALL_TICKERS     # la capitalización ya no filtra (un q_mcap se ignora)
-    assert shown(client.get("/universe?submitted=1&q_quarters=4").text) == {"KO", "ADBE", "ACN", "ALL"}
-
-
-def test_option_liquidity_is_an_indicator_in_the_universe_not_a_filter(client_and_service):
-    """La liquidez de las opciones se filtra solo en el Scanner."""
-    client, svc = setup(client_and_service)
-    page = client.get("/universe").text
-    assert "<th>Liq. opc.</th>" in page and 'name="q_liq"' not in page          # la columna sigue, el filtro no
-    assert shown(client.get("/universe?submitted=1&q_liq=4").text) == ALL_TICKERS   # un q_liq en la URL se ignora
-    assert "descartadas por calidad" not in client.get("/universe?submitted=1&q_liq=4").text
-    assert 'name="q_liq"' in client.get("/scanner").text                          # el Scanner conserva su filtro
+    assert passing(svc, "q_mcap=2000") == ALL_TICKERS                              # no es un filtro: un q_mcap se ignora
 
 
 def test_leverage_and_cash_flow_filters_exempt_financial_companies(client_and_service):
     """AIG y ALL son «Financial Services» en el fichero: ni su pasivo/patrimonio ni su falta de FCF los descarta."""
     client, svc = setup(client_and_service)
-    lev = shown(client.get("/universe?submitted=1&q_lev=2").text)
-    assert lev == {"GCT", "ADBE", "ACN", "AIG", "ALL"}                  # KO (3,5) y DK (2,5) caen; PAYS sin dato
-    fcf = shown(client.get("/universe?submitted=1&q_fcf=on").text)
-    assert fcf == {"KO", "GCT", "ADBE", "ACN", "AIG", "ALL"}            # DK (FCF < 0) y PAYS (sin dato) caen
+    assert passing(svc, "q_lev=2") == {"GCT", "ADBE", "ACN", "AIG", "ALL"}          # KO (3,5) y DK (2,5) caen; PAYS sin dato
+    assert passing(svc, "q_fcf=on") == {"KO", "GCT", "ADBE", "ACN", "AIG", "ALL"}   # DK (FCF < 0) y PAYS (sin dato) caen
 
 
 def test_filters_combine_and_can_leave_nothing(client_and_service):
     client, svc = setup(client_and_service)
-    page = client.get("/universe?submitted=1&q_profit=on&q_quarters=4&q_lev=2&q_fcf=on").text
-    assert shown(page) == {"ADBE", "ACN", "ALL"}
+    assert passing(svc, "q_profit=on&q_quarters=4&q_lev=2&q_fcf=on") == {"ADBE", "ACN", "ALL"}
 
 
 def test_if_no_quality_data_has_been_downloaded_the_filters_leave_nothing(client_and_service):
     client, svc, gw, _ = client_and_service
     load_rank(client)
     load_hello(client)                                                   # sin `seed`: aún no hay datos de calidad
-    page = client.get("/universe?submitted=1&q_profit=on").text
-    assert shown(page) == set() and "ningún ticker cumple los filtros de calidad" in page
-    assert "8 descartadas por calidad (de 8)" in page
+    assert passing(svc, "q_profit=on") == set()
 
 
 def test_without_filters_nothing_is_dropped_even_with_missing_data(client_and_service):
     client, svc = setup(client_and_service)
-    page = client.get("/universe?submitted=1").text
-    assert shown(page) == ALL_TICKERS and "descartadas por calidad" not in page
+    assert passing(svc, "") == ALL_TICKERS
 
 
-def test_invalid_filter_values_are_rejected_and_nothing_is_filtered(client_and_service):
+def test_invalid_filter_values_are_rejected(client_and_service):
+    import pytest
+
     client, svc = setup(client_and_service)
     for bad in ("q_quarters=1", "q_lev=7", "q_quarters=abc"):
-        page = client.get(f"/universe?submitted=1&q_profit=on&{bad}").text
-        assert "Parámetro no válido" in page and shown(page) == ALL_TICKERS
+        with pytest.raises(ValueError):
+            passing(svc, f"q_profit=on&{bad}")
 
 
-def test_filter_applies_inside_a_single_source(client_and_service):
+def test_option_liquidity_filter_is_in_the_scanner_not_in_the_universe(client_and_service):
     client, svc = setup(client_and_service)
-    page = client.get(f"/universe?src={DEFENSIVE}&submitted=1&q_profit=on").text
-    assert shown(page) == {"KO"}                                        # esa pestaña: KO y AIG; AIG tiene EPS ≤ 0
-
-
-def test_apply_after_filtering_adds_only_the_visible_tickers(client_and_service):
-    client, svc = setup(client_and_service)
-    visible = shown(client.get("/universe?submitted=1&q_profit=on&q_quarters=4").text)
-    assert visible == {"KO", "ADBE", "ACN", "ALL"}
-    client.post("/universe/apply", data={"mode": "replace", "sel": sorted(visible)}, follow_redirects=True)
-    assert set(svc.watchlist.list()) == visible
+    assert "<th>Liq. opc.</th>" in client.get("/universe").text and 'name="q_liq"' not in client.get("/universe").text
+    assert 'name="q_liq"' in client.get("/scanner").text
 
 
 def test_missing_edgar_contact_is_explained(client_and_service):

@@ -33,6 +33,8 @@
 {% if form.q_earn %}{% set _ = quality.append('Sin resultados') %}{% endif %}
 {% if form.q_lev %}{% set _ = quality.append('Pasivo/patr. ≤ ' ~ form.q_lev) %}{% endif %}
 {% if form.q_fcf %}{% set _ = quality.append('FCF > 0') %}{% endif %}
+{% if form.q_manage %}{% set _ = quality.append('Deuda baja o manejable') %}{% endif %}
+{% for f in solvency %}{% if f.value %}{% set _ = quality.append(f.label ~ ': ' ~ level_names[f.value]) %}{% endif %}{% endfor %}
 {% set optional = [] %}
 {% for key, use, label, sign in (('bid', 'use_bid', 'Bid', '≥'), ('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤'), ('ivr', 'use_ivr', 'IV Rank', '≥'), ('ivp', 'use_ivp', 'IV Pctl', '≥')) %}
   {% if form[use] %}{% set _ = optional.append(label ~ ' ' ~ sign ~ ' ' ~ form[key]) %}{% endif %}
@@ -78,6 +80,15 @@
   .side-head .actions { margin-left:auto; display:flex; gap:6px; }
   .side-head .actions .btn, .side-head .actions button { padding:5px 12px; font-size:13px; }
   .side-scroll { flex:1; min-height:0; overflow-y:auto; padding:0 14px 28px 0; }
+  .impact-box { margin-top:10px; border:1px solid var(--line); border-radius:8px; padding:6px 10px; }
+  .impact-box summary { cursor:pointer; font-weight:600; font-size:13px; }
+  table.impact { border-collapse:collapse; font-size:13px; }
+  table.impact th, table.impact td { padding:3px 10px 3px 0; text-align:left; white-space:nowrap; }
+  table.impact .bar { display:inline-block; width:110px; height:8px; background:var(--line); border-radius:4px; vertical-align:middle; margin-right:6px; }
+  table.impact .bar > span { display:block; height:100%; background:var(--accent); border-radius:4px; }
+  .tag { font-size:11px; font-weight:600; padding:1px 7px; border-radius:999px; border:1px solid var(--line-strong); margin-right:4px; }
+  .tag.hard { color:#b3361b; border-color:#b3361b; } .tag.mid { color:#9a6b00; border-color:#9a6b00; }
+  .tag.soft { color:var(--mute); } .tag.none { color:var(--mute); border-style:dashed; }
   .presets { display:flex; flex-wrap:wrap; gap:6px; padding:12px 0; border-bottom:1px solid var(--line); }
   .presets .lbl { width:100%; font-size:12px; font-weight:600; color:var(--mute); }
   .preset { background:transparent; color:var(--ink); border:1px solid var(--line-strong); border-radius:999px; padding:4px 11px; font-size:12px; font-weight:600; }
@@ -280,17 +291,17 @@
       {% call section('sec-quality', 'Calidad de la empresa', (quality | join(' · ')) or 'Sin filtros', quality|length > 0) %}
         <p class="note">Datos de tastytrade; los tickers sin dato se descartan, salvo en el filtro de resultados.</p>
         <div class="fx-sub">Rentabilidad</div>
-        <label class="check"><input type="checkbox" name="q_profit" id="q_profit" {{ 'checked' if form.q_profit }}> Beneficios en los últimos 12 meses</label>
+        <label class="check"><input type="checkbox" name="q_profit" id="q_profit" {{ 'checked' if form.q_profit }}> Beneficios en los últimos 12 meses{{ count_text('require_profitable', True) }}</label>
         <label class="field">Trimestres con beneficios (de los últimos 4)
           <select name="q_quarters" id="q_quarters">
             <option value="" {{ 'selected' if form.q_quarters == '' }}>Cualquiera</option>
-            {% for n in quality_opts.quarters %}<option value="{{ n }}" {{ 'selected' if form.q_quarters == n|string }}>{{ n }} o más</option>{% endfor %}</select></label>
+            {% for n in quality_opts.quarters %}<option value="{{ n }}" {{ 'selected' if form.q_quarters == n|string }}>{{ n }} o más{{ count_text('min_positive_quarters', n) }}</option>{% endfor %}</select></label>
         <p class="note">EPS de 12 meses mayor que 0 (si tastytrade no lo da, la suma de los 4 últimos trimestres). Exigir 3 de 4 evita que un único trimestre con pérdidas extraordinarias descarte una empresa sana.</p>
         <div class="fx-sub">Liquidez</div>
         <label class="field">Liquidez de las opciones (1-5)
           <select name="q_liq" id="q_liq">
             <option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>
-            {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más</option>{% endfor %}</select></label>
+            {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más{{ count_text('min_option_liquidity', n) }}</option>{% endfor %}</select></label>
         <p class="note">La liquidez es la valoración de tastytrade de las opciones del ticker (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers: úsala con cuidado.</p>
         <div class="fx-sub">Resultados antes del vencimiento</div>
         <label class="check"><input type="checkbox" name="q_earn" id="q_earn" {{ 'checked' if form.q_earn }}> Evitar vencimientos con resultados</label>
@@ -299,10 +310,34 @@
         <label class="field">Pasivo / patrimonio máximo
           <select name="q_lev" id="q_lev">
             <option value="" {{ 'selected' if form.q_lev == '' }}>Cualquiera</option>
-            {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if form.q_lev == v }}>{{ v }}</option>{% endfor %}</select></label>
-        <label class="check"><input type="checkbox" name="q_fcf" id="q_fcf" {{ 'checked' if form.q_fcf }}> Flujo de caja libre positivo (12 meses)</label>
+            {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if form.q_lev == v }}>{{ v }}{{ count_text('max_liabilities_to_equity', v|float) }}</option>{% endfor %}</select></label>
+        <label class="check"><input type="checkbox" name="q_fcf" id="q_fcf" {{ 'checked' if form.q_fcf }}> Flujo de caja libre positivo (12 meses){{ count_text('require_positive_fcf', True) }}</label>
         <p class="note">Datos de la SEC. Las <b>financieras</b> quedan exentas. Se descartan los tickers sin dato (los ADR suelen no tenerlo) y los de patrimonio negativo.
           {% if not quality_opts.edgar %}<b>Sin datos: falta <code>edgar.contact</code> en config.yaml</b> (la SEC exige un contacto en las peticiones).{% endif %}</p>
+        <div class="fx-sub">Solvencia y calidad del flujo de caja</div>
+        {% if q_presets %}<div class="presets" style="border-bottom:0;padding:0 0 8px"><span class="lbl">Combinaciones (ninguna activa por defecto)</span>
+          {% for p in q_presets %}<button type="button" class="preset qpreset{{ ' active' if p.is_on }}" data-levels='{{ p.levels|tojson }}' data-manage="{{ 1 if p.manage else 0 }}"
+            title="{{ p.title }}">{{ p.name }}</button>{% endfor %}
+          <button type="button" class="preset qpreset" data-levels="{}" data-manage="0" data-clear="1" title="Quitar todos los filtros de solvencia">Ninguno</button>
+        </div>{% endif %}
+        <label class="field" title="Aplica el mismo grado a los cuatro filtros de solvencia">Mismo grado para los cuatro
+          <select id="q_solv_master"><option value="">— elegir —</option>
+            {% for level, label in levels %}<option value="{{ level }}">{{ label }}</option>{% endfor %}</select></label>
+        {% for f in solvency if f.core %}
+        <label class="field">{{ f.label }}
+          <select name="{{ f.key }}" id="{{ f.key }}"><option value="">Sin filtro</option>
+            {% for level, text in f.options %}<option value="{{ level }}" {{ 'selected' if f.value == level }}>{{ text }}</option>{% endfor %}</select></label>
+        {% endfor %}
+        <label class="check"><input type="checkbox" name="q_manage" id="q_manage" {{ 'checked' if form.q_manage }}> Deuda baja o manejable{{ count_text('require_manageable_debt', True) }}</label>
+        <p class="note">Pasa con deuda/patrimonio ≤ {{ manageable.max_debt_to_equity|string }} <b>o</b> cobertura de intereses ≥ {{ manageable.min_interest_coverage|string }}×: solo se descarta la deuda alta Y mal cubierta.</p>
+        <div class="fx-sub">Opcionales (sin filtro por defecto)</div>
+        {% for f in solvency if not f.core %}
+        <label class="field">{{ f.label }}
+          <select name="{{ f.key }}" id="{{ f.key }}"><option value="">Sin filtro</option>
+            {% for level, text in f.options %}<option value="{{ level }}" {{ 'selected' if f.value == level }}>{{ text }}</option>{% endfor %}</select></label>
+        {% endfor %}
+        <p class="note">Tras cada opción, <b>«· n/N»</b>: cuántos de los N tickers de la watchlist pasan ese valor por separado (los de sectores exentos pasan; un dato que falta no pasa).
+          Exentos: sectores con «{{ exempt_names }}» en su nombre.</p>
       {% endcall %}
 
       {% call section('sec-optional', 'Filtros opcionales', (optional | join(' · ')) or 'Sin filtros', optional|length > 0) %}
@@ -330,6 +365,12 @@
       {% if chips %}<div class="chips">{% for sec, text in chips %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}</div>{% endif %}
       {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
       {% for w in warnings %}<div class="banner info">{{ w }}</div>{% endfor %}
+      {% if criteria %}
+      <details class="impact-box" id="impact-box" data-url="/scanner/impact">
+        <summary>¿Cuánto descarta cada filtro? <span class="muted">(ver lo restrictiva que es la selección)</span></summary>
+        <div id="impact-body" class="muted">Calculando…</div>
+      </details>
+      {% endif %}
     </div>
     {% if out %}
     <form method="post" action="/simulate" class="table-form">
@@ -405,6 +446,36 @@
   ['ref_x', 'price_min', 'price_max'].forEach(function (n) {
     const el = form.querySelector('[name=' + n + ']');
     el.addEventListener('change', function () { form.submit(); });   // editar X o el precio escanea
+  });
+  // Panel «¿Cuánto descarta cada filtro?»: se calcula al abrirlo (no en cada escaneo)
+  (function () {
+    const box = document.getElementById('impact-box');
+    if (!box) return;
+    let loaded = false;
+    box.addEventListener('toggle', function () {
+      if (!box.open || loaded) return;
+      loaded = true;
+      fetch(box.dataset.url + window.location.search, { headers: { 'X-Requested-With': 'fetch' } })
+        .then(function (r) { return r.text(); })
+        .then(function (html) { document.getElementById('impact-body').innerHTML = html; })
+        .catch(function () { document.getElementById('impact-body').textContent = 'No se pudo calcular.'; });
+    });
+    try { if (sessionStorage.getItem('impact-open') === '1') box.open = true; } catch (e) { /* sin almacenamiento */ }
+    box.addEventListener('toggle', function () { try { sessionStorage.setItem('impact-open', box.open ? '1' : '0'); } catch (e) { /* idem */ } });
+  })();
+  // Combinaciones de calidad: rellenan los filtros de solvencia y escanean («Ninguno» los quita)
+  document.querySelectorAll('button.qpreset').forEach(function (b) {
+    b.addEventListener('click', function () {
+      ['q_de', 'q_cov', 'q_cash', 'q_ocfd', 'q_capex', 'q_fcfa', 'q_bb'].forEach(function (n) { document.getElementById(n).value = ''; });
+      const levels = JSON.parse(b.dataset.levels);
+      Object.keys(levels).forEach(function (n) { document.getElementById(n).value = levels[n]; });
+      document.getElementById('q_manage').checked = b.dataset.manage === '1';
+      form.submit();
+    });
+  });
+  document.getElementById('q_solv_master').addEventListener('change', function () {
+    const v = this.value;
+    ['q_de', 'q_cov', 'q_cash', 'q_ocfd'].forEach(function (n) { document.getElementById(n).value = v; });
   });
   // Configuraciones preconfiguradas: cargan sus valores en el formulario (el resto de filtros se conserva) y escanean
   document.querySelectorAll('button.preset').forEach(function (b) {

@@ -98,6 +98,10 @@ class ScanCriteria:
     max_capex_to_ocf: Optional[float] = None      # inversión en inmovilizado / flujo operativo (fracción)
     min_fcf_to_assets: Optional[float] = None     # flujo de caja libre / activos (fracción)
     min_net_buyback_pct: Optional[float] = None   # reducción del nº de acciones en el último año (%)
+    # «deuda baja o manejable»: pasa con deuda/patrimonio ≤ manageable_max_de O con cobertura de intereses ≥ manageable_min_cover
+    require_manageable_debt: bool = False
+    manageable_max_de: float = 0.5
+    manageable_min_cover: float = 3.0
 
     @property
     def ticker_quality_active(self) -> bool:
@@ -106,6 +110,7 @@ class ScanCriteria:
             self.require_profitable or self.min_positive_quarters is not None
             or self.min_option_liquidity is not None
             or self.max_liabilities_to_equity is not None or self.require_positive_fcf
+            or self.require_manageable_debt
             or any(getattr(self, field) is not None for field, *_ in SOLVENCY_RULES)
         )
 
@@ -115,6 +120,7 @@ class ScanCriteria:
             self.require_profitable or self.avoid_earnings or self.min_positive_quarters is not None
             or self.min_option_liquidity is not None
             or self.max_liabilities_to_equity is not None or self.require_positive_fcf
+            or self.require_manageable_debt
             or any(getattr(self, field) is not None for field, *_ in SOLVENCY_RULES)
         )
 
@@ -144,6 +150,8 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
         dte_max=ini.dte_max,
         min_oi=f.min_oi, min_bid=f.min_bid, min_bid_size=f.min_bid_size, max_spread_pct=f.max_spread_pct,
         min_iv_rank=f.min_iv_rank, min_iv_percentile=f.min_iv_percentile,
+        manageable_max_de=settings.scanner.quality.manageable_debt.max_debt_to_equity,
+        manageable_min_cover=settings.scanner.quality.manageable_debt.min_interest_coverage,
         price_reference=settings.scanner.price_reference.mode,
         price_spread_pct=settings.scanner.price_reference.spread_pct,
     )

@@ -26,6 +26,7 @@ from scanner_opciones.portfolio.diversification import WeekExposure, sector_expo
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
+from scanner_opciones.scanner.impact import ImpactReport, impact_report
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     QualityRepo,
@@ -769,6 +770,15 @@ class AppService:
         return run_scan(
             snapshots, self.ticker_info.all(), self.state.positions, criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
+            self.settings.scanner.quality.exempt_sectors,
+        )
+
+    def scan_impact(self, criteria: ScanCriteria) -> ImpactReport:
+        """Cuánto descarta cada filtro activo (ver `scanner/impact.py`)."""
+        snapshots = self.snapshots.all()
+        bars = self.bars.all_closes({s.contract.ticker for s in snapshots}) if criteria.technical_active else None
+        return impact_report(
+            snapshots, self.ticker_info.all(), criteria, self.now().date(), bars, self.settings.scanner.technical,
             self.settings.scanner.quality.exempt_sectors,
         )
 
