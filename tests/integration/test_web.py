@@ -488,7 +488,7 @@ def test_apply_add_keeps_existing_and_adds_the_selection(client_and_service):
     gw.prices["GCT"] = 52.0
     r = client.post("/universe/apply", data={"mode": "add", "sel": ["GCT", "PAYS"]}, follow_redirects=True)
     assert set(svc.watchlist.list()) == {"AAPL", "GCT", "PAYS"}
-    assert "2 nuevos" in r.text
+    assert "Nuevos en la watchlist" in r.text and "<code>GCT</code><code>PAYS</code>" in r.text
     assert "✓" in client.get("/universe?src=RankedStocks").text                      # la columna «En watchlist» lo marca
 
 
@@ -497,7 +497,7 @@ def test_apply_replace_swaps_the_whole_watchlist(client_and_service):
     load_rank(client)
     r = client.post("/universe/apply", data={"mode": "replace", "sel": ["DK", "KO"]}, follow_redirects=True)
     assert set(svc.watchlist.list()) == {"DK", "KO"}
-    assert "Watchlist sustituida: 2 nuevos, 0 conservados, 1 quitados (AAPL)" in r.text
+    assert "Watchlist sustituida" in r.text and "Quitados de la watchlist" in r.text and "<code>AAPL</code>" in r.text
 
 
 def test_apply_with_nothing_selected_does_not_wipe_the_watchlist(client_and_service):

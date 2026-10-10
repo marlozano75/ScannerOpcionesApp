@@ -359,7 +359,7 @@ def create_app(
     @app.get("/watchlist", response_class=HTMLResponse)
     async def watchlist(request: Request, message: str = ""):
         tickers, infos = service.watchlist.list(), service.ticker_info.all()
-        return render(request, "watchlist.html", tickers=tickers, infos=infos, message=message,
+        return render(request, "watchlist.html", tickers=tickers, infos=infos, message=message, groups=message_groups(message),
                       ov=page_charts.watchlist_overview(tickers, infos))
 
     @app.post("/excluded/dismiss")
@@ -369,23 +369,30 @@ def create_app(
         return Response(status_code=204)
 
     async def apply_watchlist(parsed, mode: str) -> str:
-        """Añade los tickers a la watchlist o, con mode='replace', la sustituye por ellos."""
-        rejected = f", {len(parsed.rejected)} rechazados" if parsed.rejected else ""
-        if parsed.rejected:
-            rejected += ": " + ", ".join(t for t, _ in parsed.rejected)
-        def pending(new: list[str]) -> str:
-            return (" · los nuevos se están actualizando en segundo plano (el progreso aparece arriba)"
-                    if new and service.state.connected else "")
+        """Añade los tickers a la watchlist o, con mode='replace', la sustituye por ellos. Devuelve un mensaje de `_grp`."""
+        def tail(new: list[str], kept: Optional[list[str]] = None, removed=()) -> str:
+            out = []
+            if new:
+                out.append(_grp("ok", "Nuevos en la watchlist", new, "se actualizan en segundo plano (progreso arriba)" if service.state.connected else ""))
+            else:
+                out.append(_grp("skip", "Sin tickers nuevos", [], ""))
+            if kept is not None:
+                out.append(_grp("skip", "Conservados", [], f"{len(kept)} ticker{'s' if len(kept) != 1 else ''}"))
+            if removed:
+                out.append(_grp("del", "Quitados de la watchlist", removed))
+            if parsed.duplicates:
+                out.append(_grp("skip", "Repetidos", [], f"{parsed.duplicates} en la lista"))
+            if parsed.rejected:
+                out.append(_grp("err", "Rechazados", [t for t, _ in parsed.rejected]))
+            return "\n".join(out)
         if mode == "replace":
             try:
                 new, kept, removed = await service.replace_watchlist(parsed, background=True)
             except ValueError as exc:
-                return f"Error: {exc}; no se ha cambiado la watchlist"
-            gone = f" ({', '.join(removed)})" if removed else ""
-            return (f"Watchlist sustituida: {len(new)} nuevos, {len(kept)} conservados, "
-                    f"{len(removed)} quitados{gone}, {parsed.duplicates} repetidos{rejected}{pending(new)}")
+                return _grp("err", "Error", [], f"{exc}; no se ha cambiado la watchlist")
+            return _grp("ok", "Watchlist sustituida", [], "") + "\n" + tail(new, kept, removed)
         new = await service.add_watchlist(parsed, background=True)
-        return f"{len(new)} nuevos, {parsed.duplicates} repetidos{rejected or ', 0 rechazados'}{pending(new)}"
+        return tail(new)
 
     # ---- Universo (ficheros .xlsx de RankedStocks y HelloStocks elegidos por el usuario) ------
     @app.get("/universe", response_class=HTMLResponse)
@@ -546,7 +553,7 @@ def create_app(
         form = await request.form()
         mode = str(form.get("mode", "add"))
         msg = await apply_watchlist(parse_tokens([str(t) for t in form.getlist("sel")]), mode)
-        return RedirectResponse(f"/watchlist?message={msg}", status_code=303)
+        return RedirectResponse(f"/watchlist?{urlencode({'message': msg})}", status_code=303)
 
     # ---- scanner y simulador ---------------------------------------------------------------
     def parse_scan(qp) -> dict:

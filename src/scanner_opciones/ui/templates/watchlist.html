@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-{% if message %}<div class="banner info">{{ message }}</div>{% endif %}
+{% include "_msgs.html" %}
 <div class="card">
   <h2>Watchlist ({{ tickers|length }})</h2>
   <p class="muted">Para cambiar la lista usa la pestaña <a href="/universe">Universo</a>.</p>
