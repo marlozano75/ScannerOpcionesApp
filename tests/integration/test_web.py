@@ -352,6 +352,14 @@ def load_hello(client):
     return client.post("/universe/load", files=[("files", (HELLO_NAME, hello_xlsx()))], follow_redirects=True)
 
 
+def test_loading_a_file_reports_new_sources_and_then_new_and_kept_tickers_when_it_replaces_them(client_and_service):
+    client = client_and_service[0]
+    first = load_hello(client).text
+    assert "Fuente nueva" in first
+    again = load_hello(client).text
+    assert "Nuevos en" in again and "0 nuevos" in again and "conservados" in again
+
+
 def test_universe_page_asks_for_files_until_one_is_loaded(client_and_service):
     client, svc, gw, _ = client_and_service
     r = client.get("/universe")

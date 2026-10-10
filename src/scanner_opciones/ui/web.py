@@ -74,6 +74,29 @@ def message_groups(message: str) -> list[dict]:
     return out
 
 
+def _load_groups(raw: dict[str, list[str]], loaded, before: dict[str, list[str]]) -> list[str]:
+    """Grupos del mensaje de una carga de fichero: por fuente, los tickers nuevos, los quitados (estaban en la fuente
+    que se reemplaza y ya no vienen) y los conservados; y, aparte, los descartados por no tener opciones."""
+    out = []
+    after = {src.name: [r.ticker for r in src.table.rows] for src in loaded}
+    for name, tickers in after.items():
+        old = before.get(name)
+        if old is None:
+            out.append(_grp("ok", f"Fuente nueva: {name}", [], f"{len(tickers)} tickers"))
+            continue
+        fresh = [t for t in tickers if t not in set(old)]
+        gone = [t for t in old if t not in set(tickers)]
+        kept = len(tickers) - len(fresh)
+        out.append(_grp("ok" if fresh else "skip", f"Nuevos en {name}", fresh[:60],
+                        f"{len(fresh)} nuevos · {kept} conservados" + (f" · +{len(fresh) - 60} más" if len(fresh) > 60 else "")))
+        if gone:
+            out.append(_grp("del", f"Quitados de {name}", gone[:60], f"{len(gone)} quitados" if len(gone) > 60 else ""))
+    no_opts = sorted({t for n, ts in raw.items() for t in ts} - {t for ts in after.values() for t in ts})
+    if no_opts:
+        out.append(_grp("warn", "Sin opciones (descartados)", no_opts[:60], f"{len(no_opts)} tickers" + (" · se muestran 60" if len(no_opts) > 60 else "")))
+    return out
+
+
 def _days_label(days: int) -> str:
     """7 -> «1 semana», 30 -> «1 mes», 365 -> «1 año», 252 -> «252 días (~1 año bursátil)»; otros valores, «N días»."""
     if days == 252:
@@ -417,7 +440,7 @@ def create_app(
 
     @app.post("/universe/load")
     async def universe_load(files: list[UploadFile]):
-        done, errors, notes = [], [], []
+        done, errors, notes, detail = [], [], [], []
         log.info("Universo: petición de carga con %d fichero(s): %s", len(files), [f.filename for f in files])
         for upload in files:
             name = Path(upload.filename or "").name
@@ -433,6 +456,7 @@ def create_app(
                 sources = load_sources(path, name)
                 if path.suffix.lower() in HTML_SUFFIXES:        # página de HelloStocks: avisa de listas sin descargar
                     notes += [f"{name}: {w}" for w in missing_strategies(path)]
+                raw_by_source = {src.name: [r.ticker for r in src.table.rows] for src in sources}
                 sources, removed, checked = await service.prune_without_options(sources)
             except WatchlistError as exc:
                 log.warning("Universo: %s no se pudo cargar: %s", name, exc)
@@ -448,6 +472,7 @@ def create_app(
             if not sources:
                 errors.append(f"{name}: ningún ticker tiene opciones")
                 continue
+            detail += _load_groups(raw_by_source, sources, {s_.name: [r.ticker for r in s_.table.rows] for s_ in service.universe_sources})
             service.set_universe_file(name, sources, content)   # queda guardado hasta que se quite o se cargue otro igual
             done.append((name, f"{name}: {len(sources)} fuente{'s' if len(sources) != 1 else ''}, {sum(len(s.table.rows) for s in sources)} filas"
                          + (f", {removed} tickers sin opciones descartados" if removed else "")))
@@ -457,6 +482,7 @@ def create_app(
         groups = []
         if done:
             groups.append(_grp("ok", "Cargado", [d[0] for d in done], "; ".join(d[1] for d in done if d[1])))
+        groups += detail
         if notes:
             groups.append(_grp("warn", "Aviso", [], "; ".join(dict.fromkeys(notes))))
         if errors:
