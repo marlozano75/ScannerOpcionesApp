@@ -69,6 +69,35 @@ async def test_when_the_providers_fail_the_ticker_is_added_anyway_with_blank_com
     assert res["added"] == ["QQQQ"] and svc.universe_identity()["QQQQ"] == ("", "")
 
 
+async def test_replacing_a_manual_source_swaps_its_tickers_and_every_load_goes_to_the_history(tmp_path):
+    svc, db, _ = make(tmp_path)
+    load_hello_into(svc, tmp_path)
+    await svc.add_manual_tickers(parse_text("AAA, BBB"), "Mis ideas")
+    res = await svc.add_manual_tickers(parse_text("BBB, CCC"), "Mis ideas", replace_source=True)
+    assert svc.manual_sources["Mis ideas"] == ["BBB", "CCC"]
+    assert res["removed"] == ["AAA"] and res["added"] == ["BBB", "CCC"]
+    assert [(h["name"], h["kind"], h["action"]) for h in svc.universe_history] == [
+        ("Mis ideas", "manual", "sustituido"), ("Mis ideas", "manual", "añadido"), (HELLO_NAME, "fichero", "cargado")]
+    assert AppService(FakeGateway(), db, Settings(), lambda: NOW).universe_history[0]["at"].startswith("2026-10-10")
+
+
+async def test_replacing_with_no_valid_ticker_keeps_the_source(tmp_path):
+    import pytest
+    from scanner_opciones.domain.errors import WatchlistError
+    svc, _, _ = make(tmp_path)
+    await svc.add_manual_tickers(parse_text("AAA"), "Mis ideas")
+    with pytest.raises(WatchlistError):
+        await svc.add_manual_tickers(parse_text("1234"), "Mis ideas", replace_source=True)
+    assert svc.manual_sources["Mis ideas"] == ["AAA"]
+
+
+def test_the_history_tab_lists_loads_with_name_and_date(client_and_service):
+    client = client_and_service[0]
+    load_hello(client)
+    page = client.get("/universe?view=history").text
+    assert "Historial de carga" in page and HELLO_NAME in page and "fichero" in page
+
+
 def test_the_identity_columns_come_first_and_are_not_repeated(client_and_service):
     client = client_and_service[0]
     load_hello(client)

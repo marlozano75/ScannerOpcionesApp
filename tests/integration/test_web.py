@@ -363,7 +363,7 @@ def test_universe_page_asks_for_files_until_one_is_loaded(client_and_service):
 
 def test_load_rankedstocks_shows_every_column_and_row_with_its_source(client_and_service):
     client, svc, gw, _ = client_and_service
-    assert "RankedStocks_2026.10.01.xlsx (1 fuente, 4 filas)" in load_rank(client).text
+    assert "RankedStocks_2026.10.01.xlsx: 1 fuente, 4 filas" in load_rank(client).text
     r = client.get("/universe?src=RankedStocks")
     for col in ("Ticker", "Fuente", "Empresa", "Sector", "Bolsa", "País", "Capitalización", "Precio", "RS", "Al", "En watchlist"):
         assert f"<th>{col}</th>" in r.text
@@ -377,7 +377,7 @@ def test_load_rankedstocks_shows_every_column_and_row_with_its_source(client_and
 def test_hello_stocks_makes_one_source_per_tab_each_with_its_own_columns(client_and_service):
     client, svc, gw, _ = client_and_service
     r = load_hello(client)
-    assert f"{HELLO_NAME} (3 fuentes, 6 filas)" in r.text
+    assert f"{HELLO_NAME}: 3 fuentes, 6 filas" in r.text
     assert [s.name for s in svc.universe_sources] == [LOWER, DEFENSIVE, VALUE]
     lower = client.get(f"/universe?src={LOWER}").text
     assert "<th>ROE</th>" in lower and "<th>Free Cash Flow (TTM)</th>" in lower and "<th>PE Ratio</th>" not in lower
@@ -411,11 +411,12 @@ def test_manual_source_needs_a_name_persists_and_reports_the_ones_already_in_it(
     with TestClient(app) as client:
         load_rank(client)                                                               # KO ya está en RankedStocks
         r = client.post("/universe/manual", data={"text": "ko, nvda amd 123", "source": "Mis ideas"}, follow_redirects=True)
-        assert "Añadidos a Mis ideas: KO, NVDA, AMD (2 nuevos en el Universo, el resto ya estaban en otras fuentes)" in r.text
-        assert "Rechazados: 123" in r.text                                             # KO se añade: es otra fuente
+        assert "Añadidos a Mis ideas" in r.text and "<code>KO</code><code>NVDA</code><code>AMD</code>" in r.text
+        assert "2 nuevos en el Universo, el resto ya estaban en otras fuentes" in r.text
+        assert "Rechazados" in r.text and "<code>123</code>" in r.text                                             # KO se añade: es otra fuente
         assert [s.name for s in svc.universe_sources][-1] == "Mis ideas"
         again = client.post("/universe/manual", data={"text": "NVDA", "source": "mis  IDEAS"}, follow_redirects=True)
-        assert "Ya incluidos: NVDA (Mis ideas)" in again.text and svc.manual_sources == {"Mis ideas": ["KO", "NVDA", "AMD"]}
+        assert "Ya incluidos" in again.text and "NVDA (Mis ideas)" in again.text and svc.manual_sources == {"Mis ideas": ["KO", "NVDA", "AMD"]}
         assert "Mis ideas" in client.get("/universe").text
         nameless = client.post("/universe/manual", data={"text": "TSLA", "source": "  "}, follow_redirects=True)
         assert "Pon un nombre a la fuente" in nameless.text and "TSLA" not in svc.manual_sources["Mis ideas"]
@@ -436,9 +437,9 @@ def test_tickers_can_be_removed_from_a_manual_source_and_the_source_disappears_w
         client.post("/universe/manual", data={"text": "NVDA AMD KO", "source": "Mis ideas"})
         r = client.post("/universe/source/remove", data={"src": "Mis ideas", "scope": "selected", "sel": ["NVDA", "KO"]},
                         follow_redirects=True)
-        assert "Quitados 2 tickers de Mis ideas" in r.text and svc.manual_sources == {"Mis ideas": ["AMD"]}
+        assert "Quitados de Mis ideas" in r.text and "2 tickers" in r.text and svc.manual_sources == {"Mis ideas": ["AMD"]}
         gone = client.post("/universe/source/remove", data={"src": "Mis ideas", "scope": "all"}, follow_redirects=True)
-        assert "Quitados 1 ticker de Mis ideas" in gone.text and svc.manual_sources == {}
+        assert "Quitados de Mis ideas" in gone.text and "1 ticker" in gone.text and svc.manual_sources == {}
         unknown = client.post("/universe/source/remove", data={"src": "Nada", "scope": "all"}, follow_redirects=True)
         assert "no existe" in unknown.text
 
@@ -522,7 +523,7 @@ def test_several_files_in_one_upload_and_bad_files_report_an_error(client_and_se
     client, svc, gw, _ = client_and_service
     both = client.post("/universe/load", files=[("files", (RANK_NAME, rank_xlsx())), ("files", (HELLO_NAME, hello_xlsx()))],
                        follow_redirects=True)
-    assert "Cargado:" in both.text and len(svc.universe_sources) == 4
+    assert "Cargado" in both.text and len(svc.universe_sources) == 4
     bad = client.post("/universe/load", files=[("files", ("w.csv", b"AAPL"))], follow_redirects=True)
     assert "Error" in bad.text and "Formato no soportado" in bad.text
     no_symbol = load_rank(client, header=["Empresa", "Precio"], rows=[["X", "$1"]])

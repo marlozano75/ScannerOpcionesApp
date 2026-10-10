@@ -47,6 +47,7 @@ log = logging.getLogger(__name__)
 LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco completo
 EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos): ya no se usa, se vacía al arrancar
 MAX_SOURCE_NAME = 40  # longitud máxima del nombre de una fuente manual
+MAX_HISTORY = 200     # cargas que recuerda el historial del Universo
 STEP_TIMEOUT_SECONDS = 90  # un paso de red colgado no debe bloquear el refresco para siempre
 
 
@@ -244,13 +245,34 @@ class AppService:
             raise WatchlistError(f"«{name}» ya es una fuente de un fichero: elige otro nombre")
         return next((n for n in self.manual_sources if n.casefold() == name.casefold()), name)
 
-    async def add_manual_tickers(self, parsed: ParseResult, source: str = MANUAL) -> dict:
+    def _load_history(self) -> list[dict]:
+        try:
+            data = json.loads(self.meta.get("universe_history") or "[]")
+        except (ValueError, TypeError):
+            return []
+        return [d for d in data if isinstance(d, dict)] if isinstance(data, list) else []
+
+    @property
+    def universe_history(self) -> list[dict]:
+        """Historial de cargas del Universo, la más reciente primero: {name, kind, at, count, action}."""
+        return self._load_history()
+
+    def record_load(self, name: str, kind: str, count: int, action: str) -> None:
+        """Anota una carga (`kind`: «fichero» o «manual»; `action`: cargado, añadido o sustituido)."""
+        history = self._load_history()
+        history.insert(0, {"name": name, "kind": kind, "at": self.now().isoformat(timespec="seconds"),
+                           "count": count, "action": action})
+        self.meta.set("universe_history", json.dumps(history[:MAX_HISTORY]))
+
+    async def add_manual_tickers(self, parsed: ParseResult, source: str = MANUAL, replace_source: bool = False) -> dict:
         """Añade a la fuente manual `source` (se crea si no existe) los tickers que no están ya en ella y que tienen
-        opciones. Devuelve `source`, `added`, `new_in_universe` (de los añadidos, los que no estaban en ninguna fuente),
-        `already` (ticker -> [fuente]), `no_options` y `checked`."""
+        opciones; con `replace_source` la lista de la fuente pasa a ser exactamente los tickers dados (con opciones).
+        Devuelve `source`, `added`, `new_in_universe` (de los añadidos, los que no estaban en ninguna fuente),
+        `already` (ticker -> [fuente]), `no_options`, `checked` y `removed` (solo al sustituir)."""
         name = self._manual_name(source)
         in_universe = {row.ticker for src in self.universe_sources for row in src.table.rows}
-        present = set(self.manual_sources.get(name, []))
+        old = list(self.manual_sources.get(name, []))
+        present = set() if replace_source else set(old)
         already = {t: [name] for t in parsed.tickers if clean_ticker(t) in present or t in present}
         new = [t for t in parsed.tickers if t not in already]
         no_options: list[str] = []
@@ -264,13 +286,24 @@ class AppService:
                 new = [t for t in new if clean_ticker(t) in found]
         elif new:
             checked = False
-        if new:
+        removed: list[str] = []
+        if replace_source:
+            if not new:
+                raise WatchlistError("No hay ningún ticker válido con el que sustituir la fuente; no se ha cambiado")
+            keep = {clean_ticker(t) for t in new}
+            removed = [t for t in old if clean_ticker(t) not in keep]
+            in_universe -= {clean_ticker(t) for t in old}      # lo que ya traía esta fuente no es nuevo en el Universo
+            self.manual_sources[name] = list(new)
+            self._save_manual()
+        elif new:
             self.manual_sources.setdefault(name, []).extend(new)
             self._save_manual()
+        if new:
+            self.record_load(name, "manual", len(new), "sustituido" if replace_source else "añadido")
             await self.complete_info(new)
             self.kick_quality_update()
         return {"source": name, "added": new, "new_in_universe": [t for t in new if clean_ticker(t) not in in_universe],
-                "already": already, "no_options": no_options, "checked": checked}
+                "already": already, "no_options": no_options, "checked": checked, "removed": removed}
 
     def remove_source_tickers(self, source: str, tickers) -> int:
         """Quita tickers de una fuente (manual o de fichero); devuelve cuántos. Si se quitan todos, la fuente
@@ -353,6 +386,7 @@ class AppService:
             if old == file or names & {s.name for s in olds}:
                 self._drop_universe_file(old)
         self.universe_files[file] = (self.now(), tuple(sources))
+        self.record_load(file, "fichero", sum(len(s.table.rows) for s in sources), "cargado")
         if any(self.source_excluded.pop(n, None) for n in names):    # un fichero nuevo trae la lista entera
             self._save_excluded()
         self.kick_quality_update()

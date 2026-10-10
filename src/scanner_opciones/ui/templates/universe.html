@@ -8,8 +8,23 @@
   {%- else %}<td data-sort="{{ v }}">{% if kind == 'x' %}{{ v|num }}×{% elif kind == 'f' %}{{ (v * 100)|pct(0) }}{% elif kind == 'p' %}{{ v|pct(1) }}{% else %}{{ v|num }}{% endif %}</td>
   {%- endif %}
 {%- endmacro %}
-{% if message %}<div class="banner info">{{ message }}</div>{% endif %}
+{% if groups %}<div class="msgs">{% for g in groups %}
+  <div class="msg {{ g.kind }}">{% if g.title %}<span class="mt">{{ g.title }}</span>{% endif %}
+    {%- if g.chips %}<span class="mi">{% for it in g.chips %}<code>{{ it }}</code>{% endfor %}</span>{% endif %}
+    {%- if g.note %}<span class="mn">{{ g.note }}</span>{% endif %}</div>{% endfor %}</div>{% endif %}
 <style>
+  .msgs { display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+  .msg { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; padding:8px 12px; border-radius:8px; border:1px solid var(--c-line); border-left:5px solid var(--c); background:var(--c-bg); font-size:13px; }
+  .msg .mt { font-weight:700; color:var(--c); }
+  .msg .mi { display:inline-flex; flex-wrap:wrap; gap:4px; }
+  .msg .mi code { padding:1px 8px; border-radius:999px; background:#fff; border:1px solid var(--c-line); color:var(--ink); font-size:12px; }
+  .msg .mn { color:var(--mute); font-size:12px; }
+  .msg.ok { --c:#1f7a5c; --c-bg:#e6f4ee; --c-line:#b7dccd; }
+  .msg.del { --c:#b3361b; --c-bg:#fbebe7; --c-line:#ecb5ad; }
+  .msg.skip { --c:#5d6678; --c-bg:#eef0f4; --c-line:#d3d8e2; }
+  .msg.warn { --c:#9a6700; --c-bg:#fcf3dc; --c-line:#ecd593; }
+  .msg.err { --c:#a01d1d; --c-bg:#f9e3df; --c-line:#e3a29a; }
+  .msg.info { --c:#3b4a8a; --c-bg:#e8eaf3; --c-line:#c5cbe0; }
   .shell.uni { grid-template-columns:300px minmax(0,1fr); }
   .uni-main { min-height:0; overflow-y:auto; padding-right:4px; }
   .side-tools { padding:12px 0 6px; }
@@ -39,6 +54,12 @@
   #rk-apply table.sortable tr:first-child th { position:sticky; top:0; z-index:2; background:var(--panel); box-shadow:inset 0 -1px 0 var(--line-strong); }
   @media (max-width: 900px) { #rk-apply .scroll { max-height:75vh; } }
 </style>
+<script>
+  function confirmSource(form) {
+    if (!form.reportValidity()) return false;
+    return confirm('La fuente «' + form.elements.source.value.trim() + '» quedará solo con los tickers escritos (si ya existe, se pierden los demás). ¿Sustituirla?');
+  }
+</script>
 <div class="shell uni">
   <aside class="side">
     <div class="side-head"><h2>Fuentes</h2><span class="count">{{ sources|length }}</span></div>
@@ -54,19 +75,37 @@
             <input type="text" name="source" list="manual-sources" maxlength="40" placeholder="Nombre de la fuente" required>
             <datalist id="manual-sources">{% for name, n in manual %}<option value="{{ name }}">{% endfor %}</datalist>
             <textarea name="text" rows="2" style="min-height:56px" placeholder="AAPL, MSFT, KO …" required></textarea>
-            <div><button>Añadir a la fuente</button></div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button name="mode" value="add" title="Suma los tickers a los que ya tiene la fuente">Añadir a la fuente</button>
+              <button name="mode" value="replace" class="secondary" onclick="return confirmSource(this.form)"
+                      title="La fuente pasa a tener solo estos tickers">Sustituir la fuente</button>
+            </div>
           </form>
         </div>
       </details>
       <nav class="src-menu" aria-label="Fuentes">
-        <a class="src-item {{ 'active' if not src }}" href="/universe?reset=1"><b></b><span class="nm">Todas</span><small>{{ all_count }}</small></a>
+        <a class="src-item {{ 'active' if view == 'history' }}" href="/universe?view=history"><b>⏱</b><span class="nm">Historial de carga</span></a>
+        <a class="src-item {{ 'active' if not src and view != 'history' }}" href="/universe?reset=1"><b></b><span class="nm">Todas</span><small>{{ all_count }}</small></a>
         {% for s in sources %}<a class="src-item {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}" title="{{ s.name }}"><b>{{ numbers[s.name] }}</b><span class="nm">{{ s.name }}</span><small>{{ s.table.rows|length }}</small></a>{% endfor %}
       </nav>
     </div>
   </aside>
   <section class="uni-main" id="uni-main" data-keep-scroll>
-{% if not table %}<p class="muted" style="margin-top:18px">Aún no hay fuentes: carga un fichero (.xlsx o .html) o añade tickers a mano con el menú de la izquierda.</p>{% endif %}
-{% if table %}
+{% if view == 'history' %}
+<div class="card" style="margin-top:12px">
+  <h2>Historial de carga <span class="muted">· {{ history|length }}</span></h2>
+  {% if history %}
+  <table class="sortable">
+    <tr><th>Fuente o fichero</th><th>Tipo</th><th>Acción</th><th>Tickers / filas</th><th>Fecha de carga</th></tr>
+    {% for h in history %}
+    <tr><td><b>{{ h.name }}</b></td><td>{{ h.kind }}</td><td>{{ h.action }}</td><td>{{ h.count }}</td>
+      <td data-sort="{{ h.at.isoformat() }}">{{ h.at.strftime('%d/%m/%Y %H:%M') }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">Aún no se ha cargado nada.</p>{% endif %}
+</div>
+{% elif not table %}<p class="muted" style="margin-top:18px">Aún no hay fuentes: carga un fichero (.xlsx o .html) o añade tickers a mano con el menú de la izquierda.</p>{% endif %}
+{% if table and view != 'history' %}
 {% if source_info %}
 <details class="card source-info" id="source-info" open>
   <summary>{{ source_info.title }} <span class="muted">· cómo selecciona esta fuente</span></summary>

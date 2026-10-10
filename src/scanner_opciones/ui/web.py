@@ -5,7 +5,7 @@ import logging
 import tempfile
 from urllib.parse import urlencode
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
@@ -54,6 +54,24 @@ def _x(v: Optional[float]) -> str:
 
 def _num(v: Optional[float], digits: int = 2) -> str:
     return "—" if v is None else f"{v:.{digits}f}"
+
+
+def _grp(kind: str, title: str, items=(), note: str = "") -> str:
+    """Un grupo de un mensaje del Universo: `kind` (ok, del, skip, warn, err), título, elementos (tickers, ficheros) y nota."""
+    return "|".join((kind, title.replace("|", "/"), "\t".join(str(i).replace("|", "/").replace("\t", " ") for i in items), note.replace("|", "/")))
+
+
+def message_groups(message: str) -> list[dict]:
+    """Interpreta un mensaje de `_grp` (uno por línea). Una línea sin formato se muestra como aviso informativo."""
+    out = []
+    for line in (message or "").splitlines():
+        parts = line.split("|")
+        if len(parts) == 4 and parts[0] in ("ok", "del", "skip", "warn", "err"):
+            kind, title, items, note = parts
+            out.append({"kind": kind, "title": title, "chips": [i for i in items.split("\t") if i], "note": note})
+        elif line.strip():
+            out.append({"kind": "err" if line.startswith("Error") else "info", "title": "", "chips": [], "note": line})
+    return out
 
 
 def _days_label(days: int) -> str:
@@ -348,10 +366,16 @@ def create_app(
 
     # ---- Universo (ficheros .xlsx de RankedStocks y HelloStocks elegidos por el usuario) ------
     @app.get("/universe", response_class=HTMLResponse)
-    async def universe(request: Request, src: str = ALL, message: str = ""):
-        if (back := recall(request, "universe")) is not None:
+    async def universe(request: Request, src: str = ALL, message: str = "", view: str = ""):
+        if (back := recall(request, "universe", ignore=("message", "debug", "view"))) is not None:
             return back
         sources = service.universe_sources
+        if view == "history":
+            history = [{**h, "at": datetime.fromisoformat(h["at"])} for h in service.universe_history if h.get("at")]
+            return render(request, "universe.html", no_autorefresh=True, table=None, rows=[], message=message, groups=message_groups(message), history=history,
+                          view="history", src=ALL, sources=sources, numbers={s.name: n for n, s in enumerate(sources, 1)},
+                          all_count=len({r.ticker for s in sources for r in s.table.rows}),
+                          manual=[(n, len(t)) for n, t in service.manual_sources.items()])
         numbers = {s.name: n for n, s in enumerate(sources, 1)}           # número de cada fuente
         current = next((s for s in sources if s.name == src), None)
         merged = merge(sources) if sources else None
@@ -382,7 +406,7 @@ def create_app(
                 else describe(current.name, current.criteria)
         identity_cols = {"company", "empresa", "sector"} | set(SYMBOL_HEADERS)   # van delante: no se repiten al final
         skip = {i for i, c in enumerate(table.columns) if _plain(c.name) in identity_cols} if table else set()
-        return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message,
+        return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message, groups=message_groups(message),
                       ident=ident, skip=skip,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
@@ -425,42 +449,48 @@ def create_app(
                 errors.append(f"{name}: ningún ticker tiene opciones")
                 continue
             service.set_universe_file(name, sources, content)   # queda guardado hasta que se quite o se cargue otro igual
-            done.append(f"{name} ({len(sources)} fuente{'s' if len(sources) != 1 else ''}, {sum(len(s.table.rows) for s in sources)} filas)"
-                        + (f", {removed} tickers sin opciones descartados" if removed else ""))
+            done.append((name, f"{name}: {len(sources)} fuente{'s' if len(sources) != 1 else ''}, {sum(len(s.table.rows) for s in sources)} filas"
+                         + (f", {removed} tickers sin opciones descartados" if removed else "")))
             if not checked:
                 notes.append("no se pudo comprobar qué tickers tienen opciones; se han cargado todos")
         remembered.pop("universe", None)   # otras columnas: los filtros anteriores no valen
-        msg = "Cargado: " + ", ".join(done) if done else ""
+        groups = []
+        if done:
+            groups.append(_grp("ok", "Cargado", [d[0] for d in done], "; ".join(d[1] for d in done if d[1])))
         if notes:
-            msg += (" · " if msg else "") + "Aviso: " + "; ".join(dict.fromkeys(notes))
+            groups.append(_grp("warn", "Aviso", [], "; ".join(dict.fromkeys(notes))))
         if errors:
-            msg += (" · " if msg else "") + "Error: " + "; ".join(errors)
+            groups.append(_grp("err", "Error", [], "; ".join(errors)))
+        msg = "\n".join(groups)
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
 
     @app.post("/universe/manual")
-    async def universe_manual(text: str = Form(""), source: str = Form("")):
-        """Añade tickers escritos a mano a una fuente con nombre (se crea si no existe)."""
+    async def universe_manual(text: str = Form(""), source: str = Form(""), mode: str = Form("add")):
+        """Añade tickers escritos a mano a una fuente con nombre (se crea si no existe) o la sustituye (`mode=replace`)."""
         parsed = parse_text(text)
-        log.info("Universo: tickers manuales recibidos para «%s»: %s", source, parsed.tickers)
+        log.info("Universo: tickers manuales recibidos para «%s» (%s): %s", source, mode, parsed.tickers)
         try:
-            res = await service.add_manual_tickers(parsed, source)
+            res = await service.add_manual_tickers(parsed, source, replace_source=mode == "replace")
         except WatchlistError as exc:
-            return RedirectResponse(f"/universe?{urlencode({'message': f'Error: {exc}'})}", status_code=303)
+            return RedirectResponse(f"/universe?{urlencode({'message': _grp('err', 'Error', [], str(exc))})}", status_code=303)
         parts = []
+        src_name = res["source"]
+        if res["removed"]:
+            parts.append(_grp("del", f"Quitados de {src_name}", res["removed"]))
         if res["added"]:
             fresh = len(res["new_in_universe"])
-            parts.append(f"Añadidos a {res['source']}: {', '.join(res['added'])} "
-                         f"({fresh} nuevo{'s' if fresh != 1 else ''} en el Universo"
-                         + (", el resto ya estaban en otras fuentes)" if fresh != len(res["added"]) else ")"))
+            parts.append(_grp("ok", f"{'Ahora en' if mode == 'replace' else 'Añadidos a'} {src_name}", res["added"],
+                              f"{fresh} nuevo{'s' if fresh != 1 else ''} en el Universo"
+                              + (", el resto ya estaban en otras fuentes" if fresh != len(res["added"]) else "")))
         if res["already"]:
-            parts.append("Ya incluidos: " + ", ".join(f"{t} ({' · '.join(n)})" for t, n in res["already"].items()))
+            parts.append(_grp("skip", "Ya incluidos", [f"{t} ({' · '.join(n)})" for t, n in res["already"].items()]))
         if res["no_options"]:
-            parts.append(f"Sin opciones (no añadidos): {', '.join(res['no_options'])}")
+            parts.append(_grp("warn", "Sin opciones (no añadidos)", res["no_options"]))
         if parsed.rejected:
-            parts.append("Rechazados: " + ", ".join(t for t, _ in parsed.rejected))
+            parts.append(_grp("err", "Rechazados", [t for t, _ in parsed.rejected]))
         if not res["checked"] and res["added"]:
-            parts.append("Aviso: no se pudo comprobar si tienen opciones")
-        msg = " · ".join(parts) or "No hay ningún ticker que añadir"
+            parts.append(_grp("warn", "Aviso", [], "no se pudo comprobar si tienen opciones"))
+        msg = "\n".join(parts) or _grp("skip", "Nada que añadir", [], "no hay ningún ticker que añadir")
         remembered.pop("universe", None)
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
 
@@ -472,9 +502,9 @@ def create_app(
         try:
             n = service.remove_source(source) if scope == "all" else                 service.remove_source_tickers(source, [str(t) for t in form.getlist("sel")])
         except WatchlistError as exc:
-            return RedirectResponse(f"/universe?{urlencode({'message': f'Error: {exc}'})}", status_code=303)
+            return RedirectResponse(f"/universe?{urlencode({'message': _grp('err', 'Error', [], str(exc))})}", status_code=303)
         remembered.pop("universe", None)
-        msg = f"Quitados {n} ticker{'s' if n != 1 else ''} de {source}"
+        msg = _grp("del", f"Quitados de {source}", [], f"{n} ticker{'s' if n != 1 else ''}")
         still = any(s.name == source for s in service.universe_sources)
         query = {"message": msg, **({"src": source} if still else {})}
         return RedirectResponse(f"/universe?{urlencode(query)}", status_code=303)
