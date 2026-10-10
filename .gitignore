@@ -12,3 +12,4 @@ config/config.yaml
 watchlists/*.html
 watchlists/*_files/
 watchlists/*.xlsx
+watchlists/*.txt
