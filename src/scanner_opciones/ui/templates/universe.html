@@ -16,6 +16,18 @@
   .filebtn { display:inline-flex; align-items:center; gap:6px; cursor:pointer; padding:7px 14px; border-radius:8px; background:var(--accent); color:#fff; font-weight:600; font-size:13px; }
   .filebtn:hover { filter:brightness(1.15); }
   .side .fx-body input[type=text], .side .fx-body textarea { width:100%; }
+  .source-info { padding:8px 14px 10px; margin-bottom:12px; font-size:12px; }
+  .source-info > summary { cursor:pointer; font-size:14px; font-weight:700; }
+  .source-info > summary .muted { font-size:12px; font-weight:400; }
+  .si-grid { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:6px 26px; align-items:start; margin-top:6px; }
+  .si-grid.one { grid-template-columns:1fr; }
+  .si-sum { margin:0 0 4px; font-weight:600; font-size:13px; }
+  .si-list { margin:0; padding-left:16px; color:var(--mute); line-height:1.4; } .si-list li { margin:1px 0; }
+  .si-h { display:block; margin-bottom:5px; font-size:11px; font-weight:600; color:var(--mute); }
+  .si-chips { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:5px; }
+  .si-chips li { display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border:1px solid var(--line-strong); border-radius:999px; background:var(--field); white-space:nowrap; }
+  .si-chips li span { color:var(--mute); } .si-chips li b { color:var(--ink); font-weight:600; }
+  @media (max-width: 1150px) { .si-grid { grid-template-columns:1fr; } }
   .src-menu { display:flex; flex-direction:column; gap:2px; padding:10px 0 18px; }
   .src-item { display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:8px; color:var(--ink); text-decoration:none; font-size:13px; }
   .src-item:hover { background:var(--card); }
@@ -56,16 +68,20 @@
 {% if not table %}<p class="muted" style="margin-top:18px">Aún no hay fuentes: carga un fichero (.xlsx o .html) o añade tickers a mano con el menú de la izquierda.</p>{% endif %}
 {% if table %}
 {% if source_info %}
-<details class="card source-info" id="source-info" style="margin-bottom:14px" open>
-  <summary style="cursor:pointer;font-size:16px;font-weight:700">{{ source_info.title }} <span class="muted" style="font-size:13px;font-weight:400">· cómo selecciona esta fuente</span></summary>
-  <p style="margin:8px 0 4px"><b>{{ source_info.summary }}</b></p>
-  {% if source_info.criteria %}
-  <div class="scroll" style="max-width:420px;margin-top:6px"><table>
-    <tr><th>Métrica</th><th>Condición (todas deben cumplirse)</th></tr>
-    {% for metric, cond in source_info.criteria %}<tr><td>{{ metric }}</td><td>{{ cond }}</td></tr>{% endfor %}
-  </table></div>
-  {% endif %}
-  {% if source_info.details %}<ul style="margin:6px 0 0;padding-left:18px">{% for d in source_info.details %}<li class="muted">{{ d }}</li>{% endfor %}</ul>{% endif %}
+<details class="card source-info" id="source-info" open>
+  <summary>{{ source_info.title }} <span class="muted">· cómo selecciona esta fuente</span></summary>
+  <div class="si-grid{{ '' if source_info.criteria else ' one' }}">
+    <div class="si-text">
+      <p class="si-sum">{{ source_info.summary }}</p>
+      {% if source_info.details %}<ul class="si-list">{% for d in source_info.details %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% if source_info.criteria %}
+    <div class="si-crit">
+      <span class="si-h">Criterios · todos deben cumplirse</span>
+      <ul class="si-chips">{% for metric, cond in source_info.criteria %}<li><span>{{ metric }}</span><b>{{ cond }}</b></li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+  </div>
 </details>
 <script>
   (function () {   // recuerda si se plegó la tarjeta de la fuente
