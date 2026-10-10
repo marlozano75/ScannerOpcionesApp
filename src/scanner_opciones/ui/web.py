@@ -404,7 +404,10 @@ def create_app(
             return RedirectResponse(f"/universe?{urlencode({'message': f'Error: {exc}'})}", status_code=303)
         parts = []
         if res["added"]:
-            parts.append(f"Añadidos a {res['source']}: {', '.join(res['added'])}")
+            fresh = len(res["new_in_universe"])
+            parts.append(f"Añadidos a {res['source']}: {', '.join(res['added'])} "
+                         f"({fresh} nuevo{'s' if fresh != 1 else ''} en el Universo"
+                         + (", el resto ya estaban en otras fuentes)" if fresh != len(res["added"]) else ")"))
         if res["already"]:
             parts.append("Ya incluidos: " + ", ".join(f"{t} ({' · '.join(n)})" for t, n in res["already"].items()))
         if res["no_options"]:

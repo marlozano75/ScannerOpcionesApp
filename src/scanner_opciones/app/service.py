@@ -185,8 +185,10 @@ class AppService:
 
     async def add_manual_tickers(self, parsed: ParseResult, source: str = MANUAL) -> dict:
         """Añade a la fuente manual `source` (se crea si no existe) los tickers que no están ya en ella y que tienen
-        opciones. Devuelve `source`, `added`, `already` (ticker -> [fuente]), `no_options` y `checked`."""
+        opciones. Devuelve `source`, `added`, `new_in_universe` (de los añadidos, los que no estaban en ninguna fuente),
+        `already` (ticker -> [fuente]), `no_options` y `checked`."""
         name = self._manual_name(source)
+        in_universe = {row.ticker for src in self.universe_sources for row in src.table.rows}
         present = set(self.manual_sources.get(name, []))
         already = {t: [name] for t in parsed.tickers if clean_ticker(t) in present or t in present}
         new = [t for t in parsed.tickers if t not in already]
@@ -205,7 +207,8 @@ class AppService:
             self.manual_sources.setdefault(name, []).extend(new)
             self._save_manual()
             self.kick_quality_update()
-        return {"source": name, "added": new, "already": already, "no_options": no_options, "checked": checked}
+        return {"source": name, "added": new, "new_in_universe": [t for t in new if clean_ticker(t) not in in_universe],
+                "already": already, "no_options": no_options, "checked": checked}
 
     def remove_source_tickers(self, source: str, tickers) -> int:
         """Quita tickers de una fuente (manual o de fichero); devuelve cuántos. Si se quitan todos, la fuente

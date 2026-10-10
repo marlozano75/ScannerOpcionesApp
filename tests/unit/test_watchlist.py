@@ -85,3 +85,8 @@ class TestLoadFile:
         p.write_text("x")
         with pytest.raises(WatchlistError, match="Formato"):
             load_watchlist_file(p)
+
+
+def test_quita_el_dolar_inicial_del_ticker():
+    res = parse_text("$AAPL, $msft KO $$NVDA")
+    assert res.tickers == ["AAPL", "MSFT", "KO", "NVDA"] and res.rejected == []

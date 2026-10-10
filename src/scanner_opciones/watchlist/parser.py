@@ -17,15 +17,15 @@ class ParseResult:
 
 
 def parse_tokens(tokens: list[str]) -> ParseResult:
-    """Normaliza (mayúsculas), valida formato y deduplica conservando el orden."""
+    """Normaliza (mayúsculas, sin el «$» inicial de «$AAPL»), valida formato y deduplica conservando el orden."""
     seen: set[str] = set()
     tickers: list[str] = []
     rejected: list[tuple[str, str]] = []
     duplicates = 0
     for raw in tokens:
-        tok = raw.strip().upper()
-        if not tok:
+        if not raw.strip():
             continue
+        tok = raw.strip().lstrip("$").strip().upper()
         if not _TICKER.match(tok):
             rejected.append((raw.strip(), "formato de ticker no válido"))
         elif tok in seen:

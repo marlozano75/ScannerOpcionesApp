@@ -410,7 +410,8 @@ def test_manual_source_needs_a_name_persists_and_reports_the_ones_already_in_it(
     with TestClient(app) as client:
         load_rank(client)                                                               # KO ya está en RankedStocks
         r = client.post("/universe/manual", data={"text": "ko, nvda amd 123", "source": "Mis ideas"}, follow_redirects=True)
-        assert "Añadidos a Mis ideas: KO, NVDA, AMD" in r.text and "Rechazados: 123" in r.text   # KO se añade: es otra fuente
+        assert "Añadidos a Mis ideas: KO, NVDA, AMD (2 nuevos en el Universo, el resto ya estaban en otras fuentes)" in r.text
+        assert "Rechazados: 123" in r.text                                             # KO se añade: es otra fuente
         assert [s.name for s in svc.universe_sources][-1] == "Mis ideas"
         again = client.post("/universe/manual", data={"text": "NVDA", "source": "mis  IDEAS"}, follow_redirects=True)
         assert "Ya incluidos: NVDA (Mis ideas)" in again.text and svc.manual_sources == {"Mis ideas": ["KO", "NVDA", "AMD"]}
