@@ -8,8 +8,8 @@
   {%- endif %}
 {%- endmacro %}
 {% if message %}<div class="banner info">{{ message }}</div>{% endif %}
-<div class="section-title">Fuentes</div>
-<div class="panels">
+<div class="section-title">Fuentes <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--mute)">· pulsa «i» en cada bloque para ver cómo funciona</span></div>
+<div class="panels" style="align-items:start">
   <div class="panel">
     <h3><span class="n">1</span>Cargar ficheros</h3>
     <form method="post" action="/universe/load" enctype="multipart/form-data" class="row" id="load-form">
@@ -39,7 +39,7 @@
     <form method="post" action="/universe/manual">
       <input type="text" name="source" list="manual-sources" maxlength="40" placeholder="Nombre de la fuente (obligatorio)" required>
       <datalist id="manual-sources">{% for name, n in manual %}<option value="{{ name }}">{% endfor %}</datalist>
-      <textarea name="text" rows="2" placeholder="AAPL, MSFT, KO ... (separados por comas o espacios)" required></textarea>
+      <textarea name="text" rows="2" style="min-height:56px" placeholder="AAPL, MSFT, KO ... (separados por comas o espacios)" required></textarea>
       <p><button>Añadir a la fuente</button></p>
     </form>
     <p class="note">Escribe un nombre nuevo para crear una fuente o uno existente para ampliarla. Se añaden los que tengan opciones y aún no estén en esa fuente; las fuentes propias se conservan al reiniciar.</p>
@@ -64,10 +64,28 @@
   {% if source_info.details %}<ul style="margin:6px 0 0;padding-left:18px">{% for d in source_info.details %}<li class="muted">{{ d }}</li>{% endfor %}</ul>{% endif %}
 </div>
 {% endif %}
-<p class="note" style="margin:0 0 14px">Las columnas de calidad (datos de tastytrade y de la SEC) son solo informativas: los <b>filtros de calidad están en el Scanner</b>.
-  Sectores exentos del pasivo, la solvencia y la caja (se ven como «n/a»): los que llevan «{{ exempt_names }}» en su nombre.
-  Datos de calidad disponibles para <b>{{ with_quality }}</b> de {{ rows|length }} acciones mostradas.
-  {% if not edgar %}<b>Falta <code>edgar.contact</code> en config.yaml</b>: sin él no hay datos de pasivo/patrimonio ni de flujo de caja.{% endif %}</p>
+{% if not edgar %}<div class="banner info"><b>Falta <code>edgar.contact</code> en config.yaml</b>: sin él no hay datos de pasivo/patrimonio ni de flujo de caja.</div>{% endif %}
+<div class="help-scope" style="margin:0 0 14px;min-height:24px;padding-right:32px">
+  <p class="note">Las columnas de calidad (datos de tastytrade y de la SEC) son solo informativas: los <b>filtros de calidad están en el Scanner</b>.
+    Sectores exentos del pasivo, la solvencia y la caja (se ven como «n/a»): los que llevan «{{ exempt_names }}» en su nombre.
+    Datos de calidad disponibles para <b>{{ with_quality }}</b> de {{ rows|length }} acciones mostradas.</p>
+  <span class="muted" style="font-size:13px">Columnas de calidad solo informativas · filtros en el Scanner</span>
+</div>
+{% if ov and ov.n %}
+<div class="vgrid" style="margin-bottom:14px">
+  <div class="vcard">
+    <p class="vt">Acciones por sector</p>
+    <p class="vs">{{ ov.n }} acciones en esta vista.</p>
+    {{ ov.sectors }}
+  </div>
+  <div class="vcard">
+    <p class="vt">Cobertura</p>
+    <p class="vs">Qué parte de esta vista tiene ya cada cosa.</p>
+    {{ ov.in_watchlist }}{{ ov.with_quality }}
+    <p class="vs" style="margin:8px 0 0">Los datos de la SEC alimentan los filtros de calidad del Scanner; las que no los tienen se descartan en esos filtros.</p>
+  </div>
+</div>
+{% endif %}
 <form method="post" action="/universe/apply" class="card" id="rk-apply">
   <h2>{{ rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
   {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}

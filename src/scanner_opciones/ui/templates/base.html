@@ -78,6 +78,51 @@
   th.sortable-th:hover { color:var(--ink); }
   th[aria-sort=ascending]::after { content:' \25B2'; font-size:10px; }
   th[aria-sort=descending]::after { content:' \25BC'; font-size:10px; }
+
+  /* ---- gráficos (ui/viz.py): paleta categórica en orden fijo, rampa azul para magnitudes y estados reservados ---- */
+  :root { --viz-1:#2a78d6; --viz-2:#eb6834; --viz-3:#1baf7a; --viz-4:#eda100; --viz-5:#e87ba4; --viz-6:#008300; --viz-7:#4a3aa7;
+          --viz-other:#9a9788; --viz-grid:#e1e0d9; }
+    [tabindex]:focus-visible { outline:2px solid var(--viz-1); outline-offset:2px; }
+  .vt { margin:0 0 2px; font-size:13px; font-weight:700; color:var(--ink); }
+  .vs { margin:0 0 8px; font-size:12px; color:var(--mute); }
+  .viz-empty { margin:8px 0; }
+  .vgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+  .vcard { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-width:0; }
+  .lg { list-style:none; margin:0 0 8px; padding:0; display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12px; color:var(--mute); }
+  .lg li { display:flex; align-items:center; gap:6px; } .lg i { width:10px; height:10px; border-radius:2px; display:inline-block; }
+  .hb { display:flex; flex-direction:column; gap:7px; }
+  .hb-row { display:grid; grid-template-columns:minmax(80px,40%) 1fr 48px; gap:10px; align-items:center; font-size:13px; border-radius:6px; }
+  .hb-row:hover { background:rgba(31,45,74,.05); }
+  .hb-l { color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hb-t { display:block; height:12px; } .hb-v { color:var(--ink); font-weight:600; text-align:left; font-variant-numeric:tabular-nums; }
+  .hb-f { display:block; height:12px; border-radius:0 4px 4px 0; min-width:2px; }
+  .sb-bar { display:flex; gap:2px; height:12px; } .sb-seg { display:block; min-width:2px; height:12px; }
+  .sb-seg:first-child { border-radius:0; } .sb-seg:last-child { border-radius:0 4px 4px 0; }
+  .mt { margin-top:8px; } .mt-track { position:relative; height:10px; background:#dfe6f3; border-radius:5px; overflow:hidden; }
+  .mt-fill { height:100%; border-radius:5px 0 0 5px; }
+  .mt-tick { position:absolute; top:0; bottom:0; width:2px; background:var(--panel); margin-left:-1px; }
+  .mt-labels { position:relative; height:16px; font-size:11px; color:var(--mute); }
+  .mt-labels span { position:absolute; transform:translateX(-50%); top:2px; white-space:nowrap; }
+  svg.lc { width:100%; height:auto; display:block; overflow:visible; }
+  svg.lc .ax { font-size:11px; fill:var(--mute); } svg.lc .gl { stroke:var(--viz-grid); stroke-width:1; }
+  svg.lc .ln { fill:none; stroke:var(--viz-1); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+  svg.lc .ar { fill:var(--viz-1); opacity:.14; } svg.lc .mk { fill:var(--viz-1); stroke:var(--panel); stroke-width:2; }
+  svg.lc .xh { stroke:var(--line-strong); stroke-width:1; opacity:0; } svg.lc .dt { fill:var(--viz-1); stroke:var(--panel); stroke-width:2; opacity:0; }
+  svg.lc .pt:hover .xh, svg.lc .pt:focus .xh, svg.lc .pt:hover .dt, svg.lc .pt:focus .dt { opacity:1; }
+  svg.lc .bar1 { fill:var(--viz-1); } svg.lc .cl:hover .bar1, svg.lc .cl:focus .bar1 { fill:#256abf; }
+  svg.lc .sc { fill-opacity:.78; stroke:var(--panel); stroke-width:1; } svg.lc .sc.hot { stroke:var(--ink); stroke-width:2; fill-opacity:1; }
+  details.vtable { margin-top:6px; font-size:12px; } details.vtable summary { cursor:pointer; color:var(--mute); }
+  details.vtable table { margin-top:6px; font-size:12px; }
+  #viz-tip { position:fixed; z-index:50; pointer-events:none; background:var(--accent); color:#fff; border-radius:8px; padding:7px 10px;
+             font-size:12px; line-height:1.35; display:flex; flex-direction:column; gap:1px; max-width:260px; box-shadow:0 4px 14px rgba(0,0,0,.2); }
+  #viz-tip[hidden] { display:none; } #viz-tip strong { font-size:14px; } #viz-tip .t-l { opacity:.85; } #viz-tip span { opacity:.7; }
+  /* explicaciones bajo demanda: la nota se oculta y un botón ⓘ la muestra (sin JS se ven siempre) */
+  td.cb { background-image:linear-gradient(90deg, rgba(42,120,214,.20) var(--p,0%), transparent var(--p,0%)); }
+  .help-host { position:relative; }
+  .help-btn { position:absolute; top:6px; right:6px; z-index:2; width:22px; height:22px; padding:0; border-radius:50%; background:transparent;
+              color:var(--mute); border:1px solid var(--line-strong); font-size:12px; line-height:1; font-weight:700; }
+  .help-btn:hover { color:var(--ink); border-color:var(--accent); filter:none; } .help-btn[aria-expanded=true] { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .note-help { display:none; } .help-open .note-help { display:block; }
 </style>
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -114,6 +159,80 @@
   {% endfor %}
   {% block content %}{% endblock %}
 </main>
+<script>
+/* Explicaciones bajo demanda: cada bloque con notas (`.note`) las oculta y añade un botón ⓘ para mostrarlas. */
+(function () {
+  document.querySelectorAll('.fx-body, .panel, .card.cfg, .help-scope').forEach(function (box) {
+    var notes = Array.prototype.slice.call(box.querySelectorAll('.note'));
+    if (!notes.length) return;
+    box.classList.add('help-host');
+    notes.forEach(function (n) { n.classList.add('note-help'); });
+    var b = document.createElement('button');
+    b.type = 'button'; b.className = 'help-btn'; b.textContent = 'i';
+    b.title = 'Mostrar u ocultar la explicación'; b.setAttribute('aria-expanded', 'false'); b.setAttribute('aria-label', 'Explicación');
+    b.addEventListener('click', function () {
+      var open = box.classList.toggle('help-open');
+      b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    box.insertBefore(b, box.firstChild);
+  });
+})();
+/* Tooltips de los gráficos: `data-tip="valor|etiqueta|detalle"`. También con el teclado. Los textos entran con textContent. */
+(function () {
+  var tip = document.createElement('div');
+  tip.id = 'viz-tip'; tip.setAttribute('role', 'tooltip'); tip.hidden = true;
+  document.body.appendChild(tip);
+  var hot = null, caches = new WeakMap();
+  function fill(text) {
+    tip.textContent = '';
+    String(text || '').split('|').forEach(function (part, i) {
+      var el = document.createElement(i === 0 ? 'strong' : 'span');
+      if (i === 1) el.className = 't-l';
+      el.textContent = part; tip.appendChild(el);
+    });
+  }
+  function place(x, y) {
+    tip.hidden = false;
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var left = Math.min(window.innerWidth - w - 8, Math.max(8, x + 14));
+    var top = y - h - 12 < 8 ? y + 18 : y - h - 12;
+    tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  }
+  function hide() { tip.hidden = true; if (hot) { hot.classList.remove('hot'); hot = null; } }
+  function dots(svg) {
+    var c = caches.get(svg);
+    if (!c) {
+      c = Array.prototype.map.call(svg.querySelectorAll('circle[data-tip]'), function (el) {
+        return { el: el, x: parseFloat(el.getAttribute('cx')), y: parseFloat(el.getAttribute('cy')) };
+      });
+      caches.set(svg, c);
+    }
+    return c;
+  }
+  document.addEventListener('pointermove', function (e) {
+    var target = e.target.closest ? e.target : null;
+    var svg = target && target.closest('svg[data-nearest]');
+    if (svg) {
+      var pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      var p = pt.matrixTransform(svg.getScreenCTM().inverse()), best = null, bd = 28 * 28;
+      dots(svg).forEach(function (d) { var dd = (d.x - p.x) * (d.x - p.x) + (d.y - p.y) * (d.y - p.y); if (dd < bd) { bd = dd; best = d; } });
+      if (hot && (!best || hot !== best.el)) { hot.classList.remove('hot'); hot = null; }
+      if (best) { hot = best.el; hot.classList.add('hot'); fill(hot.getAttribute('data-tip')); place(e.clientX, e.clientY); }
+      else tip.hidden = true;
+      return;
+    }
+    var el = target && target.closest('[data-tip]');
+    if (el) { fill(el.getAttribute('data-tip')); place(e.clientX, e.clientY); } else hide();
+  });
+  document.addEventListener('pointerleave', hide);
+  document.addEventListener('focusin', function (e) {
+    var el = e.target.closest && e.target.closest('[data-tip]');
+    if (!el) return;
+    var r = el.getBoundingClientRect(); fill(el.getAttribute('data-tip')); place(r.left + r.width / 2, r.top);
+  });
+  document.addEventListener('focusout', hide);
+})();
+</script>
 <script>{% include "sortable.js" %}</script>
 <script>document.querySelectorAll('table.sortable').forEach(function (t, i) { SortableTables.init(t, i); });</script>
 <script>

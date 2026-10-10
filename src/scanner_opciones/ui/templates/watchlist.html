@@ -8,13 +8,30 @@
     <div class="banner err">Errores en la última actualización:
       {% for t, e in state.last_daily_report.errors.items() %}<div><strong>{{ t }}</strong>: {{ e }}</div>{% endfor %}</div>
   {% endif %}
+  {% if tickers %}
+  <div class="vgrid" style="margin-bottom:14px">
+    <div class="vcard">
+      <p class="vt">Dónde está la volatilidad</p>
+      <p class="vs">Tickers por tramo de IV Rank: a la derecha, las primas están caras frente a su historia.</p>
+      {{ ov.iv_hist }}
+      <p class="vs" style="margin:8px 0 0">{% if ov.median_iv is not none %}Mediana {{ ov.median_iv|round|int }} % · {{ ov.high_iv }} de {{ ov.ranked }} con IV Rank ≥ 50 %{% endif %}
+        {% if ov.ex_div_soon %} · {{ ov.ex_div_soon }} con ex-dividendo en 10 días o menos{% endif %}</p>
+    </div>
+    <div class="vcard">
+      <p class="vt">Tickers por sector</p>
+      <p class="vs">Cómo se reparte la lista.</p>
+      {{ ov.sectors }}
+    </div>
+  </div>
+  {% endif %}
   <div class="scroll"><table class="sortable" id="watchlist-table">
     <tr><th>Ticker</th><th>Sector</th><th>Categoría</th><th>Precio</th><th>Días ex-div.</th><th>IV Rank</th><th>IV Pctl</th><th>Actualizado</th></tr>
     {% for t in tickers %}{% set i = infos.get(t) %}
       <tr><td>{{ t }}</td><td>{{ i.sector if i and i.sector else '—' }}</td><td>{{ i.category if i and i.category else '—' }}</td>
         <td>{{ i.underlying_price|num if i else '—' }}</td>
         <td>{{ i.days_to_ex_dividend if i and i.days_to_ex_dividend is not none else '—' }}</td>
-        <td>{{ i.iv_rank|pct(0) if i else '—' }}</td><td>{{ i.iv_percentile|pct(0) if i else '—' }}</td>
+        <td class="cb"{% if i and i.iv_rank is not none %} style="--p:{{ i.iv_rank|round(0)|int }}%"{% endif %}>{{ i.iv_rank|pct(0) if i else '—' }}</td>
+        <td class="cb"{% if i and i.iv_percentile is not none %} style="--p:{{ i.iv_percentile|round(0)|int }}%"{% endif %}>{{ i.iv_percentile|pct(0) if i else '—' }}</td>
         <td>{{ i.updated_daily_at.strftime('%Y-%m-%d %H:%M') if i and i.updated_daily_at else 'pendiente' }}</td>
 </tr>
     {% else %}<tr><td colspan="8" class="muted">Watchlist vacía.</td></tr>{% endfor %}

@@ -17,3 +17,5 @@ watchlists/*.txt
 .playwright-cli/
 # configuración local de Claude Code (skills instaladas en el proyecto)
 .claude/
+# capturas y registros del plugin de Playwright
+.playwright-mcp/

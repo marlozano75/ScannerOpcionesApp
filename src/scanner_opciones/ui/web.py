@@ -21,6 +21,7 @@ from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
+from scanner_opciones.ui import dashboard_charts as dash, page_charts, scanner_charts, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
 from scanner_opciones.universe.descriptions import describe, describe_manual
@@ -217,6 +218,7 @@ def _opt_float(text: str) -> Optional[float]:
     return float(text) if text else None
 
 
+TEMPLATES.env.globals["viz"] = viz
 TEMPLATES.env.filters.update(
     pct=_pct, money=_money, num=_num, x=_x, light_label=lambda l: LIGHT_LABEL[l], zip=lambda a, b: zip(a, b)
 )
@@ -279,7 +281,17 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request):
         sectors, weeks = service.diversification()
-        return render(request, "dashboard.html", sectors=sectors, weeks=weeks, assignment=service.assignment(),
+        assignment, risk, vix = service.assignment(), service.state.risk, service.state.vix
+        thresholds = service.settings.risk.cushion_thresholds
+        curve, shape = dash.vix_curve(vix, service.now().date()) if vix else (viz.empty(), None)
+        charts = dict(
+            cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
+            cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),
+            cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
+            exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks),
+            vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
+        return render(request, "dashboard.html", sectors=sectors, weeks=weeks, assignment=assignment, charts=charts,
+                      risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 
     @app.post("/refresh")
@@ -305,8 +317,9 @@ def create_app(
     # ---- watchlist -------------------------------------------------------------------------
     @app.get("/watchlist", response_class=HTMLResponse)
     async def watchlist(request: Request, message: str = ""):
-        return render(request, "watchlist.html", tickers=service.watchlist.list(),
-                      infos=service.ticker_info.all(), message=message)
+        tickers, infos = service.watchlist.list(), service.ticker_info.all()
+        return render(request, "watchlist.html", tickers=tickers, infos=infos, message=message,
+                      ov=page_charts.watchlist_overview(tickers, infos))
 
     @app.post("/excluded/dismiss")
     async def excluded_dismiss():
@@ -369,8 +382,9 @@ def create_app(
                 else describe(current.name, current.criteria)
         identity_cols = {"company", "empresa", "sector"} | set(SYMBOL_HEADERS)   # van delante: no se repiten al final
         skip = {i for i, c in enumerate(table.columns) if _plain(c.name) in identity_cols} if table else set()
+        overview = page_charts.universe_overview(rows, ident, set(service.watchlist.list()), qinfos)
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message,
-                      ident=ident, skip=skip,
+                      ident=ident, skip=skip, ov=overview,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
                       all_count=len(member), manual=[(n, len(t)) for n, t in service.manual_sources.items()],
@@ -643,7 +657,9 @@ def create_app(
                           is_on=all(parsed["form"].get(k) == v for k, v in p.levels.items())
                           and parsed["form"].get("q_manage") == p.manageable_debt
                           and bool(p.levels or p.manageable_debt)) for p in qcfg.presets]
+        overview = scanner_charts.overview(out.results) if out else None
         return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
+                      ov=overview,
                       solvency=solvency_controls(qcfg, parsed["form"], counts), q_presets=q_presets,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
                       levels=list(qcfg.level_labels.items()), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,

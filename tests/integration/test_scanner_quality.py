@@ -138,7 +138,8 @@ def test_the_scanner_page_has_the_lazy_impact_panel(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     page = client.get(BASE).text
-    assert 'id="impact-box"' in page and 'data-url="/scanner/impact"' in page
+    assert 'id="viz-box"' in page and 'data-tab="tab-impact"' in page and 'data-url="/scanner/impact"' in page   # pestaña de impacto, carga diferida
+    assert 'data-tab="tab-overview"' in page and 'class="tab active" role="tab" data-tab="tab-overview"' in page   # la vista general es la pestaña inicial
 
 
 # ---- ROIC y años con pérdidas ---------------------------------------------------------------------------------
