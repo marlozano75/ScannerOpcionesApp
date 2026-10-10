@@ -165,6 +165,9 @@
   .fx-title { font-size:13px; font-weight:600; white-space:nowrap; }
   .fx-state { margin-left:auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--mute); }
   .fx.on .fx-state { color:var(--ink); }
+  .fx[open] { background:var(--panel); border-left:3px solid var(--accent); border-radius:6px; margin:6px 0; padding:0 10px 0 9px; border-bottom-color:var(--line); }
+  .fx[open] > summary { padding-bottom:9px; }
+  .fx[open] > summary .fx-title { color:var(--accent); }
   .fx-body { padding:2px 0 16px; display:flex; flex-direction:column; gap:12px; }
   .fx-sub { font-size:12px; font-weight:600; color:var(--mute); margin-top:4px; }
 
