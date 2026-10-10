@@ -11,3 +11,4 @@ config/config.yaml
 # datos de un tercero (RankedStocks): no se suben al repositorio
 watchlists/*.html
 watchlists/*_files/
+watchlists/*.xlsx
