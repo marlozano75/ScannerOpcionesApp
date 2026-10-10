@@ -170,3 +170,32 @@ class TestPriceRange:
         assert reject_reason(snap(), 100.0, TODAY, REGULAR.with_filters(max_price=None, min_price=None)) is None
         assert reject_reason(snap(), 100.0, TODAY, REGULAR.with_filters(min_price=50)) is None
         assert "máximo" in reject_reason(snap(), 100.0, TODAY, REGULAR.with_filters(max_price=60))
+
+
+# ---- un bid de 0 no se puede vender --------------------------------------------------------------
+
+def zero_bid_snap():
+    s = snap(strike=78.0, yield_pct=1.2)
+    return ContractSnapshot(s.contract, NOW, bid=0.0, ask=7.5, open_interest=500, spread_pct=200.0)
+
+
+def test_min_bid_is_on_by_default_and_rejects_a_zero_bid_even_if_the_mid_yield_looks_great():
+    snap0 = zero_bid_snap()
+    assert BASE.min_bid == 0.01
+    mid = BASE.with_filters(price_reference=PriceReference.MID)
+    assert "bid 0.0 < mínimo 0.01" in reject_reason(snap0, 100.0, TODAY, mid)     # mid 3.75 / 78 = 4.8 %: sin el filtro pasaría
+    assert reject_reason(snap0, 100.0, TODAY, mid.with_filters(min_bid=None, min_annual_yield_pct=0)) is None
+
+
+def test_min_bid_accepts_a_real_bid():
+    assert reject_reason(snap(strike=78.0, yield_pct=1.2), 100.0, TODAY, BASE.with_filters(min_bid=0.05)) is None
+
+
+def test_yield_at_the_bid_does_not_exist_when_the_bid_is_zero():
+    from scanner_opciones.scanner.engine import build_result
+
+    res = build_result(zero_bid_snap(), None, [], BASE.with_filters(price_reference=PriceReference.MID), TODAY)
+    assert res.yield_bid_pct is None and res.yield_bid_annualized_pct is None
+    assert res.yield_ref_pct is not None                          # el de referencia (mid) sí se calcula
+    ok = build_result(snap(strike=78.0, yield_pct=1.2), None, [], BASE, TODAY)
+    assert ok.yield_bid_pct == pytest.approx(1.2)

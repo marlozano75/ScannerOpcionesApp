@@ -12,6 +12,7 @@ from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, OptionQuote
 from scanner_opciones.jobs.contract_sync import ContractSyncer
+from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.metrics.spread import spread_pct
@@ -56,7 +57,9 @@ class RefreshJob:
         volatility: Optional[VolatilityProvider] = None,
         prices: Optional[PriceProvider] = None,
         syncer: Optional[ContractSyncer] = None,
+        market: Optional[MarketCalendar] = None,
     ) -> None:
+        self.market = market
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
         self.prices = prices
@@ -240,7 +243,7 @@ class RefreshJob:
         self, contract: OptionContract, q: OptionQuote, info, previous: Optional[ContractSnapshot] = None
     ) -> ContractSnapshot:
         """Si IBKR no devuelve ni bid ni ask (mercado cerrado, fallo puntual) NO se pisa la última
-        cotización válida con vacíos: se conserva el bloque de precios (bid, ask, last, bid size) y
+        cotización válida con vacíos (ni, con el mercado cerrado, con un bid de 0 y un ask inflado): se conserva el bloque de precios (bid, ask, last, bid size) y
         `updated_at` sigue siendo el de esa cotización, para que se vea su antigüedad. Lo mismo con
         las griegas (delta, IV) y, campo a campo, con el open interest."""
         updated_at = self.now()
@@ -248,6 +251,11 @@ class RefreshJob:
         delta, iv, oi = q.delta, q.iv, q.open_interest
         if previous is not None:
             if bid is None and ask is None and (previous.bid is not None or previous.ask is not None):
+                bid, ask, last, bid_size = previous.bid, previous.ask, previous.last, previous.bid_size
+                updated_at = previous.updated_at or updated_at
+            elif (bid == 0 and ask is not None and ask > 0 and previous.bid is not None and previous.bid > 0
+                  and self.market is not None and not self.market.is_open(self.now())):
+                # fuera de horario tastytrade devuelve bid 0 con un ask inflado: no pisa la cotización de la sesión
                 bid, ask, last, bid_size = previous.bid, previous.ask, previous.last, previous.bid_size
                 updated_at = previous.updated_at or updated_at
             if delta is None and iv is None:

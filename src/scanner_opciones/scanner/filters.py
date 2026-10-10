@@ -38,6 +38,8 @@ def reject_reason(
     y = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)
     if y is None:
         return "sin yield (cotización no válida)"
+    if criteria.min_bid is not None and (snap.bid is None or snap.bid < criteria.min_bid - _EPS):
+        return f"bid {snap.bid if snap.bid is not None else 'desconocido'} < mínimo {criteria.min_bid:g}"
     annual = annualized_yield_pct(y, dte)
     if annual is None or annual < criteria.min_annual_yield_pct - _EPS:
         return f"yield anual {annual or 0:.2f}% < {criteria.min_annual_yield_pct}%"

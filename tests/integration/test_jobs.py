@@ -511,3 +511,43 @@ async def test_refresh_follows_the_price_and_fetches_contracts_that_come_into_th
     env.gw.qualified.clear()
     await env.refresh.run()                                                 # sin movimiento no se pide nada
     assert env.gw.qualified == []
+
+
+# ---- fuera de horario tastytrade devuelve bid 0 con un ask inflado: no pisa la cotización de la sesión ----
+
+async def test_zero_bid_with_inflated_ask_after_hours_keeps_the_session_quote(env):
+    from tests.integration.test_service import FixedMarket
+
+    c75, c80 = await _prepare_refresh(env)
+    await env.refresh.run()                                  # sesión: bid 1.0 / ask 1.2
+    env.refresh.market = FixedMarket(open_=False)
+    env.clock = NOW + timedelta(hours=14)
+    env.gw.quotes[c75] = OptionQuote(bid=0.0, ask=7.5, open_interest=310, delta=-0.1, iv=0.3)
+    await env.refresh.run()
+    s = {x.contract.strike: x for x in env.snaps.all("AAPL")}[75.0]
+    assert (s.bid, s.ask) == (1.0, 1.2) and s.updated_at == NOW      # se conserva con su antigüedad
+    assert s.open_interest == 310                                    # lo demás sí se actualiza
+
+
+async def test_zero_bid_with_the_market_open_is_a_real_quote(env):
+    from tests.integration.test_service import FixedMarket
+
+    c75, c80 = await _prepare_refresh(env)
+    await env.refresh.run()
+    env.refresh.market = FixedMarket(open_=True)
+    env.clock = NOW + timedelta(minutes=5)
+    env.gw.quotes[c75] = OptionQuote(bid=0.0, ask=0.05, open_interest=300)
+    await env.refresh.run()
+    s = {x.contract.strike: x for x in env.snaps.all("AAPL")}[75.0]
+    assert (s.bid, s.ask) == (0.0, 0.05)
+
+
+async def test_zero_bid_after_hours_without_a_previous_good_bid_is_kept_as_it_comes(env):
+    from tests.integration.test_service import FixedMarket
+
+    c75, c80 = await _prepare_refresh(env)
+    env.refresh.market = FixedMarket(open_=False)
+    env.gw.quotes[c75] = OptionQuote(bid=0.0, ask=7.5, open_interest=300)    # primera cotización, ya con bid 0
+    await env.refresh.run()
+    s = {x.contract.strike: x for x in env.snaps.all("AAPL")}[75.0]
+    assert (s.bid, s.ask) == (0.0, 7.5)

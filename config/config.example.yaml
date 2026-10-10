@@ -58,6 +58,7 @@ scanner:
     - { name: "Corto plazo", strike_below_pct_min: 10, dte_min: 1, dte_max: 15, min_annual_yield_pct: 20 }
     - { name: "Largo plazo", strike_below_pct_min: 20, dte_min: 16, dte_max: null, min_annual_yield_pct: 13 }
   filters:                       # null = filtro desactivado
+    min_bid: 0.01                  # bid mínimo en $: un bid de 0 no se puede vender (y infla el yield con el precio mid)
     min_oi: null
     min_bid_size: null
     max_spread_pct: null
@@ -80,6 +81,7 @@ scanner:
     chart_near_pct: 5              # y % por encima del strike que se marca en amarillo (cerca del strike)
     touch_min_days_options: [10, 20, 30, 45, 60, 90, 120, 180, 252, 365]
   filter_values:                 # valores de las cajas de los filtros opcionales cuando están desmarcados
+    min_bid: 0.01
     min_oi: 100
     min_bid_size: 20
     max_spread_pct: 35

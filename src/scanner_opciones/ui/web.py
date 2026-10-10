@@ -475,6 +475,7 @@ def create_app(
         }
         tcfg = service.settings.scanner.technical
         optional = {
+            "bid": ("min_bid", float, base.min_bid),
             "oi": ("min_oi", int, base.min_oi),
             "bidsize": ("min_bid_size", int, base.min_bid_size),
             "spread": ("max_spread_pct", float, base.max_spread_pct),
@@ -482,7 +483,7 @@ def create_app(
             "ivp": ("min_iv_percentile", float, base.min_iv_percentile),
         }
         fv = service.settings.scanner.filter_values
-        shown = {"oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
+        shown = {"bid": fv.min_bid, "oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
                  "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile}
         for key, (_, _, cfg_value) in optional.items():   # estado inicial desde la configuración
             form[f"use_{key}"] = cfg_value is not None

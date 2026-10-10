@@ -54,6 +54,7 @@ class ScanCriteria:
     dte_min: int
     dte_max: int
     min_oi: Optional[int] = None
+    min_bid: Optional[float] = None
     min_bid_size: Optional[int] = None
     max_spread_pct: Optional[float] = None
     min_iv_rank: Optional[float] = None
@@ -141,7 +142,7 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
         min_annual_yield_pct=ini.min_annual_yield_pct,
         dte_min=ini.dte_min,
         dte_max=ini.dte_max,
-        min_oi=f.min_oi, min_bid_size=f.min_bid_size, max_spread_pct=f.max_spread_pct,
+        min_oi=f.min_oi, min_bid=f.min_bid, min_bid_size=f.min_bid_size, max_spread_pct=f.max_spread_pct,
         min_iv_rank=f.min_iv_rank, min_iv_percentile=f.min_iv_percentile,
         price_reference=settings.scanner.price_reference.mode,
         price_spread_pct=settings.scanner.price_reference.spread_pct,

@@ -86,7 +86,8 @@ def build_result(
     dte = c.dte(today)
     ref = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct)
     y_ref = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)
-    y_bid = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, PriceReference.BID)
+    # un bid de 0 no se puede vender: el yield al bid no existe («—»), no vale 0,00 %
+    y_bid = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, PriceReference.BID) if snap.bid and snap.bid > 0 else None
     return ScanResult(
         snap, info, dte, strike_distance_pct(price, c.strike), impact,
         reference_price=ref, yield_ref_pct=y_ref,

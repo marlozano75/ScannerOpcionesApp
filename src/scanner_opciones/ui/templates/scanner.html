@@ -34,7 +34,7 @@
 {% if form.q_lev %}{% set _ = quality.append('Pasivo/patr. ≤ ' ~ form.q_lev) %}{% endif %}
 {% if form.q_fcf %}{% set _ = quality.append('FCF > 0') %}{% endif %}
 {% set optional = [] %}
-{% for key, use, label, sign in (('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤'), ('ivr', 'use_ivr', 'IV Rank', '≥'), ('ivp', 'use_ivp', 'IV Pctl', '≥')) %}
+{% for key, use, label, sign in (('bid', 'use_bid', 'Bid', '≥'), ('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤'), ('ivr', 'use_ivr', 'IV Rank', '≥'), ('ivp', 'use_ivp', 'IV Pctl', '≥')) %}
   {% if form[use] %}{% set _ = optional.append(label ~ ' ' ~ sign ~ ' ' ~ form[key]) %}{% endif %}
 {% endfor %}
 {# chips de filtros activos (lado de resultados): (sección, texto) #}
@@ -306,7 +306,7 @@
       {% endcall %}
 
       {% call section('sec-optional', 'Filtros opcionales', (optional | join(' · ')) or 'Sin filtros', optional|length > 0) %}
-        {% for key, use, label in (('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)'), ('ivr', 'use_ivr', 'IV Rank mín.'), ('ivp', 'use_ivp', 'IV Percentile mín.')) %}
+        {% for key, use, label in (('bid', 'use_bid', 'Bid mínimo ($)'), ('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)'), ('ivr', 'use_ivr', 'IV Rank mín.'), ('ivp', 'use_ivp', 'IV Percentile mín.')) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}

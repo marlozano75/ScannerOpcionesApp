@@ -105,7 +105,7 @@ class AppService:
                                   now, volatility, prices, candles, self.bars, syncer, fundamentals, financials)
         self.refresh_job = RefreshJob(
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
-            volatility, prices, syncer,
+            volatility, prices, syncer, self.market,
         )
         self.state = AppState()
         # ficheros del universo (RankedStocks, HelloStocks): nombre -> (hora de carga, fuentes); en memoria y en disco

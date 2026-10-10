@@ -69,7 +69,8 @@ def test_scanner_defaults_from_config(client_and_service):
         assert f'name="{name}"' in r.text and f'name="{name}" id="{name}" size="{6 if "d" in name[:1] and "dte" not in name else 5}" value="{value}"' in r.text.replace(
             'size="6" value', 'size="6" value').replace('size="5" value', 'size="5" value') or f'value="{value}"' in r.text
     assert 'name="discount_max"' not in r.text and "30.0%" in r.text   # descuento máx. fijo = máx. del rango guardado
-    assert "checked" not in _optional_block(r.text)          # ningún filtro opcional marcado
+    opt = _optional_block(r.text)
+    assert opt.count("checked") == 1 and 'name="use_bid" checked' in opt   # solo «Bid mínimo» empieza marcado
 
 
 def test_scanner_has_no_operation_selector(client_and_service):
@@ -596,9 +597,9 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
         box = form.split(f'name="{name}" id="{name}"')[1].split("</span>")[0]
         assert 'data-d="-1"' in box and 'data-d="1"' in box
     opt = _optional_block(html)
-    assert 'data-d=' not in opt and "checked" not in opt
+    assert 'data-d=' not in opt and opt.count("checked") == 1 and 'name="use_bid" checked' in opt
     # las cajas opcionales traen su valor por defecto aunque estén desmarcadas
-    for name, value in (("oi", "100"), ("bidsize", "20"), ("spread", "35"), ("ivr", "30"), ("ivp", "50")):
+    for name, value in (("bid", "0.01"), ("oi", "100"), ("bidsize", "20"), ("spread", "35"), ("ivr", "30"), ("ivp", "50")):
         assert f'<input name="{name}" value="{value}"' in opt
     # los valores de una configuración escanean sin error
     r = client.get("/scanner?submitted=1&discount=20&dte_min=16&dte_max=35&min_yield=13")
