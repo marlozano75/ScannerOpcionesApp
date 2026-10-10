@@ -21,7 +21,7 @@ from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
-from scanner_opciones.ui import dashboard_charts as dash, page_charts, scanner_charts, viz
+from scanner_opciones.ui import dashboard_charts as dash, page_charts, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
 from scanner_opciones.universe.descriptions import describe, describe_manual
@@ -656,9 +656,9 @@ def create_app(
                           is_on=all(parsed["form"].get(k) == v for k, v in p.levels.items())
                           and parsed["form"].get("q_manage") == p.manageable_debt
                           and bool(p.levels or p.manageable_debt)) for p in qcfg.presets]
-        overview = scanner_charts.overview(out.results) if out else None
+        yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
         return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
-                      ov=overview,
+                      yield_max=yield_max,
                       solvency=solvency_controls(qcfg, parsed["form"], counts), q_presets=q_presets,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
                       levels=list(qcfg.level_labels.items()), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,

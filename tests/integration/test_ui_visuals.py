@@ -13,19 +13,14 @@ def test_the_dashboard_draws_meters_the_vix_curve_and_the_weekly_bars(client_and
     assert 'class="hb"' in page and "Si te asignan todo" in page and "Ver como tabla" in page   # barras + tabla alternativa
 
 
-def test_the_scanner_has_an_overview_with_tabs_and_inline_bars(client_and_service):
+def test_the_scanner_has_no_charts_but_keeps_the_impact_panel_and_inline_bars(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     page = client.get(BASE).text
-    assert "svg" in page and "data-nearest" in page and "Contratos por sector" in page and "Contratos por tramo de yield anual" in page
+    assert "data-nearest" not in page and "Contratos por sector" not in page and "Yield anual frente al descuento" not in page
+    assert 'id="viz-box"' in page and 'data-url="/scanner/impact"' in page                  # el panel de impacto se mantiene
     assert re.search(r'class="hl cb" style="--p:\d+%"', page)                              # barra del yield dentro de la celda
-    assert 'id="results-col"' in page                                                    # la columna de resultados se desplaza entera
-
-
-def test_the_scanner_overview_is_absent_without_results(client_and_service):
-    client, svc, gw, _ = client_and_service
-    page = client.get(BASE + "&discount=29&min_yield=900").text
-    assert 'data-tab="tab-overview"' not in page and "Ningún contrato cumple" in page
+    assert 'id="results-col"' in page                                                       # la columna de resultados se desplaza entera
 
 
 def test_every_scanner_filter_section_is_in_the_page_and_explanations_are_notes_the_script_hides(client_and_service):
@@ -34,7 +29,7 @@ def test_every_scanner_filter_section_is_in_the_page_and_explanations_are_notes_
     sections = re.findall(r'<details class="fx[^"]*" id="(sec-[a-z]+)"', page)
     assert set(sections) == {"sec-contract", "sec-yield", "sec-trend", "sec-levels", "sec-price", "sec-ma", "sec-quality", "sec-optional"}
     assert page.count('class="note"') >= 6 and ".note-help { display:none; }" in page          # notas ocultas por el script, visibles sin JS
-    assert "if (!open) {" in page and "open[d.id] = true" in page                             # primera visita: todo abierto
+    assert "open = { 'sec-contract': true, 'sec-yield': true }" in page                       # primera visita: solo las dos primeras abiertas
 
 
 def test_the_watchlist_has_an_overview_and_the_universe_a_side_menu_of_sources(client_and_service):

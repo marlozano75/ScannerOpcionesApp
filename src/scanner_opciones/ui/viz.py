@@ -1,4 +1,4 @@
-"""Gráficos sin librerías: HTML y SVG generados en el servidor (barras, medidores, líneas, dispersión, columnas).
+"""Gráficos sin librerías: HTML y SVG generados en el servidor (barras, medidores, líneas, columnas).
 
 Reglas del método de visualización de datos que se siguen aquí:
   · marcas finas (barras ≤ 24 px con el extremo redondeado de 4 px, líneas de 2 px, puntos de ≥ 8 px) y 2 px de hueco
@@ -20,8 +20,6 @@ from markupsafe import Markup
 SERIES = 7                                   # series categóricas distintas; el resto se agrupa en «Otros»
 OTHER = "Otros"
 STATUS = {"green": "#0ca30c", "amber": "#fab219", "orange": "#ec835a", "red": "#d03b3b", "unknown": "#898781"}
-# magnitud ordinal (tramos de DTE): del paso 250 al 700 de la rampa azul, del más claro al más oscuro
-ORDINAL = ("#86b6ef", "#3987e5", "#1c5cab", "#0d366b")
 
 
 def _e(text) -> str:
@@ -193,33 +191,3 @@ def columns(items: Sequence[tuple[str, float, str]], width: int = 520, height: i
             f'<g class="cl" tabindex="0" data-tip="{_tip(fmt(value), name, detail)}"><rect x="{cx - slot / 2:.1f}" y="{top}" width="{slot:.1f}" height="{height - top - bottom}" fill="transparent"/>'
             f'<path class="bar1" d="{shape}"/><text class="ax" x="{cx:.1f}" y="{height - 8}" text-anchor="middle">{_e(name)}</text></g>')
     return Markup(f'<svg class="lc" viewBox="0 0 {width} {height}" role="img" aria-label="{_e(label)}">{grid}{"".join(bars)}</svg>')
-
-
-# ---------------------------------------------------------------------------------------------------- dispersión
-def scatter(points: Sequence[tuple[float, float, str, int]], x_label: str, y_label: str,
-            x_fmt: Callable[[float], str] = lambda v: f"{v:.0f}", y_fmt: Callable[[float], str] = lambda v: f"{v:.0f}",
-            width: int = 520, height: int = 300, label: str = "", message: str = "Sin contratos") -> Markup:
-    """Un punto por elemento (x, y, tooltip, tramo ordinal 0-3). Para que apuntar sea fácil, el tooltip sale del punto MÁS
-    CERCANO al puntero (no hay que acertar un punto de 8 px): lo gestiona `base.html` con `data-nearest`."""
-    if not points:
-        return empty(message)
-    left, right, top, bottom = 46, 14, 26, 40
-    xs, ys = [p[0] for p in points], [p[1] for p in points]
-    xt = nice_ticks(min(xs), max(xs), 4)
-    yt = nice_ticks(min(ys) if min(ys) >= 10 else 0.0, max(ys), 4)           # base redondeada: la nube no se aplasta contra el eje
-    xlo, xhi, ylo, yhi = xt[0], xt[-1], yt[0], yt[-1]
-    px = lambda x: _scale(x, xlo, xhi if xhi > xlo else xlo + 1, left, width - right)   # noqa: E731
-    py = lambda v: _scale(v, ylo, yhi, height - bottom, top)                            # noqa: E731
-    gy = "".join(
-        f'<line class="gl" x1="{left}" x2="{width - right}" y1="{py(v):.1f}" y2="{py(v):.1f}"/>'
-        f'<text class="ax" x="{left - 6}" y="{py(v) + 4:.1f}" text-anchor="end">{_e(y_fmt(v))}</text>'
-        for v in yt)
-    gx = "".join(f'<text class="ax" x="{px(v):.1f}" y="{height - bottom + 16}" text-anchor="middle">{_e(x_fmt(v))}</text>'
-                 for v in xt)
-    dots = "".join(
-        f'<circle class="sc" cx="{px(x):.1f}" cy="{py(y):.1f}" r="3.2" style="fill:{ORDINAL[min(max(b, 0), 3)]}" data-tip="{_e(tip)}"/>'
-        for x, y, tip, b in points)
-    return Markup(
-        f'<svg class="lc" data-nearest viewBox="0 0 {width} {height}" role="img" aria-label="{_e(label)}">{gy}{gx}'
-        f'<text class="ax" x="{(left + width - right) / 2:.1f}" y="{height - 4}" text-anchor="middle">{_e(x_label)}</text>'
-        f'<text class="ax" x="4" y="12" text-anchor="start">{_e(y_label)}</text>{dots}</svg>')

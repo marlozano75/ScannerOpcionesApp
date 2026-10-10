@@ -63,9 +63,3 @@ def test_columns_are_capped_at_24px_with_a_flat_base_and_rounded_top():
     html = str(viz.columns([("a", 10.0, ""), ("b", 5.0, "")], width=520))
     widths = [float(m) for m in re.findall(r'H([\d.]+) Q', html)]
     assert widths and 'class="bar1"' in html and "Sin datos" in str(viz.columns([("a", 0.0, "")]))
-
-
-def test_scatter_gives_each_dot_a_tooltip_and_the_ordinal_color_of_its_bucket():
-    html = str(viz.scatter([(10.0, 30.0, "30|X", 0), (20.0, 50.0, "50|Y", 3)], "x", "y"))
-    assert "data-nearest" in html and html.count('class="sc"') == 2 and viz.ORDINAL[0] in html and viz.ORDINAL[3] in html
-    assert "Sin contratos" in str(viz.scatter([], "x", "y"))

@@ -110,7 +110,6 @@
   svg.lc .xh { stroke:var(--line-strong); stroke-width:1; opacity:0; } svg.lc .dt { fill:var(--viz-1); stroke:var(--panel); stroke-width:2; opacity:0; }
   svg.lc .pt:hover .xh, svg.lc .pt:focus .xh, svg.lc .pt:hover .dt, svg.lc .pt:focus .dt { opacity:1; }
   svg.lc .bar1 { fill:var(--viz-1); } svg.lc .cl:hover .bar1, svg.lc .cl:focus .bar1 { fill:#256abf; }
-  svg.lc .sc { fill-opacity:.78; stroke:var(--panel); stroke-width:1; } svg.lc .sc.hot { stroke:var(--ink); stroke-width:2; fill-opacity:1; }
   details.vtable { margin-top:6px; font-size:12px; } details.vtable summary { cursor:pointer; color:var(--mute); }
   details.vtable table { margin-top:6px; font-size:12px; }
   #viz-tip { position:fixed; z-index:50; pointer-events:none; background:var(--accent); color:#fff; border-radius:8px; padding:7px 10px;
@@ -138,12 +137,6 @@
   .side-scroll { flex:1; min-height:0; overflow-y:auto; padding:0 14px 28px 0; }
   .viz-box { margin-top:10px; border:1px solid var(--line); border-radius:8px; padding:6px 10px 10px; }
   .viz-box > summary { cursor:pointer; font-weight:600; font-size:13px; }
-  .viz-box .vgrid { grid-template-columns:repeat(3,minmax(0,1fr)); margin-top:8px; }
-  .tabs { display:flex; gap:6px; margin:8px 0 6px; flex-wrap:wrap; }
-  .tab { background:transparent; color:var(--ink); border:1px solid var(--line-strong); border-radius:999px; padding:3px 12px; font-size:12px; font-weight:600; }
-  .tab:hover { border-color:var(--accent); filter:none; } .tab.active { background:var(--accent); border-color:var(--accent); color:#fff; }
-  .tabpane[hidden] { display:none; }
-  @media (max-width: 1200px) { .viz-box .vgrid { grid-template-columns:1fr; } .viz-box .vcard { grid-column:auto !important; } }
   td.cb { background-image:linear-gradient(90deg, rgba(42,120,214,.20) var(--p,0%), transparent var(--p,0%)); }
   #scan-results td.hl.cb { background-color:#ece6d4; background-image:linear-gradient(90deg, rgba(42,120,214,.28) var(--p,0%), transparent var(--p,0%)); }
   .impact-box { margin-top:10px; border:1px solid var(--line); border-radius:8px; padding:6px 10px; }
@@ -242,7 +235,6 @@
   var tip = document.createElement('div');
   tip.id = 'viz-tip'; tip.setAttribute('role', 'tooltip'); tip.hidden = true;
   document.body.appendChild(tip);
-  var hot = null, caches = new WeakMap();
   function fill(text) {
     tip.textContent = '';
     String(text || '').split('|').forEach(function (part, i) {
@@ -258,29 +250,9 @@
     var top = y - h - 12 < 8 ? y + 18 : y - h - 12;
     tip.style.left = left + 'px'; tip.style.top = top + 'px';
   }
-  function hide() { tip.hidden = true; if (hot) { hot.classList.remove('hot'); hot = null; } }
-  function dots(svg) {
-    var c = caches.get(svg);
-    if (!c) {
-      c = Array.prototype.map.call(svg.querySelectorAll('circle[data-tip]'), function (el) {
-        return { el: el, x: parseFloat(el.getAttribute('cx')), y: parseFloat(el.getAttribute('cy')) };
-      });
-      caches.set(svg, c);
-    }
-    return c;
-  }
+  function hide() { tip.hidden = true; }
   document.addEventListener('pointermove', function (e) {
     var target = e.target.closest ? e.target : null;
-    var svg = target && target.closest('svg[data-nearest]');
-    if (svg) {
-      var pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
-      var p = pt.matrixTransform(svg.getScreenCTM().inverse()), best = null, bd = 28 * 28;
-      dots(svg).forEach(function (d) { var dd = (d.x - p.x) * (d.x - p.x) + (d.y - p.y) * (d.y - p.y); if (dd < bd) { bd = dd; best = d; } });
-      if (hot && (!best || hot !== best.el)) { hot.classList.remove('hot'); hot = null; }
-      if (best) { hot = best.el; hot.classList.add('hot'); fill(hot.getAttribute('data-tip')); place(e.clientX, e.clientY); }
-      else tip.hidden = true;
-      return;
-    }
     var el = target && target.closest('[data-tip]');
     if (el) { fill(el.getAttribute('data-tip')); place(e.clientX, e.clientY); } else hide();
   });

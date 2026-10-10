@@ -138,8 +138,8 @@ def test_the_scanner_page_has_the_lazy_impact_panel(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     page = client.get(BASE).text
-    assert 'id="viz-box"' in page and 'data-tab="tab-impact"' in page and 'data-url="/scanner/impact"' in page   # pestaña de impacto, carga diferida
-    assert 'data-tab="tab-overview"' in page and 'class="tab active" role="tab" data-tab="tab-overview"' in page   # la vista general es la pestaña inicial
+    assert 'id="viz-box"' in page and 'data-url="/scanner/impact"' in page and "¿Cuánto descarta cada filtro?" in page   # carga diferida
+    assert 'data-tab=' not in page and "tab-overview" not in page                                                       # sin pestañas ni vista general
 
 
 # ---- ROIC y años con pérdidas ---------------------------------------------------------------------------------
@@ -197,6 +197,16 @@ def test_quality_repo_round_trips_the_new_fields():
     repo.save([TickerInfo("KO", roic=0.16, loss_years=2, fiscal_years=10)])
     got = repo.get("KO")
     assert (got.roic, got.loss_years, got.fiscal_years) == (0.16, 2, 10)
+
+
+# ---- los botones de calidad no deben vaciar el strike y el vencimiento ------------------------------------------
+def test_the_strike_presets_handler_does_not_bind_to_the_quality_preset_buttons(client_and_service):
+    """Regresión: «preset qpreset» casaba con `button.preset` y su clic dejaba descuento, DTE y yield en «undefined»."""
+    client, svc, gw, _ = client_and_service
+    page = client.get("/scanner?reset=1").text
+    assert "querySelectorAll('button.preset:not(.qpreset)')" in page
+    assert "querySelectorAll('button.preset')" not in page                       # sin el filtro, el manejador se engancha a las dos familias
+    assert 'class="preset qpreset' in page and "data-discount" not in page.split('class="preset qpreset')[1].split("</button>")[0]
 
 
 # ---- ingresos crecientes y estabilidad de los beneficios ------------------------------------------------------

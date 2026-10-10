@@ -317,32 +317,10 @@
       {% if chips %}<div class="chips">{% for sec, text in chips %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}</div>{% endif %}
       {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
       {% for w in warnings %}<div class="banner info">{{ w }}</div>{% endfor %}
-      {% if ov or criteria %}
-      <details class="viz-box" id="viz-box" open>
-        <summary>Análisis{% if ov %} <span class="muted">· {{ ov.count }} contratos{% if ov.drawn < ov.count %} (se dibujan los {{ ov.drawn }} de mayor yield){% endif %}</span>{% endif %}</summary>
-        <div class="tabs" role="tablist">
-          {% if ov %}<button type="button" class="tab active" role="tab" data-tab="tab-overview">Vista general</button>{% endif %}
-          {% if criteria %}<button type="button" class="tab{{ '' if ov else ' active' }}" role="tab" data-tab="tab-impact">¿Cuánto descarta cada filtro?</button>{% endif %}
-        </div>
-        {% if ov %}
-        <div id="tab-overview" class="tabpane vgrid">
-          <div class="vcard" style="grid-column:span 2">
-            <p class="vt">Yield anual frente al descuento del strike</p>
-            <p class="vs">Cada punto es un contrato; más a la derecha = strike más lejos del precio. Pasa el ratón para ver cuál es.</p>
-            {{ ov.scatter_key }}{{ ov.scatter }}
-          </div>
-          <div class="vcard">
-            <p class="vt">Contratos por tramo de yield anual</p>
-            <p class="vs">Dónde se concentra la oferta.</p>
-            {{ ov.histogram }}
-            <p class="vt" style="margin-top:14px">Contratos por sector</p>
-            {{ ov.sectors }}
-          </div>
-        </div>
-        {% endif %}
-        {% if criteria %}
-        <div id="tab-impact" class="tabpane" {{ 'hidden' if ov }} data-url="/scanner/impact"><div id="impact-body" class="muted">Calculando…</div></div>
-        {% endif %}
+      {% if criteria %}
+      <details class="viz-box" id="viz-box" data-url="/scanner/impact" open>
+        <summary>¿Cuánto descarta cada filtro? <span class="muted">(ver lo restrictiva que es la selección)</span></summary>
+        <div id="impact-body" class="muted">Calculando…</div>
       </details>
       {% endif %}
     </div>
@@ -353,7 +331,7 @@
         {% for r in out.results %}{% set c = r.snapshot.contract %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
           <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
-            {{ cols.cells(r, ov.yield_max if ov else 0) }}
+            {{ cols.cells(r, yield_max) }}
             <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px"></td></tr>
         {% else %}<tr><td colspan="40" class="muted empty">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
       </table></div>
@@ -396,10 +374,7 @@
     const KEY = 'scan-open';
     let open = null;
     try { open = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (e) { /* sin almacenamiento */ }
-    if (!open) {                                   // primera visita: todos los filtros a la vista
-      open = {};
-      document.querySelectorAll('details.fx').forEach(function (d) { open[d.id] = true; });
-    }
+    if (!open) open = { 'sec-contract': true, 'sec-yield': true };
     document.querySelectorAll('details.fx').forEach(function (d) {
       d.open = !!open[d.id];
       d.addEventListener('toggle', function () {
@@ -424,34 +399,25 @@
     const el = form.querySelector('[name=' + n + ']');
     el.addEventListener('change', function () { form.submit(); });   // editar X o el precio escanea
   });
-  // Panel de análisis: pestañas «Vista general» y «¿Cuánto descarta cada filtro?» (esta se calcula al abrirla, no en cada escaneo)
+  // Panel «¿Cuánto descarta cada filtro?»: se calcula al abrirlo (abierto por defecto, salvo que se haya cerrado)
   (function () {
     const box = document.getElementById('viz-box');
     if (!box) return;
     try { if (sessionStorage.getItem('viz-open') === '0') box.open = false; } catch (e) { /* sin almacenamiento */ }
-    box.addEventListener('toggle', function () { try { sessionStorage.setItem('viz-open', box.open ? '1' : '0'); } catch (e) { /* idem */ } });
-    const tabs = Array.prototype.slice.call(box.querySelectorAll('button.tab'));
     let loaded = false;
     function load() {
-      const pane = document.getElementById('tab-impact');
-      if (loaded || !pane) return;
+      if (loaded || !box.open) return;
       loaded = true;
-      fetch(pane.dataset.url + window.location.search, { headers: { 'X-Requested-With': 'fetch' } })
+      fetch(box.dataset.url + window.location.search, { headers: { 'X-Requested-With': 'fetch' } })
         .then(function (r) { return r.text(); })
         .then(function (html) { document.getElementById('impact-body').innerHTML = html; })
         .catch(function () { document.getElementById('impact-body').textContent = 'No se pudo calcular.'; });
     }
-    function show(id) {
-      tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === id); });
-      box.querySelectorAll('.tabpane').forEach(function (p) { p.hidden = p.id !== id; });
-      if (id === 'tab-impact') load();
-      try { sessionStorage.setItem('viz-tab', id); } catch (e) { /* sin almacenamiento */ }
-    }
-    tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.tab); }); });
-    let last = null;
-    try { last = sessionStorage.getItem('viz-tab'); } catch (e) { /* sin almacenamiento */ }
-    if (last && tabs.some(function (t) { return t.dataset.tab === last; })) show(last);
-    else if (tabs.length) show(tabs[0].dataset.tab);
+    box.addEventListener('toggle', function () {
+      try { sessionStorage.setItem('viz-open', box.open ? '1' : '0'); } catch (e) { /* idem */ }
+      load();
+    });
+    load();
   })();
   // Combinaciones de calidad: rellenan los filtros de solvencia y escanean («Ninguno» los quita)
   document.querySelectorAll('button.qpreset').forEach(function (b) {
@@ -468,7 +434,7 @@
     ['q_de', 'q_cov', 'q_cash', 'q_ocfd'].forEach(function (n) { document.getElementById(n).value = v; });
   });
   // Configuraciones preconfiguradas: cargan sus valores en el formulario (el resto de filtros se conserva) y escanean
-  document.querySelectorAll('button.preset').forEach(function (b) {
+  document.querySelectorAll('button.preset:not(.qpreset)').forEach(function (b) {   // las combinaciones de calidad (.qpreset) tienen su propio manejador
     b.addEventListener('click', function () {
       document.getElementById('discount').value = b.dataset.discount;
       document.getElementById('dte_min').value = b.dataset.dteMin;
