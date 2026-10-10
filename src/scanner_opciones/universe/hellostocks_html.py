@@ -2,9 +2,11 @@
 
 Sustituye al .xlsx equivalente: cada estrategia desplegada al guardar es una tabla del DOM y pasa a ser una
 fuente (su nombre es el de la pestaña del antiguo libro, para que un fichero nuevo sustituya a la fuente en vez
-de añadir otra). La app solo lee el fichero local: no se conecta a la web (sus términos prohíben el scraping).
-Funciones puras, sin red. Solo cuentan las tablas del DOM: los datos incrustados (`strategyArray`) pueden ser de
-otra carga y se usan únicamente para saber qué estrategias declara la página (`missing_strategies`).
+de añadir otra). Con «Strategy Criteria» abierto al guardar, cada estrategia trae además su tabla de criterios
+(«Metric / Condition»), que se lee como `Source.criteria`. La app solo lee el fichero local: no se conecta a la web
+(sus términos prohíben el scraping). Funciones puras, sin red. Solo cuentan las tablas del DOM: los datos incrustados
+(`strategyArray`) pueden ser de otra carga y se usan únicamente para saber qué estrategias declara la página
+(`missing_strategies`).
 """
 from __future__ import annotations
 
@@ -32,6 +34,7 @@ SOURCE_NAMES = {
 }
 _DROP_COLUMNS = {"hellostocks score"}              # columna «solo miembros»
 _BLOCK = re.compile(r'<div id="([^"]+\([^"]+\))"')  # cada estrategia: <div id="Nombre (Autor)">
+_PERCENT_METRICS = ("growth", "roe", "yield", "margin")   # HelloStocks da estas condiciones como fracción (0,5 = 50 %)
 
 
 def _text(fragment: str) -> str:
@@ -42,23 +45,60 @@ def _plain(header: str) -> str:
     return re.sub(r"[^\w ]", "", header).strip().lower()   # quita el candado «🔒»
 
 
-def read_tables(page: str) -> dict[str, list[list[str]]]:
-    """{estrategia: filas (la primera es la cabecera)} de cada bloque con tabla, sin la columna de miembros."""
+def _segments(page: str) -> dict[str, str]:
+    """{estrategia: trozo de HTML de su bloque}."""
     starts = [(m.start(), m.group(1)) for m in _BLOCK.finditer(page)]
+    return {name: page[pos: starts[k + 1][0] if k + 1 < len(starts) else len(page)]
+            for k, (pos, name) in enumerate(starts)}
+
+
+def _tables(segment: str) -> list[tuple[list[str], list[list[str]]]]:
+    """(cabecera, filas) de cada tabla del bloque."""
+    out = []
+    for table in re.findall(r"<table.*?</table>", segment, re.S):
+        trs = re.findall(r"<tr.*?</tr>", table, re.S)
+        if trs:
+            out.append(([_text(c) for c in re.findall(r"<th.*?</th>", trs[0], re.S)],
+                        [[_text(c) for c in re.findall(r"<td.*?</td>", r, re.S)] for r in trs[1:]]))
+    return out
+
+
+def read_tables(page: str) -> dict[str, list[list[str]]]:
+    """{estrategia: filas (la primera es la cabecera)} de la tabla de acciones de cada bloque (la de cabecera
+    «Ticker»; con «Strategy Criteria» abierto hay otra antes), sin la columna de miembros."""
     out: dict[str, list[list[str]]] = {}
-    for k, (pos, name) in enumerate(starts):
-        segment = page[pos: starts[k + 1][0] if k + 1 < len(starts) else len(page)]
-        table = re.search(r"<table.*?</table>", segment, re.S)
-        if not table:
+    for name, segment in _segments(page).items():
+        table = next(((h, r) for h, r in _tables(segment) if h and _plain(h[0]) == "ticker"), None)
+        if table is None:
             continue
-        trs = re.findall(r"<tr.*?</tr>", table.group(0), re.S)
-        if not trs:
-            continue
-        header = [_text(c) for c in re.findall(r"<th.*?</th>", trs[0], re.S)]
+        header, body = table
         keep = [i for i, h in enumerate(header) if _plain(h) not in _DROP_COLUMNS]
-        rows = [[_text(c) for c in re.findall(r"<td.*?</td>", r, re.S)] for r in trs[1:]]
-        rows = [r for r in rows if any(r)]
+        rows = [r for r in body if any(r)]
         out[name] = [[header[i] for i in keep]] + [[r[i] if i < len(r) else "" for i in keep] for r in rows]
+    return out
+
+
+def format_condition(metric: str, condition: str) -> str:
+    """«> 0.5» -> «> 50 %» (métricas en porcentaje); «>= 0 and < 1» -> «≥ 0 y < 1»."""
+    percent = any(w in metric.lower() for w in _PERCENT_METRICS)
+
+    def number(m: re.Match) -> str:
+        v = float(m.group(0)) * (100 if percent else 1)
+        text = f"{v:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+        return text + (" %" if percent and v != 0 else "")
+
+    out = re.sub(r"-?\d+(?:\.\d+)?", number, re.sub(r"^(\S+) < x < (\S+)$", r"entre \1 y \2", condition))
+    return out.replace(">=", "≥").replace("<=", "≤").replace(" and ", " y ")
+
+
+def read_criteria(page: str) -> dict[str, tuple[tuple[str, str], ...]]:
+    """{estrategia: ((métrica, condición), ...)} de la tabla «Metric / Condition» de cada bloque."""
+    out: dict[str, tuple[tuple[str, str], ...]] = {}
+    for name, segment in _segments(page).items():
+        for header, rows in _tables(segment):
+            if [_plain(h) for h in header[:2]] == ["metric", "condition"] and rows:
+                out[name] = tuple((r[0], format_condition(r[0], r[1])) for r in rows if len(r) >= 2)
+                break
     return out
 
 
@@ -84,20 +124,20 @@ def _read(path: str | Path) -> str:
 
 
 def missing_strategies(path: str | Path) -> list[str]:
-    """Avisos sobre lo que el guardado no trae: estrategias declaradas sin tabla y tablas con menos filas que su
-    «Holdings: N» (listas a medio cargar)."""
+    """Avisos sobre lo que el guardado no trae: estrategias declaradas sin tabla, tablas con menos filas que su
+    «Holdings: N» (listas a medio cargar) y estrategias sin criterios («Strategy Criteria» sin abrir)."""
     page = _read(path)
-    tables = read_tables(page)
+    tables, criteria = read_tables(page), read_criteria(page)
     warnings = [f"«{name}» no está en el HTML guardado (no estaba desplegada o la web no la muestra)"
                 for name in declared_strategies(page) if name not in tables]
-    for m in _BLOCK.finditer(page):
-        name = m.group(1)
+    for name, segment in _segments(page).items():
         if name not in tables:
             continue
-        end = page.find('<div id="', m.end())
-        held = re.search(r"Holdings: (\d+)", page[m.start(): end if end > 0 else len(page)])
+        held = re.search(r"Holdings: (\d+)", segment)
         if held and int(held.group(1)) != len(tables[name]) - 1:
             warnings.append(f"«{name}» declara {held.group(1)} posiciones y solo hay {len(tables[name]) - 1} filas")
+        if name not in criteria:
+            warnings.append(f"«{name}» no trae sus criterios (guarda la página con «Strategy Criteria» abierto)")
     return warnings
 
 
@@ -108,3 +148,8 @@ def load_html_sheets(path: str | Path) -> list[tuple[str, list[list[str]]]]:
         raise WatchlistError("El HTML no contiene ninguna tabla de estrategias de HelloStocks "
                              "(guarda la página con las listas desplegadas)")
     return [(SOURCE_NAMES.get(name, name)[:31], rows) for name, rows in tables.items()]
+
+
+def load_html_criteria(path: str | Path) -> dict[str, tuple[tuple[str, str], ...]]:
+    """{nombre de la fuente: criterios}, con los mismos nombres que `load_html_sheets`."""
+    return {SOURCE_NAMES.get(name, name)[:31]: crit for name, crit in read_criteria(_read(path)).items()}

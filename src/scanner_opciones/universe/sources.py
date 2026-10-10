@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from scanner_opciones.domain.errors import WatchlistError
-from scanner_opciones.universe.hellostocks_html import HTML_SUFFIXES, load_html_sheets
+from scanner_opciones.universe.hellostocks_html import HTML_SUFFIXES, load_html_criteria, load_html_sheets
 from scanner_opciones.rankedstocks.loader import (
     SYMBOL_HEADERS, TEXT, RankedTable, _cell_text, _plain, build_table, clean_header, clean_ticker,
 )
@@ -33,6 +33,7 @@ class Source:
     name: str                                      # «RankedStocks» o el nombre de la pestaña de HelloStocks
     file: str                                      # fichero del que sale
     table: RankedTable                             # con la columna «Fuente» justo detrás del símbolo
+    criteria: tuple[tuple[str, str], ...] = ()     # (métrica, condición) con que la fuente selecciona; solo el HTML de HelloStocks
 
 
 def _is_ranked(header: list[object]) -> bool:
@@ -98,6 +99,9 @@ def load_sources(path: str | Path, file: str | None = None) -> list[Source]:
             errors.append(str(exc))
     if not sources:
         raise WatchlistError(errors[0] if errors else "El archivo no contiene hojas")
+    if suffix in HTML_SUFFIXES:
+        criteria = load_html_criteria(p)
+        sources = [replace(s, criteria=criteria.get(s.name, ())) for s in sources]
     return sources
 
 

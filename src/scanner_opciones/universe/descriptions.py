@@ -15,11 +15,16 @@ class SourceInfo:
     title: str
     summary: str                         # qué busca la fuente
     details: tuple[str, ...] = ()        # puntos adicionales, lo más escuetos posible
+    criteria: tuple[tuple[str, str], ...] = ()   # (métrica, condición) exactas, si la fuente las publica
 
 
 HELLO_NOTE = ("Universo: las 500 mayores acciones de EE. UU. por capitalización. Una acción cumple la estrategia solo si pasa "
-              "todos sus criterios (columna Criteria, p. ej. 7/7); los cumplimientos parciales son solo pistas. "
-              "Los umbrales exactos no vienen en la página guardada.")
+              "todos sus criterios (columna Criteria, p. ej. 7/7); los cumplimientos parciales son solo pistas.")
+NO_CRITERIA_NOTE = ("Los umbrales no vienen en el fichero cargado: guarda la página de HelloStocks con «Strategy Criteria» "
+                    "abierto en cada estrategia y cárgala como .html.")
+# Estrategias propias de HelloStocks que excluyen sectores (lo dice su descripción).
+_HELLO_EXCLUDES = ("Lower Risk (Hello Stocks)", "Balanced Risk (Hello Stocks)", "Full Throttle (Hello Stocks)")
+EXCLUDED_SECTORS = "Excluye los sectores Servicios financieros, Materiales básicos, Energía, Utilities e Inmobiliario."
 
 # Nombre de la fuente (el de la pestaña del libro / estrategia) -> qué busca.
 _HELLO = {
@@ -48,14 +53,14 @@ RANKED_INFO = SourceInfo(
 )
 
 
-def describe(name: str, columns: tuple[str, ...] = ()) -> SourceInfo | None:
-    """Explicación de la fuente `name`; `columns` son sus columnas, que en HelloStocks son las métricas evaluadas."""
+def describe(name: str, criteria: tuple[tuple[str, str], ...] = ()) -> SourceInfo | None:
+    """Explicación de la fuente `name`; `criteria` son los umbrales que publica HelloStocks (si se cargó el .html
+    con «Strategy Criteria» abierto)."""
     if name == RANKED:
         return RANKED_INFO
     if name in _HELLO:
-        measured = [c for c in columns if c.strip().lower() not in {"ticker", "fuente", "company", "sector", "criteria"}]
-        details = (HELLO_NOTE,) + ((f"Métricas evaluadas: {', '.join(measured)}.",) if measured else ())
-        return SourceInfo(f"HelloStocks · {name}", _HELLO[name], details)
+        details = (HELLO_NOTE,) + ((EXCLUDED_SECTORS,) if name in _HELLO_EXCLUDES else ())             + (() if criteria else (NO_CRITERIA_NOTE,))
+        return SourceInfo(f"HelloStocks · {name}", _HELLO[name], details, criteria)
     return None
 
 

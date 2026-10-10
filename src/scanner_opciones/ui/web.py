@@ -332,7 +332,7 @@ def create_app(
         files = [(name, at, [s.name for s in srcs if s.name in active]) for name, (at, srcs) in service.universe_files.items()]
         info = None
         if current is not None:
-            info = describe_manual(current.name) if current.name in service.manual_sources else                 describe(current.name, tuple(c.name for c in current.table.columns))
+            info = describe_manual(current.name) if current.name in service.manual_sources else                 describe(current.name, current.criteria)
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},

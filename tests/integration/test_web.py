@@ -466,6 +466,7 @@ def test_a_selected_source_explains_its_criteria_and_there_is_no_file_removal(cl
     page = client.get(f"/universe?src={LOWER}").text
     assert "Finanzas sólidas, buen crecimiento y precio bajo" in page and "Quitar toda la fuente" in page
     assert "RS Score" in client.get("/universe?src=RankedStocks").text
+    assert "guarda la página de HelloStocks con «Strategy Criteria»" in page          # el .xlsx no trae los umbrales
     todas = client.get("/universe?reset=1").text                                     # «Todas»: sin botones de quitar
     assert 'action="/universe/remove"' not in todas and "Quitar toda la fuente" not in todas
 

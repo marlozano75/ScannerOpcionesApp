@@ -55,6 +55,12 @@
 <div class="card source-info" style="margin-bottom:14px">
   <h2 style="margin-top:0">{{ source_info.title }}</h2>
   <p style="margin:4px 0"><b>{{ source_info.summary }}</b></p>
+  {% if source_info.criteria %}
+  <div class="scroll" style="max-width:420px;margin-top:6px"><table>
+    <tr><th>Métrica</th><th>Condición (todas deben cumplirse)</th></tr>
+    {% for metric, cond in source_info.criteria %}<tr><td>{{ metric }}</td><td>{{ cond }}</td></tr>{% endfor %}
+  </table></div>
+  {% endif %}
   {% if source_info.details %}<ul style="margin:6px 0 0;padding-left:18px">{% for d in source_info.details %}<li class="muted">{{ d }}</li>{% endfor %}</ul>{% endif %}
 </div>
 {% endif %}
