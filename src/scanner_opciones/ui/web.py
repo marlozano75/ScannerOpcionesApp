@@ -86,6 +86,8 @@ SOLVENCY_UI = (
     ("q_bb", "min_net_buyback_pct", "net_buyback_pct", "Recompra neta de acciones", "≥", "pct"),
     ("q_roic", "min_roic", "roic", "ROIC", "≥", "%"),
     ("q_loss", "max_loss_years", "loss_years", "Años con pérdidas (últimos 10)", "≤", ""),
+    ("q_revdrop", "max_revenue_drops", "revenue_drops", "Años con caída de ingresos (últimos 10)", "≤", ""),
+    ("q_evol", "max_earnings_volatility", "earnings_volatility", "Volatilidad de los beneficios", "≤", "%"),
 )
 SOLVENCY_CORE = ("q_de", "q_cov", "q_cash", "q_ocfd")   # el bloque «Solvencia»; los otros tres son indicadores opcionales
 

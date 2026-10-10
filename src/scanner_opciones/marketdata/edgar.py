@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import statistics
 import time
 import unicodedata
 from datetime import date, datetime, timedelta
@@ -48,6 +49,8 @@ TAXONOMIES = {
                 "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
                 "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic"),
         net_income=("NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"),
+        revenue=("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet",
+                 "RevenueFromContractWithCustomerIncludingAssessedTax"),
         interest=("InterestExpense", "InterestExpenseNonoperating", "InterestExpenseDebt", "InterestAndDebtExpense"),
     ),
     "ifrs-full": dict(
@@ -55,7 +58,7 @@ TAXONOMIES = {
         liabilities=("Liabilities",), liabilities_and_equity=("EquityAndLiabilities",),
         ocf=("CashFlowsFromUsedInOperatingActivities", "CashFlowsFromUsedInOperatingActivitiesContinuingOperations"),
         capex=("PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "PurchaseOfPropertyPlantAndEquipment"),
-        net_income=("ProfitLoss",),
+        net_income=("ProfitLoss",), revenue=("Revenue",),
     ),
 }
 
@@ -180,6 +183,7 @@ def _debt(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabiliti
 TAX_FALLBACK = 0.21        # tasa federal de EE. UU. cuando la efectiva no se puede calcular o es absurda (negativa, > 40 %)
 PROFIT_YEARS = 10          # años fiscales que se miran para contar años con pérdidas
 MIN_PROFIT_YEARS = 5       # con menos historia no se juzga la estabilidad (sin dato)
+MIN_GROWTH_OBSERVATIONS = 4   # crecimientos anuales mínimos para medir su volatilidad
 
 
 def _roic(tree: dict, tags: dict, fresh: str, equity: Optional[float], debt: Optional[float]) -> Optional[float]:
@@ -196,22 +200,57 @@ def _roic(tree: dict, tags: dict, fresh: str, equity: Optional[float], debt: Opt
     return (op * (1.0 - rate) if op > 0 else op) / (debt + equity)
 
 
-def _fiscal_profit(tree: dict, tags: dict, fresh: str) -> tuple[Optional[int], Optional[int]]:
-    """(años con pérdidas, años evaluados) entre los últimos `PROFIT_YEARS` años fiscales (10-K/20-F). Sin al menos
-    `MIN_PROFIT_YEARS` años de historia, o sin un año fiscal reciente, los años con pérdidas son None."""
-    net: dict[str, float] = {}
-    for tag in tags.get("net_income", ()):
+def _annual_series(tree: dict, tags: tuple[str, ...], fresh: str) -> list[tuple[str, float]]:
+    """(fin del año fiscal, valor) de los últimos `PROFIT_YEARS` años fiscales (10-K/20-F), del más antiguo al más
+    reciente; [] si falta o el último año es viejo. La etiqueta con el año más reciente manda y las demás solo rellenan
+    los años que a ella le faltan (las empresas cambian de etiqueta, p. ej. SalesRevenueNet -> RevenueFromContract…)."""
+    per_tag: list[dict[str, float]] = []
+    for tag in tags:
         best: dict[str, dict] = {}
         for f in tree.get(tag, {}).get("units", {}).get("USD", []):
             if "start" in f and 350 <= _days(f["start"], f["end"]) <= 380 and f.get("form", "") in ANNUAL_FORMS:
                 if f["end"] not in best or f.get("filed", "") > best[f["end"]].get("filed", ""):
                     best[f["end"]] = f
-        for end, f in best.items():       # la primera etiqueta que dé el año manda: otras rellenan los años que le faltan
-            net.setdefault(end, f["val"])
-    ends = sorted(net)[-PROFIT_YEARS:]
-    if not ends or ends[-1] < fresh:
-        return None, None
-    return (sum(1 for e in ends if net[e] < 0) if len(ends) >= MIN_PROFIT_YEARS else None), len(ends)
+        if best:
+            per_tag.append({end: f["val"] for end, f in best.items()})
+    merged: dict[str, float] = {}
+    for values in sorted(per_tag, key=lambda v: (max(v), len(v)), reverse=True):
+        for end, val in values.items():
+            merged.setdefault(end, val)
+    ends = sorted(merged)[-PROFIT_YEARS:]
+    return [] if not ends or ends[-1] < fresh else [(e, merged[e]) for e in ends]
+
+
+def _consecutive(series: list[tuple[str, float]]):
+    """Pares (anterior, actual) de años fiscales seguidos (de 350 a 380 días): un año que falta no se compara con otro."""
+    for (e0, v0), (e1, v1) in zip(series, series[1:]):
+        if 350 <= _days(e0, e1) <= 380:
+            yield v0, v1
+
+
+def _fiscal_profit(tree: dict, tags: dict, fresh: str) -> dict[str, Optional[float]]:
+    """Estabilidad de los beneficios y de los ingresos en los últimos `PROFIT_YEARS` años fiscales. Todo es None con
+    menos de `MIN_PROFIT_YEARS` años de historia:
+      · loss_years / fiscal_years: años con beneficio neto < 0 y años evaluados;
+      · revenue_drop_years / revenue_years: años en que los ingresos bajaron y años comparados con su anterior;
+      · earnings_volatility: desviación típica del crecimiento anual del beneficio neto (como el análisis del vídeo,
+        que mide cuánto oscilan los beneficios de un año a otro). Solo cuentan los años con beneficio positivo el año
+        anterior, y cada crecimiento se limita a [−100 %, +200 %] para que una base minúscula no lo dispare."""
+    out: dict[str, Optional[float]] = dict.fromkeys(
+        ("loss_years", "fiscal_years", "revenue_drop_years", "revenue_years", "earnings_volatility"))
+    income = _annual_series(tree, tags.get("net_income", ()), fresh)
+    out["fiscal_years"] = len(income) or None
+    if len(income) >= MIN_PROFIT_YEARS:
+        out["loss_years"] = sum(1 for _, v in income if v < 0)
+        growth = [max(-1.0, min(2.0, (v1 - v0) / v0)) for v0, v1 in _consecutive(income) if v0 > 0]
+        if len(growth) >= MIN_GROWTH_OBSERVATIONS:
+            out["earnings_volatility"] = statistics.pstdev(growth)
+    revenue = _annual_series(tree, tags.get("revenue", ()), fresh)
+    if len(revenue) >= MIN_PROFIT_YEARS:
+        pairs = list(_consecutive(revenue))
+        out["revenue_years"] = len(pairs) or None
+        out["revenue_drop_years"] = sum(1 for v0, v1 in pairs if v1 < v0) if pairs else None
+    return out
 
 
 def _net_buyback_pct(tree: dict, fresh: str) -> Optional[float]:
@@ -264,7 +303,7 @@ def _solvency(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabi
     """Cociente de solvencia y de calidad del flujo de caja. NO_LIMIT = sin deuda / sin intereses / sin deuda corriente."""
     out: dict[str, Optional[float]] = dict.fromkeys(
         ("debt_to_equity", "interest_coverage", "cash_to_short_debt", "ocf_to_debt", "capex_to_ocf", "fcf_to_assets", "net_buyback_pct",
-         "roic", "loss_years", "fiscal_years"))
+         "roic", "loss_years", "fiscal_years", "revenue_drop_years", "revenue_years", "earnings_volatility"))
     debt, current = _debt(tree, tags, fresh, equity, liabilities)
     if debt is not None and equity is not None and equity > 0:
         out["debt_to_equity"] = debt / equity
@@ -285,7 +324,7 @@ def _solvency(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabi
         out["fcf_to_assets"] = fcf / assets
     out["net_buyback_pct"] = _net_buyback_pct(tree, fresh)
     out["roic"] = _roic(tree, tags, fresh, equity, debt)
-    out["loss_years"], out["fiscal_years"] = _fiscal_profit(tree, tags, fresh)
+    out.update(_fiscal_profit(tree, tags, fresh))
     return out
 
 

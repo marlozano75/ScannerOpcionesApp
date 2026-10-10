@@ -153,3 +153,53 @@ def test_loss_years_ignores_quarters_duplicates_and_stale_histories():
 def test_loss_years_fills_missing_years_from_the_alternative_tag():
     f = parse(NetIncomeLoss=annual([5, 4])["NetIncomeLoss"], ProfitLoss=[flow(f"{2025 - i}-01-01", f"{2025 - i}-12-31", -1.0) for i in range(2, 7)])
     assert (f.loss_years, f.fiscal_years) == (5, 7)                                           # 2 años de NetIncomeLoss + 5 de ProfitLoss
+
+
+# ---- ingresos crecientes y estabilidad de los beneficios ---------------------------------------------------
+REVENUE_TAG = "Revenues"
+
+
+def years(values, last_year=2025, tag=REVENUE_TAG):
+    """Serie anual (10-K) de la etiqueta dada: `values` va del año más reciente al más antiguo."""
+    return {tag: [flow(f"{last_year - i}-01-01", f"{last_year - i}-12-31", v) for i, v in enumerate(values)]}
+
+
+def test_revenue_drop_years_counts_the_years_revenue_fell_against_the_previous_year():
+    # cronológico: 100 110 105 120 130 125 140 150 160 170 → bajó 2 veces en 9 comparaciones
+    f = parse(**years([170, 160, 150, 140, 125, 130, 120, 105, 110, 100]))
+    assert (f.revenue_drop_years, f.revenue_years) == (2, 9)
+    assert parse(**years([5, 4, 3, 2, 1])).revenue_drop_years == 0                          # siempre creciendo
+
+
+def test_revenue_needs_five_years_and_a_missing_year_is_not_compared_with_another():
+    assert parse(**years([5, 4, 3, 2])).revenue_drop_years is None                          # menos de 5 años
+    facts = years([60, 50, 40, 30, 20, 10])[REVENUE_TAG]
+    del facts[2]                                                                           # falta 2023: 2022 no se compara con 2024
+    f = parse(**{REVENUE_TAG: facts})
+    assert f.revenue_years == 3                                                             # 2020-21, 2021-22 y 2024-25
+
+
+def test_revenue_tags_are_merged_across_taxonomy_changes():
+    new_tag, old_tag = "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet"
+    f = parse(**years([200, 190, 180], tag=new_tag), **years([170, 160, 150, 140], last_year=2022, tag=old_tag))
+    assert (f.revenue_drop_years, f.revenue_years) == (0, 6)                                # 7 años: 2019-2022 de la etiqueta vieja
+
+
+def test_earnings_volatility_is_the_std_of_annual_net_income_growth():
+    import statistics
+    f = parse(**annual([121, 110, 100, 100, 100, 100]))                                      # 100 100 100 100 110 121 → 0 0 0 +10 % +10 %
+    assert f.earnings_volatility == pytest.approx(statistics.pstdev([0.0, 0.0, 0.0, 0.1, 0.1]))
+    assert parse(**annual([100, 100, 100, 100, 100, 100])).earnings_volatility == 0.0        # beneficios planos: sin oscilación
+
+
+def test_earnings_volatility_clips_extreme_growth_and_skips_years_after_a_loss():
+    import statistics
+    f = parse(**annual([1000, 1, 1, 1, 1, 1]))                                               # +99 900 % se limita a +200 %
+    assert f.earnings_volatility == pytest.approx(statistics.pstdev([0.0, 0.0, 0.0, 0.0, 2.0]))
+    g = parse(**annual([10, 8, -5, 4, 3, 2]))                                                # 2 3 4 −5 8 10: el crecimiento desde −5 no existe
+    assert g.loss_years == 1 and g.earnings_volatility is not None
+
+
+def test_earnings_volatility_needs_four_growth_observations():
+    assert parse(**annual([5, 4, 3, 2, 1])).earnings_volatility is not None                  # 5 años = 4 crecimientos
+    assert parse(**annual([5, 4, -3, 2, 1])).earnings_volatility is None                     # la pérdida deja solo 3 crecimientos

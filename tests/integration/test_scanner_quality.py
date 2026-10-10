@@ -196,3 +196,55 @@ def test_quality_repo_round_trips_the_new_fields():
     repo.save([TickerInfo("KO", roic=0.16, loss_years=2, fiscal_years=10)])
     got = repo.get("KO")
     assert (got.roic, got.loss_years, got.fiscal_years) == (0.16, 2, 10)
+
+
+# ---- ingresos crecientes y estabilidad de los beneficios ------------------------------------------------------
+def test_revenue_drops_and_volatility_rules_use_the_configured_levels():
+    t = Settings().scanner.quality.thresholds
+    assert [t.revenue_drops[k] for k in ("flexible", "standard", "strict")] == [2, 1, 0]
+    assert [t.earnings_volatility[k] for k in ("flexible", "standard", "strict")] == [0.80, 0.50, 0.30]
+    steady = TickerInfo("A", revenue_drop_years=0, revenue_years=9, earnings_volatility=0.20)
+    jumpy = TickerInfo("B", revenue_drop_years=3, revenue_years=9, earnings_volatility=0.70)
+    assert reject(steady, max_revenue_drops=0, max_earnings_volatility=0.30) is None
+    assert "caída de ingresos" in reject(jumpy, max_revenue_drops=2)
+    assert "volatilidad de los beneficios" in reject(jumpy, max_earnings_volatility=0.50)
+    assert reject(jumpy, max_revenue_drops=3, max_earnings_volatility=0.80) is None
+    assert reject(TickerInfo("C"), max_revenue_drops=2) is not None                  # sin dato = no cumple
+    assert reject(TickerInfo("JPM", sector="Financial Services"), max_revenue_drops=0, max_earnings_volatility=0.1) is None
+
+
+def test_the_scanner_form_offers_revenue_drops_and_earnings_volatility(client_and_service):
+    client, svc, gw, _ = client_and_service
+    page = client.get("/scanner?reset=1").text
+    assert 'name="q_revdrop"' in page and 'name="q_evol"' in page
+    assert "Estándar (≤ 50 %)" in page and "Estricto (≤ 30 %)" in page and "Años con caída de ingresos" in page
+
+
+def test_revenue_drops_and_volatility_filter_the_scan(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    svc.quality.save([TickerInfo("AAPL", eps_ttm=5.0, revenue_drop_years=1, revenue_years=9, earnings_volatility=0.45)])
+    shown = lambda q: {v.split("|")[0] for v in re.findall(r'name="sel" value="([^"]*)"', client.get(BASE + q).text)}   # noqa: E731
+    assert "AAPL" in shown("&q_revdrop=standard") and "AAPL" not in shown("&q_revdrop=strict")      # 1 caída: ≤ 1 sí, ≤ 0 no
+    assert "AAPL" in shown("&q_evol=standard") and "AAPL" not in shown("&q_evol=strict")            # 0,45 ≤ 0,50 pero > 0,30
+    assert "Volatilidad de los beneficios: Estricto" in client.get(BASE + "&q_evol=strict").text
+
+
+def test_the_universe_shows_the_stability_columns(client_and_service):
+    client, svc, gw, _ = client_and_service
+    from tests.integration.test_web import load_rank
+    load_rank(client)
+    svc.quality.save([TickerInfo("KO", revenue_drop_years=3, revenue_years=9, earnings_volatility=0.35)])
+    page = client.get("/universe").text
+    assert "<th>Caídas de ingresos</th>" in page and "<th>Volatilidad beneficios</th>" in page
+    ko = [row for row in page.split("<tr>") if 'value="KO"' in row][0]
+    assert "3/9" in ko and "35%" in ko and "color:#b3361b" in ko                    # >1 caída se marca en rojo
+
+
+def test_quality_repo_round_trips_the_stability_fields():
+    from scanner_opciones.storage.db import Database
+    from scanner_opciones.storage.repositories import QualityRepo
+    repo = QualityRepo(Database(":memory:"))
+    repo.save([TickerInfo("KO", revenue_drop_years=2, revenue_years=9, earnings_volatility=0.31)])
+    got = repo.get("KO")
+    assert (got.revenue_drop_years, got.revenue_years, got.earnings_volatility) == (2, 9, 0.31)

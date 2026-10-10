@@ -202,6 +202,9 @@ class SolvencyThresholds(_Model):
     # ROIC alto = beneficios más fiables (el vídeo no da umbral; Meta ≈ 23 %, Microsoft ≈ 29 %): estos tres son una suposición
     roic: dict[str, float] = _levels(0.08, 0.12, 0.20)                 # mínimo (fracción)
     loss_years: dict[str, float] = _levels(2, 1, 0)                    # máximo de años con pérdidas de los últimos 10
+    revenue_drops: dict[str, float] = _levels(2, 1, 0)                 # máximo de años con caída de ingresos de los últimos 10
+    # desviación típica del crecimiento anual del beneficio neto (fracción); el vídeo no da umbral: SUPOSICIÓN calibrada con EDGAR
+    earnings_volatility: dict[str, float] = _levels(0.80, 0.50, 0.30)  # máximo (dejan pasar ~75 %, ~40 % y ~20 % de la watchlist)
 
     @model_validator(mode="after")
     def _check(self) -> "SolvencyThresholds":
@@ -227,7 +230,7 @@ class QualityPreset(_Model):
 
     @model_validator(mode="after")
     def _check(self) -> "QualityPreset":
-        unknown = set(self.levels) - {"q_de", "q_cov", "q_cash", "q_ocfd", "q_capex", "q_fcfa", "q_bb", "q_roic", "q_loss"}
+        unknown = set(self.levels) - {"q_de", "q_cov", "q_cash", "q_ocfd", "q_capex", "q_fcfa", "q_bb", "q_roic", "q_loss", "q_revdrop", "q_evol"}
         if unknown:
             raise ValueError(f"filtros desconocidos en el preset «{self.name}»: {', '.join(sorted(unknown))}")
         if bad := set(self.levels.values()) - set(LEVELS):

@@ -149,6 +149,13 @@ MIGRATIONS: list[str] = [
     ALTER TABLE ticker_quality ADD COLUMN fiscal_years INTEGER;
     UPDATE ticker_quality SET financials_at = NULL;
     """,
+    # v18: ingresos crecientes (años con caída de ingresos) y estabilidad de los beneficios (volatilidad de su crecimiento).
+    """
+    ALTER TABLE ticker_quality ADD COLUMN revenue_drop_years INTEGER;
+    ALTER TABLE ticker_quality ADD COLUMN revenue_years INTEGER;
+    ALTER TABLE ticker_quality ADD COLUMN earnings_volatility REAL;
+    UPDATE ticker_quality SET financials_at = NULL;
+    """,
 ]
 
 

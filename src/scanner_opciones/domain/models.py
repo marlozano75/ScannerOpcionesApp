@@ -43,6 +43,9 @@ class TickerInfo:
     roic: Optional[float] = None                # ROIC: resultado operativo tras impuestos / (deuda financiera + patrimonio)
     loss_years: Optional[int] = None            # años fiscales con pérdidas de los últimos 10 (None con menos de 5 de historia)
     fiscal_years: Optional[int] = None          # años fiscales evaluados (hasta 10)
+    revenue_drop_years: Optional[int] = None    # años en que bajaron los ingresos de los últimos 10 (None con < 5 años de historia)
+    revenue_years: Optional[int] = None         # años comparados con el anterior (hasta 9)
+    earnings_volatility: Optional[float] = None  # desviación típica del crecimiento anual del beneficio neto (fracción)
 
 
 @dataclass(frozen=True)
