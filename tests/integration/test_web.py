@@ -364,7 +364,7 @@ def test_load_rankedstocks_shows_every_column_and_row_with_its_source(client_and
     client, svc, gw, _ = client_and_service
     assert "RankedStocks_2026.10.01.xlsx (1 fuente, 4 filas)" in load_rank(client).text
     r = client.get("/universe?src=RankedStocks")
-    for col in ("Símbolo", "Fuente", "Empresa", "Bolsa", "País", "Capitalización", "Precio", "RS", "Al", "En watchlist"):
+    for col in ("Ticker", "Fuente", "Empresa", "Sector", "Bolsa", "País", "Capitalización", "Precio", "RS", "Al", "En watchlist"):
         assert f"<th>{col}</th>" in r.text
     assert "4 acciones" in r.text and "Delek US Holdings" in r.text and "$4.4B" in r.text
     assert "<td>RankedStocks</td>" in r.text                                       # la fuente va en cada fila

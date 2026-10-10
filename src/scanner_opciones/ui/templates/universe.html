@@ -128,13 +128,15 @@
   {% endif %}
   <div class="banner info" id="rk-working" hidden>⏳ Aplicando la selección a la watchlist…</div>
   <div class="scroll"><table class="sortable" id="universe-table">
-    <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th><th>Fuentes (nº)</th>
+    <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th>En watchlist</th><th>Fuentes (nº)</th><th>Ticker</th><th>Empresa</th><th>Sector</th>
       <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th><th>Deuda/Patr.</th><th>Cobertura int.</th><th>Efectivo/Deuda CP</th><th>Flujo op./Deuda</th><th>CapEx/Flujo op.</th><th>FCF/Activos</th><th>Recompra neta</th>
-      {% for col in table.columns %}<th>{{ col.name }}</th>{% endfor %}</tr>
+      {% for col in table.columns %}{% if loop.index0 not in skip %}<th>{{ col.name }}</th>{% endif %}{% endfor %}</tr>
     {% for row in rows %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ row.ticker }}" checked></td>
         <td>{{ '✓' if row.ticker in in_watchlist else '—' }}</td>
         <td>{{ member.get(row.ticker, '') }}</td>
+        {%- set who = ident.get(row.ticker, ('', '')) %}
+        <td><b>{{ row.ticker }}</b></td><td>{{ who[0] or '—' }}</td><td>{{ who[1] or '—' }}</td>
         {%- set q = qinfos.get(row.ticker) %}
         <td{% if q and q.eps_ttm is not none %} data-sort="{{ q.eps_ttm }}"{% if q.eps_ttm <= 0 %} style="color:#b3361b"{% endif %}{% endif %}>{{ q.eps_ttm|num if q and q.eps_ttm is not none else '—' }}</td>
         <td{% if q and q.positive_quarters is not none %} data-sort="{{ q.positive_quarters }}"{% if q.positive_quarters < 3 %} style="color:#b3361b"{% endif %}{% endif %}>{{ q.positive_quarters ~ '/' ~ q.reported_quarters if q and q.positive_quarters is not none else '—' }}</td>
@@ -146,11 +148,11 @@
         {%- set ex = row.ticker in exempt_tickers %}
         {{ metric(q.debt_to_equity if q else none, 'n', ex) }}{{ metric(q.interest_coverage if q else none, 'x', ex) }}{{ metric(q.cash_to_short_debt if q else none, 'x', ex) }}
         {{ metric(q.ocf_to_debt if q else none, 'f', ex) }}{{ metric(q.capex_to_ocf if q else none, 'f', ex) }}{{ metric(q.fcf_to_assets if q else none, 'f', ex) }}{{ metric(q.net_buyback_pct if q else none, 'p', ex) }}
-        {% for cell in row.cells %}
+        {% for cell in row.cells %}{% if loop.index0 not in skip %}
           {% if cell.value is not none %}<td data-sort="{{ cell.value }}">{{ cell.text }}</td>
-          {% else %}<td>{{ loop.index0 == table.symbol_index and row.ticker or cell.text }}</td>{% endif %}
-        {% endfor %}</tr>
-    {% else %}<tr><td colspan="{{ table.columns|length + 17 }}" class="muted">Sin filas{% if quality_active %}: ningún ticker cumple los filtros de calidad{% endif %}.</td></tr>{% endfor %}
+          {% else %}<td>{{ cell.text }}</td>{% endif %}
+        {% endif %}{% endfor %}</tr>
+    {% else %}<tr><td colspan="{{ table.columns|length - skip|length + 20 }}" class="muted">Sin filas{% if quality_active %}: ningún ticker cumple los filtros de calidad{% endif %}.</td></tr>{% endfor %}
   </table></div>
 </form>
 <script>

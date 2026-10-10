@@ -54,6 +54,16 @@ def tasty_symbol(ticker: str) -> str:
     return re.sub(r"[.\-]", "/", ticker.strip())
 
 
+_SECURITY_TYPE = re.compile(
+    r"\s*(?:[-–]\s*)?(?:New\s+)?(?:Class\s+[A-Z]\s+)?"
+    r"(?:Common Stock|Ordinary Shares?|Common Shares?|American Depositary (?:Shares|Receipts?)|Depositary Shares?).*$", re.I)
+
+
+def clean_company_name(text: str) -> str:
+    """«Apple Inc. - Common Stock» -> «Apple Inc.»: quita el tipo de valor que tastytrade añade al nombre."""
+    return _SECURITY_TYPE.sub("", text).strip(" -–,") or text.strip()
+
+
 def to_price(item: Any) -> Optional[float]:
     """Último precio de una cotización de tastytrade: `last`, o `mark` si no hay; None si no hay ninguno."""
     for value in (item.last, item.mark):
@@ -394,6 +404,29 @@ class TastytradeVolatility:
             for item in items:
                 if item.symbol in batch and (price := to_price(item)) is not None:
                     out[names[item.symbol]] = price
+        return out
+
+    async def _sdk_fetch_equities(self, symbols: Sequence[str]) -> Sequence[Any]:
+        from tastytrade.instruments import Equity
+
+        return await Equity.get(self._open_session(), list(symbols))
+
+    async def get_company_names(self, tickers: list[str]) -> dict[str, str]:
+        """{ticker: nombre de la empresa} (campo `description` del instrumento, p. ej. «APPLE INC»)."""
+        names = {tasty_symbol(t): t for t in tickers}
+        symbols = list(names)
+        out: dict[str, str] = {}
+        for i in range(0, len(symbols), BATCH_SIZE):
+            batch = symbols[i:i + BATCH_SIZE]
+            try:
+                items = await self._sdk_fetch_equities(batch)
+            except Exception as exc:   # el SDK lanza tipos variados (red, autenticación, formato)
+                self._session = None
+                raise VolatilityError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
+            for item in items:
+                text = clean_company_name(getattr(item, "description", None) or "")
+                if text and item.symbol in names:
+                    out[names[item.symbol]] = text
         return out
 
     async def get_iv_metrics(self, tickers: list[str]) -> dict[str, IVMetrics]:

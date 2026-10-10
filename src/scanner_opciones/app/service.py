@@ -33,11 +33,12 @@ from scanner_opciones.storage.repositories import (
 )
 from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider
+from scanner_opciones.marketdata.names import CompanyNameProvider
 from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.rankedstocks.loader import build_table, clean_ticker
-from scanner_opciones.universe.sources import MANUAL, SOURCE_COLUMN, Source, load_sources
+from scanner_opciones.universe.sources import MANUAL, SOURCE_COLUMN, Source, identities, load_sources
 from scanner_opciones.watchlist.parser import ParseResult
 
 log = logging.getLogger(__name__)
@@ -85,6 +86,7 @@ class AppService:
         candles: Optional[CandleProvider] = None,
         fundamentals: Optional[FundamentalsProvider] = None,
         financials: Optional[FinancialsProvider] = None,
+        names: Optional[CompanyNameProvider] = None,
     ) -> None:
         self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
@@ -109,6 +111,8 @@ class AppService:
         # ficheros del universo (RankedStocks, HelloStocks): nombre -> (hora de carga, fuentes); en memoria y en disco
         self.universe_files: dict[str, tuple[datetime, tuple[Source, ...]]] = {}
         self.volatility = volatility
+        self.names = names
+        self.universe_info: dict[str, dict[str, str]] = self._load_info()   # nombre/sector que ninguna fuente trae
         self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
         self.manual_sources: dict[str, list[str]] = self._load_manual()   # fuentes con nombre: tickers escritos a mano
         self.source_excluded: dict[str, set[str]] = self._load_excluded()  # tickers quitados a mano de una fuente de fichero
@@ -168,6 +172,62 @@ class AppService:
         except (ValueError, TypeError, AttributeError):
             return {}
 
+    def _load_info(self) -> dict[str, dict[str, str]]:
+        try:
+            return {str(t): {str(k): str(v) for k, v in d.items() if v}
+                    for t, d in json.loads(self.meta.get("universe_info") or "{}").items()}
+        except (ValueError, TypeError, AttributeError):
+            return {}
+
+    def universe_identity(self) -> dict[str, tuple[str, str]]:
+        """{ticker: (empresa, sector)} de todo el Universo. Primero lo que traen las fuentes (la primera que lo
+        aporte), después lo completado a mano (`universe_info`: nombre de tastytrade, sector de IBKR) y, para el
+        sector, el de la ficha de IBKR de la watchlist. Cadena vacía si no se sabe."""
+        ident = identities(self.universe_sources)
+        sectors = {t: i.sector for t, i in self.ticker_info.all().items() if i.sector}
+        out = {}
+        for ticker, (name, sector) in ident.items():
+            extra = self.universe_info.get(ticker, {})
+            out[ticker] = (name or extra.get("name", ""), sector or extra.get("sector", "") or sectors.get(ticker, ""))
+        return out
+
+    async def complete_info(self, tickers=None) -> int:
+        """Completa nombre (tastytrade) y sector (IBKR) de los tickers de las fuentes manuales que ninguna otra
+        fuente aporta. Todo es opcional: si el proveedor o IBKR no responden, se queda en blanco. Devuelve cuántos
+        datos se añadieron."""
+        raw = list(tickers) if tickers is not None else [t for ts in self.manual_sources.values() for t in ts]
+        ident = self.universe_identity()
+        lookup = {clean_ticker(t): t for t in raw}               # ticker de la app -> como se escribió («BRK.B»)
+        no_name = [t for t in lookup if not ident.get(t, ("", ""))[0]]
+        no_sector = [t for t in lookup if not ident.get(t, ("", ""))[1]]
+        added = 0
+        if no_name and self.names is not None:
+            try:
+                found = await self.names.get_company_names([lookup[t] for t in no_name])
+            except Exception as exc:   # el proveedor puede fallar de muchas formas: es un dato opcional
+                log.warning("Universo: no se pudieron obtener los nombres de las empresas: %s", exc)
+                found = {}
+            for raw_ticker, text in found.items():
+                self.universe_info.setdefault(clean_ticker(raw_ticker), {})["name"] = text
+                added += 1
+        failures = 0
+        for ticker in no_sector:
+            if failures >= 3:                                     # IBKR no responde: no se espera por cada ticker
+                break
+            try:
+                sector, _ = await asyncio.wait_for(self.gateway.get_sector_info(lookup[ticker]), 15)
+            except BrokerDisconnectedError:
+                break
+            except Exception:   # ticker desconocido, tiempo agotado...
+                failures += 1
+                continue
+            if sector:
+                self.universe_info.setdefault(ticker, {})["sector"] = sector
+                added += 1
+        if added:
+            self.meta.set("universe_info", json.dumps(self.universe_info))
+        return added
+
     def _save_excluded(self) -> None:
         self.meta.set("universe_excluded", json.dumps({k: sorted(v) for k, v in self.source_excluded.items() if v}))
 
@@ -206,6 +266,7 @@ class AppService:
         if new:
             self.manual_sources.setdefault(name, []).extend(new)
             self._save_manual()
+            await self.complete_info(new)
             self.kick_quality_update()
         return {"source": name, "added": new, "new_in_universe": [t for t in new if clean_ticker(t) not in in_universe],
                 "already": already, "no_options": no_options, "checked": checked}
@@ -346,6 +407,8 @@ class AppService:
         else:
             await self.refresh_all()
         self.update_financials_in_background()
+        if self.manual_sources:
+            self.launch(self.complete_info())
         if self.settings.daily_update.run_on_startup:
             self.launch(self.run_daily_then_refresh())
 

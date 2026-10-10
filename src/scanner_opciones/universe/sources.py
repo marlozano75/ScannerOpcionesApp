@@ -105,6 +105,22 @@ def load_sources(path: str | Path, file: str | None = None) -> list[Source]:
     return sources
 
 
+def identities(sources: list[Source]) -> dict[str, tuple[str, str]]:
+    """{ticker: (empresa, sector)}: el primer valor no vacío que aporte alguna fuente (cadena vacía si ninguna)."""
+    info: dict[str, list[str]] = {}
+    for src in sources:
+        names = [_plain(c.name) for c in src.table.columns]
+        company = next((i for i, n in enumerate(names) if n in _NAME_HEADERS), None)
+        sector = next((i for i, n in enumerate(names) if n == "sector"), None)
+        for row in src.table.rows:
+            entry = info.setdefault(row.ticker, ["", ""])
+            for k, col in ((0, company), (1, sector)):
+                text = row.cells[col].text if col is not None else ""
+                if not entry[k] and text not in ("", "—"):
+                    entry[k] = text
+    return {t: (e[0], e[1]) for t, e in info.items()}
+
+
 def merge(sources: list[Source]) -> RankedTable:
     """Vista «Todas»: una fila por ticker con su empresa, sector y las fuentes en las que aparece."""
     info: dict[str, dict] = {}

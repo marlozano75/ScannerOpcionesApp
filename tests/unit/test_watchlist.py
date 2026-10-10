@@ -90,3 +90,15 @@ class TestLoadFile:
 def test_quita_el_dolar_inicial_del_ticker():
     res = parse_text("$AAPL, $msft KO $$NVDA")
     assert res.tickers == ["AAPL", "MSFT", "KO", "NVDA"] and res.rejected == []
+
+
+def test_clean_company_name_quita_el_tipo_de_valor():
+    from scanner_opciones.marketdata.tastytrade import clean_company_name
+
+    assert clean_company_name("Apple Inc. - Common Stock") == "Apple Inc."
+    assert clean_company_name("Berkshire Hathaway Inc. New Common Stock") == "Berkshire Hathaway Inc."
+    assert clean_company_name("Alphabet Inc. - Class A Common Stock") == "Alphabet Inc."
+    assert clean_company_name("Petroleo Brasileiro S.A. Petrobras American Depositary Shares representing Preferred Shares") \
+        == "Petroleo Brasileiro S.A. Petrobras"
+    assert clean_company_name("Coca-Cola Company (The) Common Stock") == "Coca-Cola Company (The)"
+    assert clean_company_name("Delek US Holdings, Inc.") == "Delek US Holdings, Inc."

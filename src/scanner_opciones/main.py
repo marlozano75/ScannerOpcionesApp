@@ -58,7 +58,7 @@ def build_app(settings: Settings):
         return HybridGateway(ibkr, tasty, md, fallback_batch=settings.refresh.batch_size) if md.source == "tastytrade" else ibkr
 
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty,
-                         fundamentals=tasty, financials=financials)
+                         fundamentals=tasty, financials=financials, names=tasty)
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     account_runner = PeriodicRunner(service.refresh_account, settings.refresh.account_interval_minutes * 60)
     startup_task: list[asyncio.Task] = []
