@@ -13,3 +13,7 @@ watchlists/*.html
 watchlists/*_files/
 watchlists/*.xlsx
 watchlists/*.txt
+# Playwright CLI output (may contain credentials)
+.playwright-cli/
+# configuración local de Claude Code (skills instaladas en el proyecto)
+.claude/
