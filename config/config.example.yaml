@@ -66,7 +66,8 @@ scanner:
     dte_min: 1
     dte_max: 35
   presets:                 # botones del scanner que cargan estos valores y escanean (dte_max null = máximo de candidates)
-    - { name: "Corto plazo", strike_below_pct_min: 10, dte_min: 1, dte_max: 15, min_annual_yield_pct: 20 }
+    - { name: "Corto plazo", strike_below_pct_min: 10, dte_min: 1, dte_max: 7, min_annual_yield_pct: 25 }
+    - { name: "Medio plazo", strike_below_pct_min: 15, dte_min: 8, dte_max: 15, min_annual_yield_pct: 20 }
     - { name: "Largo plazo", strike_below_pct_min: 20, dte_min: 16, dte_max: null, min_annual_yield_pct: 13 }
   filters:                       # null = filtro desactivado
     min_bid: 0.01                  # bid mínimo en $: un bid de 0 no se puede vender (y infla el yield con el precio mid)

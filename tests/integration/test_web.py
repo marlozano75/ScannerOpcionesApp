@@ -588,9 +588,10 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     client, svc, gw, _ = client_and_service
     html = client.get("/scanner?reset=1").text
     form = html.split('id="scan-form"')[1].split("</form>")[0]
-    # dos configuraciones; la segunda toma el DTE máx. de la ventana guardada (35)
-    assert form.count('type="button" class="preset"') == 2                       # (los de calidad llevan class="preset qpreset")
-    assert 'data-discount="10" data-dte-min="1"' in form and 'data-dte-max="15" data-yield="20"' in form
+    # tres configuraciones; la segunda toma el DTE máx. de la ventana guardada (35)
+    assert form.count('type="button" class="preset"') == 3                       # (los de calidad llevan class="preset qpreset")
+    assert 'data-discount="10" data-dte-min="1"' in form and 'data-dte-max="7" data-yield="25"' in form
+    assert 'data-discount="15" data-dte-min="8"' in form and 'data-dte-max="15" data-yield="20"' in form
     assert 'data-discount="20" data-dte-min="16"' in form and 'data-dte-max="35" data-yield="13"' in form
     # − / + en las cajas principales, no en los filtros opcionales
     for name in ("discount", "dte_min", "dte_max", "min_yield"):

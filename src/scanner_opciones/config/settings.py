@@ -130,7 +130,8 @@ class ScannerPreset(_Model):
 
 
 DEFAULT_PRESETS = (
-    ScannerPreset(name="Corto plazo", strike_below_pct_min=10, dte_min=1, dte_max=15, min_annual_yield_pct=20),
+    ScannerPreset(name="Corto plazo", strike_below_pct_min=10, dte_min=1, dte_max=7, min_annual_yield_pct=25),
+    ScannerPreset(name="Medio plazo", strike_below_pct_min=15, dte_min=8, dte_max=15, min_annual_yield_pct=20),
     ScannerPreset(name="Largo plazo", strike_below_pct_min=20, dte_min=16, dte_max=None, min_annual_yield_pct=13),
 )
 

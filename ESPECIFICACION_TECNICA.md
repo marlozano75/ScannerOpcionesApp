@@ -236,7 +236,7 @@ ScannerOpcionesApp/
 | `refresh.margin_max_age_minutes` | `60` | Antigüedad máxima del margen (what-if) guardado que se reutiliza sin volver a pedirlo |
 | `scanner.candidates.*` | strikes `10`–`30` % por debajo, DTE `1`–`35` | Rango visible y cotizado (respecto al precio actual); el scanner solo ve contratos dentro de él |
 | `scanner.catalog_margin_pct` | `5` | Puntos de más, por arriba y por abajo, que se GUARDAN respecto a `candidates` (RF-46) |
-| `scanner.presets` | «Corto plazo»: 10 %, DTE 1–15, yield 20 %; «Largo plazo»: 20 %, DTE 16–máx. de la ventana (`dte_max: null`), yield 13 % | Botones del scanner que cargan esos valores y escanean; − / + de 1 en 1 junto a las cajas principales |
+| `scanner.presets` | «Corto plazo»: 10 %, DTE 1–7, yield 25 %; «Medio plazo»: 15 %, DTE 8–15, yield 20 %; «Largo plazo»: 20 %, DTE 16–máx. de la ventana (`dte_max: null`), yield 13 % | Botones del scanner que cargan esos valores y escanean; − / + de 1 en 1 junto a las cajas principales |
 | `scanner.filter_values` | OI 100, bid size 20, spread 35 %, IV Rank 30, IV Percentile 50 | Valores de las cajas de los filtros opcionales cuando están desmarcados; marcar/desmarcar escanea |
 | `scanner.initial.strike_below_pct_min` / `_max` | `10` / `30` | descuento mínimo y máximo del strike; valores iniciales editables |
 | `scanner.initial.min_annual_yield_pct` | `12.0` | valor inicial editable |
