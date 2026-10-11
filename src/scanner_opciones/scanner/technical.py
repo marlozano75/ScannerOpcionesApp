@@ -84,6 +84,14 @@ class TechnicalFilter:
                 )
             if not ok:
                 return f"tendencia {'alcista' if up else 'bajista'}: {why}"
+        if c.near_level_pct is not None:
+            zone = self._zone(ticker, price)
+            levels = [v for v in (ta.sma([px for _, px in series], 50), zone.high if zone else None) if v]
+            if not levels:
+                return "sin media de 50 días ni soporte probado"
+            nearest = min(abs(price - v) / v * 100 for v in levels)
+            if nearest > c.near_level_pct + 1e-9:
+                return f"precio a {nearest:.1f}% de la media de 50 y del soporte (> {c.near_level_pct:g}%)"
         lines, before, n_bars = self._lines(ticker)
         frame = _FRAME_NAMES[c.ma_frame]
 

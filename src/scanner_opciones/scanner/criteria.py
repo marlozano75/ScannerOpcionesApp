@@ -63,6 +63,10 @@ class ScanCriteria:
     max_spread_pct: Optional[float] = None
     min_iv_rank: Optional[float] = None
     min_iv_percentile: Optional[float] = None
+    # prima y volatilidad del contrato (ver scanner/filters.py)
+    min_abs_delta: Optional[float] = None         # |delta| de la put mínimo / máximo (0,20–0,30 ≈ 70–80 % de probabilidad de ganar)
+    max_abs_delta: Optional[float] = None
+    expected_move_mult: Optional[float] = None    # strike por debajo de precio − N × (precio × IV × √(DTE/365))
     # filtros técnicos (ver scanner/technical.py); los valores por defecto no filtran nada
     trend_direction: str = "off"          # off | up | down
     trend_method: str = "low"             # low (mínimo/máximo sin romper) | swings (máximos y mínimos crecientes) | lows (solo mínimos crecientes / máximos decrecientes)
@@ -87,6 +91,7 @@ class ScanCriteria:
     min_days_since_touch: Optional[int] = None
     min_price: Optional[float] = None     # precio del subyacente (vacío = sin límite)
     max_price: Optional[float] = None
+    near_level_pct: Optional[float] = None  # precio a ≤ N % de la media de 50 días o del borde de una zona de soporte probada
     # calidad de la empresa (ver scanner/quality.py); los valores por defecto no filtran nada
     require_profitable: bool = False              # EPS de los últimos 12 meses > 0 (sin dato = se descarta)
     min_positive_quarters: Optional[int] = None   # trimestres con beneficios exigidos de los últimos 4
@@ -136,6 +141,7 @@ class ScanCriteria:
     def technical_active(self) -> bool:
         return (
             self.trend_direction != "off" or self.require_support or self.min_days_since_touch is not None
+            or self.near_level_pct is not None
             or any(getattr(self, k) != "any" for k in (*MA_LINES, *MA_CROSSES, *MA_SLOPES))
         )
     price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD

@@ -263,3 +263,28 @@ def test_quality_repo_round_trips_the_stability_fields():
     repo.save([TickerInfo("KO", revenue_drop_years=2, revenue_years=9, earnings_volatility=0.31)])
     got = repo.get("KO")
     assert (got.revenue_drop_years, got.revenue_years, got.earnings_volatility) == (2, 9, 0.31)
+
+
+# ---- estrategia de venta de puts: botón superior y grupos de filtros ----------------------------------------------
+def test_the_strategy_button_activates_every_related_filter_and_marks_itself_on(client_and_service):
+    from urllib.parse import parse_qs
+    client, svc, gw, _ = client_and_service
+    page = client.get("/scanner?reset=1").text
+    href = re.search(r'<a class="strategy-btn" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
+    q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
+    assert (q["dte_min"], q["dte_max"], q["delta_min"], q["delta_max"], q["ivr"], q["ivp"]) == ("30", "45", "0.2", "0.3", "50", "50")
+    assert q["ma200"] == "above" and q["q_earn"] == "on" and q["q_liq"] == "3"
+    assert all(q[k] == "on" for k in ("use_delta", "use_exp", "use_near", "use_ivr", "use_ivp"))
+    on = client.get(href).text
+    assert 'class="strategy-btn on"' in on and "Parámetro no válido" not in on                    # la estrategia cargada se marca
+    for chip in ("|Δ| 0.2–0.3", "IV Rank ≥ 50", "A ≤ 3 % de MA50 o soporte", "Sin resultados"):
+        assert chip in on
+    assert 'class="strategy-btn on"' not in client.get(href.replace("delta_max=0.3", "delta_max=0.4")).text   # cambiar un valor la desmarca
+
+
+def test_invalid_delta_expected_move_and_near_values_are_reported(client_and_service):
+    client, svc, gw, _ = client_and_service
+    for bad in ("use_delta=on&delta_min=0.4&delta_max=0.3", "use_delta=on&delta_min=abc&delta_max=0.3",
+                "use_exp=on&exp_mult=9", "use_near=on&near_pct=0"):
+        assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad
+    assert "Parámetro no válido" not in client.get(BASE + "&delta_min=0.4&delta_max=0.3").text   # desmarcado: la caja no se lee

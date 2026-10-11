@@ -399,3 +399,7 @@ Nuevas estrategias en el scanner (calls cubiertas, spreads) añadiendo `ScanCrit
 10. Pruebas manuales con TWS simulada.
 
 **Criterio de "hecho" por módulo:** tests unitarios en verde, sin acceso a red en tests unitarios, errores devueltos con mensajes claros, cero valores de negocio hardcodeados.
+
+## Estrategia de venta de puts (fase 1)
+
+Filtros nuevos del Scanner: |delta| entre mín. y máx., strike fuera del movimiento esperado (precio × IV del contrato × √(DTE/365) × N) y precio a ≤ N % de la media de 50 o de un soporte; agrupados en «Volatilidad (IV) y prima» (con IV Rank/Percentile) y «Técnicos de entrada». Botón superior que carga todos con los valores de `scanner.strategy`. Pendiente: RSI, Bollinger, IV/HV30, cambio de IV a 5 días, VIX global y ATR.

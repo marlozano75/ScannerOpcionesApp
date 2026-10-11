@@ -234,6 +234,33 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
             overrides[field_name] = getattr(qcfg.thresholds, metric)[level] if level else None
 
 
+def strategy_link(settings, form: dict, base) -> tuple[str, bool]:
+    """Consulta del botón «Estrategia de venta de puts» (activa de una vez todos sus filtros, con los valores de
+    `scanner.strategy`) y si el formulario actual ya la tiene cargada."""
+    st, fv = settings.scanner.strategy, settings.scanner.filter_values
+    params = {
+        "submitted": "1", "discount": _fmt(st.strike_below_pct_min), "dte_min": str(st.dte_min), "dte_max": str(st.dte_max),
+        "min_yield": _fmt(st.min_annual_yield_pct), "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
+        "use_delta": "on", "delta_min": _fmt(st.min_abs_delta), "delta_max": _fmt(st.max_abs_delta),
+        "use_exp": "on", "exp_mult": _fmt(st.expected_move_mult), "use_near": "on", "near_pct": _fmt(st.near_level_pct),
+        "use_ivr": "on", "ivr": _fmt(st.min_iv_rank), "use_ivp": "on", "ivp": _fmt(st.min_iv_percentile),
+        "use_bid": "on", "bid": _fmt(fv.min_bid),
+    }
+    if st.price_above_ma200:
+        params["ma200"] = "above"
+    if st.avoid_earnings:
+        params["q_earn"] = "on"
+    if st.min_option_liquidity is not None:
+        params["q_liq"] = str(st.min_option_liquidity)
+    checks = {"discount": "discount", "dte_min": "dte_min", "dte_max": "dte_max", "min_yield": "min_yield",
+              "delta_min": "delta_min", "delta_max": "delta_max", "exp_mult": "exp_mult", "near_pct": "near_pct",
+              "ivr": "ivr", "ivp": "ivp", "ma200": "ma200", "q_liq": "q_liq"}
+    on = all(form.get(f) == params[p] for p, f in checks.items() if p in params)
+    on = on and all(form.get(f) for f in ("use_delta", "use_exp", "use_near", "use_ivr", "use_ivp"))
+    on = on and (not st.avoid_earnings or bool(form.get("q_earn")))
+    return urlencode(params), on
+
+
 def _sector_of(row, sector_col: Optional[int], watchlist_sectors: dict) -> Optional[str]:
     """Sector de una fila del Universo: el de IBKR si el ticker está en la watchlist y, si no, el del fichero."""
     if watchlist_sectors.get(row.ticker):
@@ -625,6 +652,10 @@ def create_app(
             # desmarcado: la caja muestra su valor por defecto (marcarlo lo aplica)
             form[key] = _fmt(cfg_value if cfg_value is not None else shown[key])
 
+        st = service.settings.scanner.strategy       # delta, movimiento esperado y cercanía a un nivel: marcar el filtro lo aplica
+        form.update(use_delta=False, delta_min=_fmt(st.min_abs_delta), delta_max=_fmt(st.max_abs_delta),
+                    use_exp=False, exp_mult=_fmt(st.expected_move_mult), use_near=False, near_pct=_fmt(st.near_level_pct))
+
         criteria, error, warnings = None, None, []
         try:
             overrides: dict = {}
@@ -674,6 +705,10 @@ def create_app(
                 for key in optional:
                     form[f"use_{key}"] = f"use_{key}" in qp
                     form[key] = qp.get(key, "").strip()
+                for key in ("use_delta", "use_exp", "use_near"):
+                    form[key] = key in qp
+                for key in ("delta_min", "delta_max", "exp_mult", "near_pct"):
+                    form[key] = qp.get(key, "").strip()
                 overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento mín. del strike")
                 overrides["min_annual_yield_pct"] = _required(form["min_yield"], float, "Yield anual mín.")
                 overrides["dte_min"] = _required(form["dte_min"], int, "DTE mín.")
@@ -698,6 +733,19 @@ def create_app(
             for key, (field_name, cast, _) in optional.items():
                 # sin marcar = filtro desactivado, aunque la configuración tenga un valor
                 overrides[field_name] = _required(form[key], cast, field_name) if form[f"use_{key}"] else None
+            if form["use_delta"]:
+                lo, hi = _required(form["delta_min"], float, "Delta mín."), _required(form["delta_max"], float, "Delta máx.")
+                if not (0 <= lo <= hi <= 1):
+                    raise ValueError("la delta debe cumplir 0 ≤ mín. ≤ máx. ≤ 1 (en valor absoluto)")
+                overrides["min_abs_delta"], overrides["max_abs_delta"] = lo, hi
+            if form["use_exp"]:
+                overrides["expected_move_mult"] = _required(form["exp_mult"], float, "Movimiento esperado (×)")
+                if not (0 < overrides["expected_move_mult"] <= 5):
+                    raise ValueError("el múltiplo del movimiento esperado debe estar entre 0 y 5")
+            if form["use_near"]:
+                overrides["near_level_pct"] = _required(form["near_pct"], float, "Distancia a la media de 50 o al soporte (%)")
+                if not (0 < overrides["near_level_pct"] <= 50):
+                    raise ValueError("la distancia a la media o al soporte debe estar entre 0 y 50 %")
             criteria = base.with_filters(**overrides)
             if criteria.strike_below_pct_min < cand.strike_below_pct_min:
                 warnings.append(f"Descuento mín. por debajo del rango guardado ({cand.strike_below_pct_min:g}%): "
@@ -746,9 +794,10 @@ def create_app(
                         min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
         qcfg = service.settings.scanner.quality
         counts = quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg)
+        strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria())
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
         return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
-                      yield_max=yield_max,
+                      yield_max=yield_max, strategy_qs=strategy_qs, strategy_on=strategy_on,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
                       candidates=service.settings.scanner.candidates,
                       margin=service.settings.scanner.catalog_margin_pct,

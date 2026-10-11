@@ -610,8 +610,11 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     opt = _optional_block(html)
     assert 'data-d=' not in opt and opt.count("checked") == 1 and 'name="use_bid" checked' in opt
     # las cajas opcionales traen su valor por defecto aunque estén desmarcadas
-    for name, value in (("bid", "0.01"), ("oi", "100"), ("bidsize", "20"), ("spread", "35"), ("ivr", "30"), ("ivp", "50")):
+    for name, value in (("bid", "0.01"), ("oi", "100"), ("bidsize", "20"), ("spread", "35")):
         assert f'<input name="{name}" value="{value}"' in opt
+    iv = html.split('id="sec-iv"')[1].split("</details>")[0]          # IV Rank y Percentile viven en el grupo de volatilidad
+    for name, value in (("ivr", "30"), ("ivp", "50"), ("delta_min", "0.2"), ("delta_max", "0.3"), ("exp_mult", "1")):
+        assert f'name="{name}" value="{value}"' in iv
     # los valores de una configuración escanean sin error
     r = client.get("/scanner?submitted=1&discount=20&dte_min=16&dte_max=35&min_yield=13")
     assert r.status_code == 200 and "Parámetro no válido" not in r.text

@@ -265,6 +265,34 @@ class QualitySettings(_Model):
     exempt_sectors: list[str] = ["financ", "energy", "utilit", "material", "real estate"]
 
 
+class StrategySettings(_Model):
+    """Estrategia de venta de puts «tras una caída que se calma»: valores que carga el botón «Estrategia» del scanner (activa de una
+    vez todos los filtros relacionados) y valores que muestran por defecto las cajas de delta, movimiento esperado y cercanía a
+    un nivel. Orientativos, no reglas exactas. Solo se escanean los contratos guardados: para tener DTE 30–45 y strikes cercanos,
+    `scanner.candidates` tiene que cubrir ese rango (`dte_max` ≥ `dte_max` de aquí y `strike_below_pct_min` ≤ el de aquí)."""
+    strike_below_pct_min: float = Field(5, ge=0, lt=100)   # descuento mínimo del strike (%)
+    dte_min: int = Field(30, ge=0)
+    dte_max: int = Field(45, ge=0)
+    min_annual_yield_pct: float = Field(10.0, ge=0)        # ≈ 1 % del strike a 30–45 días
+    min_abs_delta: float = Field(0.20, gt=0, le=1)         # |delta| de la put: ≈ 70–80 % de probabilidad de expirar sin valor
+    max_abs_delta: float = Field(0.30, gt=0, le=1)
+    min_iv_rank: float = Field(50, ge=0, le=100)           # > 30 aceptable, > 50 ideal
+    min_iv_percentile: float = Field(50, ge=0, le=100)
+    expected_move_mult: float = Field(1.0, gt=0, le=5)     # el strike debe quedar por debajo de precio − N × movimiento esperado
+    near_level_pct: float = Field(3.0, gt=0, le=50)        # precio a ≤ N % de la media de 50 o de un soporte
+    min_option_liquidity: Optional[int] = Field(3, ge=1, le=5)   # None = no exigirla al cargar la estrategia
+    price_above_ma200: bool = True
+    avoid_earnings: bool = True
+
+    @model_validator(mode="after")
+    def _check(self) -> "StrategySettings":
+        if self.dte_min > self.dte_max:
+            raise ValueError("dte_min no puede superar dte_max")
+        if self.min_abs_delta > self.max_abs_delta:
+            raise ValueError("min_abs_delta no puede superar max_abs_delta")
+        return self
+
+
 class ScannerSettings(_Model):
     price_reference: PriceReferenceSettings = PriceReferenceSettings()
     candidates: CandidateRange = CandidateRange()
@@ -275,6 +303,7 @@ class ScannerSettings(_Model):
     filters: FilterSettings = FilterSettings()
     filter_values: FilterValues = FilterValues()
     presets: tuple[ScannerPreset, ...] = DEFAULT_PRESETS
+    strategy: StrategySettings = StrategySettings()
     technical: TechnicalSettings = TechnicalSettings()
     quality: QualitySettings = QualitySettings()
 

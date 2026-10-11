@@ -66,3 +66,5 @@ DTE y de strike, yield mínimo, filtros, umbrales del semáforo, semanas de dive
 
 `src/scanner_opciones/`: `config`, `domain`, `metrics`, `watchlist`, `storage`, `broker` (puerto +
 `IBKRGateway` + `FakeGateway`), `scanner`, `portfolio`, `jobs`, `app` (servicio), `ui` (FastAPI + Jinja2).
+
+**Estrategia de venta de puts.** El botón «Estrategia: venta de puts» del Scanner activa de una vez DTE 30–45, |delta| 0,20–0,30, IV Rank y Percentile ≥ 50, strike fuera del movimiento esperado, precio a ≤ 3 % de la media de 50 o de un soporte, precio sobre la media de 200, sin resultados y liquidez ≥ 3 (valores en `scanner.strategy`). Para que haya contratos con ese DTE y strikes cercanos amplía `scanner.candidates` en `config.yaml` (`dte_max: 45`, `strike_below_pct_min: 5`).

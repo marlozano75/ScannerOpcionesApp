@@ -30,9 +30,17 @@
 {% if form.q_liq %}{% set _ = quality.append('Liquidez ≥ ' ~ form.q_liq) %}{% endif %}
 {% if form.q_earn %}{% set _ = quality.append('Sin resultados') %}{% endif %}
 {% set optional = [] %}
-{% for key, use, label, sign in (('bid', 'use_bid', 'Bid', '≥'), ('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤'), ('ivr', 'use_ivr', 'IV Rank', '≥'), ('ivp', 'use_ivp', 'IV Pctl', '≥')) %}
+{% for key, use, label, sign in (('bid', 'use_bid', 'Bid', '≥'), ('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤')) %}
   {% if form[use] %}{% set _ = optional.append(label ~ ' ' ~ sign ~ ' ' ~ form[key]) %}{% endif %}
 {% endfor %}
+{# grupo de volatilidad (IV, delta, movimiento esperado) y técnico de entrada (cercanía a la media de 50 o a un soporte) #}
+{% set ivgroup = [] %}
+{% if form.use_ivr %}{% set _ = ivgroup.append('IV Rank ≥ ' ~ form.ivr) %}{% endif %}
+{% if form.use_ivp %}{% set _ = ivgroup.append('IV Pctl ≥ ' ~ form.ivp) %}{% endif %}
+{% if form.use_delta %}{% set _ = ivgroup.append('|Δ| ' ~ form.delta_min ~ '–' ~ form.delta_max) %}{% endif %}
+{% if form.use_exp %}{% set _ = ivgroup.append('Fuera de ' ~ form.exp_mult ~ '× mov. esperado') %}{% endif %}
+{% set entry = [] %}
+{% if form.use_near %}{% set _ = entry.append('A ≤ ' ~ form.near_pct ~ ' % de MA50 o soporte') %}{% endif %}
 {# chips de filtros activos (lado de resultados): (sección, texto) #}
 {% set chips = [] %}
 {% if trend_on %}{% set _ = chips.append(('sec-trend', ('Tendencia alcista' if form.trend_dir == 'up' else 'Tendencia bajista') ~ ' · ' ~ window_label)) %}{% endif %}
@@ -41,6 +49,8 @@
 {% if price_on %}{% set _ = chips.append(('sec-price', 'Precio ' ~ (form.price_min or '0') ~ '–' ~ (form.price_max or '∞'))) %}{% endif %}
 {% if ma_count %}{% set _ = chips.append(('sec-ma', ma_count ~ ' cond. de medias (' ~ frame_names[form.ma_frame] ~ ')')) %}{% endif %}
 {% for q in quality %}{% set _ = chips.append(('sec-quality', q)) %}{% endfor %}
+{% for o in ivgroup %}{% set _ = chips.append(('sec-iv', o)) %}{% endfor %}
+{% for o in entry %}{% set _ = chips.append(('sec-entry', o)) %}{% endfor %}
 {% for o in optional %}{% set _ = chips.append(('sec-optional', o)) %}{% endfor %}
 
 <style>
@@ -75,6 +85,8 @@
   .check input { margin:0; }
   .opt-row { display:grid; grid-template-columns:1fr 92px; align-items:center; gap:10px; font-size:13px; }
   .side .note { border:0; padding:0; font-size:12px; color:var(--mute); line-height:1.45; }
+  .strategy-btn { display:block; margin:0 0 10px; padding:9px 12px; border-radius:8px; text-align:center; font-weight:700; font-size:13px; text-decoration:none; background:var(--accent); color:#fff; }
+  .strategy-btn:hover { filter:brightness(1.12); } .strategy-btn.on { background:#1d6b3f; }
   .side .note b { color:var(--ink); font-weight:600; }
 
   /* columna de resultados */
@@ -118,6 +130,9 @@
     <div class="side-scroll" id="side-scroll" data-keep-scroll>
     <form method="get" action="/scanner" id="scan-form">
       <input type="hidden" name="submitted" value="1">
+      <a class="strategy-btn{{ ' on' if strategy_on }}" href="/scanner?{{ strategy_qs }}"
+         title="Carga y activa de una vez los filtros de la estrategia (DTE, delta, IV Rank y Percentile, movimiento esperado, cercanía a la media de 50 o a un soporte, precio sobre la media de 200, sin resultados, liquidez). Los valores salen de scanner.strategy">
+        {{ '✓ ' if strategy_on }}Estrategia: venta de puts</a>
       {% if presets %}<div class="presets"><span class="lbl">Configuraciones</span>
         {% for p in presets %}{% set is_on = form.discount == p.discount and form.dte_min == p.dte_min|string and form.dte_max == p.dte_max|string and form.min_yield == p.min_yield %}
         <button type="button" class="preset{{ ' active' if is_on }}" data-discount="{{ p.discount }}" data-dte-min="{{ p.dte_min }}"
@@ -148,6 +163,27 @@
         </div>
         <p class="note">El yield se calcula con el precio de venta elegido: <b>bid</b>, <b>mid</b> o el bid más un porcentaje X del spread.
           Todos los contratos se cotizan cada {{ refresh_minutes|round|int }} min.</p>
+      {% endcall %}
+
+      {% call section('sec-iv', 'Volatilidad (IV) y prima', (ivgroup | join(' · ')) or 'Sin filtros', ivgroup|length > 0) %}
+        {% for key, use, label in (('ivr', 'use_ivr', 'IV Rank mín.'), ('ivp', 'use_ivp', 'IV Percentile mín.')) %}
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
+          <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
+        {% endfor %}
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_delta" {{ 'checked' if form.use_delta }}> |Delta| del put entre</span>
+          <span style="display:flex;gap:4px"><input name="delta_min" value="{{ form.delta_min }}" inputmode="decimal" size="4" style="width:46px"><input name="delta_max" value="{{ form.delta_max }}" inputmode="decimal" size="4" style="width:46px"></span></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_exp" {{ 'checked' if form.use_exp }}> Strike fuera del mov. esperado (×)</span>
+          <input name="exp_mult" value="{{ form.exp_mult }}" inputmode="decimal"></label>
+        <p class="note">Marca cada filtro para aplicarlo (las cajas traen los valores de la estrategia). <b>Delta</b>: −0,20 a −0,30 ≈ 70–80 % de probabilidad de expirar sin valor.
+          <b>Movimiento esperado</b> = precio × IV del contrato × √(DTE/365): el strike debe quedar por debajo de precio − N × ese movimiento.
+          IV Rank &gt; 30 % es aceptable y &gt; 50 % ideal.</p>
+      {% endcall %}
+
+      {% call section('sec-entry', 'Técnicos de entrada', (entry | join(' · ')) or 'Sin filtros', entry|length > 0) %}
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_near" {{ 'checked' if form.use_near }}> Precio a ≤ X % de MA50 o soporte</span>
+          <input name="near_pct" value="{{ form.near_pct }}" inputmode="decimal"></label>
+        <p class="note">Entrada tras una corrección: el precio está a menos de X % de su media de 50 días (cierres diarios) <b>o</b> del borde superior de una zona de soporte probada.
+          Para exigir el precio sobre la media de 200, usa <b>Medias móviles</b> (MA 200 «Por encima»).</p>
       {% endcall %}
 
       {% call section('sec-trend', 'Tendencia', ((('Alcista' if form.trend_dir == 'up' else 'Bajista') ~ ' · ' ~ window_label) if trend_on else 'Off'), trend_on) %}
@@ -246,7 +282,7 @@
       {% endcall %}
 
       {% call section('sec-optional', 'Filtros opcionales', (optional | join(' · ')) or 'Sin filtros', optional|length > 0) %}
-        {% for key, use, label in (('bid', 'use_bid', 'Bid mínimo ($)'), ('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)'), ('ivr', 'use_ivr', 'IV Rank mín.'), ('ivp', 'use_ivp', 'IV Percentile mín.')) %}
+        {% for key, use, label in (('bid', 'use_bid', 'Bid mínimo ($)'), ('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)')) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}

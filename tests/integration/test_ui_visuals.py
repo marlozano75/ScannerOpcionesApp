@@ -27,7 +27,7 @@ def test_every_scanner_filter_section_is_in_the_page_and_explanations_are_notes_
     client, svc, gw, _ = client_and_service
     page = client.get("/scanner?reset=1").text
     sections = re.findall(r'<details class="fx[^"]*" id="(sec-[a-z]+)"', page)
-    assert set(sections) == {"sec-contract", "sec-yield", "sec-trend", "sec-levels", "sec-price", "sec-ma", "sec-quality", "sec-optional"}
+    assert set(sections) == {"sec-contract", "sec-yield", "sec-trend", "sec-levels", "sec-price", "sec-ma", "sec-quality", "sec-optional", "sec-iv", "sec-entry"}
     assert page.count('class="note"') >= 6 and ".note-help { display:none; }" in page          # notas ocultas por el script, visibles sin JS
     assert "open = { 'sec-contract': true, 'sec-yield': true }" in page                       # primera visita: solo las dos primeras abiertas
 

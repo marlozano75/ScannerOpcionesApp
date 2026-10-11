@@ -1,6 +1,7 @@
 """Predicados de filtrado. `reject_reason` devuelve el motivo de descarte o None si pasa."""
 from __future__ import annotations
 
+import math
 from datetime import date
 from typing import Optional
 
@@ -57,4 +58,18 @@ def reject_reason(
         iv_percentile is None or iv_percentile < criteria.min_iv_percentile
     ):
         return "IV Percentile insuficiente o desconocido"
+    if criteria.min_abs_delta is not None or criteria.max_abs_delta is not None:
+        if snap.delta is None:
+            return "delta desconocida"
+        d = abs(snap.delta)
+        if criteria.min_abs_delta is not None and d < criteria.min_abs_delta - _EPS:
+            return f"|delta| {d:.2f} < {criteria.min_abs_delta:g}"
+        if criteria.max_abs_delta is not None and d > criteria.max_abs_delta + _EPS:
+            return f"|delta| {d:.2f} > {criteria.max_abs_delta:g}"
+    if criteria.expected_move_mult is not None:
+        if snap.iv is None or snap.iv <= 0:
+            return "sin IV del contrato para calcular el movimiento esperado"
+        limit = underlying_price - criteria.expected_move_mult * underlying_price * snap.iv * math.sqrt(dte / 365)
+        if c.strike > limit + _EPS:
+            return f"strike {c.strike:g} dentro del movimiento esperado (límite {limit:.2f})"
     return None
