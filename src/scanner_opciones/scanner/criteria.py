@@ -153,6 +153,12 @@ class ScanCriteria:
         )
     price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD
     price_spread_pct: float = 25.0
+    # modo spread (ver scanner/spreads.py): put vendida (filtros de arriba) + put comprada `ancho` $ por debajo
+    spread_mode: bool = False
+    spread_widths: tuple[float, ...] = ()
+    min_credit_width_pct: Optional[float] = None   # crédito neto / ancho mínimo (%)
+    max_spread_loss: Optional[float] = None        # pérdida máxima por spread en $
+    min_return_on_risk_pct: Optional[float] = None  # crédito / pérdida máxima mínimo (%)
 
     def with_filters(self, **overrides) -> "ScanCriteria":
         """Copia con filtros modificados (p. ej. desde la UI)."""

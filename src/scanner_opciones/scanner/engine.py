@@ -1,7 +1,7 @@
 """Motor de escaneo: filtra snapshots y los enriquece con el impacto en la cartera (RF-11..13)."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date
 from typing import Optional, Sequence
 
@@ -14,6 +14,7 @@ from scanner_opciones.portfolio.diversification import CandidateImpact, candidat
 from scanner_opciones.scanner.criteria import ScanCriteria
 from scanner_opciones.scanner.filters import reject_reason
 from scanner_opciones.scanner.quality import DEFAULT_EXEMPT, quality_reject
+from scanner_opciones.scanner.spreads import build_spreads
 from scanner_opciones.scanner.signals import signals_reject
 from scanner_opciones.scanner.technical import TechnicalFilter
 from scanner_opciones.config.settings import TechnicalSettings
@@ -38,6 +39,7 @@ class ScanOutput:
     results: list[ScanResult]
     rejected_count: int
     rejections: dict[str, str]  # clave "TICKER expiry strike" -> motivo (para depuración)
+    spreads: list = field(default_factory=list)   # SpreadResult (solo con criteria.spread_mode); `results` son entonces las patas vendidas
 
 
 def run_scan(
@@ -54,6 +56,8 @@ def run_scan(
 ) -> ScanOutput:
     """`bars` (cierres diarios por ticker) y `technical` solo hacen falta si `criteria.technical_active`."""
     exempt = exempt_sectors
+    if criteria.spread_mode:   # el yield sobre el strike no vale para un spread: lo sustituyen crédito/ancho y retorno sobre riesgo
+        criteria = replace(criteria, min_annual_yield_pct=0.0)
     tech = TechnicalFilter(criteria, technical or TechnicalSettings(), bars or {}, today) if criteria.technical_active else None
     results: list[ScanResult] = []
     rejections: dict[str, str] = {}
@@ -77,7 +81,8 @@ def run_scan(
             continue
         results.append(build_result(snap, info, positions, criteria, today))
     results.sort(key=lambda r: r.yield_ref_annualized_pct or 0.0, reverse=True)
-    return ScanOutput(results, rejected, rejections)
+    spreads = build_spreads(results, snapshots, criteria, positions) if criteria.spread_mode else []
+    return ScanOutput(results, rejected, rejections, spreads)
 
 
 def build_result(

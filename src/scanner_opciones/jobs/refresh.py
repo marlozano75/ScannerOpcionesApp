@@ -77,6 +77,11 @@ class RefreshJob:
         márgenes (what-if) solo se piden a los que además pasan alguno de los dos escaneos (delta, yield, IV Rank…)."""
         return [criteria_from_settings(self.settings), strategy_criteria(self.settings)]
 
+    def _leg_scope(self, criteria: Sequence[ScanCriteria]) -> list[ScanCriteria]:
+        """Ventanas ampliadas hacia strikes más bajos (`catalog_margin_pct`) para cotizar las patas compradas de los spreads."""
+        margin = self.settings.scanner.catalog_margin_pct
+        return [c.with_filters(strike_below_pct_max=c.strike_below_pct_max + margin) for c in criteria] if margin else []
+
     @staticmethod
     def _in_scope(contract: OptionContract, info, criteria: Sequence[ScanCriteria], today) -> bool:
         price = info.underlying_price if info else None
@@ -108,7 +113,10 @@ class RefreshJob:
                 await self._sync_catalog(sorted(moved), infos, today, report)
                 stored = self.contracts.list()
         t_underlyings = time.monotonic() - started
-        all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), criteria, today)]
+        # las patas compradas de los spreads están por debajo de la vendida: se cotiza también la franja extra guardada
+        # (solo para cotizar: los márgenes se siguen pidiendo con `criteria`)
+        quote_scope = criteria + self._leg_scope(criteria)
+        all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), quote_scope, today)]
         # snapshots anteriores: de ellos se reutiliza el margen mientras sea reciente
         prev = {self._snap_key(s.contract): s for s in self.snapshots.all()} if all_contracts else {}
         if only_unquoted:

@@ -749,10 +749,24 @@ def create_app(
                     use_atr=False, atr_mult=_fmt(st.min_atr_multiple),
                     use_ivhv=False, ivhv=_fmt(st.min_iv_hv_ratio), use_ivchg=False, ivchg=_fmt(st.max_iv_change_5d),)
 
+        sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
+        form.update(mode="put", widths=[_fmt(w) for w in sp.widths], width_options=[_fmt(w) for w in sp.width_options],
+                    use_cw=False, cw=_fmt(sp.min_credit_width_pct), use_ml=False, ml=_fmt(sp.max_loss),
+                    use_ror=False, ror=_fmt(sp.min_return_on_risk_pct))
+
         criteria, error, warnings = None, None, []
         try:
             overrides: dict = {}
             if submitted:
+                form["mode"] = qp.get("mode", "put")
+                if form["mode"] not in ("put", "spread"):
+                    raise ValueError("modo desconocido")
+                form["widths"] = [w.strip() for w in qp.getlist("w")]
+                for key in ("use_cw", "use_ml", "use_ror"):
+                    form[key] = key in qp
+                for key in ("cw", "ml", "ror"):
+                    if key in qp:
+                        form[key] = qp.get(key, "").strip()
                 for key in ("discount", "dte_min", "dte_max", "min_yield"):
                     form[key] = qp.get(key, "").strip()
                 form["ref"] = qp.get("ref", form["ref"])
@@ -866,6 +880,24 @@ def create_app(
                 overrides["min_bollinger_width_pct"] = _required(form["boll_width"], float, "Ancho de bandas (%)")
                 if not (0 < overrides["min_bollinger_width_pct"] <= 100):
                     raise ValueError("el ancho de las bandas debe estar entre 0 y 100 %")
+            if form["mode"] == "spread":
+                widths = []
+                for w in form["widths"]:
+                    value = _required(w, float, "Ancho del spread")
+                    if not any(abs(value - o) < 1e-9 for o in sp.width_options):
+                        raise ValueError("ancho del spread no permitido")
+                    widths.append(value)
+                if not widths:
+                    raise ValueError("marca al menos un ancho para el spread")
+                overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(widths))))
+                for use, key, field_name, label, upper in (
+                        ("use_cw", "cw", "min_credit_width_pct", "Crédito / ancho mín. (%)", 100),
+                        ("use_ml", "ml", "max_spread_loss", "Pérdida máxima ($)", None),
+                        ("use_ror", "ror", "min_return_on_risk_pct", "Retorno sobre riesgo mín. (%)", None)):
+                    if form[use]:
+                        overrides[field_name] = _required(form[key], float, label)
+                        if overrides[field_name] <= 0 or (upper is not None and overrides[field_name] >= upper):
+                            raise ValueError(f"{label} fuera de rango")
             criteria = base.with_filters(**overrides)
             if criteria.strike_below_pct_min < cand.strike_below_pct_min:
                 warnings.append(f"Descuento mín. por debajo del rango guardado ({cand.strike_below_pct_min:g}%): "

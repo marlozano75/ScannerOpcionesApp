@@ -47,8 +47,16 @@
 {% if form.use_rsi %}{% set _ = entry.append('RSI rebota desde ≤ ' ~ form.rsi_max) %}{% endif %}
 {% if form.use_boll %}{% set _ = entry.append('Bollinger %B ≤ ' ~ form.boll_pctb) %}{% endif %}
 {% if form.use_bw %}{% set _ = entry.append('Bandas ≥ ' ~ form.boll_width ~ ' %') %}{% endif %}
+{% set spreadf = [] %}
+{% if form.mode == 'spread' %}
+  {% set _ = spreadf.append('Anchos ' ~ (form.widths | join(', ')) ~ ' $') %}
+  {% if form.use_cw %}{% set _ = spreadf.append('Crédito/ancho ≥ ' ~ form.cw ~ ' %') %}{% endif %}
+  {% if form.use_ml %}{% set _ = spreadf.append('Pérdida máx. ≤ ' ~ form.ml ~ ' $') %}{% endif %}
+  {% if form.use_ror %}{% set _ = spreadf.append('Retorno/riesgo ≥ ' ~ form.ror ~ ' %') %}{% endif %}
+{% endif %}
 {# chips de filtros activos (lado de resultados): (sección, texto) #}
 {% set chips = [] %}
+{% for o in spreadf %}{% set _ = chips.append(('sec-spread', o)) %}{% endfor %}
 {% if trend_on %}{% set _ = chips.append(('sec-trend', ('Tendencia alcista' if form.trend_dir == 'up' else 'Tendencia bajista') ~ ' · ' ~ window_label)) %}{% endif %}
 {% if form.support %}{% set _ = chips.append(('sec-levels', 'Zona de soporte')) %}{% endif %}
 {% if form.touch %}{% set _ = chips.append(('sec-levels', 'Sin toque ' ~ touch_label)) %}{% endif %}
@@ -158,6 +166,25 @@
           title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield anual mín. {{ p.min_yield }} %">{{ p.name }}</button>{% endfor %}
         <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Editar estas configuraciones y los valores de la estrategia de venta de puts">✎ Editar</a>
       </div>{% endif %}
+
+      <label class="field" style="margin:6px 0">Instrumento
+        <select name="mode" id="mode">
+          <option value="put" {{ 'selected' if form.mode == 'put' }}>Put vendida</option>
+          <option value="spread" {{ 'selected' if form.mode == 'spread' }}>Spread de puts (vendida + comprada)</option>
+        </select></label>
+      {% if form.mode == 'spread' %}
+      {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
+        <div class="fgrid"><span class="lbl full">Ancho (strike vendido − comprado, $)</span>
+        {% for w in form.width_options %}<label class="check"><input type="checkbox" name="w" value="{{ w }}" {{ 'checked' if w in form.widths }}> {{ w }} $</label>{% endfor %}</div>
+        {% for key, use, label in (('cw', 'use_cw', 'Crédito / ancho mín. (%)'), ('ml', 'use_ml', 'Pérdida máxima ($)'), ('ror', 'use_ror', 'Retorno sobre riesgo mín. (%)')) %}
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
+          <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
+        {% endfor %}
+        <p class="note">Los filtros de abajo (strike, delta, IV, técnicos, calidad…) se aplican a la <b>put vendida</b>; la comprada es la del mismo vencimiento <i>ancho</i> $ por debajo.
+          El crédito se calcula con la vendida al precio de venta elegido y la comprada al <b>ask</b>. Pérdida máxima = (ancho − crédito) × 100, que es también el margen aproximado del spread.
+          El yield anual sobre el strike no se aplica: lo sustituyen crédito/ancho y retorno sobre riesgo.</p>
+      {% endcall %}
+      {% endif %}
 
       {% call section('sec-contract', 'Strike y vencimiento', '≥ ' ~ form.discount ~ ' % · DTE ' ~ form.dte_min ~ '–' ~ form.dte_max) %}
         <div class="fgrid">
@@ -335,8 +362,8 @@
   <section class="results" id="results-col" data-keep-scroll>
     <div class="summary">
       {% if out %}
-      <div class="headline"><span class="big">{{ out.results|length }}</span>
-        <span>contratos cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></span></div>
+      <div class="headline"><span class="big">{{ out.spreads|length if criteria and criteria.spread_mode else out.results|length }}</span>
+        <span>{{ 'spreads' if criteria and criteria.spread_mode else 'contratos' }} cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></span></div>
       {% endif %}
       {% if criteria %}
       <p class="applied">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
@@ -353,7 +380,25 @@
       </details>
       {% endif %}
     </div>
-    {% if out %}
+    {% if out and criteria and criteria.spread_mode %}
+    <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results">
+      <tr><th class="tk">Ticker</th><th>Precio</th><th>Vendida</th><th>Comprada</th><th>Ancho</th><th>DTE</th>
+        <th>Crédito</th><th>Crédito/ancho</th><th class="hl" data-sort-default="desc">Retorno/riesgo anual</th><th>Retorno/riesgo</th>
+        <th>Pérd. máx. ($)</th><th>Breakeven</th><th>Dist. BE</th><th>Delta vend.</th><th>IV Rank</th>
+        <th>OI comp.</th><th>Spread comp.</th><th>% cartera si asignado</th></tr>
+      {% for sp in out.spreads %}{% set r = sp.short %}{% set c = r.snapshot.contract %}
+      <tr><td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}">{{ c.ticker }}</a></td>
+        <td>{{ r.info.underlying_price|num if r.info else '—' }}</td>
+        <td>{{ c.strike|num }}</td><td>{{ sp.long.contract.strike|num }}</td><td>{{ sp.width|num }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+        <td>{{ sp.credit|num }}</td><td>{{ sp.credit_width_pct|pct }}</td>
+        <td class="hl">{{ sp.return_on_risk_annualized_pct|pct(0) }}</td><td>{{ sp.return_on_risk_pct|pct }}</td>
+        <td>{{ sp.max_loss|num(0) }}</td><td>{{ sp.breakeven|num }}</td><td>{{ sp.breakeven_distance_pct|pct }}</td>
+        <td>{{ r.snapshot.delta|num }}</td><td>{{ r.snapshot.iv_rank|pct(0) }}</td>
+        <td>{{ sp.long.open_interest if sp.long.open_interest is not none else '—' }}</td><td>{{ sp.long.spread_pct|pct }}</td>
+        <td>{{ sp.assignment_pct_of_portfolio|pct }}</td></tr>
+      {% else %}<tr><td colspan="40" class="muted empty">Ningún spread cumple los criterios{% if out.results %} ({{ out.results|length }} puts vendidas pasan los filtros, pero ninguna tiene pata comprada cotizada a ese ancho o cumple crédito/riesgo){% endif %}.</td></tr>{% endfor %}
+    </table></div>
+    {% elif out %}
     <form method="post" action="/simulate" class="table-form">
       <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
         <tr><th class="sel"></th>{{ cols.head() }}<th data-nosort>Cant.</th></tr>

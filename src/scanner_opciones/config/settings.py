@@ -157,6 +157,24 @@ class FilterValues(_Model):
     min_iv_percentile: float = Field(50, ge=0, le=100)
 
 
+class SpreadSettings(_Model):
+    """Modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior): anchos
+    ofrecidos (en $) y valores que aparecen en las cajas de los filtros del spread."""
+    width_options: tuple[float, ...] = (1.0, 2.5, 5.0, 10.0)
+    widths: tuple[float, ...] = (5.0,)               # anchos marcados por defecto
+    min_credit_width_pct: float = Field(25, gt=0, lt=100)    # crédito neto / ancho mínimo
+    max_loss: float = Field(500, gt=0)               # pérdida máxima por spread en $ ((ancho − crédito) × multiplicador)
+    min_return_on_risk_pct: float = Field(30, gt=0)  # crédito / pérdida máxima mínimo
+
+    @model_validator(mode="after")
+    def _check(self) -> "SpreadSettings":
+        if not self.width_options or any(w <= 0 for w in self.width_options):
+            raise ValueError("width_options debe tener anchos positivos")
+        if not set(self.widths) <= set(self.width_options):
+            raise ValueError("widths debe estar contenido en width_options")
+        return self
+
+
 class PriceReferenceSettings(_Model):
     """Precio de venta de referencia para el yield (editable en el formulario del scanner)."""
     mode: PriceReference = PriceReference.BID_PLUS_SPREAD
@@ -329,6 +347,7 @@ class ScannerSettings(_Model):
     strategy: StrategySettings = StrategySettings()
     technical: TechnicalSettings = TechnicalSettings()
     quality: QualitySettings = QualitySettings()
+    spreads: SpreadSettings = SpreadSettings()
 
     @property
     def catalog(self) -> CandidateRange:

@@ -840,3 +840,15 @@ def test_scanner_config_persists_and_resets(client_and_service):
     svc._set_scanner_config(*svc._yaml_scanner)       # simula un reinicio: vuelve a leer la base de datos
     svc._load_scanner_config()
     assert [p.name for p in svc.settings.scanner.presets] == ["Solo"] and svc.settings.scanner.strategy.min_iv_rank == 33
+
+
+def test_scanner_spread_mode_renders_and_validates(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    put = client.get(BASE)
+    assert put.status_code == 200 and 'value="spread"' in put.text and "sec-spread" not in put.text.split("<aside")[1].split("</aside>")[0]
+    r = client.get(BASE + "&mode=spread&w=5&w=10&use_cw=on&cw=25&use_ror=on&ror=30")
+    assert r.status_code == 200
+    assert "Retorno/riesgo anual" in r.text and "Anchos 5, 10 $" in r.text and "spreads" in r.text
+    for bad in ("&mode=otro", "&mode=spread", "&mode=spread&w=7", "&mode=spread&w=5&use_cw=on&cw=150", "&mode=spread&w=5&use_ml=on&ml=abc"):
+        assert "Parámetro no válido" in client.get(BASE + bad).text, bad

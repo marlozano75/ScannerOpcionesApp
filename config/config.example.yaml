@@ -23,6 +23,12 @@ daily_update:
   concurrency: 4         # tickers que se actualizan a la vez
 
 scanner:
+  spreads:                 # modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior)
+    width_options: [1, 2.5, 5, 10]          # anchos ofrecidos (strike vendido − comprado, en $)
+    widths: [5]                             # anchos marcados por defecto
+    min_credit_width_pct: 25                # crédito neto / ancho mínimo que propone la caja
+    max_loss: 500                           # pérdida máxima por spread ($) que propone la caja
+    min_return_on_risk_pct: 30              # crédito / pérdida máxima mínimo que propone la caja
   quality:                 # opciones del bloque «Calidad de la empresa» del scanner
     liquidity_options: [2, 3, 4]            # liquidez mínima de las opciones (1-5, de tastytrade)
     positive_quarters_options: [2, 3, 4]    # trimestres con beneficios exigidos de los últimos 4
