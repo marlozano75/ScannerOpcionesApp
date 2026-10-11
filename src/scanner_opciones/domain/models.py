@@ -46,6 +46,9 @@ class TickerInfo:
     revenue_drop_years: Optional[int] = None    # años en que bajaron los ingresos de los últimos 10 (None con < 5 años de historia)
     revenue_years: Optional[int] = None         # años comparados con el anterior (hasta 9)
     earnings_volatility: Optional[float] = None  # desviación típica del crecimiento anual del beneficio neto (fracción)
+    hv30: Optional[float] = None                # volatilidad histórica a 30 días, en % (tastytrade)
+    iv30: Optional[float] = None                # volatilidad implícita a 30 días, en % (tastytrade)
+    iv_change_5d: Optional[float] = None        # cambio de la IV del subyacente en 5 días, en puntos de IV (+1 = ha subido 1 punto)
 
 
 @dataclass(frozen=True)

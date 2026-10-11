@@ -15,6 +15,9 @@ from typing import Optional, Protocol
 class IVMetrics:
     iv_rank: Optional[float] = None         # 0-100
     iv_percentile: Optional[float] = None   # 0-100
+    hv30: Optional[float] = None            # volatilidad histórica a 30 días, en %
+    iv30: Optional[float] = None            # volatilidad implícita a 30 días, en %
+    iv_change_5d: Optional[float] = None    # cambio de la IV en 5 días, en puntos de IV
 
 
 class VolatilityProvider(Protocol):

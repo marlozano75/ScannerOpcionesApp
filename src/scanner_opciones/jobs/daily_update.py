@@ -350,6 +350,10 @@ class DailyUpdater:
         rank = external.iv_rank if external else (known.iv_rank if known else None)
         percentile = external.iv_percentile if external else (known.iv_percentile if known else None)
 
+        def keep(field: str) -> Optional[float]:   # HV30 / IV30 / cambio de IV: el dato nuevo o, si no llega, el guardado
+            new = getattr(external, field, None) if external else None
+            return new if new is not None else (getattr(known, field, None) if known else None)
+
         if price:
             await self.syncer.sync(ticker, chain, price, today, revalidate, timings)
 
@@ -359,6 +363,7 @@ class DailyUpdater:
                 days_to_ex_dividend=ex_div,
                 iv_rank=rank, iv_percentile=percentile,
                 updated_daily_at=now, price_at=price_at,
+                hv30=keep("hv30"), iv30=keep("iv30"), iv_change_5d=keep("iv_change_5d"),
             )
         )
         self.watchlist.mark_daily_updated(ticker, now)

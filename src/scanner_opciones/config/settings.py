@@ -291,6 +291,12 @@ class StrategySettings(_Model):
     max_rsi_level: float = Field(35, gt=0, lt=100)         # el RSI debe haber tocado este nivel (o menos) y hoy subir
     max_bollinger_pctb: float = Field(0.30, ge=-1, le=2)   # %B = (precio − banda inferior) / (superior − inferior); ≤ 0,3 = cerca de la inferior
     min_bollinger_width_pct: float = Field(6.0, gt=0, le=100)   # ancho de bandas / media mínimo: evita bandas muy estrechas
+    min_iv_hv_ratio: float = Field(1.2, gt=0)              # IV30 / HV30: > 1,2 = las opciones están caras frente a lo que se mueve la acción
+    max_iv_change_5d: float = 0.0                          # cambio de la IV en 5 días (puntos) ≤ 0: el miedo deja de crecer
+    # VIX: NO es un filtro del scanner, solo el aviso del Panel (`scanner/market.py::vix_advice`)
+    min_vix: float = Field(14, ge=0)                       # < 13–14 = primas pobres
+    ideal_vix_min: float = Field(18, ge=0)                 # 18–30 y bajando tras un pico = condiciones ideales
+    max_vix: float = Field(30, ge=0)                       # por encima, mercado muy nervioso
     use_rsi: bool = True
     use_bollinger: bool = False
     use_bollinger_width: bool = False

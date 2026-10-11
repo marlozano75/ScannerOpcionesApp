@@ -39,6 +39,8 @@
 {% if form.use_ivp %}{% set _ = ivgroup.append('IV Pctl ≥ ' ~ form.ivp) %}{% endif %}
 {% if form.use_delta %}{% set _ = ivgroup.append('|Δ| ' ~ form.delta_min ~ '–' ~ form.delta_max) %}{% endif %}
 {% if form.use_exp %}{% set _ = ivgroup.append('Fuera de ' ~ form.exp_mult ~ '× mov. esperado') %}{% endif %}
+{% if form.use_ivhv %}{% set _ = ivgroup.append('IV/HV ≥ ' ~ form.ivhv) %}{% endif %}
+{% if form.use_ivchg %}{% set _ = ivgroup.append('ΔIV 5d ≤ ' ~ form.ivchg) %}{% endif %}
 {% set entry = [] %}
 {% if form.use_near %}{% set _ = entry.append('A ≤ ' ~ form.near_pct ~ ' % de MA50 o soporte') %}{% endif %}
 {% if form.use_rsi %}{% set _ = entry.append('RSI rebota desde ≤ ' ~ form.rsi_max) %}{% endif %}
@@ -177,6 +179,12 @@
           <span style="display:flex;gap:4px"><input name="delta_min" value="{{ form.delta_min }}" inputmode="decimal" size="4" style="width:46px"><input name="delta_max" value="{{ form.delta_max }}" inputmode="decimal" size="4" style="width:46px"></span></label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_exp" {{ 'checked' if form.use_exp }}> Strike fuera del mov. esperado (×)</span>
           <input name="exp_mult" value="{{ form.exp_mult }}" inputmode="decimal"></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ivhv" {{ 'checked' if form.use_ivhv }}> IV / HV30 mín.</span>
+          <input name="ivhv" value="{{ form.ivhv }}" inputmode="decimal"></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ivchg" {{ 'checked' if form.use_ivchg }}> Cambio de IV a 5 días ≤ (puntos)</span>
+          <input name="ivchg" value="{{ form.ivchg }}" inputmode="decimal"></label>
+        <p class="note"><b>IV / HV30</b> &gt; 1,2: las opciones están caras frente a lo que realmente se mueve la acción (tastytrade: IV a 30 días ÷ volatilidad histórica a 30 días).
+          <b>Cambio de IV a 5 días</b> ≤ 0: el miedo deja de crecer. El <b>VIX</b> no es un filtro: su aviso (primas pobres, mercado nervioso, condiciones ideales) está en el Panel, junto a su gráfico.</p>
         <p class="note">Marca cada filtro para aplicarlo (las cajas traen los valores de la estrategia). <b>Delta</b>: −0,20 a −0,30 ≈ 70–80 % de probabilidad de expirar sin valor.
           <b>Movimiento esperado</b> = precio × IV del contrato × √(DTE/365): el strike debe quedar por debajo de precio − N × ese movimiento.
           IV Rank &gt; 30 % es aceptable y &gt; 50 % ideal.</p>

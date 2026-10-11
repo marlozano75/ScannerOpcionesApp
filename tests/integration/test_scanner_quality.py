@@ -309,3 +309,29 @@ def test_invalid_timing_values_are_reported(client_and_service):
     client, svc, gw, _ = client_and_service
     for bad in ("use_rsi=on&rsi_max=100", "use_rsi=on&rsi_max=x", "use_boll=on&boll_pctb=5", "use_bw=on&boll_width=0"):
         assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad
+
+
+def test_the_strategy_button_also_loads_the_iv_filters_and_the_vix_is_only_a_message_in_the_panel(client_and_service):
+    from urllib.parse import parse_qs
+    from scanner_opciones.domain.models import VixData
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    page = client.get("/scanner?reset=1").text
+    iv = page.split('id="sec-iv"')[1].split("</details>")[0]
+    for name, value in (("ivhv", "1.2"), ("ivchg", "0")):
+        assert f'name="{name}" value="{value}"' in iv
+    assert "vix_min" not in page and "use_vix" not in page                       # el VIX no es un filtro del scanner
+    href = re.search(r'<a class="strategy-btn" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
+    q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
+    assert all(q[k] == "on" for k in ("use_ivhv", "use_ivchg")) and not any("vix" in k for k in q)
+    on = client.get(href).text
+    assert 'class="strategy-btn on"' in on and "IV/HV ≥ 1.2" in on
+    svc.state.vix = VixData(current=11.0, last_closes=[], futures=[], updated_at=None)
+    panel = client.get("/").text
+    assert 'class="banner warn"' in panel and "primas pobres" in panel          # el aviso está junto al gráfico del VIX
+
+
+def test_invalid_iv_values_are_reported(client_and_service):
+    client, svc, gw, _ = client_and_service
+    for bad in ("use_ivhv=on&ivhv=0", "use_ivhv=on&ivhv=x", "use_ivchg=on&ivchg=x"):
+        assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad

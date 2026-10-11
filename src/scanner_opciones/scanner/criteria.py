@@ -66,6 +66,8 @@ class ScanCriteria:
     # prima y volatilidad del contrato (ver scanner/filters.py)
     min_abs_delta: Optional[float] = None         # |delta| de la put mínimo / máximo (0,20–0,30 ≈ 70–80 % de probabilidad de ganar)
     max_abs_delta: Optional[float] = None
+    min_iv_hv_ratio: Optional[float] = None       # IV a 30 días / volatilidad histórica a 30 días mínimo (> 1,2 = opciones caras)
+    max_iv_change_5d: Optional[float] = None      # cambio de la IV en 5 días máximo, en puntos (0 = la IV ya no sube)
     expected_move_mult: Optional[float] = None    # strike por debajo de precio − N × (precio × IV × √(DTE/365))
     # filtros técnicos (ver scanner/technical.py); los valores por defecto no filtran nada
     trend_direction: str = "off"          # off | up | down

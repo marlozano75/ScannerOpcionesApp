@@ -6,7 +6,7 @@ from datetime import date
 from typing import Optional
 
 from scanner_opciones.domain.enums import OptionRight
-from scanner_opciones.domain.models import ContractSnapshot
+from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
 from scanner_opciones.metrics.yields import annualized_yield_pct, gross_yield_ref_pct, strike_distance_pct
 from scanner_opciones.scanner.criteria import ScanCriteria
 
@@ -20,6 +20,7 @@ def reject_reason(
     criteria: ScanCriteria,
     iv_rank: Optional[float] = None,
     iv_percentile: Optional[float] = None,
+    info: Optional[TickerInfo] = None,
 ) -> Optional[str]:
     c = snap.contract
     if c.right is not OptionRight.PUT:
@@ -58,6 +59,17 @@ def reject_reason(
         iv_percentile is None or iv_percentile < criteria.min_iv_percentile
     ):
         return "IV Percentile insuficiente o desconocido"
+    if criteria.min_iv_hv_ratio is not None:
+        if info is None or not info.iv30 or not info.hv30:
+            return "sin IV30 / HV30 para calcular IV/HV"
+        ratio = info.iv30 / info.hv30
+        if ratio < criteria.min_iv_hv_ratio - _EPS:
+            return f"IV/HV {ratio:.2f} < {criteria.min_iv_hv_ratio:g}"
+    if criteria.max_iv_change_5d is not None:
+        if info is None or info.iv_change_5d is None:
+            return "sin cambio de IV a 5 días"
+        if info.iv_change_5d > criteria.max_iv_change_5d + _EPS:
+            return f"la IV ha subido {info.iv_change_5d:+.2f} puntos en 5 días (> {criteria.max_iv_change_5d:g})"
     if criteria.min_abs_delta is not None or criteria.max_abs_delta is not None:
         if snap.delta is None:
             return "delta desconocida"
@@ -73,3 +85,4 @@ def reject_reason(
         if c.strike > limit + _EPS:
             return f"strike {c.strike:g} dentro del movimiento esperado (límite {limit:.2f})"
     return None
+

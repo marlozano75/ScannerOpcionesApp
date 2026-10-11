@@ -30,6 +30,8 @@ _GROUPS: tuple[tuple[str, str, dict], ...] = (
     ("spread", "Spread máximo", {"max_spread_pct": None}),
     ("iv_rank", "IV Rank mínimo", {"min_iv_rank": None}),
     ("iv_pct", "IV Percentile mínimo", {"min_iv_percentile": None}),
+    ("iv_hv", "IV / HV30 mínimo", {"min_iv_hv_ratio": None}),
+    ("iv_change", "Cambio de IV a 5 días", {"max_iv_change_5d": None}),
     ("delta", "Delta del put", {"min_abs_delta": None, "max_abs_delta": None}),
     ("expected_move", "Strike fuera del movimiento esperado", {"expected_move_mult": None}),
     ("near_level", "Cerca de la media de 50 o de un soporte", {"near_level_pct": None}),
@@ -86,7 +88,7 @@ def _passes(
         c = snap.contract
         info = infos.get(c.ticker)
         price = info.underlying_price if info else None
-        if reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile) is not None:
+        if reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info) is not None:
             continue
         if criteria.quality_active and quality_reject(info, c.expiry, criteria, today, keep) is not None:
             continue

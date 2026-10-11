@@ -20,6 +20,7 @@ from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
+from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
@@ -246,6 +247,7 @@ def strategy_link(settings, form: dict, base) -> tuple[str, bool]:
         "use_ivr": "on", "ivr": _fmt(st.min_iv_rank), "use_ivp": "on", "ivp": _fmt(st.min_iv_percentile),
         "use_bid": "on", "bid": _fmt(fv.min_bid),
     }
+    params.update(use_ivhv="on", ivhv=_fmt(st.min_iv_hv_ratio), use_ivchg="on", ivchg=_fmt(st.max_iv_change_5d))
     for use, key, enabled, value in (("use_rsi", "rsi_max", st.use_rsi, st.max_rsi_level),
                                      ("use_boll", "boll_pctb", st.use_bollinger, st.max_bollinger_pctb),
                                      ("use_bw", "boll_width", st.use_bollinger_width, st.min_bollinger_width_pct)):
@@ -260,9 +262,10 @@ def strategy_link(settings, form: dict, base) -> tuple[str, bool]:
     checks = {"discount": "discount", "dte_min": "dte_min", "dte_max": "dte_max", "min_yield": "min_yield",
               "delta_min": "delta_min", "delta_max": "delta_max", "exp_mult": "exp_mult", "near_pct": "near_pct",
               "ivr": "ivr", "ivp": "ivp", "ma200": "ma200", "q_liq": "q_liq",
-              "rsi_max": "rsi_max", "boll_pctb": "boll_pctb", "boll_width": "boll_width"}
+              "rsi_max": "rsi_max", "boll_pctb": "boll_pctb", "boll_width": "boll_width",
+              "ivhv": "ivhv", "ivchg": "ivchg"}
     on = all(form.get(f) == params[p] for p, f in checks.items() if p in params)
-    on = on and all(form.get(f) for f in ("use_delta", "use_exp", "use_near", "use_ivr", "use_ivp",
+    on = on and all(form.get(f) for f in ("use_delta", "use_exp", "use_near", "use_ivr", "use_ivp", "use_ivhv", "use_ivchg",
                                           *(u for u in ("use_rsi", "use_boll", "use_bw") if u in params)))
     on = on and (not st.avoid_earnings or bool(form.get("q_earn")))
     return urlencode(params), on
@@ -365,13 +368,14 @@ def create_app(
         assignment, risk, vix = service.assignment(), service.state.risk, service.state.vix
         thresholds = service.settings.risk.cushion_thresholds
         curve, shape = dash.vix_curve(vix, service.now().date()) if vix else (viz.empty(), None)
+        vix_note = vix_advice(vix, service.settings.scanner.strategy)
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
             cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", sectors=sectors, weeks=weeks, assignment=assignment, charts=charts,
+        return render(request, "dashboard.html", sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note,
                       risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 
@@ -663,7 +667,8 @@ def create_app(
         form.update(use_delta=False, delta_min=_fmt(st.min_abs_delta), delta_max=_fmt(st.max_abs_delta),
                     use_exp=False, exp_mult=_fmt(st.expected_move_mult), use_near=False, near_pct=_fmt(st.near_level_pct),
                     use_rsi=False, rsi_max=_fmt(st.max_rsi_level), use_boll=False, boll_pctb=_fmt(st.max_bollinger_pctb),
-                    use_bw=False, boll_width=_fmt(st.min_bollinger_width_pct))
+                    use_bw=False, boll_width=_fmt(st.min_bollinger_width_pct),
+                    use_ivhv=False, ivhv=_fmt(st.min_iv_hv_ratio), use_ivchg=False, ivchg=_fmt(st.max_iv_change_5d),)
 
         criteria, error, warnings = None, None, []
         try:
@@ -714,9 +719,10 @@ def create_app(
                 for key in optional:
                     form[f"use_{key}"] = f"use_{key}" in qp
                     form[key] = qp.get(key, "").strip()
-                for key in ("use_delta", "use_exp", "use_near", "use_rsi", "use_boll", "use_bw"):
+                for key in ("use_delta", "use_exp", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg"):
                     form[key] = key in qp
-                for key in ("delta_min", "delta_max", "exp_mult", "near_pct", "rsi_max", "boll_pctb", "boll_width"):
+                for key in ("delta_min", "delta_max", "exp_mult", "near_pct", "rsi_max", "boll_pctb", "boll_width",
+                            "ivhv", "ivchg"):
                     form[key] = qp.get(key, "").strip()
                 overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento mín. del strike")
                 overrides["min_annual_yield_pct"] = _required(form["min_yield"], float, "Yield anual mín.")
@@ -755,6 +761,12 @@ def create_app(
                 overrides["near_level_pct"] = _required(form["near_pct"], float, "Distancia a la media de 50 o al soporte (%)")
                 if not (0 < overrides["near_level_pct"] <= 50):
                     raise ValueError("la distancia a la media o al soporte debe estar entre 0 y 50 %")
+            if form["use_ivhv"]:
+                overrides["min_iv_hv_ratio"] = _required(form["ivhv"], float, "IV / HV30 mínimo")
+                if not (0 < overrides["min_iv_hv_ratio"] <= 10):
+                    raise ValueError("IV / HV30 debe estar entre 0 y 10")
+            if form["use_ivchg"]:
+                overrides["max_iv_change_5d"] = _required(form["ivchg"], float, "Cambio de IV a 5 días")
             if form["use_rsi"]:
                 overrides["rsi_rebound_max"] = _required(form["rsi_max"], float, "Nivel del RSI")
                 if not (0 < overrides["rsi_rebound_max"] < 100):

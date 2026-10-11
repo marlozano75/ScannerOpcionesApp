@@ -156,6 +156,12 @@ MIGRATIONS: list[str] = [
     ALTER TABLE ticker_quality ADD COLUMN earnings_volatility REAL;
     UPDATE ticker_quality SET financials_at = NULL;
     """,
+    # v19: HV30, IV30 y cambio de la IV a 5 días (de las market metrics de tastytrade, junto al IV Rank).
+    """
+    ALTER TABLE ticker_info ADD COLUMN hv30 REAL;
+    ALTER TABLE ticker_info ADD COLUMN iv30 REAL;
+    ALTER TABLE ticker_info ADD COLUMN iv_change_5d REAL;
+    """,
 ]
 
 

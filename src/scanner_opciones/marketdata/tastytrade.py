@@ -76,13 +76,23 @@ def _pct(value: Any) -> Optional[float]:
     return None if value is None else round(float(value) * 100, 2)
 
 
+def _num(value: Any) -> Optional[float]:
+    return None if value is None else float(value)
+
+
 def to_metrics(item: Any) -> Optional[IVMetrics]:
     """`None` si tastytrade no da ni rank ni percentil para ese símbolo."""
     rank = _pct(item.implied_volatility_index_rank)
     percentile = _pct(item.implied_volatility_percentile)
     if rank is None and percentile is None:
         return None
-    return IVMetrics(iv_rank=rank, iv_percentile=percentile)
+    change = getattr(item, "implied_volatility_index_5_day_change", None)
+    return IVMetrics(
+        iv_rank=rank, iv_percentile=percentile,
+        hv30=_num(getattr(item, "historical_volatility_30_day", None)),     # tastytrade: ya en % (20,15)
+        iv30=_num(getattr(item, "implied_volatility_30_day", None)),        # ya en % (27,61)
+        iv_change_5d=_pct(change),                                          # fracción de IV (0,0104) -> puntos (1,04)
+    )
 
 
 class TastytradeVolatility:

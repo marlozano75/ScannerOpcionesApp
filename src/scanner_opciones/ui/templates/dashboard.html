@@ -41,6 +41,7 @@
   <div class="card" style="margin:0">
     <h2>VIX {% if state.vix and state.vix.current is not none %}<span class="muted" style="font-weight:400">· {{ state.vix.current|num }}</span>{% endif %}</h2>
     {% if state.vix %}
+    {% if vix_note %}<div class="banner {{ vix_note.level }}" style="font-size:13px;padding:8px 12px">{{ vix_note.text }}</div>{% endif %}
     <p class="vt">Cierres recientes</p>
     {{ charts.vix_history }}
     <p class="vt" style="margin-top:12px">Curva de futuros</p>
