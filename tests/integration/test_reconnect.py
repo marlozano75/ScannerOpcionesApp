@@ -31,10 +31,12 @@ async def test_reconnect_recovers_and_does_not_repeat_tastytrade_update():
     svc._update_history_and_fundamentals = fake_history
 
     await svc.start()
-    assert not svc.state.connected and "connection" in svc.state.errors
+    assert not svc.state.connected and "connection" in svc.state.errors        # el error sale al instante, sin esperar a tastytrade
+    await svc.wait_idle()                                                      # la descarga de tastytrade va en segundo plano
     assert runs == [1]
 
     assert await svc.reconnect() is True
+    await svc.wait_idle()
     assert svc.state.connected and "connection" not in svc.state.errors
     assert runs == [1]          # no se vuelve a descargar lo de tastytrade
 

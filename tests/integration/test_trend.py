@@ -1,4 +1,5 @@
 """Histórico de cierres diarios de tastytrade (puerto CandleProvider) guardado en la base de datos."""
+import asyncio
 from datetime import date, timedelta
 
 import pytest
@@ -193,17 +194,45 @@ async def test_provisional_bar_is_replaced_by_the_official_close_the_next_day():
     assert svc.daily.candles.days == [3 + 7]                         # desde el último cierre oficial (hace 3 días) + solape
 
 
-async def test_start_downloads_the_history_before_connecting_or_refreshing():
+class GatedCandles(FakeCandles):
+    """Proveedor de velas que no responde hasta que el test lo libera (tastytrade lento o con reintentos)."""
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.gate = asyncio.Event()
+
+    async def get_daily_ohlc(self, tickers, days):
+        await self.gate.wait()
+        return await super().get_daily_ohlc(tickers, days)
+
+
+async def test_start_reports_connected_without_waiting_for_the_tastytrade_download():
+    """Regresión: la app tardó 5 minutos en marcar «conectado» (TWS ya lo estaba) porque `start` esperaba al histórico de
+    tastytrade, que con máximos y mínimos por rellenar y reintentos de velas puede durar minutos."""
+    candles = GatedCandles({"AAPL": bars([50.0] * 30)})
+    svc, gw = await service_with(candles)
+    await asyncio.wait_for(svc.start(), timeout=5)                      # no se bloquea: el histórico sigue sin llegar
+    assert svc.state.connected and svc._tasty_running() and not svc._tasty_done
+    assert svc.history_coverage() == (0, 1)
+    candles.gate.set()
+    await svc.wait_idle()
+    assert svc._tasty_done and not svc._tasty_running()
+    assert svc.history_coverage() == (1, 1)                              # y al acabar el histórico está completo
+
+
+async def test_a_daily_update_that_ends_during_the_startup_download_makes_it_repeat_when_done():
+    candles = GatedCandles({"AAPL": bars([50.0] * 30)})
+    svc, gw = await service_with(candles)
+    await svc.start()
+    await svc.run_daily(wait=True)                                       # acaba con la descarga de arranque aún en curso
+    assert svc._tasty_again and svc._tasty_running()
+    candles.gate.set()
+    await svc.wait_idle()
+    assert not svc._tasty_again and svc._tasty_done and svc.history_coverage() == (1, 1)
+
+
+async def test_start_still_completes_the_history_and_refreshes_with_it_available():
     candles = FakeCandles({"AAPL": bars([50.0] * 30)})
     svc, gw = await service_with(candles)
-    order = []
-    original = svc.refresh_all
-
-    async def spy(*a, **kw):
-        order.append(("refresh", svc.history_coverage()))
-        return await original(*a, **kw)
-
-    svc.refresh_all = spy
     await svc.start()
     await svc.wait_idle()
-    assert order and order[0] == ("refresh", (1, 1))                    # al primer refresco el histórico ya estaba completo
+    assert svc.history_coverage() == (1, 1) and svc._tasty_done

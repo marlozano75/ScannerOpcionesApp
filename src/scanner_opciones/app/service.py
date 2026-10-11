@@ -133,6 +133,8 @@ class AppService:
         self._session_begun = False  # ya se hizo el primer refresco/actualización diaria de la sesión (con o sin TWS)
         self._iv_stats_running = False
         self._tasty_done = False     # histórico y calidad de tastytrade ya descargados en esta ejecución
+        self._tasty_task: "asyncio.Future | None" = None   # descarga de arranque de tastytrade, en segundo plano
+        self._tasty_again = False    # una actualización diaria acabó mientras la del arranque seguía: que la repita al terminar
         self._account_lock = asyncio.Lock()  # cuenta, posiciones y VIX: aparte, para que un ciclo largo de mercado no los retrase
         self._background: set = set()
 
@@ -457,19 +459,35 @@ class AppService:
         return self.state.connected
 
     async def _connect(self) -> bool:
-        # El histórico de cierres solo depende de tastytrade y se guarda en la base de datos: se completa lo
-        # primero (unos segundos), sin esperar al broker ni al primer refresco, que tarda minutos. Solo una vez:
-        # los reintentos de conexión no lo repiten.
-        history = None if self._tasty_done else asyncio.ensure_future(self._update_history_and_fundamentals())
+        # El histórico de cierres, los datos de calidad y la IV solo dependen de tastytrade y se guardan en la base de datos: se
+        # descargan EN SEGUNDO PLANO, a la vez que se conecta con el broker. Antes se esperaba a que acabaran (unos segundos
+        # con el histórico al día) y, con máximos y mínimos por rellenar y reintentos de velas, tardó 5 minutos en marcar
+        # «conectado» aunque TWS ya lo estuviera. Solo una vez: los reintentos de conexión no lo repiten. La cabecera indica
+        # la actividad mientras dura.
+        if not self._tasty_done and not self._tasty_running():
+            self._tasty_task = self.launch(self._tasty_startup())
         try:
             await self.gateway.connect()
         except BrokerError as exc:
-            await self._finish_tasty(history)
             self.state.connected = False
             self.state.errors["connection"] = str(exc)
             return False
-        await self._finish_tasty(history)
         return True
+
+    def _tasty_running(self) -> bool:
+        return self._tasty_task is not None and not self._tasty_task.done()
+
+    async def _tasty_startup(self) -> None:
+        """Descarga de arranque de tastytrade: histórico, calidad e IV. Si una actualización diaria acabó mientras tanto, repite
+        histórico y calidad al terminar (los tickers nuevos que añadió)."""
+        try:
+            await self._update_history_and_fundamentals()
+            while self._tasty_again:
+                self._tasty_again = False
+                await self._update_history()
+                await self._update_fundamentals()
+        finally:
+            self._tasty_done = True
 
     def _offline_capable(self) -> bool:
         """¿Puede el gateway servir los datos de mercado sin TWS (tastytrade)? Entonces, sin conexión, se sigue
@@ -540,11 +558,6 @@ class AppService:
                 self.state.activity = None
             self.state.data_version += 1
             return True
-
-    async def _finish_tasty(self, history: "asyncio.Future | None") -> None:
-        if history is not None:
-            await history
-            self._tasty_done = True
 
     async def stop(self) -> None:
         await self.gateway.disconnect()
@@ -647,11 +660,12 @@ class AppService:
             log.info("Limpieza de tickers fuera de la watchlist: %s", removed)
         return removed
 
-    def launch(self, coro) -> None:
+    def launch(self, coro) -> "asyncio.Future":
         """Ejecuta una corrutina en segundo plano (acciones manuales largas)."""
         task = asyncio.ensure_future(coro)
         self._background.add(task)
         task.add_done_callback(self._background.discard)
+        return task
 
     async def wait_idle(self) -> None:
         """Espera a que terminen las tareas lanzadas con `launch` (útil en tests)."""
@@ -703,7 +717,9 @@ class AppService:
                 self.state.activity = None
             self.exclude_unsupported(report)
             self.state.last_daily_report = report
-            if report.updated or not self._tasty_done:   # sin nada nuevo, el arranque ya descargó histórico y calidad
+            if self._tasty_running():
+                self._tasty_again = True   # la descarga de arranque sigue (no se espera con el bloqueo tomado): repetirá al acabar
+            elif report.updated or not self._tasty_done:   # sin nada nuevo, el arranque ya descargó histórico y calidad
                 await self._update_history()
                 await self._update_fundamentals()
             self.update_financials_in_background()   # las fichas de los tickers nuevos ya existen
