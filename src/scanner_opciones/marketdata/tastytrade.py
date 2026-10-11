@@ -15,7 +15,7 @@ from typing import Any, Awaitable, Callable, Optional, Sequence
 
 from scanner_opciones.domain.errors import CandleError, OptionDataError, PriceError, VolatilityError
 from scanner_opciones.domain.models import OptionQuote, VixData
-from scanner_opciones.marketdata.candles import DailyBars
+from scanner_opciones.marketdata.candles import DailyBars, OhlcBars
 from scanner_opciones.marketdata.fundamentals import Fundamentals, clean_eps
 from scanner_opciones.marketdata.options import MarketExtras, OptionListing, listing_key
 from scanner_opciones.marketdata.volatility import IVMetrics
@@ -109,6 +109,7 @@ class TastytradeVolatility:
         self._fetch = fetch or self._sdk_fetch
         self._fetch_quotes = fetch_quotes or self._sdk_fetch_quotes
         self._fetch_candles = fetch_candles or self._sdk_fetch_candles
+        self._fetch_ohlc = self._ohlc_from(fetch_candles) if fetch_candles else self._sdk_fetch_ohlc
         self._fetch_chain = fetch_chain or self._sdk_fetch_chain
         self._fetch_option_quotes = fetch_option_quotes or self._sdk_fetch_option_quotes
         self._fetch_vix = fetch_vix or self._sdk_fetch_vix
@@ -133,20 +134,31 @@ class TastytradeVolatility:
 
         return await get_market_data_by_type(self._open_session(), equities=symbols)
 
+    @staticmethod
+    def _ohlc_from(fetch: CandleFetch):
+        """Adapta un proveedor de cierres (p. ej. el de los tests) a velas sin máximo ni mínimo."""
+        async def wrapped(symbols: Sequence[str], days: int, timeout: float) -> dict[str, OhlcBars]:
+            return {s: [(d, px, None, None) for d, px in bars] for s, bars in (await fetch(symbols, days, timeout)).items()}
+        return wrapped
+
     async def _sdk_fetch_candles(self, symbols: Sequence[str], days: int, timeout: float) -> dict[str, DailyBars]:
-        """Velas diarias por DXLink: un lote de suscripciones por vez; el lote termina cuando todos sus
+        """Velas diarias (solo cierres) por DXLink."""
+        return {s: [(d, px) for d, px, *_ in bars] for s, bars in (await self._sdk_fetch_ohlc(symbols, days, timeout)).items()}
+
+    async def _sdk_fetch_ohlc(self, symbols: Sequence[str], days: int, timeout: float) -> dict[str, OhlcBars]:
+        """Velas diarias por DXLink (cierre, máximo y mínimo): un lote de suscripciones por vez; el lote termina cuando todos sus
         símbolos han enviado el final del snapshot o se agota `timeout` (símbolos desconocidos no responden)."""
         from tastytrade.dxfeed import Candle
         from tastytrade.streamer import DXLinkStreamer
 
         session = self._open_session()
         start = datetime.now() - timedelta(days=days)
-        out: dict[str, DailyBars] = {}
+        out: dict[str, OhlcBars] = {}
         async with DXLinkStreamer(session) as streamer:
             for i in range(0, len(symbols), CANDLE_BATCH_SIZE):
                 batch = list(symbols[i:i + CANDLE_BATCH_SIZE])
                 pending = set(batch)
-                bars: dict[str, dict[int, float]] = {s: {} for s in batch}
+                bars: dict[str, dict[int, tuple[float, Optional[float], Optional[float]]]] = {s: {} for s in batch}
                 await streamer.subscribe_candle(batch, "1d", start_time=start)
 
                 async def read() -> None:
@@ -155,7 +167,9 @@ class TastytradeVolatility:
                         if sym not in bars:
                             continue
                         if float(c.close) > 0:
-                            bars[sym][c.time] = float(c.close)
+                            high, low = float(c.high), float(c.low)
+                            ok = high == high and low == low and high >= low > 0   # NaN o 0 = sin dato
+                            bars[sym][c.time] = (float(c.close), high if ok else None, low if ok else None)
                         if c.snapshot_end:
                             pending.discard(sym)
                             if not pending:
@@ -168,7 +182,7 @@ class TastytradeVolatility:
                 for sym in batch:
                     await streamer.unsubscribe_candle(sym, "1d")
                     if bars[sym]:
-                        out[sym] = [(datetime.fromtimestamp(ms / 1000).date(), px) for ms, px in sorted(bars[sym].items())]
+                        out[sym] = [(datetime.fromtimestamp(ms / 1000).date(), *v) for ms, v in sorted(bars[sym].items())]
         return out
 
     async def _sdk_fetch_chain(self, symbol: str) -> OptionListing:
@@ -389,6 +403,15 @@ class TastytradeVolatility:
                     ex_dividend=getattr(item, "dividend_ex_date", None),
                 )
         return out
+
+    async def get_daily_ohlc(self, tickers: list[str], days: int, timeout: float = 20.0) -> dict[str, OhlcBars]:
+        symbols = {tasty_symbol(t): t for t in tickers}
+        try:
+            raw = await self._fetch_ohlc(list(symbols), days, timeout)
+        except Exception as exc:   # el SDK lanza tipos variados (red, autenticación, formato)
+            self._session = None
+            raise CandleError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
+        return {symbols[s]: bars for s, bars in raw.items() if s in symbols}
 
     async def get_daily_closes(self, tickers: list[str], days: int, timeout: float = 20.0) -> dict[str, DailyBars]:
         symbols = {tasty_symbol(t): t for t in tickers}

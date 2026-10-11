@@ -32,6 +32,7 @@ _GROUPS: tuple[tuple[str, str, dict], ...] = (
     ("iv_pct", "IV Percentile mínimo", {"min_iv_percentile": None}),
     ("iv_hv", "IV / HV30 mínimo", {"min_iv_hv_ratio": None}),
     ("iv_change", "Cambio de IV a 5 días", {"max_iv_change_5d": None}),
+    ("atr", "Strike a N ATR del precio", {"min_atr_multiple": None}),
     ("delta", "Delta del put", {"min_abs_delta": None, "max_abs_delta": None}),
     ("expected_move", "Strike fuera del movimiento esperado", {"expected_move_mult": None}),
     ("near_level", "Cerca de la media de 50 o de un soporte", {"near_level_pct": None}),
@@ -80,6 +81,7 @@ def _neutral(criteria: ScanCriteria) -> ScanCriteria:
 def _passes(
     snapshots: Sequence[ContractSnapshot], infos: dict[str, TickerInfo], criteria: ScanCriteria, today: date,
     bars: Optional[dict], technical: Optional[TechnicalSettings], exempt: Optional[Sequence[str]],
+    atr: Optional[dict] = None,
 ) -> list[ContractSnapshot]:
     tech = TechnicalFilter(criteria, technical or TechnicalSettings(), bars or {}, today) if criteria.technical_active else None
     keep = exempt if exempt is not None else DEFAULT_EXEMPT
@@ -88,7 +90,8 @@ def _passes(
         c = snap.contract
         info = infos.get(c.ticker)
         price = info.underlying_price if info else None
-        if reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info) is not None:
+        if reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info,
+                         (atr or {}).get(c.ticker)) is not None:
             continue
         if criteria.quality_active and quality_reject(info, c.expiry, criteria, today, keep) is not None:
             continue
@@ -101,17 +104,17 @@ def _passes(
 def impact_report(
     snapshots: Sequence[ContractSnapshot], infos: dict[str, TickerInfo], criteria: ScanCriteria, today: date,
     bars: Optional[dict] = None, technical: Optional[TechnicalSettings] = None,
-    exempt_sectors: Optional[Sequence[str]] = None,
+    exempt_sectors: Optional[Sequence[str]] = None, atr: Optional[dict] = None,
 ) -> ImpactReport:
     groups = active_groups(criteria)
     neutral = _neutral(criteria)
-    window = _passes(snapshots, infos, neutral, today, bars, technical, exempt_sectors)   # el resto solo mira estos
-    final = _passes(window, infos, criteria, today, bars, technical, exempt_sectors)
+    window = _passes(snapshots, infos, neutral, today, bars, technical, exempt_sectors, atr)   # el resto solo mira estos
+    final = _passes(window, infos, criteria, today, bars, technical, exempt_sectors, atr)
     rows = []
     for key, label, fields in groups:
         alone = _passes(window, infos, neutral.with_filters(**{f: getattr(criteria, f) for f in fields}),
-                        today, bars, technical, exempt_sectors)
-        without = _passes(window, infos, criteria.with_filters(**fields), today, bars, technical, exempt_sectors)
+                        today, bars, technical, exempt_sectors, atr)
+        without = _passes(window, infos, criteria.with_filters(**fields), today, bars, technical, exempt_sectors, atr)
         rows.append(FilterImpact(key, label, len(alone), len(without) - len(final)))
     rows.sort(key=lambda r: (r.alone, -r.exclusive))
     return ImpactReport(len(window), len(final), tuple(rows))

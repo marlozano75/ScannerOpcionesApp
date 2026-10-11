@@ -307,6 +307,47 @@ class BarRepo:
                 [(ticker, d.isoformat(), px) for d, px in bars],
             )
 
+    def upsert_ohlc(self, ticker: str, bars: Iterable[tuple]) -> None:
+        """Guarda velas (día, cierre, máximo, mínimo). Un máximo o mínimo que no llega no borra el ya guardado."""
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO daily_bars (ticker, day, close, provisional, high, low) VALUES (?,?,?,0,?,?) "
+                "ON CONFLICT(ticker, day) DO UPDATE SET close = excluded.close, provisional = 0, "
+                "high = COALESCE(excluded.high, daily_bars.high), low = COALESCE(excluded.low, daily_bars.low)",
+                [(ticker, d.isoformat(), px, high, low) for d, px, high, low in bars],
+            )
+
+    def missing_ranges(self, tickers: Iterable[str], recent: int, needed: int) -> list[str]:
+        """Tickers con histórico oficial de los que, entre las últimas `recent` sesiones, menos de `needed` tienen máximo y
+        mínimo (histórico anterior a la migración v20). Un par de días sueltos sin dato no cuenta."""
+        out = []
+        for t in tickers:
+            rows = self.db.conn.execute(
+                "SELECT high, low FROM daily_bars WHERE ticker = ? AND provisional = 0 ORDER BY day DESC LIMIT ?", (t, recent)).fetchall()
+            if rows and sum(1 for r in rows if r["high"] is not None and r["low"] is not None) < min(needed, len(rows)):
+                out.append(t)
+        return out
+
+    def recent_ohlc(self, tickers: Iterable[str], limit: int) -> dict[str, list[tuple[float, float, float]]]:
+        """(cierre, máximo, mínimo) de las últimas `limit` sesiones oficiales con máximo y mínimo, en orden ascendente."""
+        out: dict[str, list[tuple[float, float, float]]] = {}
+        for t in tickers:
+            rows = self.db.conn.execute(
+                "SELECT close, high, low FROM daily_bars WHERE ticker = ? AND provisional = 0 AND high IS NOT NULL AND low IS NOT NULL "
+                "ORDER BY day DESC LIMIT ?", (t, limit)).fetchall()
+            if rows:
+                out[t] = [(r["close"], r["high"], r["low"]) for r in reversed(rows)]
+        return out
+
+    def atr(self, tickers: Iterable[str], period: int) -> dict[str, float]:
+        """ATR (Wilder) de cada ticker con las últimas sesiones que tienen máximo y mínimo; sin datos suficientes no aparece."""
+        from scanner_opciones.metrics.technical import atr as atr_fn
+        out = {}
+        for t, bars in self.recent_ohlc(tickers, period * 4).items():
+            if (value := atr_fn(bars, period)) is not None:
+                out[t] = value
+        return out
+
     def upsert_provisional(self, ticker: str, day: date, price: float) -> None:
         """Guarda el último precio visto como cierre provisional de `day`. Nunca pisa un cierre oficial."""
         with self.db.conn:

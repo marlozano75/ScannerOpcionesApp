@@ -49,6 +49,7 @@ def run_scan(
     bars: Optional[dict[str, list]] = None,
     technical: Optional[TechnicalSettings] = None,
     exempt_sectors: Optional[Sequence[str]] = None,
+    atr: Optional[dict[str, float]] = None,
 ) -> ScanOutput:
     """`bars` (cierres diarios por ticker) y `technical` solo hacen falta si `criteria.technical_active`."""
     exempt = exempt_sectors
@@ -60,7 +61,8 @@ def run_scan(
         c = snap.contract
         info = infos.get(c.ticker)
         price = info.underlying_price if info else None
-        why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info)
+        why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info,
+                            (atr or {}).get(c.ticker))
         if why is None and criteria.quality_active:
             why = quality_reject(info, c.expiry, criteria, today, exempt if exempt is not None else DEFAULT_EXEMPT)
         if why is None and tech is not None:

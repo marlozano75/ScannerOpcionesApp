@@ -954,8 +954,14 @@ class AppService:
         return run_scan(
             snapshots, self.ticker_info.all(), self.state.positions, criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
-            self.settings.scanner.quality.exempt_sectors,
+            self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots),
         )
+
+    def _atr(self, criteria: ScanCriteria, snapshots) -> Optional[dict[str, float]]:
+        """ATR de los subyacentes, solo si el filtro está activo."""
+        if criteria.min_atr_multiple is None:
+            return None
+        return self.bars.atr({s.contract.ticker for s in snapshots}, self.settings.scanner.technical.atr_period)
 
     def scan_impact(self, criteria: ScanCriteria) -> ImpactReport:
         """Cuánto descarta cada filtro activo (ver `scanner/impact.py`)."""
@@ -963,7 +969,7 @@ class AppService:
         bars = self.bars.all_closes({s.contract.ticker for s in snapshots}) if criteria.technical_active else None
         return impact_report(
             snapshots, self.ticker_info.all(), criteria, self.now().date(), bars, self.settings.scanner.technical,
-            self.settings.scanner.quality.exempt_sectors,
+            self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots),
         )
 
     def assignment(self) -> AssignmentExposure:

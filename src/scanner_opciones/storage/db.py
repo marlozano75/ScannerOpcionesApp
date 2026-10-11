@@ -162,6 +162,11 @@ MIGRATIONS: list[str] = [
     ALTER TABLE ticker_info ADD COLUMN iv30 REAL;
     ALTER TABLE ticker_info ADD COLUMN iv_change_5d REAL;
     """,
+    # v20: máximo y mínimo diarios (para el ATR). Los cierres ya guardados no los tienen: se rellenan al volver a pedir los últimos días.
+    """
+    ALTER TABLE daily_bars ADD COLUMN high REAL;
+    ALTER TABLE daily_bars ADD COLUMN low REAL;
+    """,
 ]
 
 

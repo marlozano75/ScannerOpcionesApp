@@ -181,6 +181,7 @@ class TechnicalSettings(_Model):
     chart_near_pct: float = Field(5, ge=0)                # un cierre mensual a menos de este % por encima del strike se marca en amarillo
     rsi_period: int = Field(14, ge=2)                      # RSI de Wilder
     rsi_lookback_days: int = Field(10, ge=2)               # sesiones en las que el RSI debe haber tocado el nivel («rebote»)
+    atr_period: int = Field(14, ge=2)                      # ATR de Wilder (máximos, mínimos y cierres diarios)
     bollinger_period: int = Field(20, ge=2)
     bollinger_k: float = Field(2.0, gt=0)                  # desviaciones típicas de las bandas
     touch_min_days_options: tuple[int, ...] = (10, 20, 30, 45, 60, 90, 120, 180, 252, 365)   # opciones de «Días mín. desde el último toque»
@@ -297,6 +298,8 @@ class StrategySettings(_Model):
     min_vix: float = Field(14, ge=0)                       # < 13–14 = primas pobres
     ideal_vix_min: float = Field(18, ge=0)                 # 18–30 y bajando tras un pico = condiciones ideales
     max_vix: float = Field(30, ge=0)                       # por encima, mercado muy nervioso
+    min_atr_multiple: float = Field(2.0, gt=0, le=10)      # el strike debe estar al menos a N × ATR(14) del precio (2–3)
+    use_atr: bool = True
     use_rsi: bool = True
     use_bollinger: bool = False
     use_bollinger_width: bool = False
@@ -423,6 +426,21 @@ class MarketSettings(_Model):
         return self
 
 
+class ManagementSettings(_Model):
+    """Gestión de las puts vendidas (tarjeta del Panel): avisos, no órdenes. Orientativos, no reglas exactas."""
+    take_profit_pct: float = Field(50, gt=0, le=100)    # recoger beneficios al capturar este % de la prima cobrada
+    review_dte: int = Field(21, ge=0)                   # a este DTE, si no se ha llegado al objetivo: cerrar o rolar
+    near_strike_pct: float = Field(2.0, ge=0)           # aviso cuando el precio está a menos de este % por encima del strike
+    warn_position_pct: float = Field(5, gt=0)           # peso de una acción (acciones + puts vendidas asignadas) sobre el NLV: aviso
+    max_position_pct: float = Field(10, gt=0)           # y por encima de este: alerta
+
+    @model_validator(mode="after")
+    def _check(self) -> "ManagementSettings":
+        if self.warn_position_pct > self.max_position_pct:
+            raise ValueError("warn_position_pct no puede superar max_position_pct")
+        return self
+
+
 class Settings(_Model):
     ibkr: IbkrSettings = IbkrSettings()
     refresh: RefreshSettings = RefreshSettings()
@@ -438,6 +456,7 @@ class Settings(_Model):
     storage: StorageSettings = StorageSettings()
     logging: LoggingSettings = LoggingSettings()
     market: MarketSettings = MarketSettings()
+    management: ManagementSettings = ManagementSettings()
 
     @property
     def refresh_interval_minutes(self) -> float:

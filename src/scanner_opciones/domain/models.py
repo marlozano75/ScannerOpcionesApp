@@ -92,6 +92,7 @@ class Position:
     market_value: float
     sector: Optional[str] = None
     option: Optional[OptionContract] = None
+    avg_cost: Optional[float] = None   # coste medio por contrato en $ (precio de entrada × multiplicador); en una venta, la prima cobrada
 
 
 @dataclass(frozen=True)

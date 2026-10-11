@@ -31,6 +31,18 @@ def ema(values: Sequence[float], n: int) -> Optional[float]:
     return out
 
 
+def atr(bars: Sequence[tuple[float, float, float]], n: int = 14) -> Optional[float]:
+    """ATR de Wilder de `bars` = [(cierre, máximo, mínimo), ...] en orden ascendente; None con menos de n + 1 velas.
+    Rango verdadero = max(máx − mín, |máx − cierre anterior|, |mín − cierre anterior|)."""
+    if n <= 0 or len(bars) < n + 1:
+        return None
+    ranges = [max(h - l, abs(h - bars[i][0]), abs(l - bars[i][0])) for i, (_, h, l) in enumerate(bars[1:])]
+    out = sum(ranges[:n]) / n
+    for tr in ranges[n:]:
+        out = (out * (n - 1) + tr) / n
+    return out
+
+
 def rsi_series(values: Sequence[float], n: int = 14) -> list[Optional[float]]:
     """RSI de Wilder alineado con `values` (None hasta tener `n` variaciones). Sin pérdidas = 100; sin movimiento = 50."""
     out: list[Optional[float]] = [None] * len(values)

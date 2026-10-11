@@ -20,6 +20,7 @@ from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
+from scanner_opciones.portfolio.management import manage_puts
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, viz
@@ -253,6 +254,8 @@ def strategy_link(settings, form: dict, base) -> tuple[str, bool]:
                                      ("use_bw", "boll_width", st.use_bollinger_width, st.min_bollinger_width_pct)):
         if enabled:
             params[use], params[key] = "on", _fmt(value)
+    if st.use_atr:
+        params["use_atr"], params["atr_mult"] = "on", _fmt(st.min_atr_multiple)
     if st.price_above_ma200:
         params["ma200"] = "above"
     if st.avoid_earnings:
@@ -263,10 +266,10 @@ def strategy_link(settings, form: dict, base) -> tuple[str, bool]:
               "delta_min": "delta_min", "delta_max": "delta_max", "exp_mult": "exp_mult", "near_pct": "near_pct",
               "ivr": "ivr", "ivp": "ivp", "ma200": "ma200", "q_liq": "q_liq",
               "rsi_max": "rsi_max", "boll_pctb": "boll_pctb", "boll_width": "boll_width",
-              "ivhv": "ivhv", "ivchg": "ivchg"}
+              "ivhv": "ivhv", "ivchg": "ivchg", "atr_mult": "atr_mult"}
     on = all(form.get(f) == params[p] for p, f in checks.items() if p in params)
     on = on and all(form.get(f) for f in ("use_delta", "use_exp", "use_near", "use_ivr", "use_ivp", "use_ivhv", "use_ivchg",
-                                          *(u for u in ("use_rsi", "use_boll", "use_bw") if u in params)))
+                                          *(u for u in ("use_rsi", "use_boll", "use_bw", "use_atr") if u in params)))
     on = on and (not st.avoid_earnings or bool(form.get("q_earn")))
     return urlencode(params), on
 
@@ -369,13 +372,16 @@ def create_app(
         thresholds = service.settings.risk.cushion_thresholds
         curve, shape = dash.vix_curve(vix, service.now().date()) if vix else (viz.empty(), None)
         vix_note = vix_advice(vix, service.settings.scanner.strategy)
+        nlv = service.state.account.net_liquidation if service.state.account else None
+        mgmt = manage_puts(service.state.positions, nlv, service.now().date(),
+                           {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management)
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
             cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note,
+        return render(request, "dashboard.html", sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 
@@ -668,6 +674,7 @@ def create_app(
                     use_exp=False, exp_mult=_fmt(st.expected_move_mult), use_near=False, near_pct=_fmt(st.near_level_pct),
                     use_rsi=False, rsi_max=_fmt(st.max_rsi_level), use_boll=False, boll_pctb=_fmt(st.max_bollinger_pctb),
                     use_bw=False, boll_width=_fmt(st.min_bollinger_width_pct),
+                    use_atr=False, atr_mult=_fmt(st.min_atr_multiple),
                     use_ivhv=False, ivhv=_fmt(st.min_iv_hv_ratio), use_ivchg=False, ivchg=_fmt(st.max_iv_change_5d),)
 
         criteria, error, warnings = None, None, []
@@ -719,10 +726,10 @@ def create_app(
                 for key in optional:
                     form[f"use_{key}"] = f"use_{key}" in qp
                     form[key] = qp.get(key, "").strip()
-                for key in ("use_delta", "use_exp", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg"):
+                for key in ("use_delta", "use_exp", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg", "use_atr"):
                     form[key] = key in qp
                 for key in ("delta_min", "delta_max", "exp_mult", "near_pct", "rsi_max", "boll_pctb", "boll_width",
-                            "ivhv", "ivchg"):
+                            "ivhv", "ivchg", "atr_mult"):
                     form[key] = qp.get(key, "").strip()
                 overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento mín. del strike")
                 overrides["min_annual_yield_pct"] = _required(form["min_yield"], float, "Yield anual mín.")
@@ -767,6 +774,10 @@ def create_app(
                     raise ValueError("IV / HV30 debe estar entre 0 y 10")
             if form["use_ivchg"]:
                 overrides["max_iv_change_5d"] = _required(form["ivchg"], float, "Cambio de IV a 5 días")
+            if form["use_atr"]:
+                overrides["min_atr_multiple"] = _required(form["atr_mult"], float, "Distancia en ATR")
+                if not (0 < overrides["min_atr_multiple"] <= 10):
+                    raise ValueError("la distancia en ATR debe estar entre 0 y 10")
             if form["use_rsi"]:
                 overrides["rsi_rebound_max"] = _required(form["rsi_max"], float, "Nivel del RSI")
                 if not (0 < overrides["rsi_rebound_max"] < 100):

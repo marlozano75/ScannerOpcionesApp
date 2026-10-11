@@ -187,7 +187,7 @@ class IBKRGateway:
                     c.symbol, m.parse_expiry(c.lastTradeDateOrContractMonth), float(c.strike),
                     OptionRight(c.right[0]), int(c.multiplier or 100), c.conId,
                 )
-                out.append(Position(c.symbol, item.position, float(item.marketValue), sector, oc))
+                out.append(Position(c.symbol, item.position, float(item.marketValue), sector, oc, float(item.averageCost)))
         return out
 
     # ---- utilidades con timeout -----------------------------------------------------------

@@ -21,6 +21,7 @@ def reject_reason(
     iv_rank: Optional[float] = None,
     iv_percentile: Optional[float] = None,
     info: Optional[TickerInfo] = None,
+    atr: Optional[float] = None,
 ) -> Optional[str]:
     c = snap.contract
     if c.right is not OptionRight.PUT:
@@ -78,6 +79,11 @@ def reject_reason(
             return f"|delta| {d:.2f} < {criteria.min_abs_delta:g}"
         if criteria.max_abs_delta is not None and d > criteria.max_abs_delta + _EPS:
             return f"|delta| {d:.2f} > {criteria.max_abs_delta:g}"
+    if criteria.min_atr_multiple is not None:
+        if atr is None:
+            return "sin ATR (faltan máximos y mínimos diarios)"
+        if underlying_price - c.strike < criteria.min_atr_multiple * atr - _EPS:
+            return f"strike a {underlying_price - c.strike:.2f} del precio, menos de {criteria.min_atr_multiple:g} ATR ({atr:.2f})"
     if criteria.expected_move_mult is not None:
         if snap.iv is None or snap.iv <= 0:
             return "sin IV del contrato para calcular el movimiento esperado"

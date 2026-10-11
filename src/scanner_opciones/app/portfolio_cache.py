@@ -48,7 +48,7 @@ def load(raw: Optional[str], mode: str) -> tuple[Optional[AccountSummary], list[
                 option = OptionContract(
                     ticker=opt["ticker"], expiry=date.fromisoformat(opt["expiry"]), strike=opt["strike"],
                     right=OptionRight(opt["right"]), multiplier=opt.get("multiplier", 100), con_id=opt.get("con_id"))
-            positions.append(Position(p["ticker"], p["quantity"], p["market_value"], p.get("sector"), option))
+            positions.append(Position(p["ticker"], p["quantity"], p["market_value"], p.get("sector"), option, p.get("avg_cost")))
         return account, positions
     except (ValueError, KeyError, TypeError):
         return None, []

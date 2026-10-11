@@ -335,3 +335,34 @@ def test_invalid_iv_values_are_reported(client_and_service):
     client, svc, gw, _ = client_and_service
     for bad in ("use_ivhv=on&ivhv=0", "use_ivhv=on&ivhv=x", "use_ivchg=on&ivchg=x"):
         assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad
+
+
+def test_the_atr_filter_is_in_the_entry_group_and_the_strategy_button_turns_it_on(client_and_service):
+    from urllib.parse import parse_qs
+    client, svc, gw, _ = client_and_service
+    page = client.get("/scanner?reset=1").text
+    entry = page.split('id="sec-entry"')[1].split("</details>")[0]
+    assert 'name="atr_mult" value="2"' in entry
+    href = re.search(r'<a class="strategy-btn" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
+    q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
+    assert q["use_atr"] == "on" and q["atr_mult"] == "2"
+    on = client.get(href).text
+    assert 'class="strategy-btn on"' in on and "Strike a ≥ 2 ATR" in on
+    for bad in ("use_atr=on&atr_mult=0", "use_atr=on&atr_mult=x", "use_atr=on&atr_mult=11"):
+        assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad
+
+
+def test_the_atr_filter_discards_everything_without_highs_and_lows_and_the_impact_panel_counts_it(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    assert "Parámetro no válido" not in client.get(BASE + "&use_atr=on&atr_mult=2").text
+    shown = lambda q: set(re.findall(r'name="sel" value="([^"]*)"', client.get(BASE + q).text))   # noqa: E731
+    assert shown("") and shown("&use_atr=on&atr_mult=2") == set()                   # sin máximos ni mínimos guardados: sin ATR
+    impact = client.get(BASE.replace("/scanner", "/scanner/impact") + "&use_atr=on&atr_mult=2").text
+    assert "Strike a N ATR del precio" in impact
+
+
+def test_the_panel_shows_the_put_management_card(client_and_service):
+    client, svc, gw, _ = client_and_service
+    page = client.get("/").text
+    assert "Gestión de puts vendidas" in page

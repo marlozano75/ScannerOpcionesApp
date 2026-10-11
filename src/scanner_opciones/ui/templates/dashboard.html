@@ -28,6 +28,32 @@
   {% else %}<p class="muted">Sin datos de cuenta (¿TWS conectado?).</p>{% endif %}
 </div>
 
+<div class="card">
+  <h2>Gestión de puts vendidas{% if mgmt.attention %} <span class="muted" style="font-weight:400">· {{ mgmt.attention }} aviso{{ '' if mgmt.attention == 1 else 's' }} importante{{ '' if mgmt.attention == 1 else 's' }}</span>{% endif %}</h2>
+  {% if mgmt.puts %}
+  <table class="sortable">
+    <tr><th>Ticker</th><th>Vencimiento</th><th>DTE</th><th>Strike</th><th>Contratos</th><th>Prima cobrada</th><th>Recomprar a</th><th>Capturado</th><th>Precio</th><th>Avisos</th></tr>
+    {% for s in mgmt.puts %}
+    <tr><td><b>{{ s.ticker }}</b></td><td data-sort="{{ s.expiry.isoformat() }}">{{ s.expiry.strftime('%d/%m/%Y') }}</td><td>{{ s.dte }}</td><td>{{ s.strike|num }}</td><td>{{ s.contracts }}</td>
+      <td>{{ s.entry_credit|num if s.entry_credit is not none else '—' }}</td><td>{{ s.current_price|num if s.current_price is not none else '—' }}</td>
+      <td{% if s.captured_pct is not none %} data-sort="{{ s.captured_pct }}"{% endif %}>{{ s.captured_pct|pct(0) if s.captured_pct is not none else '—' }}</td>
+      <td>{{ s.underlying_price|num if s.underlying_price is not none else '—' }}</td>
+      <td>{% for a in s.alerts %}<span class="mg {{ a.level }}">{{ a.text }}</span>{% else %}<span class="muted">—</span>{% endfor %}</td></tr>
+    {% endfor %}
+  </table>
+  <h3 style="margin:14px 0 6px;font-size:14px">Peso por acción si te asignan</h3>
+  <table class="sortable">
+    <tr><th>Ticker</th><th>Contratos</th><th>Acciones que tienes</th><th>Compra si te asignan</th><th>Total</th><th>% del NLV</th></tr>
+    {% for w in mgmt.weights %}
+    <tr><td><b>{{ w.ticker }}</b></td><td>{{ w.contracts }}</td><td>{{ w.stock_value|money }}</td><td>{{ w.put_nominal|money }}</td><td>{{ w.total|money }}</td>
+      <td{% if w.pct_nlv is not none %} data-sort="{{ w.pct_nlv }}"{% endif %}>{% if w.level %}<span class="mg {{ w.level }}">{% endif %}{{ w.pct_nlv|pct(1) if w.pct_nlv is not none else '—' }}{% if w.level %}</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted" style="margin:8px 0 0;font-size:12px">Avisos orientativos, no órdenes: recoger beneficios al {{ mgmt_cfg.take_profit_pct|round|int }} % de la prima; a ≤ {{ mgmt_cfg.review_dte }} DTE sin llegar a ese objetivo, cerrar o rolar a un vencimiento posterior cobrando crédito;
+    una asignación no debería pasar del {{ mgmt_cfg.warn_position_pct|round|int }}–{{ mgmt_cfg.max_position_pct|round|int }} % del NLV por acción. «Capturado» necesita el coste medio que da TWS (sin él aparece «—»); los pesos no convierten moneda (cuenta EUR, strikes USD).</p>
+  {% else %}<p class="muted">No hay puts vendidas abiertas.</p>{% endif %}
+</div>
+
 <div class="vgrid">
   <div class="card" style="margin:0">
     <h2>Si te asignan todo</h2>
