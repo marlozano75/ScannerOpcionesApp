@@ -99,6 +99,10 @@
   .side .field:has(select.set) { color:var(--ok); font-weight:600; }
   .side .check:has(input[type=checkbox]:checked) { color:#14573f; font-weight:600; }
   .side .opt-row:has(input[type=checkbox]:checked) input:not([type=checkbox]) { background:#e3f1ea; border-color:var(--ok); color:#14573f; font-weight:600; }
+  /* condición de la estrategia que se ha desactivado (con el resto de la estrategia cargada): rojo, con el valor conservado */
+  .side .strat-off { color:var(--red); font-weight:600; }
+  .side .strat-off .check, .side .check.strat-off { color:var(--red); text-decoration:line-through; }
+  .side .opt-row.strat-off input:not([type=checkbox]), .side select.strat-off { background:#fbe9e9; border-color:var(--red); color:#8f2a2a; text-decoration:line-through; }
 
   /* columna de resultados */
   .results { min-height:0; display:flex; flex-direction:column; overflow-y:auto; padding-right:4px; }
@@ -400,6 +404,22 @@
       s.classList.toggle('set', NEUTRAL.indexOf(s.value) < 0);
     }
     sels.forEach(function (s) { mark(s); s.addEventListener('change', function () { mark(s); }); });
+  })();
+  // Condiciones de la estrategia desactivadas: con la estrategia cargada (4+ de sus casillas marcadas) las que se
+  // desmarcan quedan en rojo. Una casilla se activa/desactiva con un clic y conserva su valor; escanea al cambiar.
+  (function () {
+    const BOXES = ['use_delta', 'use_near', 'use_ivr', 'use_ivp', 'use_ivhv', 'use_ivchg', 'use_bid', 'use_atr', 'use_rsi', 'use_boll', 'use_bw'];
+    const rows = BOXES.map(function (n) { return form.elements[n]; }).filter(Boolean);
+    const earn = form.elements['q_earn'];
+    function paint() {
+      const loaded = rows.filter(function (c) { return c.checked; }).length >= 4;
+      rows.concat(earn ? [earn] : []).forEach(function (c) {
+        const row = c.closest('.opt-row') || c.closest('.check');
+        if (row) row.classList.toggle('strat-off', loaded && !c.checked);
+      });
+    }
+    rows.concat(earn ? [earn] : []).forEach(function (c) { c.addEventListener('change', paint); });
+    paint();
   })();
   // Secciones plegables: se recuerda cuáles están abiertas (por defecto, las dos primeras)
   (function () {
