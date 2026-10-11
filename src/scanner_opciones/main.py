@@ -17,7 +17,7 @@ from scanner_opciones.app.service import AppService
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.broker.hybrid_gateway import HybridGateway
 from scanner_opciones.broker.ibkr_gateway import IBKRGateway
-from scanner_opciones.broker.probe import detect_mode
+from scanner_opciones.broker.probe import detect_mode, port_open
 from scanner_opciones.config.settings import Settings, load_settings
 from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.errors import ConfigError
@@ -63,13 +63,35 @@ def build_app(settings: Settings):
     account_runner = PeriodicRunner(service.refresh_account, settings.refresh.account_interval_minutes * 60)
     startup_task: list[asyncio.Task] = []
 
+    async def reconnect() -> None:
+        """Reintenta la conexión con TWS mientras esté caída. Solo si algún puerto responde (sin ruido en el log);
+        si cambió el puerto abierto (TWS real <-> simulada) se cambia de modo, y si no se reconecta en el actual."""
+        if service.state.connected:
+            return
+        ib = service.settings.ibkr
+        mode = await asyncio.to_thread(detect_mode, ib) if ib.auto_detect_mode else ib.mode
+        port = ib.ports.live if mode is AccountMode.LIVE else ib.ports.paper
+        if not await asyncio.to_thread(port_open, ib.host, port):
+            return
+        if mode is not ib.mode:
+            service.settings = service.settings.model_copy(update={"ibkr": ib.model_copy(update={"mode": mode})})
+            await service.switch_gateway(factory(mode))
+        else:
+            await service.reconnect()
+        if service.state.connected:
+            logging.getLogger(__name__).info("Conexión con TWS recuperada (%s)", mode.value)
+
+    reconnect_runner = PeriodicRunner(reconnect, settings.ibkr.reconnect_interval_seconds)
+
     async def on_startup() -> None:
         # No bloquea la UI si TWS tarda o no está disponible
         startup_task.append(asyncio.create_task(service.start()))
         runner.start()
         account_runner.start()
+        reconnect_runner.start()
 
     async def on_shutdown() -> None:
+        await reconnect_runner.stop()
         await runner.stop()
         await account_runner.stop()
         for t in startup_task:

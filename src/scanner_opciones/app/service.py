@@ -125,6 +125,8 @@ class AppService:
         self.restore_universe()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas de los jobs de mercado
         self._financials_running = False
+        self._starting = False       # arranque/reconexión en curso
+        self._tasty_done = False     # histórico y calidad de tastytrade ya descargados en esta ejecución
         self._account_lock = asyncio.Lock()  # cuenta, posiciones y VIX: aparte, para que un ciclo largo de mercado no los retrase
         self._background: set = set()
 
@@ -422,17 +424,36 @@ class AppService:
 
     # ---- ciclo de vida ---------------------------------------------------------------------
     async def start(self) -> None:
+        if self._starting:
+            return
+        self._starting = True
+        try:
+            await self._start()
+        finally:
+            self._starting = False
+
+    async def reconnect(self) -> bool:
+        """Reintento de conexión con el broker (lo llama el bucle de reconexión). No hace nada si ya está conectado
+        o hay un arranque en curso. No repite la parte de tastytrade (histórico y calidad) si ya se hizo."""
+        if self.state.connected or self._starting:
+            return False
+        await self.gateway.disconnect()     # libera un socket a medias antes de volver a conectar
+        await self.start()
+        return self.state.connected
+
+    async def _start(self) -> None:
         # El histórico de cierres solo depende de tastytrade y se guarda en la base de datos: se completa lo
-        # primero (unos segundos), sin esperar al broker ni al primer refresco, que tarda minutos.
-        history = asyncio.ensure_future(self._update_history_and_fundamentals())
+        # primero (unos segundos), sin esperar al broker ni al primer refresco, que tarda minutos. Solo una vez:
+        # los reintentos de conexión no lo repiten.
+        history = None if self._tasty_done else asyncio.ensure_future(self._update_history_and_fundamentals())
         try:
             await self.gateway.connect()
         except BrokerError as exc:
-            await history
+            await self._finish_tasty(history)
             self.state.connected = False
             self.state.errors["connection"] = str(exc)
             return
-        await history
+        await self._finish_tasty(history)
         self.state.connected = True
         self.state.errors.pop("connection", None)
         self.cleanup_orphans()
@@ -448,6 +469,11 @@ class AppService:
             self.launch(self.complete_info())
         if self.settings.daily_update.run_on_startup:
             self.launch(self.run_daily_then_refresh())
+
+    async def _finish_tasty(self, history: "asyncio.Future | None") -> None:
+        if history is not None:
+            await history
+            self._tasty_done = True
 
     async def stop(self) -> None:
         await self.gateway.disconnect()

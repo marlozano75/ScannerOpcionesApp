@@ -26,7 +26,7 @@ Aplicación de escritorio/local que, conectada a TWS de Interactive Brokers (cue
 
 | ID | Requisito | Origen |
 |----|-----------|--------|
-| RF-01 | Conectar a TWS vía API. Selector cuenta **real** / **simulada** (puertos y clientId configurables). | L3 |
+| RF-01 | Conectar a TWS vía API. Selector cuenta **real** / **simulada** (puertos y clientId configurables). Si TWS no está o se cae, la app reintenta la conexión sola cada `ibkr.reconnect_interval_seconds` (30 s) sin repetir la descarga de tastytrade ya hecha. | L3 |
 | RF-02 | Introducir watchlist pegando tickers (texto libre). | L10 |
 | RF-03 | Introducir watchlist cargando archivo Excel (.xlsx) o texto (.txt/.csv). | L10 |
 | RF-04 | Actualización **diaria** por ticker: sector, categoría, expiraciones, DTE, strikes, contratos candidatos, días hasta ex-dividendo (si aplica); IV Rank e IV Percentile de tastytrade. | L12-20 |
