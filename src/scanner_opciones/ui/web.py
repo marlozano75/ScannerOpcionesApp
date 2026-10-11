@@ -802,7 +802,9 @@ def create_app(
                     form[key] = key in qp
                 for key in ("delta_min", "delta_max", "near_pct", "rsi_max", "boll_pctb", "boll_width",
                             "ivhv", "ivchg", "atr_mult", "signals"):
-                    form[key] = qp.get(key, "").strip()
+                    # ausente de la URL (p. ej. la estrategia no los envía si están desactivados) = valor preconfigurado
+                    if key in qp or key in ("delta_min", "delta_max", "signals"):
+                        form[key] = qp.get(key, "").strip()
                 overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento mín. del strike")
                 overrides["min_annual_yield_pct"] = _required(form["min_yield"], float, "Yield anual mín.")
                 overrides["dte_min"] = _required(form["dte_min"], int, "DTE mín.")
