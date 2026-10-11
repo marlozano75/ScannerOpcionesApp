@@ -177,11 +177,13 @@ class DailyUpdater:
     def _quarters_stale(self, info: TickerInfo, today: date) -> bool:
         """¿Hay que bajar de nuevo el historial trimestral? Sí si no se bajó nunca, si pasó el plazo configurado
         o si desde entonces ha llegado la fecha de unos resultados (hay un trimestre nuevo)."""
-        if info.fundamentals_at is None or info.positive_quarters is None:
+        if info.fundamentals_at is None:
             return True
         age = (today - info.fundamentals_at.date()).days
         if age >= self.settings.scanner.quality.refresh_days:
             return True
+        if info.positive_quarters is None:   # ya se consultó y tastytrade no tiene historial: no insistir hasta el plazo
+            return False
         return info.next_earnings is not None and info.fundamentals_at.date() <= info.next_earnings < today
 
     async def update_fundamentals(self, tickers: list[str]) -> int:
@@ -207,7 +209,9 @@ class DailyUpdater:
             if fund is None and q is None:
                 continue
             fields: dict = {}
-            if q is not None:
+            if q == []:    # sin historial en tastytrade (p. ej. empresa adquirida): se anota el intento
+                fields["fundamentals_at"] = self.now()
+            elif q is not None:
                 fields.update(positive_quarters=sum(1 for x in q if x > 0), reported_quarters=len(q),
                               fundamentals_at=self.now())
             eps = resolve_eps(fund.eps_ttm if fund else None, q or [])

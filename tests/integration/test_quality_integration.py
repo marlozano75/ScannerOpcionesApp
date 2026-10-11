@@ -207,3 +207,17 @@ async def test_service_start_fills_the_quality_fields():
     await svc.wait_idle()
     got = svc.ticker_info.get("AAPL")
     assert (got.eps_ttm, got.positive_quarters, got.next_earnings) == (5.0, 3, TODAY + timedelta(days=9))
+
+
+async def test_a_ticker_without_quarterly_history_is_not_asked_again_until_the_refresh_period():
+    env = Env()
+    env.add_aapl()
+    await env.daily.run_pending()
+    d = updater(env, {"AAPL": Fundamentals(8.7, 4.8e12, 4, JOB_TODAY - timedelta(days=30))}, {"AAPL": []})   # sin historial
+    await d.update_fundamentals(["AAPL"])
+    await d.update_fundamentals(["AAPL"])
+    assert env.info.get("AAPL").positive_quarters is None and env.info.get("AAPL").fundamentals_at == JOB_NOW
+    assert len([c for c in env.fake.calls if c[0] == "get_quarterly_eps"]) == 1     # el segundo pase no insiste
+    env.clock = JOB_NOW + timedelta(days=8)
+    await d.update_fundamentals(["AAPL"])
+    assert len([c for c in env.fake.calls if c[0] == "get_quarterly_eps"]) == 2     # pasado el plazo, sí

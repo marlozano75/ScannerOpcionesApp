@@ -701,8 +701,9 @@ class AppService:
                 self.state.activity = None
             self.exclude_unsupported(report)
             self.state.last_daily_report = report
-            await self._update_history()
-            await self._update_fundamentals()
+            if report.updated or not self._tasty_done:   # sin nada nuevo, el arranque ya descargó histórico y calidad
+                await self._update_history()
+                await self._update_fundamentals()
             self.update_financials_in_background()   # las fichas de los tickers nuevos ya existen
             return report
 
@@ -801,7 +802,7 @@ class AppService:
         if self._known_disconnected() and not self._offline_capable():
             return False
         if not include_market:
-            ok = await self.refresh_account()
+            ok = await self.refresh_account(skip_closed_vix=True)
             if ok:   # mercado cerrado: el refresco solo de cuenta es el refresco del ciclo
                 self.state.last_refresh = self.now()
                 self.state.data_version += 1
@@ -827,7 +828,7 @@ class AppService:
             self.state.data_version += 1
             return True
 
-    async def refresh_account(self) -> bool:
+    async def refresh_account(self, skip_closed_vix: bool = False) -> bool:
         """Cuenta, posiciones, riesgo y VIX. Va por su cuenta (bloqueo propio): no espera a la actualización diaria
         ni a un ciclo largo de cotizaciones. False si ya hay uno en curso o se perdió la conexión."""
         if self._account_lock.locked():
@@ -837,10 +838,11 @@ class AppService:
             return False
         async with self._account_lock:
             try:
+                vix = self._refresh_vix(skip_closed=skip_closed_vix)
                 if offline:   # sin TWS solo el VIX (tastytrade); cuenta y posiciones se quedan como estaban
-                    await self._refresh_vix()
+                    await vix
                 else:
-                    await asyncio.gather(self._refresh_portfolio(), self._refresh_vix())
+                    await asyncio.gather(self._refresh_portfolio(), vix)
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return False
@@ -902,7 +904,16 @@ class AppService:
         except asyncio.TimeoutError:
             self.state.errors["portfolio"] = "Timeout obteniendo la cuenta (¿TWS ha perdido la conexión con IBKR?)"
 
-    async def _refresh_vix(self) -> None:
+    def _vix_is_current(self) -> bool:
+        """Con el mercado cerrado, ¿el VIX en memoria ya es posterior al último cierre? Entonces no puede haber cambiado."""
+        vix = self.state.vix
+        if vix is None or vix.updated_at is None or not self._paused():
+            return False
+        return vix.updated_at.astimezone() >= self.market.last_close(self.now())
+
+    async def _refresh_vix(self, skip_closed: bool = False) -> None:
+        if skip_closed and self._vix_is_current():
+            return   # mercado cerrado y ya se capturó el cierre: se ahorran las conexiones a tastytrade
         try:
             self.state.vix = await asyncio.wait_for(
                 self.gateway.get_vix_data(self.settings.vix.history_days, self.settings.vix.futures_ahead),

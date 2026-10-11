@@ -121,5 +121,5 @@ async def test_quarterly_eps_uses_tastytrade_symbols():
         seen.append(symbol)
         return []
 
-    assert await TastytradeVolatility("s", "t", fetch_earnings=earnings).get_quarterly_eps(["PBR-A"]) == {}
+    assert await TastytradeVolatility("s", "t", fetch_earnings=earnings).get_quarterly_eps(["PBR-A"]) == {"PBR-A": []}   # [] = sin historial, no un fallo
     assert seen == ["PBR/A"]

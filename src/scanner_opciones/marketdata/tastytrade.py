@@ -330,8 +330,7 @@ class TastytradeVolatility:
                 except Exception as exc:
                     log.info("Historial de resultados no disponible para %s: %s", ticker, exc)
                     return
-            if events:
-                out[ticker] = [eps for _, eps in sorted(events)[-4:]]
+            out[ticker] = [eps for _, eps in sorted(events)[-4:]]   # [] = consultado y sin historial (no es un fallo)
 
         await asyncio.gather(*(one(t) for t in tickers))
         return out

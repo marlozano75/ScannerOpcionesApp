@@ -137,3 +137,35 @@ async def test_last_account_is_shown_after_a_restart_without_tws():
     again, inner2, _ = offline_service(db)               # reinicio con TWS cerrado: misma base de datos
     assert again.state.account is not None and again.state.account.net_liquidation == 100_000
     assert again.state.risk is not None and not again.state.connected
+
+
+async def test_daily_update_with_nothing_pending_does_not_repeat_history_and_quality():
+    svc, inner, provider = offline_service()
+    await svc.start()
+    await svc.wait_idle()
+    runs = []
+
+    async def count():
+        runs.append(1)
+    svc._update_history, svc._update_fundamentals = count, count
+    await svc.run_daily()                      # todo está actualizado hoy: nada pendiente
+    assert runs == []
+    await svc.run_daily(["AAPL"], wait=True)   # una actualización real sí los repite
+    assert runs == [1, 1]
+
+
+async def test_vix_is_not_refreshed_while_the_market_is_closed_and_the_close_is_captured():
+    svc, inner, provider = offline_service()
+    await svc.start()
+    await svc.wait_idle()
+    svc.market.open_ = False
+    svc.market.last_close_dt = svc.state.vix.updated_at.astimezone() - timedelta(hours=1)   # el cierre es anterior
+    calls = lambda: len([c for c in provider.calls if c[0] == "get_vix"])
+    before = calls()
+    await svc.refresh_account(skip_closed_vix=True)
+    assert calls() == before                   # cerrado y ya capturado: no se pide
+    await svc.refresh_account()                # manual: siempre completo
+    assert calls() == before + 1
+    svc.market.last_close_dt = svc.state.vix.updated_at.astimezone() + timedelta(hours=1)   # el cierre es posterior
+    await svc.refresh_account(skip_closed_vix=True)
+    assert calls() == before + 2               # falta la captura del cierre
