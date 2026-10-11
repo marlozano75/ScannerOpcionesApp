@@ -177,6 +177,10 @@ class DailyUpdater:
                 log.warning("IV Rank/Percentile no disponibles, se conservan los guardados: %s", exc)
         return out
 
+    def metrics_due(self) -> bool:
+        """¿Ha pasado un recálculo diario de tastytrade desde la última descarga completa de las market metrics?"""
+        return not self._metrics_fresh()
+
     def _metrics_fresh(self) -> bool:
         """¿Las *market metrics* guardadas son posteriores al último recálculo diario de tastytrade? Entonces pedirlas
         otra vez devolvería lo mismo."""

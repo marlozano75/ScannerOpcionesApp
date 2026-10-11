@@ -128,6 +128,7 @@ class AppService:
         self.restore_universe()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas de los jobs de mercado
         self._financials_running = False
+        self._quality_running = False
         self._starting = False       # intento de conexión en curso
         self._session_begun = False  # ya se hizo el primer refresco/actualización diaria de la sesión (con o sin TWS)
         self._tasty_done = False     # histórico y calidad de tastytrade ya descargados en esta ejecución
@@ -734,6 +735,21 @@ class AppService:
         finally:
             self.state.data_version += 1
 
+    def update_quality_if_due(self) -> None:
+        """Con la app encendida de forma continua, baja los datos de calidad en cuanto pasa el recálculo diario de las
+        market metrics de tastytrade (`scanner.quality.metrics_ready_utc`), sin esperar al siguiente arranque."""
+        if self.daily.fundamentals is None or self._quality_running or not self.daily.metrics_due():
+            return
+        self._quality_running = True
+
+        async def run() -> None:
+            try:
+                await self._update_fundamentals()
+            finally:
+                self._quality_running = False
+
+        self.launch(run())
+
     def update_financials_in_background(self) -> None:
         """Lanza la consulta a SEC EDGAR (la primera vez dura minutos) sin esperar y sin solaparse consigo misma."""
         if self.daily.financials is None or self._financials_running:
@@ -790,6 +806,7 @@ class AppService:
         captura completa tras el cierre (con datos congelados, para tener el cierre) y después solo
         cartera y VIX, porque precios, IV, cotizaciones y márgenes no pueden cambiar hasta la apertura."""
         self.update_financials_in_background()   # no hace nada si no hay datos viejos
+        self.update_quality_if_due()             # ídem: solo si tastytrade ha recalculado sus métricas desde la última descarga
         if not self._paused() or self._capture_needed():
             return await self.refresh_all()
         log.info("Mercado cerrado: se refrescan solo cartera y VIX")

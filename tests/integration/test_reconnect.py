@@ -169,3 +169,22 @@ async def test_vix_is_not_refreshed_while_the_market_is_closed_and_the_close_is_
     svc.market.last_close_dt = svc.state.vix.updated_at.astimezone() + timedelta(hours=1)   # el cierre es posterior
     await svc.refresh_account(skip_closed_vix=True)
     assert calls() == before + 2               # falta la captura del cierre
+
+
+async def test_periodic_refresh_downloads_quality_only_after_a_daily_recalculation():
+    from scanner_opciones.marketdata.fundamentals import FakeFundamentals, Fundamentals
+    svc, inner, provider = offline_service()
+    fake = FakeFundamentals({"AAPL": Fundamentals(8.7, 4.8e12, 4, TODAY + timedelta(days=30))}, {"AAPL": [1.0] * 4})
+    svc.daily.fundamentals = fake
+    await svc.start()
+    await svc.wait_idle()
+    calls = lambda: len([c for c in fake.calls if c[0] == "get_fundamentals"])
+    before = calls()
+    await svc.refresh_periodic()
+    await svc.wait_idle()
+    assert calls() == before                       # ya está al día: no pide nada
+    svc.now = lambda: NOW + timedelta(days=1)      # pasa otro recálculo diario
+    svc.daily.now = svc.now
+    await svc.refresh_periodic()
+    await svc.wait_idle()
+    assert calls() == before + 1
