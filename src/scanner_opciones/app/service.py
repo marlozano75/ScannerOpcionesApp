@@ -728,6 +728,8 @@ class AppService:
         """Cuenta, riesgo y VIX más los contratos (`include_market=False`: solo cuenta, riesgo y VIX, sin
         cotizaciones de subyacentes, opciones ni márgenes). La cuenta se refresca a la vez que el mercado y con
         su propio bloqueo. False si se omitió por solapamiento o falta de conexión."""
+        if self._known_disconnected():
+            return False
         if not include_market:
             ok = await self.refresh_account()
             if ok:   # mercado cerrado: el refresco solo de cuenta es el refresco del ciclo
@@ -758,7 +760,7 @@ class AppService:
     async def refresh_account(self) -> bool:
         """Cuenta, posiciones, riesgo y VIX. Va por su cuenta (bloqueo propio): no espera a la actualización diaria
         ni a un ciclo largo de cotizaciones. False si ya hay uno en curso o se perdió la conexión."""
-        if self._account_lock.locked():
+        if self._known_disconnected() or self._account_lock.locked():
             return False
         async with self._account_lock:
             try:
@@ -772,6 +774,8 @@ class AppService:
     async def refresh_new_contracts(self) -> bool:
         """Cotiza (datos congelados del último cierre) solo los contratos guardados que nunca se han
         cotizado y encajan con el filtro inicial. No toca el marcador del último refresco completo."""
+        if self._known_disconnected():
+            return False
         if self.busy:
             log.info("Cotización de contratos nuevos omitida: hay otra ejecución en curso")
             return False
@@ -789,6 +793,11 @@ class AppService:
 
     def pacing_wait_seconds(self) -> float:
         return self.gateway.pacing_wait_seconds()
+
+    def _known_disconnected(self) -> bool:
+        """Sin conexión con el broker (error de conexión registrado): no se lanzan refrescos, que irían a tastytrade
+        (VIX, precios, IV) para fallar después en IBKR. El bucle de reconexión los reanuda al conectar."""
+        return "connection" in self.state.errors
 
     def _disconnected(self, exc: Exception) -> None:
         self.state.connected = False

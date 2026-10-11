@@ -44,3 +44,15 @@ async def test_reconnect_does_nothing_when_connected():
     await svc.start()
     assert svc.state.connected
     assert await svc.reconnect() is False
+
+
+async def test_no_refresh_while_known_disconnected():
+    svc, gw = make_service()
+    svc.gateway = FlakyConnect(gw, fails=1)
+    await svc.start()
+    calls = []
+    svc.refresh_job.run = lambda *a, **k: calls.append(1)
+    assert await svc.refresh_all() is False
+    assert await svc.refresh_all(include_market=False) is False
+    assert await svc.refresh_account() is False
+    assert calls == []

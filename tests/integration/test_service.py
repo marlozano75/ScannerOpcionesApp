@@ -434,7 +434,7 @@ async def test_failed_capture_is_retried_next_cycle():
     svc.market.last_close_dt = datetime(2026, 9, 30, 16, 0, tzinfo=NY)    # el cierre es posterior al último refresco
     gw.connected = False                              # se cae la conexión en el momento de la captura
     assert await svc.refresh_periodic() is False
-    gw.connected = True
+    assert await svc.refresh_periodic() is False       # sin conexión no se lanza nada (ni a tastytrade)
     before = runs["quotes"]
-    assert await svc.refresh_periodic() is True
+    assert await svc.reconnect() is True               # al reconectar se reintenta la captura que faltaba
     assert runs["quotes"] == before + 1

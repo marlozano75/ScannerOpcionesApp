@@ -21,6 +21,14 @@ OVERLAP_DAYS = 7            # días ya guardados que se vuelven a pedir para com
 ADJUSTMENT_TOLERANCE = 0.001   # diferencia relativa a partir de la cual un cierre solapado indica un ajuste
 
 
+def _last_expected_close(today: date) -> date:
+    """Último día laborable anterior a `today` (fines de semana fuera; los festivos no se conocen aquí)."""
+    day = today - timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
+
+
 def _closed(bars: DailyBars, today: date) -> DailyBars:
     return [(d, px) for d, px in bars if d < today]   # la barra de hoy está en curso
 
@@ -36,8 +44,9 @@ async def update_history(
 ) -> None:
     """Completa el histórico de cierres de `tickers`. Si el proveedor falla se conserva lo ya guardado."""
     last = repo.last_days(tickers)
-    # al día (el último cierre guardado es de ayer o posterior): no hay nada que pedir
-    stale = [t for t in tickers if t in last and (today - last[t]).days > 1]
+    # al día (ya está el último cierre laborable, p. ej. el del viernes en fin de semana): no hay nada que pedir
+    expected = _last_expected_close(today)
+    stale = [t for t in tickers if t in last and last[t] < expected]
     full = [t for t in tickers if t not in last]
     stats_note = {"incremental": 0, "full": 0}
     try:
