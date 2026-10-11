@@ -221,3 +221,22 @@ async def test_a_ticker_without_quarterly_history_is_not_asked_again_until_the_r
     env.clock = JOB_NOW + timedelta(days=8)
     await d.update_fundamentals(["AAPL"])
     assert len([c for c in env.fake.calls if c[0] == "get_quarterly_eps"]) == 2     # pasado el plazo, sí
+
+
+async def test_market_metrics_are_not_requested_again_before_the_next_daily_recalculation():
+    env = Env()
+    env.add_aapl()
+    await env.daily.run_pending()
+    d = updater(env, {"AAPL": Fundamentals(8.7, 4.8e12, 4, JOB_TODAY + timedelta(days=30))}, {"AAPL": [1.0, 1.0, 1.0, 1.0]})
+    calls = lambda: len([c for c in env.fake.calls if c[0] == "get_fundamentals"])
+    await d.update_fundamentals(["AAPL"])
+    assert calls() == 1
+    env.clock = env.clock + timedelta(minutes=30)
+    await d.update_fundamentals(["AAPL"])
+    assert calls() == 1                                    # no ha pasado un recálculo de tastytrade
+    await d.update_fundamentals(["AAPL", "NEW"])            # un ticker nuevo sin ficha: se piden solo sus métricas
+    fund_calls = [c for c in env.fake.calls if c[0] == "get_fundamentals"]
+    assert fund_calls[-1] == ("get_fundamentals", ("NEW",))
+    env.clock = env.clock + timedelta(days=1)               # pasó otro recálculo diario
+    await d.update_fundamentals(["AAPL"])
+    assert [c for c in env.fake.calls if c[0] == "get_fundamentals"][-1] == ("get_fundamentals", ("AAPL",))

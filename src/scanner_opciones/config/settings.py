@@ -255,6 +255,8 @@ class QualitySettings(_Model):
     positive_quarters_options: list[int] = [2, 3, 4]       # trimestres con beneficios exigidos de los últimos 4
     leverage_options: list[float] = [1, 2, 3, 5]           # pasivo/patrimonio máximo ofrecido (no aplica a las financieras)
     refresh_days: int = Field(7, ge=1)                     # cada cuántos días se vuelve a bajar el historial trimestral
+    metrics_ready_utc: str = Field("10:15", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")  # hora UTC a la que tastytrade termina su recálculo diario
+                                                            # de las market metrics (medido: 10:00-10:10 UTC); antes de la siguiente no se piden de nuevo
     thresholds: SolvencyThresholds = SolvencyThresholds()  # umbrales de los filtros de solvencia por grado de exigencia
     manageable_debt: ManageableDebt = ManageableDebt()     # umbrales del filtro «deuda baja o manejable»
     presets: tuple[QualityPreset, ...] = DEFAULT_QUALITY_PRESETS   # botones que rellenan los filtros (ninguno activo por defecto)

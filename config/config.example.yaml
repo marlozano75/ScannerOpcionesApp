@@ -27,6 +27,7 @@ scanner:
     liquidity_options: [2, 3, 4]            # liquidez mínima de las opciones (1-5, de tastytrade)
     positive_quarters_options: [2, 3, 4]    # trimestres con beneficios exigidos de los últimos 4
     refresh_days: 7                         # cada cuántos días se baja de nuevo el historial trimestral
+    metrics_ready_utc: "10:15"              # tastytrade recalcula EPS, capitalización y liquidez una vez al día (10:00-10:10 UTC): no se piden antes del siguiente recálculo
     leverage_options: [1, 2, 3, 5]          # pasivo/patrimonio máximo ofrecido (los sectores exentos no se miden)
     # Filtros de solvencia del Universo con TRES GRADOS de exigencia (flexible, estándar, estricto); el umbral de cada grado:
     thresholds:

@@ -6,7 +6,7 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable, Optional, TypeVar
 
 from scanner_opciones.broker.base import BrokerGateway
@@ -24,12 +24,14 @@ from scanner_opciones.marketdata.fundamentals import FundamentalsProvider, resol
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.storage.repositories import (
     QualityRepo,
-    BarRepo, ContractRepo, TickerInfoRepo, WatchlistRepo,
+    BarRepo, ContractRepo, MetaRepo, TickerInfoRepo, WatchlistRepo,
 )
 
 log = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+METRICS_FETCHED_AT = "metrics_fetched_at"   # clave de `meta`: cuándo se bajaron todas las market metrics (UTC)
 
 
 @dataclass
@@ -66,6 +68,7 @@ class DailyUpdater:
         self.fundamentals = fundamentals
         self.financials = financials
         self.quality = QualityRepo(ticker_info.db)
+        self.meta = MetaRepo(ticker_info.db)
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
         self.candles = candles
@@ -174,6 +177,19 @@ class DailyUpdater:
                 log.warning("IV Rank/Percentile no disponibles, se conservan los guardados: %s", exc)
         return out
 
+    def _metrics_fresh(self) -> bool:
+        """¿Las *market metrics* guardadas son posteriores al último recálculo diario de tastytrade? Entonces pedirlas
+        otra vez devolvería lo mismo."""
+        raw = self.meta.get(METRICS_FETCHED_AT)
+        if not raw:
+            return False
+        now = self.now().astimezone(timezone.utc)
+        hh, mm = map(int, self.settings.scanner.quality.metrics_ready_utc.split(":"))
+        ready = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if ready > now:
+            ready -= timedelta(days=1)
+        return datetime.fromisoformat(raw) >= ready
+
     def _quarters_stale(self, info: TickerInfo, today: date) -> bool:
         """¿Hay que bajar de nuevo el historial trimestral? Sí si no se bajó nunca, si pasó el plazo configurado
         o si desde entonces ha llegado la fecha de unos resultados (hay un trimestre nuevo)."""
@@ -195,11 +211,19 @@ class DailyUpdater:
             return 0
         started = time.monotonic()
         infos = {t: self.quality.get(t) or TickerInfo(t) for t in tickers}
-        try:
-            funds = await self.fundamentals.get_fundamentals(list(infos))
-        except VolatilityError as exc:
-            log.warning("Datos de calidad no disponibles, se conservan los guardados: %s", exc)
-            return 0
+        # Las market metrics solo cambian en el recálculo diario de tastytrade: si las guardadas son posteriores,
+        # solo se piden las de los tickers que aún no tienen ficha.
+        full = not self._metrics_fresh()
+        to_fetch = list(infos) if full else [t for t in infos if self.quality.get(t) is None]
+        funds: dict = {}
+        if to_fetch:
+            try:
+                funds = await self.fundamentals.get_fundamentals(to_fetch)
+            except VolatilityError as exc:
+                log.warning("Datos de calidad no disponibles, se conservan los guardados: %s", exc)
+                return 0
+            if full:
+                self.meta.set(METRICS_FETCHED_AT, self.now().astimezone(timezone.utc).isoformat())
         today = self.now().date()
         stale = [t for t, i in infos.items() if self._quarters_stale(i, today)]
         quarters = await self.fundamentals.get_quarterly_eps(stale) if stale else {}
@@ -215,6 +239,8 @@ class DailyUpdater:
                 fields.update(positive_quarters=sum(1 for x in q if x > 0), reported_quarters=len(q),
                               fundamentals_at=self.now())
             eps = resolve_eps(fund.eps_ttm if fund else None, q or [])
+            if fund is None and known.eps_ttm is not None:
+                eps = None   # sin métricas nuevas no se pisa el EPS de tastytrade con la suma de los trimestres
             if eps is not None:
                 fields["eps_ttm"] = eps          # sin EPS válido ni historial nuevo se conserva el que había
             if fund is not None:
