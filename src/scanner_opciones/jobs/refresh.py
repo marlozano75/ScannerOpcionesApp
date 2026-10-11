@@ -164,6 +164,29 @@ class RefreshJob:
         )
         return report
 
+    def _offline(self) -> bool:
+        """Sin TWS pero con los datos de mercado de tastytrade: se cotiza igual y los márgenes se quedan como estaban."""
+        return bool(getattr(self.gateway, "market_offline_capable", False)) and not self.gateway.is_connected()
+
+    async def fill_margins(self, criteria: Optional[Sequence[ScanCriteria]] = None) -> RefreshReport:
+        """Pide solo los márgenes (what-if) que faltan o caducaron de los snapshots guardados que pasan el escaneo,
+        sin volver a cotizar nada. Es lo que queda por hacer cuando TWS vuelve tras refrescar sin él."""
+        report = RefreshReport()
+        criteria = list(criteria) if criteria else self.default_scope()
+        infos = self.ticker_info.all()
+        today = self.now().date()
+        ready: list[ContractSnapshot] = []
+        for snap in self.snapshots.all():
+            if not self._in_scope(snap.contract, infos.get(snap.contract.ticker), criteria, today):
+                continue
+            new = await self._maybe_add_margin(snap, infos.get(snap.contract.ticker), criteria, report, snap)
+            if new.margin_at != snap.margin_at or new.initial_margin != snap.initial_margin:
+                ready.append(new)
+        report.refreshed = self.snapshots.upsert_many(ready)
+        log.info("Márgenes pendientes: %d pedidos, %d reutilizados, %d guardados",
+                 report.margins_requested, report.margins_reused, report.refreshed)
+        return report
+
     @staticmethod
     def _snap_key(c: OptionContract) -> tuple:
         return (c.ticker, c.expiry, c.strike, c.right)
@@ -299,8 +322,8 @@ class RefreshJob:
         stale = snap
         if previous is not None and previous.initial_margin is not None:
             stale = replace(snap, initial_margin=previous.initial_margin, margin_at=previous.margin_at)
-        if report.margin_streak >= MARGIN_MAX_FAILURES:
-            return stale   # TWS no responde: no se espera un tiempo máximo por cada contrato
+        if report.margin_streak >= MARGIN_MAX_FAILURES or self._offline():
+            return stale   # TWS no responde (o no está): no se espera por cada contrato; se queda el margen guardado
         try:
             report.margins_requested += 1
             margin = await self.gateway.what_if_margin(snap.contract, 1)

@@ -17,7 +17,9 @@ from typing import Callable, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import MarketDataSettings
-from scanner_opciones.domain.errors import OptionDataError, PriceError, UnsupportedTickerError, VolatilityError
+from scanner_opciones.domain.errors import (
+    DataUnavailableError, OptionDataError, PriceError, UnsupportedTickerError, VolatilityError,
+)
 from scanner_opciones.domain.models import (
     AccountSummary, OptionChain, OptionContract, OptionQuote, Position, UnderlyingQuote, VixData,
 )
@@ -29,6 +31,9 @@ MULTIPLIER = 100   # el proveedor solo lista opciones estándar de 100 acciones
 
 
 class HybridGateway:
+    # Lo que sale del proveedor funciona sin TWS: el servicio sigue actualizando y TWS solo aporta cuenta, márgenes y sector.
+    market_offline_capable = True
+
     def __init__(
         self, inner: BrokerGateway, provider: OptionDataProvider, settings: MarketDataSettings,
         now: Callable[[], datetime] = datetime.now, clock: Callable[[], float] = time.monotonic,
@@ -53,6 +58,10 @@ class HybridGateway:
     def is_connected(self) -> bool:
         return self.inner.is_connected()
 
+    def _no_broker(self, what: str) -> DataUnavailableError:
+        """Error (no permanente) cuando el proveedor falla y TWS no está para el respaldo."""
+        return DataUnavailableError(f"{what}: el proveedor no responde y no hay conexión con TWS")
+
     async def get_account_summary(self) -> AccountSummary:
         return await self.inner.get_account_summary()
 
@@ -60,6 +69,8 @@ class HybridGateway:
         return await self.inner.get_positions()
 
     async def get_sector_info(self, ticker: str) -> tuple[Optional[str], Optional[str]]:
+        if not self.inner.is_connected():
+            return None, None   # sin TWS no hay sector: se completa al reconectar
         return await self.inner.get_sector_info(ticker)
 
     async def what_if_margin(self, contract: OptionContract, quantity: int = 1) -> Optional[float]:
@@ -70,9 +81,13 @@ class HybridGateway:
         try:
             vix = await self.provider.get_vix(history_days, futures_ahead)
         except OptionDataError as exc:
+            if not self.inner.is_connected():
+                raise self._no_broker("VIX") from exc
             log.warning("VIX no disponible en el proveedor, se pide a IBKR: %s", exc)
             return await self.inner.get_vix_data(history_days, futures_ahead)
         if vix.current is None and not vix.last_closes:
+            if not self.inner.is_connected():
+                raise self._no_broker("VIX")
             log.warning("El proveedor no devolvió datos del VIX, se piden a IBKR")
             return await self.inner.get_vix_data(history_days, futures_ahead)
         return vix if vix.updated_at is not None else replace(vix, updated_at=self._now())
@@ -88,8 +103,12 @@ class HybridGateway:
         try:
             price = (await self.provider.get_prices([ticker])).get(ticker)
         except PriceError as exc:
+            if not self.inner.is_connected():
+                return None
             log.warning("Precio de %s no disponible en el proveedor, se pide a IBKR: %s", ticker, exc)
             return await self.inner.get_underlying_price(ticker)
+        if price is None and not self.inner.is_connected():
+            return None
         return price if price is not None else await self.inner.get_underlying_price(ticker)
 
     async def get_underlying_quotes(self, tickers: Sequence[str]) -> dict[str, UnderlyingQuote]:
@@ -98,6 +117,8 @@ class HybridGateway:
         try:
             prices = await self.provider.get_prices(names)
         except PriceError as exc:
+            if not self.inner.is_connected():
+                raise self._no_broker("Precios") from exc
             log.warning("Precios no disponibles en el proveedor, se piden a IBKR: %s", exc)
             return await self.inner.get_underlying_quotes(tickers)
         try:
@@ -112,7 +133,7 @@ class HybridGateway:
             if price is not None or iv is not None:
                 out[t] = UnderlyingQuote(price=price, iv=iv)
         missing = [t for t in names if t not in out]
-        if missing:
+        if missing and self.inner.is_connected():
             out.update(await self.inner.get_underlying_quotes(missing))
         return out
 
@@ -120,6 +141,8 @@ class HybridGateway:
         found = await self.get_days_to_ex_dividend_many([ticker])
         if ticker in found:
             return found[ticker]
+        if not self.inner.is_connected():
+            return None
         return await self.inner.get_days_to_ex_dividend(ticker)
 
     async def get_days_to_ex_dividend_many(self, tickers: Sequence[str]) -> dict[str, Optional[int]]:
@@ -129,6 +152,8 @@ class HybridGateway:
         try:
             extras = await self.provider.get_market_extras(names)
         except VolatilityError as exc:
+            if not self.inner.is_connected():
+                raise self._no_broker("Ex-dividendos") from exc
             log.warning("Ex-dividendos no disponibles en el proveedor, se piden a IBKR: %s", exc)
             return await self.inner.get_days_to_ex_dividend_many(tickers)
         today = self._now().date()
@@ -138,7 +163,7 @@ class HybridGateway:
                 ex = extras[t].ex_dividend
                 out[t] = (ex - today).days if ex is not None and ex >= today else None
         missing = [t for t in names if t not in out]
-        if missing:
+        if missing and self.inner.is_connected():
             out.update(await self.inner.get_days_to_ex_dividend_many(missing))
         return out
 
@@ -156,10 +181,14 @@ class HybridGateway:
         try:
             listing = await self._listing(ticker)
         except OptionDataError as exc:
-            log.warning("Cadena de %s no disponible en el proveedor, se pide a IBKR: %s", ticker, exc)
             self._listings.pop(ticker, None)
+            if not self.inner.is_connected():
+                raise self._no_broker(f"Cadena de {ticker}") from exc
+            log.warning("Cadena de %s no disponible en el proveedor, se pide a IBKR: %s", ticker, exc)
             return await self.inner.get_option_chain(ticker)
         if not listing:   # el proveedor no lista nada: se confirma con IBKR antes de dar el ticker por inservible
+            if not self.inner.is_connected():   # sin TWS no se puede confirmar: nunca se da por inservible
+                raise self._no_broker(f"Cadena de {ticker}")
             chain = await self.inner.get_option_chain(ticker)
             if not chain.expiries:
                 raise UnsupportedTickerError(f"Sin cadena de opciones para {ticker}")
@@ -182,6 +211,8 @@ class HybridGateway:
             try:
                 listing = await self._listing(ticker)
             except OptionDataError as exc:
+                if not self.inner.is_connected():
+                    raise self._no_broker(f"Contratos de {ticker}") from exc
                 log.warning("Contratos de %s no verificables en el proveedor, se validan con IBKR: %s", ticker, exc)
                 valid.update((ident(c), c) for c in await self.inner.qualify_contracts(group))
                 continue
@@ -209,6 +240,8 @@ class HybridGateway:
 
     async def _inner_quotes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, OptionQuote]:
         """Respaldo con IBKR, en lotes pequeños: TWS admite pocas líneas de mercado simultáneas."""
+        if not self.inner.is_connected():
+            raise self._no_broker("Cotizaciones")
         out: dict[OptionContract, OptionQuote] = {}
         for i in range(0, len(contracts), self.fallback_batch):
             out.update(await self.inner.get_quotes(contracts[i:i + self.fallback_batch]))

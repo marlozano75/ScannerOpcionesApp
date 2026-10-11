@@ -128,6 +128,12 @@ class TickerInfoRepo:
                 (iv_rank, iv_percentile, ticker),
             )
 
+    def update_sector(self, ticker: str, sector: Optional[str], category: Optional[str]) -> None:
+        """Completa el sector y la categoría (p. ej. cuando TWS vuelve tras actualizar sin él)."""
+        with self.db.conn:
+            self.db.conn.execute(
+                "UPDATE ticker_info SET sector = ?, category = ? WHERE ticker = ?", (sector, category, ticker))
+
     def update_price(self, ticker: str, price: float, when: datetime) -> None:
         """Actualiza solo el precio del subyacente y su fecha (no toca la actualización diaria)."""
         with self.db.conn:

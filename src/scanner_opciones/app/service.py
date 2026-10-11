@@ -16,6 +16,7 @@ from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, Br
 from scanner_opciones.domain.models import (
     AccountSummary, OptionContract, Position, RiskStatus, SectorExposure, VixData,
 )
+from scanner_opciones.app import portfolio_cache
 from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.daily_update import DailyUpdater, DailyUpdateReport
 from scanner_opciones.jobs.refresh import RefreshJob, RefreshReport
@@ -46,6 +47,7 @@ log = logging.getLogger(__name__)
 
 LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco completo
 EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos): ya no se usa, se vacía al arrancar
+PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
 MAX_SOURCE_NAME = 40  # longitud máxima del nombre de una fuente manual
 MAX_HISTORY = 200     # cargas que recuerda el historial del Universo
 STEP_TIMEOUT_SECONDS = 90  # un paso de red colgado no debe bloquear el refresco para siempre
@@ -110,6 +112,7 @@ class AppService:
             volatility, prices, syncer, self.market,
         )
         self.state = AppState()
+        self._load_portfolio()
         # ficheros del universo (RankedStocks, HelloStocks): nombre -> (hora de carga, fuentes); en memoria y en disco
         self.universe_files: dict[str, tuple[datetime, tuple[Source, ...]]] = {}
         self.volatility = volatility
@@ -125,7 +128,8 @@ class AppService:
         self.restore_universe()
         self._lock = asyncio.Lock()  # evita ejecuciones solapadas de los jobs de mercado
         self._financials_running = False
-        self._starting = False       # arranque/reconexión en curso
+        self._starting = False       # intento de conexión en curso
+        self._session_begun = False  # ya se hizo el primer refresco/actualización diaria de la sesión (con o sin TWS)
         self._tasty_done = False     # histórico y calidad de tastytrade ya descargados en esta ejecución
         self._account_lock = asyncio.Lock()  # cuenta, posiciones y VIX: aparte, para que un ciclo largo de mercado no los retrase
         self._background: set = set()
@@ -428,20 +432,29 @@ class AppService:
             return
         self._starting = True
         try:
-            await self._start()
+            connected = await self._connect()
         finally:
             self._starting = False
+        if connected:
+            self.state.connected = True
+            self.state.errors.pop("connection", None)
+            if self._session_begun and self._offline_capable():
+                await self._resume_after_reconnect()
+                return
+        elif not self._offline_capable():
+            return
+        await self._begin_session()
 
     async def reconnect(self) -> bool:
         """Reintento de conexión con el broker (lo llama el bucle de reconexión). No hace nada si ya está conectado
-        o hay un arranque en curso. No repite la parte de tastytrade (histórico y calidad) si ya se hizo."""
+        o hay un intento en curso. No repite la parte de tastytrade (histórico y calidad) si ya se hizo."""
         if self.state.connected or self._starting:
             return False
         await self.gateway.disconnect()     # libera un socket a medias antes de volver a conectar
         await self.start()
         return self.state.connected
 
-    async def _start(self) -> None:
+    async def _connect(self) -> bool:
         # El histórico de cierres solo depende de tastytrade y se guarda en la base de datos: se completa lo
         # primero (unos segundos), sin esperar al broker ni al primer refresco, que tarda minutos. Solo una vez:
         # los reintentos de conexión no lo repiten.
@@ -452,10 +465,18 @@ class AppService:
             await self._finish_tasty(history)
             self.state.connected = False
             self.state.errors["connection"] = str(exc)
-            return
+            return False
         await self._finish_tasty(history)
-        self.state.connected = True
-        self.state.errors.pop("connection", None)
+        return True
+
+    def _offline_capable(self) -> bool:
+        """¿Puede el gateway servir los datos de mercado sin TWS (tastytrade)? Entonces, sin conexión, se sigue
+        actualizando todo lo que no sea de TWS (cuenta, posiciones, márgenes, sector) y se muestra lo último guardado."""
+        return bool(getattr(self.gateway, "market_offline_capable", False))
+
+    async def _begin_session(self) -> None:
+        """Primer refresco y actualización diaria de la sesión (con o sin TWS)."""
+        self._session_begun = True
         self.cleanup_orphans()
         # Primero se refresca con lo ya guardado (la pantalla tiene datos enseguida); la actualización
         # diaria va después en segundo plano y, al acabar, cotiza lo que haya cambiado.
@@ -469,6 +490,54 @@ class AppService:
             self.launch(self.complete_info())
         if self.settings.daily_update.run_on_startup:
             self.launch(self.run_daily_then_refresh())
+
+    async def _resume_after_reconnect(self) -> None:
+        """TWS vuelve tras una sesión que ya se había iniciado sin él: no se repite la actualización diaria ni el
+        refresco de mercado (tastytrade ya los hizo). Solo se piden a TWS sus datos: cuenta y posiciones, el sector
+        de lo que no lo tiene y los márgenes que faltan o caducaron."""
+        log.info("TWS disponible: se completan cuenta, posiciones, sectores y márgenes")
+        await self.refresh_account()
+        await self.fill_missing_sectors()
+        if self.manual_sources:
+            await self.complete_info()
+        await self.refresh_margins()
+
+    async def fill_missing_sectors(self) -> int:
+        """Sector (IBKR) de los tickers de la watchlist que aún no lo tienen, p. ej. por actualizarse sin TWS."""
+        watch = set(self.watchlist.list())
+        todo = [t for t, i in self.ticker_info.all().items() if i.sector is None and t in watch]
+        done, failures = 0, 0
+        for ticker in todo:
+            if failures >= 3:
+                break
+            try:
+                sector, category = await asyncio.wait_for(self.gateway.get_sector_info(ticker), 15)
+            except BrokerDisconnectedError:
+                break
+            except Exception:   # ticker desconocido, tiempo agotado...
+                failures += 1
+                continue
+            if sector:
+                self.ticker_info.update_sector(ticker, sector, category)
+                done += 1
+        if done:
+            self.state.data_version += 1
+        return done
+
+    async def refresh_margins(self) -> bool:
+        """Pide a TWS los márgenes (what-if) que faltan o caducaron de los contratos en alcance, sin volver a
+        cotizar nada. Espera su turno si hay otra ejecución en curso."""
+        async with self._lock:
+            try:
+                self.state.activity = "Pidiendo los márgenes pendientes a TWS"
+                await self.refresh_job.fill_margins()
+            except BrokerDisconnectedError as exc:
+                self._disconnected(exc)
+                return False
+            finally:
+                self.state.activity = None
+            self.state.data_version += 1
+            return True
 
     async def _finish_tasty(self, history: "asyncio.Future | None") -> None:
         if history is not None:
@@ -489,6 +558,7 @@ class AppService:
             self.refresh_job.gateway = new_gateway
             self.daily.syncer.gateway = new_gateway
             self.state = AppState()
+            self._load_portfolio()
         await self.start()
 
     # ---- watchlist -------------------------------------------------------------------------
@@ -600,7 +670,7 @@ class AppService:
         sin esperar al siguiente ciclo periódico. Con el mercado cerrado solo se cotizan los contratos
         que nunca se habían cotizado (con datos congelados), no el resto."""
         report = await self.run_daily(tickers, wait=wait, revalidate=revalidate)
-        if report is not None and report.updated and self.state.connected:
+        if report is not None and report.updated and (self.state.connected or self._offline_capable()):
             if self._paused():
                 await self.refresh_new_contracts()   # mercado cerrado: solo los contratos que nunca se cotizaron
             else:
@@ -728,7 +798,7 @@ class AppService:
         """Cuenta, riesgo y VIX más los contratos (`include_market=False`: solo cuenta, riesgo y VIX, sin
         cotizaciones de subyacentes, opciones ni márgenes). La cuenta se refresca a la vez que el mercado y con
         su propio bloqueo. False si se omitió por solapamiento o falta de conexión."""
-        if self._known_disconnected():
+        if self._known_disconnected() and not self._offline_capable():
             return False
         if not include_market:
             ok = await self.refresh_account()
@@ -760,11 +830,17 @@ class AppService:
     async def refresh_account(self) -> bool:
         """Cuenta, posiciones, riesgo y VIX. Va por su cuenta (bloqueo propio): no espera a la actualización diaria
         ni a un ciclo largo de cotizaciones. False si ya hay uno en curso o se perdió la conexión."""
-        if self._known_disconnected() or self._account_lock.locked():
+        if self._account_lock.locked():
+            return False
+        offline = self._known_disconnected()
+        if offline and not self._offline_capable():
             return False
         async with self._account_lock:
             try:
-                await asyncio.gather(self._refresh_portfolio(), self._refresh_vix())
+                if offline:   # sin TWS solo el VIX (tastytrade); cuenta y posiciones se quedan como estaban
+                    await self._refresh_vix()
+                else:
+                    await asyncio.gather(self._refresh_portfolio(), self._refresh_vix())
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return False
@@ -774,7 +850,7 @@ class AppService:
     async def refresh_new_contracts(self) -> bool:
         """Cotiza (datos congelados del último cierre) solo los contratos guardados que nunca se han
         cotizado y encajan con el filtro inicial. No toca el marcador del último refresco completo."""
-        if self._known_disconnected():
+        if self._known_disconnected() and not self._offline_capable():
             return False
         if self.busy:
             log.info("Cotización de contratos nuevos omitida: hay otra ejecución en curso")
@@ -804,12 +880,21 @@ class AppService:
         self.state.errors["connection"] = str(exc)
         log.warning("Conexión perdida: %s", exc)
 
+    def _load_portfolio(self) -> None:
+        """Recupera la última cuenta y posiciones leídas de TWS (de este modo de cuenta) para mostrarlas sin conexión."""
+        account, positions = portfolio_cache.load(self.meta.get(PORTFOLIO_CACHE), self.settings.ibkr.mode.value)
+        if account is not None:
+            self.state.account, self.state.positions = account, positions
+            self.state.risk = build_risk_status(account, self.settings.risk.cushion_thresholds)
+
     async def _refresh_portfolio(self) -> None:
         try:
             self.state.account = await asyncio.wait_for(self.gateway.get_account_summary(), timeout=STEP_TIMEOUT_SECONDS)
             self.state.positions = await asyncio.wait_for(self.gateway.get_positions(), timeout=STEP_TIMEOUT_SECONDS)
             self.state.risk = build_risk_status(self.state.account, self.settings.risk.cushion_thresholds)
             self.state.errors.pop("portfolio", None)
+            self.meta.set(PORTFOLIO_CACHE, portfolio_cache.dump(
+                self.settings.ibkr.mode.value, self.state.account, self.state.positions))
         except BrokerDisconnectedError:
             raise
         except BrokerError as exc:
