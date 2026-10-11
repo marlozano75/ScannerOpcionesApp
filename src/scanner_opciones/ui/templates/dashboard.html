@@ -34,7 +34,7 @@
   <table class="sortable">
     <tr><th>Ticker</th><th>Vencimiento</th><th>DTE</th><th>Strike</th><th>Contratos</th><th>Prima cobrada</th><th>Recomprar a</th><th>Capturado</th><th>Precio</th><th>Avisos</th></tr>
     {% for s in mgmt.puts %}
-    <tr><td><b>{{ s.ticker }}</b></td><td data-sort="{{ s.expiry.isoformat() }}">{{ s.expiry.strftime('%d/%m/%Y') }}</td><td>{{ s.dte }}</td><td>{{ s.strike|num }}</td><td>{{ s.contracts }}</td>
+    <tr><td><b>{{ s.ticker }}</b></td><td data-sort="{{ s.expiry.isoformat() }}">{{ s.expiry.strftime('%d/%m/%Y') }}</td><td>{{ s.dte }}</td><td{% if s.long_strike is not none %} data-sort="{{ s.strike }}" title="Spread: vendida {{ s.strike|num }} / comprada {{ s.long_strike|num }}"{% endif %}>{{ s.strike|num }}{% if s.long_strike is not none %}/{{ s.long_strike|num }} <span class="muted">spread</span>{% endif %}</td><td>{{ s.contracts }}</td>
       <td>{{ s.entry_credit|num if s.entry_credit is not none else '—' }}</td><td>{{ s.current_price|num if s.current_price is not none else '—' }}</td>
       <td{% if s.captured_pct is not none %} data-sort="{{ s.captured_pct }}"{% endif %}>{{ s.captured_pct|pct(0) if s.captured_pct is not none else '—' }}</td>
       <td>{{ s.underlying_price|num if s.underlying_price is not none else '—' }}</td>
@@ -50,7 +50,7 @@
     {% endfor %}
   </table>
   <p class="muted" style="margin:8px 0 0;font-size:12px">Avisos orientativos, no órdenes: recoger beneficios al {{ mgmt_cfg.take_profit_pct|round|int }} % de la prima; a ≤ {{ mgmt_cfg.review_dte }} DTE sin llegar a ese objetivo, cerrar o rolar a un vencimiento posterior cobrando crédito;
-    una asignación no debería pasar del {{ mgmt_cfg.warn_position_pct|round|int }}–{{ mgmt_cfg.max_position_pct|round|int }} % del NLV por acción. «Capturado» necesita el coste medio que da TWS (sin él aparece «—»); los pesos no convierten moneda (cuenta EUR, strikes USD).</p>
+    una asignación no debería pasar del {{ mgmt_cfg.warn_position_pct|round|int }}–{{ mgmt_cfg.max_position_pct|round|int }} % del NLV por acción. Las puts vendidas con una comprada del mismo vencimiento y strike inferior se tratan como spread (una fila, prima y valor netos; el riesgo y el peso usan su ancho). «Capturado» necesita el coste medio que da TWS (sin él aparece «—»); los pesos no convierten moneda (cuenta EUR, strikes USD).</p>
   {% else %}<p class="muted">No hay puts vendidas abiertas.</p>{% endif %}
 </div>
 

@@ -24,6 +24,7 @@ from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
+from scanner_opciones.portfolio.spreads import with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
@@ -1035,7 +1036,7 @@ class AppService:
         snapshots = self.snapshots.all()
         bars = self.bars.all_closes({s.contract.ticker for s in snapshots}) if criteria.technical_active else None
         return run_scan(
-            snapshots, self.infos(criteria), self.state.positions, criteria,
+            snapshots, self.infos(criteria), with_spreads(self.state.positions), criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
             self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots),
         )
@@ -1056,10 +1057,10 @@ class AppService:
         )
 
     def assignment(self) -> AssignmentExposure:
-        return assignment_exposure(self.state.positions, self.state.account)
+        return assignment_exposure(with_spreads(self.state.positions), self.state.account)
 
     def diversification(self) -> tuple[SectorExposure, list[WeekExposure]]:
-        pos = self.state.positions
+        pos = with_spreads(self.state.positions)
         return (
             sector_exposure(pos),
             weekly_sector_exposure(pos, self.now().date(), self.settings.diversification.weeks_ahead),
@@ -1083,6 +1084,6 @@ class AppService:
             info = infos.get(sel.ticker)
             trades.append(SimulatedTrade(snap.contract, sel.quantity, info.sector if info else None, margin))
         return simulate(
-            self.state.positions, trades, self.state.account, self.settings.risk.cushion_thresholds,
+            with_spreads(self.state.positions), trades, self.state.account, self.settings.risk.cushion_thresholds,
             self.now().date(), self.settings.diversification.weeks_ahead,
         )

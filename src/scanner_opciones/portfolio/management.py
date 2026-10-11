@@ -15,6 +15,8 @@ from typing import Optional, Sequence
 from scanner_opciones.config.settings import ManagementSettings
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import Position
+from scanner_opciones.portfolio.diversification import nominal as nominal_of
+from scanner_opciones.portfolio.spreads import with_spreads
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,7 @@ class PutStatus:
     captured_pct: Optional[float]       # % de la prima ya ganado (negativo = en pérdida)
     underlying_price: Optional[float]
     alerts: tuple[Alert, ...]
+    long_strike: Optional[float] = None  # put comprada si forma parte de un spread (prima y valor ya son netos)
 
 
 @dataclass(frozen=True)
@@ -77,11 +80,14 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
     if captured is not None and captured < 0:
         alerts.append(Alert("info", "En pérdida: recomprarla cuesta más que la prima cobrada."))
     if underlying is not None:
-        if underlying <= o.strike:
+        if p.hedge_strike is not None and underlying <= p.hedge_strike:
+            alerts.append(Alert("warn", f"Pérdida máxima: el precio ({underlying:g}) está por debajo de la put comprada ({p.hedge_strike:g}); "
+                                        f"el spread ya vale su ancho ({o.strike - p.hedge_strike:g})."))
+        elif underlying <= o.strike:
             alerts.append(Alert("warn", f"En el dinero: el precio ({underlying:g}) está por debajo del strike. Valora cerrar antes que esperar la asignación."))
         elif (underlying - o.strike) / underlying * 100 < cfg.near_strike_pct:
             alerts.append(Alert("info", f"El precio ({underlying:g}) está a menos de {cfg.near_strike_pct:g} % del strike."))
-    return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts))
+    return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts), p.hedge_strike)
 
 
 def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[float], cfg: ManagementSettings) -> list[TickerWeight]:
@@ -91,7 +97,7 @@ def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[floa
     for ticker in sorted({p.ticker for p in puts}):
         stock = sum(p.market_value for p in positions if p.ticker == ticker and p.option is None and p.quantity > 0)
         mine = [p for p in puts if p.ticker == ticker]
-        nominal = sum(p.option.strike * p.option.multiplier * abs(p.quantity) for p in mine)
+        nominal = sum(nominal_of(p) for p in mine)       # en un spread, su ancho: la put comprada limita lo que compras
         total = stock + nominal
         pct = total / net_liquidation * 100 if net_liquidation and net_liquidation > 0 else None
         level = None if pct is None else ("warn" if pct > cfg.max_position_pct else "info" if pct > cfg.warn_position_pct else None)
@@ -103,6 +109,7 @@ def manage_puts(
     positions: Sequence[Position], net_liquidation: Optional[float], today: date,
     prices: dict[str, Optional[float]], cfg: ManagementSettings,
 ) -> ManagementReport:
+    positions = with_spreads(positions)     # cada spread es una sola fila: prima y valor netos, riesgo = ancho
     puts = sorted((put_status(p, today, prices.get(p.ticker), cfg) for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))
     weights = ticker_weights(positions, net_liquidation, cfg)
     attention = sum(1 for s in puts for a in s.alerts if a.level == "warn") + sum(1 for w in weights if w.level == "warn")
