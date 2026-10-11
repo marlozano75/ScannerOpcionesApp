@@ -19,6 +19,8 @@ Inspiran los filtros técnicos y los gráficos del Scanner (RF-44 en `ESPECIFICA
 | `GraficoCierres y UltimoDíaDeVisita_SpreadVector.png` | Gráfico de cierres con el strike y el último día en que se tocó (círculo naranja, «10 days ago») |
 | `Graficos_SpreadVector.PNG` | Gráfico de último toque junto a la cadena de opciones (strike, mid, delta, theta, IV) |
 | `IgnoreEarnings&Ignore Expected Move Filter.png` | «Screener defaults»: ignorar el filtro de resultados y el de movimiento esperado (la exclusión por resultados está activa por defecto) |
+| `Spread_Width_SpreadVector.png` | Bloque «Spread width» (2): ancho en $ con su pérdida máxima por contrato («$5 Wide — Max risk $500/contract»). Explica que $1–$5 es riesgo ajustado, $10–$20 más prima y más riesgo, y $30 para valores de IV alta con strikes anchos líquidos; la pata comprada se coloca al ancho elegido sobre la cadena en vivo. Referencia del modo spread (`scanner.spreads.width_options`) |
+| `Credit_Range_SpreadVector.png` | Bloque «Credit range» (6): rango de crédito neto en $ por acción («$0.50 – $1.00 — Moderate»). Posible filtro futuro del modo spread (hoy se filtra por crédito/ancho, pérdida máxima y retorno sobre riesgo) |
 
 ## Capturas propias de la app
 
