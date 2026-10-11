@@ -762,7 +762,8 @@ def create_app(
                 form["mode"] = qp.get("mode", "put")
                 if form["mode"] not in ("put", "spread", "both"):
                     raise ValueError("modo desconocido")
-                form["widths"] = [w.strip() for w in qp.getlist("w")]
+                if any(key in qp for key in ("cw", "mn", "nw", "ns")):   # bloque visible: lo enviado manda (puede no haber ninguno)
+                    form["widths"] = [w.strip() for w in qp.getlist("w")]
                 # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
                 # de instrumento) los límites conservan sus valores marcados por defecto
                 for shown_keys in (("cw", "mn"), ("nw", "ns")):
