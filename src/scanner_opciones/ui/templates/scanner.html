@@ -94,6 +94,11 @@
   .strategy-btn { display:block; margin:0 0 10px; padding:9px 12px; border-radius:8px; text-align:center; font-weight:700; font-size:13px; text-decoration:none; background:var(--accent); color:#fff; }
   .strategy-btn:hover { filter:brightness(1.12); } .strategy-btn.on { background:#1d6b3f; }
   .side .note b { color:var(--ink); font-weight:600; }
+  /* opciones que filtran algo (distintas de «Cualquiera»/«Off»/vacío o casillas marcadas): se ven de otro color */
+  .side select.set { background:#e3f1ea; border-color:var(--ok); color:#14573f; font-weight:600; }
+  .side .field:has(select.set) { color:var(--ok); font-weight:600; }
+  .side .check:has(input[type=checkbox]:checked) { color:#14573f; font-weight:600; }
+  .side .opt-row:has(input[type=checkbox]:checked) input:not([type=checkbox]) { background:#e3f1ea; border-color:var(--ok); color:#14573f; font-weight:600; }
 
   /* columna de resultados */
   .results { min-height:0; display:flex; flex-direction:column; overflow-y:auto; padding-right:4px; }
@@ -385,6 +390,17 @@
   })();
 
   const form = document.getElementById('scan-form');
+  // Resalta los desplegables con un valor distinto de «Cualquiera» / «Off» / vacío (los que de verdad filtran)
+  (function () {
+    const NEUTRAL = ['', 'any', 'off'];
+    const AUX = ['ma_frame', 'trend_window', 'trend_method', 'trend_days'];   // ajustan otro filtro, no filtran solos
+    const sels = form.querySelectorAll('.field select');
+    function mark(s) {
+      if (AUX.indexOf(s.name) >= 0) return;
+      s.classList.toggle('set', NEUTRAL.indexOf(s.value) < 0);
+    }
+    sels.forEach(function (s) { mark(s); s.addEventListener('change', function () { mark(s); }); });
+  })();
   // Secciones plegables: se recuerda cuáles están abiertas (por defecto, las dos primeras)
   (function () {
     const KEY = 'scan-open';
