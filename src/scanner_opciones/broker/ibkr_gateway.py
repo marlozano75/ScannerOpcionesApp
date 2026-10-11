@@ -77,6 +77,7 @@ class IBKRGateway:
         self.ib = IB()
         self.now = now
         self._stocks: dict[str, Stock] = {}
+        self._updates_account: Optional[str] = None   # cuenta suscrita con reqAccountUpdates (la de `portfolio()`)
         self._sector_cache: dict[str, tuple[Optional[str], Optional[str]]] = {}
         self._vix_futures_cache: Optional[tuple[date, list]] = None
         self._summary_request: Optional[asyncio.Future] = None   # petición de account summary en vuelo (una como máximo)
@@ -96,6 +97,7 @@ class IBKRGateway:
                 f"No se pudo conectar a TWS en {self.s.host}:{self.s.port} ({self.s.mode.value}): {exc!r}"
             ) from exc
         self.ib.reqMarketDataType(self.s.market_data_type)
+        self._updates_account = None    # la suscripción de la conexión anterior ya no vale
 
     async def disconnect(self) -> None:
         if self.ib.isConnected():
@@ -159,10 +161,21 @@ class IBKRGateway:
             await asyncio.shield(self._summary_request)
         return [v for v in wrapper.acctSummary.values() if not account or v.account == account]
 
+    async def _subscribe_portfolio(self, account: str) -> None:
+        """`ib.portfolio()` solo se llena para la cuenta suscrita con `reqAccountUpdates`, y TWS admite UNA a la vez:
+        con varias cuentas gestionadas, `connect` las suscribe todas y no queda ninguna (verificado contra TWS con
+        U14977035 y U20571357: 0 posiciones en ambas tras 8 s). Se suscribe explícitamente la cuenta de la app."""
+        if self._updates_account == account:
+            return
+        await asyncio.wait_for(self.ib.reqAccountUpdatesAsync(account), timeout=self.s.connect_timeout_seconds * 2)
+        self._updates_account = account
+
     async def get_positions(self) -> list[Position]:
         self._require()
         out: list[Position] = []
-        for item in self.ib.portfolio(self._account_id()):
+        account = self._account_id()
+        await self._subscribe_portfolio(account)
+        for item in self.ib.portfolio(account):
             c = item.contract
             if c.secType == "STK":
                 sector, _ = await self.get_sector_info(c.symbol)
