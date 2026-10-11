@@ -31,6 +31,52 @@ def ema(values: Sequence[float], n: int) -> Optional[float]:
     return out
 
 
+def rsi_series(values: Sequence[float], n: int = 14) -> list[Optional[float]]:
+    """RSI de Wilder alineado con `values` (None hasta tener `n` variaciones). Sin pérdidas = 100; sin movimiento = 50."""
+    out: list[Optional[float]] = [None] * len(values)
+    if n <= 0 or len(values) <= n:
+        return out
+    diffs = [b - a for a, b in zip(values, values[1:])]
+    gain = sum(max(d, 0.0) for d in diffs[:n]) / n
+    loss = sum(max(-d, 0.0) for d in diffs[:n]) / n
+
+    def rsi() -> float:
+        if gain == 0 and loss == 0:
+            return 50.0
+        return 100.0 if loss == 0 else 100 - 100 / (1 + gain / loss)
+
+    out[n] = rsi()
+    for i in range(n, len(diffs)):
+        gain = (gain * (n - 1) + max(diffs[i], 0.0)) / n
+        loss = (loss * (n - 1) + max(-diffs[i], 0.0)) / n
+        out[i + 1] = rsi()
+    return out
+
+
+def rsi_rebound(values: Sequence[float], threshold: float, lookback: int, n: int = 14) -> tuple[bool, str]:
+    """¿El RSI ha tocado `threshold` (o menos) en las últimas `lookback` sesiones y hoy sube respecto a la anterior?"""
+    series = rsi_series(values, n)
+    recent = [r for r in series[-lookback:] if r is not None]
+    if len(series) < 2 or series[-1] is None or series[-2] is None or not recent:
+        return False, f"sin datos para el RSI({n}) ({len(values)} cierres)"
+    low, last, prev = min(recent), series[-1], series[-2]
+    if low > threshold:
+        return False, f"el RSI({n}) no ha bajado de {threshold:g} en {lookback} sesiones (mínimo {low:.0f})"
+    if last <= prev:
+        return False, f"el RSI({n}) no rebota todavía ({last:.0f} ≤ {prev:.0f})"
+    return True, ""
+
+
+def bollinger(values: Sequence[float], n: int = 20, k: float = 2.0) -> Optional[tuple[float, float, float]]:
+    """(banda inferior, media, banda superior) con desviación típica poblacional; None sin `n` cierres."""
+    if n <= 1 or len(values) < n:
+        return None
+    window = values[-n:]
+    mid = sum(window) / n
+    sd = (sum((v - mid) ** 2 for v in window) / n) ** 0.5
+    return mid - k * sd, mid, mid + k * sd
+
+
 def resample(bars: Bars, frame: str) -> list[tuple[date, float]]:
     """Cierres por ventana: 'daily' (sin cambios), 'weekly' (último cierre de cada semana ISO) o
     'monthly' (último cierre de cada mes). La última ventana puede estar incompleta (periodo en curso)."""

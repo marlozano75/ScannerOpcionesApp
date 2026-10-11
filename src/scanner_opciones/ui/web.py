@@ -246,6 +246,11 @@ def strategy_link(settings, form: dict, base) -> tuple[str, bool]:
         "use_ivr": "on", "ivr": _fmt(st.min_iv_rank), "use_ivp": "on", "ivp": _fmt(st.min_iv_percentile),
         "use_bid": "on", "bid": _fmt(fv.min_bid),
     }
+    for use, key, enabled, value in (("use_rsi", "rsi_max", st.use_rsi, st.max_rsi_level),
+                                     ("use_boll", "boll_pctb", st.use_bollinger, st.max_bollinger_pctb),
+                                     ("use_bw", "boll_width", st.use_bollinger_width, st.min_bollinger_width_pct)):
+        if enabled:
+            params[use], params[key] = "on", _fmt(value)
     if st.price_above_ma200:
         params["ma200"] = "above"
     if st.avoid_earnings:
@@ -254,9 +259,11 @@ def strategy_link(settings, form: dict, base) -> tuple[str, bool]:
         params["q_liq"] = str(st.min_option_liquidity)
     checks = {"discount": "discount", "dte_min": "dte_min", "dte_max": "dte_max", "min_yield": "min_yield",
               "delta_min": "delta_min", "delta_max": "delta_max", "exp_mult": "exp_mult", "near_pct": "near_pct",
-              "ivr": "ivr", "ivp": "ivp", "ma200": "ma200", "q_liq": "q_liq"}
+              "ivr": "ivr", "ivp": "ivp", "ma200": "ma200", "q_liq": "q_liq",
+              "rsi_max": "rsi_max", "boll_pctb": "boll_pctb", "boll_width": "boll_width"}
     on = all(form.get(f) == params[p] for p, f in checks.items() if p in params)
-    on = on and all(form.get(f) for f in ("use_delta", "use_exp", "use_near", "use_ivr", "use_ivp"))
+    on = on and all(form.get(f) for f in ("use_delta", "use_exp", "use_near", "use_ivr", "use_ivp",
+                                          *(u for u in ("use_rsi", "use_boll", "use_bw") if u in params)))
     on = on and (not st.avoid_earnings or bool(form.get("q_earn")))
     return urlencode(params), on
 
@@ -654,7 +661,9 @@ def create_app(
 
         st = service.settings.scanner.strategy       # delta, movimiento esperado y cercanía a un nivel: marcar el filtro lo aplica
         form.update(use_delta=False, delta_min=_fmt(st.min_abs_delta), delta_max=_fmt(st.max_abs_delta),
-                    use_exp=False, exp_mult=_fmt(st.expected_move_mult), use_near=False, near_pct=_fmt(st.near_level_pct))
+                    use_exp=False, exp_mult=_fmt(st.expected_move_mult), use_near=False, near_pct=_fmt(st.near_level_pct),
+                    use_rsi=False, rsi_max=_fmt(st.max_rsi_level), use_boll=False, boll_pctb=_fmt(st.max_bollinger_pctb),
+                    use_bw=False, boll_width=_fmt(st.min_bollinger_width_pct))
 
         criteria, error, warnings = None, None, []
         try:
@@ -705,9 +714,9 @@ def create_app(
                 for key in optional:
                     form[f"use_{key}"] = f"use_{key}" in qp
                     form[key] = qp.get(key, "").strip()
-                for key in ("use_delta", "use_exp", "use_near"):
+                for key in ("use_delta", "use_exp", "use_near", "use_rsi", "use_boll", "use_bw"):
                     form[key] = key in qp
-                for key in ("delta_min", "delta_max", "exp_mult", "near_pct"):
+                for key in ("delta_min", "delta_max", "exp_mult", "near_pct", "rsi_max", "boll_pctb", "boll_width"):
                     form[key] = qp.get(key, "").strip()
                 overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento mín. del strike")
                 overrides["min_annual_yield_pct"] = _required(form["min_yield"], float, "Yield anual mín.")
@@ -746,6 +755,18 @@ def create_app(
                 overrides["near_level_pct"] = _required(form["near_pct"], float, "Distancia a la media de 50 o al soporte (%)")
                 if not (0 < overrides["near_level_pct"] <= 50):
                     raise ValueError("la distancia a la media o al soporte debe estar entre 0 y 50 %")
+            if form["use_rsi"]:
+                overrides["rsi_rebound_max"] = _required(form["rsi_max"], float, "Nivel del RSI")
+                if not (0 < overrides["rsi_rebound_max"] < 100):
+                    raise ValueError("el nivel del RSI debe estar entre 0 y 100")
+            if form["use_boll"]:
+                overrides["max_bollinger_pctb"] = _required(form["boll_pctb"], float, "%B de Bollinger")
+                if not (-1 <= overrides["max_bollinger_pctb"] <= 2):
+                    raise ValueError("el %B de Bollinger debe estar entre −1 y 2")
+            if form["use_bw"]:
+                overrides["min_bollinger_width_pct"] = _required(form["boll_width"], float, "Ancho de bandas (%)")
+                if not (0 < overrides["min_bollinger_width_pct"] <= 100):
+                    raise ValueError("el ancho de las bandas debe estar entre 0 y 100 %")
             criteria = base.with_filters(**overrides)
             if criteria.strike_below_pct_min < cand.strike_below_pct_min:
                 warnings.append(f"Descuento mín. por debajo del rango guardado ({cand.strike_below_pct_min:g}%): "
@@ -805,6 +826,7 @@ def create_app(
                           frame_shown, service.settings.trend.history_days, service.settings.scanner.technical.ma_slope_candles),
                       tech_opts=dict(
                           slope_candles=service.settings.scanner.technical.ma_slope_candles,
+                          rsi_lookback=service.settings.scanner.technical.rsi_lookback_days,
                           chart_months=service.settings.scanner.technical.chart_months,
                           windows=[(m, f"{m} {'mes' if m == 1 else 'meses'}") for m in service.settings.scanner.technical.trend_windows_months],
                           durations=[(d, _days_label(d)) for d in service.settings.scanner.technical.trend_durations],

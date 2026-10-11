@@ -41,6 +41,9 @@
 {% if form.use_exp %}{% set _ = ivgroup.append('Fuera de ' ~ form.exp_mult ~ '× mov. esperado') %}{% endif %}
 {% set entry = [] %}
 {% if form.use_near %}{% set _ = entry.append('A ≤ ' ~ form.near_pct ~ ' % de MA50 o soporte') %}{% endif %}
+{% if form.use_rsi %}{% set _ = entry.append('RSI rebota desde ≤ ' ~ form.rsi_max) %}{% endif %}
+{% if form.use_boll %}{% set _ = entry.append('Bollinger %B ≤ ' ~ form.boll_pctb) %}{% endif %}
+{% if form.use_bw %}{% set _ = entry.append('Bandas ≥ ' ~ form.boll_width ~ ' %') %}{% endif %}
 {# chips de filtros activos (lado de resultados): (sección, texto) #}
 {% set chips = [] %}
 {% if trend_on %}{% set _ = chips.append(('sec-trend', ('Tendencia alcista' if form.trend_dir == 'up' else 'Tendencia bajista') ~ ' · ' ~ window_label)) %}{% endif %}
@@ -182,6 +185,15 @@
       {% call section('sec-entry', 'Técnicos de entrada', (entry | join(' · ')) or 'Sin filtros', entry|length > 0) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_near" {{ 'checked' if form.use_near }}> Precio a ≤ X % de MA50 o soporte</span>
           <input name="near_pct" value="{{ form.near_pct }}" inputmode="decimal"></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_rsi" {{ 'checked' if form.use_rsi }}> RSI(14) rebota desde ≤</span>
+          <input name="rsi_max" value="{{ form.rsi_max }}" inputmode="decimal"></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_boll" {{ 'checked' if form.use_boll }}> Bollinger: %B ≤</span>
+          <input name="boll_pctb" value="{{ form.boll_pctb }}" inputmode="decimal"></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_bw" {{ 'checked' if form.use_bw }}> Bollinger: ancho ≥ (%)</span>
+          <input name="boll_width" value="{{ form.boll_width }}" inputmode="decimal"></label>
+        <p class="note"><b>RSI</b>: ha tocado ese nivel (30–35) en las últimas {{ tech_opts.rsi_lookback }} sesiones y hoy sube respecto a ayer.
+          <b>Bollinger</b> (20, 2): %B = 0 es la banda inferior y 1 la superior, así que ≤ 0,3 es «cerca o por debajo»; el ancho (bandas ÷ media) descarta bandas muy estrechas.
+          No hace falta que se cumplan todos los indicadores de timing: con una o dos señales basta, por eso el botón de la estrategia solo activa el RSI.</p>
         <p class="note">Entrada tras una corrección: el precio está a menos de X % de su media de 50 días (cierres diarios) <b>o</b> del borde superior de una zona de soporte probada.
           Para exigir el precio sobre la media de 200, usa <b>Medias móviles</b> (MA 200 «Por encima»).</p>
       {% endcall %}

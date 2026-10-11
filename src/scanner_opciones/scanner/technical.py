@@ -92,6 +92,22 @@ class TechnicalFilter:
             nearest = min(abs(price - v) / v * 100 for v in levels)
             if nearest > c.near_level_pct + 1e-9:
                 return f"precio a {nearest:.1f}% de la media de 50 y del soporte (> {c.near_level_pct:g}%)"
+        closes = [px for _, px in series]
+        if c.rsi_rebound_max is not None:
+            ok, why = ta.rsi_rebound(closes, c.rsi_rebound_max, cfg.rsi_lookback_days, cfg.rsi_period)
+            if not ok:
+                return why
+        if c.max_bollinger_pctb is not None or c.min_bollinger_width_pct is not None:
+            bands = ta.bollinger(closes, cfg.bollinger_period, cfg.bollinger_k)
+            if bands is None or bands[2] <= bands[0]:
+                return f"sin datos para Bollinger({cfg.bollinger_period}, {cfg.bollinger_k:g}) ({len(closes)} cierres)"
+            low, mid, high = bands
+            pctb = (price - low) / (high - low)
+            if c.max_bollinger_pctb is not None and pctb > c.max_bollinger_pctb + 1e-9:
+                return f"precio lejos de la banda inferior de Bollinger (%B {pctb:.2f} > {c.max_bollinger_pctb:g})"
+            width = (high - low) / mid * 100
+            if c.min_bollinger_width_pct is not None and width < c.min_bollinger_width_pct - 1e-9:
+                return f"bandas de Bollinger estrechas ({width:.1f}% < {c.min_bollinger_width_pct:g}%)"
         lines, before, n_bars = self._lines(ticker)
         frame = _FRAME_NAMES[c.ma_frame]
 

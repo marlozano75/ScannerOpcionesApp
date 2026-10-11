@@ -402,4 +402,4 @@ Nuevas estrategias en el scanner (calls cubiertas, spreads) añadiendo `ScanCrit
 
 ## Estrategia de venta de puts (fase 1)
 
-Filtros nuevos del Scanner: |delta| entre mín. y máx., strike fuera del movimiento esperado (precio × IV del contrato × √(DTE/365) × N) y precio a ≤ N % de la media de 50 o de un soporte; agrupados en «Volatilidad (IV) y prima» (con IV Rank/Percentile) y «Técnicos de entrada». Botón superior que carga todos con los valores de `scanner.strategy`. Pendiente: RSI, Bollinger, IV/HV30, cambio de IV a 5 días, VIX global y ATR.
+Filtros nuevos del Scanner: |delta| entre mín. y máx., strike fuera del movimiento esperado (precio × IV del contrato × √(DTE/365) × N) y precio a ≤ N % de la media de 50 o de un soporte; agrupados en «Volatilidad (IV) y prima» (con IV Rank/Percentile) y «Técnicos de entrada». Botón superior que carga todos con los valores de `scanner.strategy`. Fase 2: RSI(14) rebotando desde el nivel de sobreventa y Bollinger(20, 2) (%B y ancho de bandas), calculados con los cierres diarios; el botón solo activa el RSI. Pendiente: IV/HV30, cambio de IV a 5 días, VIX global y ATR.

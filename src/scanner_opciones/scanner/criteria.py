@@ -92,6 +92,9 @@ class ScanCriteria:
     min_price: Optional[float] = None     # precio del subyacente (vacío = sin límite)
     max_price: Optional[float] = None
     near_level_pct: Optional[float] = None  # precio a ≤ N % de la media de 50 días o del borde de una zona de soporte probada
+    rsi_rebound_max: Optional[float] = None       # el RSI(14) ha tocado este nivel (o menos) en las últimas sesiones y hoy sube
+    max_bollinger_pctb: Optional[float] = None    # %B de Bollinger(20, 2) máximo (cerca o por debajo de la banda inferior)
+    min_bollinger_width_pct: Optional[float] = None  # ancho de las bandas respecto a la media, mínimo (%)
     # calidad de la empresa (ver scanner/quality.py); los valores por defecto no filtran nada
     require_profitable: bool = False              # EPS de los últimos 12 meses > 0 (sin dato = se descarta)
     min_positive_quarters: Optional[int] = None   # trimestres con beneficios exigidos de los últimos 4
@@ -141,7 +144,8 @@ class ScanCriteria:
     def technical_active(self) -> bool:
         return (
             self.trend_direction != "off" or self.require_support or self.min_days_since_touch is not None
-            or self.near_level_pct is not None
+            or self.near_level_pct is not None or self.rsi_rebound_max is not None
+            or self.max_bollinger_pctb is not None or self.min_bollinger_width_pct is not None
             or any(getattr(self, k) != "any" for k in (*MA_LINES, *MA_CROSSES, *MA_SLOPES))
         )
     price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD

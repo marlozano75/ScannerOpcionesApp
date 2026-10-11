@@ -288,3 +288,24 @@ def test_invalid_delta_expected_move_and_near_values_are_reported(client_and_ser
                 "use_exp=on&exp_mult=9", "use_near=on&near_pct=0"):
         assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad
     assert "Parámetro no válido" not in client.get(BASE + "&delta_min=0.4&delta_max=0.3").text   # desmarcado: la caja no se lee
+
+
+def test_the_timing_filters_are_in_the_entry_group_and_the_strategy_only_turns_on_the_rsi(client_and_service):
+    from urllib.parse import parse_qs
+    client, svc, gw, _ = client_and_service
+    page = client.get("/scanner?reset=1").text
+    entry = page.split('id="sec-entry"')[1].split("</details>")[0]
+    for name, value in (("rsi_max", "35"), ("boll_pctb", "0.3"), ("boll_width", "6")):
+        assert f'name="{name}" value="{value}"' in entry
+    href = re.search(r'<a class="strategy-btn" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
+    q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
+    assert q["use_rsi"] == "on" and q["rsi_max"] == "35" and "use_boll" not in q and "use_bw" not in q
+    on = client.get(href).text
+    assert 'class="strategy-btn on"' in on and "RSI rebota desde ≤ 35" in on
+    assert "Bollinger %B ≤ 0.3" in client.get(BASE + "&use_boll=on&boll_pctb=0.3").text
+
+
+def test_invalid_timing_values_are_reported(client_and_service):
+    client, svc, gw, _ = client_and_service
+    for bad in ("use_rsi=on&rsi_max=100", "use_rsi=on&rsi_max=x", "use_boll=on&boll_pctb=5", "use_bw=on&boll_width=0"):
+        assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad

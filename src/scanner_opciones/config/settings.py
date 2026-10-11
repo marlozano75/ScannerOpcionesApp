@@ -179,6 +179,10 @@ class TechnicalSettings(_Model):
     ma_slope_candles: int = Field(5, ge=1)                # pendiente de una media: se compara con su valor de hace N velas (de las elegidas: días, semanas o meses)
     chart_months: int = Field(24, ge=3, le=48)            # meses de cierres del gráfico del strike
     chart_near_pct: float = Field(5, ge=0)                # un cierre mensual a menos de este % por encima del strike se marca en amarillo
+    rsi_period: int = Field(14, ge=2)                      # RSI de Wilder
+    rsi_lookback_days: int = Field(10, ge=2)               # sesiones en las que el RSI debe haber tocado el nivel («rebote»)
+    bollinger_period: int = Field(20, ge=2)
+    bollinger_k: float = Field(2.0, gt=0)                  # desviaciones típicas de las bandas
     touch_min_days_options: tuple[int, ...] = (10, 20, 30, 45, 60, 90, 120, 180, 252, 365)   # opciones de «Días mín. desde el último toque»
 
 
@@ -283,6 +287,13 @@ class StrategySettings(_Model):
     min_option_liquidity: Optional[int] = Field(3, ge=1, le=5)   # None = no exigirla al cargar la estrategia
     price_above_ma200: bool = True
     avoid_earnings: bool = True
+    # señales de timing: basta con una o dos, por eso el botón solo activa el RSI por defecto
+    max_rsi_level: float = Field(35, gt=0, lt=100)         # el RSI debe haber tocado este nivel (o menos) y hoy subir
+    max_bollinger_pctb: float = Field(0.30, ge=-1, le=2)   # %B = (precio − banda inferior) / (superior − inferior); ≤ 0,3 = cerca de la inferior
+    min_bollinger_width_pct: float = Field(6.0, gt=0, le=100)   # ancho de bandas / media mínimo: evita bandas muy estrechas
+    use_rsi: bool = True
+    use_bollinger: bool = False
+    use_bollinger_width: bool = False
 
     @model_validator(mode="after")
     def _check(self) -> "StrategySettings":
