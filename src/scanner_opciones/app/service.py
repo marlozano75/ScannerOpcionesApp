@@ -1073,7 +1073,7 @@ class AppService:
         return run_scan(
             snapshots, self.infos(criteria), with_spreads(self.state.positions), criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
-            self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots),
+            self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots), self.nlv_usd(),
         )
 
     def _atr(self, criteria: ScanCriteria, snapshots) -> Optional[dict[str, float]]:
@@ -1081,6 +1081,19 @@ class AppService:
         if criteria.min_atr_multiple is None:
             return None
         return self.bars.atr({s.contract.ticker for s in snapshots}, self.settings.scanner.technical.atr_period)
+
+    def nlv_usd(self) -> Optional[float]:
+        """NLV de la cuenta en USD: con el tipo de cambio de IBKR y, si no llega, `scanner.spreads.usd_per_base`.
+        None si no hay cuenta o tipo de cambio (los pesos sobre el NLV no se pueden calcular)."""
+        acc = self.state.account
+        if acc is None or acc.net_liquidation is None:
+            return None
+        if acc.nlv_usd is not None:
+            return acc.nlv_usd
+        if acc.base_currency == "USD":
+            return acc.net_liquidation
+        manual = self.settings.scanner.spreads.usd_per_base
+        return acc.net_liquidation * manual if manual else None
 
     def scan_impact(self, criteria: ScanCriteria) -> ImpactReport:
         """Cuánto descarta cada filtro activo (ver `scanner/impact.py`). En modo spread se mide la pata vendida, sin yield."""

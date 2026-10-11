@@ -59,6 +59,19 @@ def pick_account_value(values: Iterable[Any], tag: str, account: Optional[str] =
     return None
 
 
+def account_fx(values: Sequence[Any], account: Optional[str] = None) -> tuple[Optional[str], Optional[float]]:
+    """(moneda base, dólares por unidad de moneda base). La base es la moneda de NetLiquidation que no es «BASE»;
+    el tag `ExchangeRate` de la moneda USD da las unidades de base por dólar. No verificado contra TWS."""
+    mine = [v for v in values if account is None or v.account == account]
+    base = next((str(v.currency) for v in mine if v.tag == "NetLiquidation" and getattr(v, "currency", "") not in ("", "BASE")), None)
+    if base is None:
+        return None, None
+    if base == "USD":
+        return base, 1.0
+    rate = next((num(v.value) for v in mine if v.tag == "ExchangeRate" and getattr(v, "currency", "") == "USD"), None)
+    return base, (1.0 / rate if rate and rate > 0 else None)
+
+
 def build_account_summary(
     values: Sequence[Any], tags: AccountTags, account_id: str, now: datetime
 ) -> AccountSummary:
@@ -69,6 +82,7 @@ def build_account_summary(
                   and v.value and v.value != account_id), None)
     cushion = get(tags.cushion)
     severity = get(tags.highest_severity)
+    base_currency, usd_per_base = account_fx(values, account_id)
     return AccountSummary(
         account_id=account_id,
         net_liquidation=get(tags.net_liquidation),
@@ -79,7 +93,7 @@ def build_account_summary(
         highest_severity=int(severity) if severity is not None else None,
         gross_position_value=get(tags.gross_position_value),
         updated_at=now,
-        alias=alias,
+        alias=alias, base_currency=base_currency, usd_per_base=usd_per_base,
     )
 
 

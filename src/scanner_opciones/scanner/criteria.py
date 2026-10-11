@@ -159,6 +159,11 @@ class ScanCriteria:
     min_credit_width_pct: Optional[float] = None   # crédito neto / ancho mínimo (%)
     max_spread_loss: Optional[float] = None        # pérdida máxima por spread en $
     min_return_on_risk_pct: Optional[float] = None  # crédito / pérdida máxima mínimo (%)
+    max_loss_nlv_pct: Optional[float] = None       # pérdida máxima del spread como % del NLV
+    # modo «Ambos» (`mixed`): la put desnuda solo se ofrece si cumple estos límites (basta incumplir uno para pasar a spread)
+    mixed: bool = False
+    max_naked_weight_pct: Optional[float] = None   # peso máximo de la acción sobre el NLV si te asignan (acciones + puts vendidas + esta)
+    max_naked_strike: Optional[float] = None       # strike máximo de la put desnuda ($)
 
     def with_filters(self, **overrides) -> "ScanCriteria":
         """Copia con filtros modificados (p. ej. desde la UI)."""

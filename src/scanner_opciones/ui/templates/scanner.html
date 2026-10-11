@@ -48,11 +48,16 @@
 {% if form.use_boll %}{% set _ = entry.append('Bollinger %B ≤ ' ~ form.boll_pctb) %}{% endif %}
 {% if form.use_bw %}{% set _ = entry.append('Bandas ≥ ' ~ form.boll_width ~ ' %') %}{% endif %}
 {% set spreadf = [] %}
-{% if form.mode == 'spread' %}
+{% if form.mode != 'put' %}
   {% set _ = spreadf.append('Anchos ' ~ (form.widths | join(', ')) ~ ' $') %}
   {% if form.use_cw %}{% set _ = spreadf.append('Crédito/ancho ≥ ' ~ form.cw ~ ' %') %}{% endif %}
   {% if form.use_ml %}{% set _ = spreadf.append('Pérdida máx. ≤ ' ~ form.ml ~ ' $') %}{% endif %}
   {% if form.use_ror %}{% set _ = spreadf.append('Retorno/riesgo ≥ ' ~ form.ror ~ ' %') %}{% endif %}
+  {% if form.use_mn %}{% set _ = spreadf.append('Pérdida máx. ≤ ' ~ form.mn ~ ' % NLV') %}{% endif %}
+  {% if form.mode == 'both' %}
+    {% if form.use_nw %}{% set _ = spreadf.append('Put si pesa ≤ ' ~ form.nw ~ ' % NLV') %}{% endif %}
+    {% if form.use_ns %}{% set _ = spreadf.append('Put si strike ≤ ' ~ form.ns) %}{% endif %}
+  {% endif %}
 {% endif %}
 {# chips de filtros activos (lado de resultados): (sección, texto) #}
 {% set chips = [] %}
@@ -171,15 +176,24 @@
         <select name="mode" id="mode">
           <option value="put" {{ 'selected' if form.mode == 'put' }}>Put vendida</option>
           <option value="spread" {{ 'selected' if form.mode == 'spread' }}>Spread de puts (vendida + comprada)</option>
+          <option value="both" {{ 'selected' if form.mode == 'both' }}>Ambos: put si cabe en mis límites, si no spread</option>
         </select></label>
-      {% if form.mode == 'spread' %}
+      {% if form.mode != 'put' %}
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
         <div class="fgrid"><span class="lbl full">Ancho (strike vendido − comprado, $)</span>
         {% for w in form.width_options %}<label class="check"><input type="checkbox" name="w" value="{{ w }}" {{ 'checked' if w in form.widths }}> {{ w }} $</label>{% endfor %}</div>
-        {% for key, use, label in (('cw', 'use_cw', 'Crédito / ancho mín. (%)'), ('ml', 'use_ml', 'Pérdida máxima ($)'), ('ror', 'use_ror', 'Retorno sobre riesgo mín. (%)')) %}
+        {% for key, use, label in (('cw', 'use_cw', 'Crédito / ancho mín. (%)'), ('ml', 'use_ml', 'Pérdida máxima ($)'), ('mn', 'use_mn', 'Pérdida máxima (% del NLV)'), ('ror', 'use_ror', 'Retorno sobre riesgo mín. (%)')) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
+        {% if form.mode == 'both' %}
+        <p class="note"><b>Límites de la put desnuda</b>: si incumple <i>uno</i>, esa put sale como spread.
+          El peso es acumulado: acciones que ya tienes + nominal de tus puts vendidas (en un spread, su ancho) + esta put, sobre tu NLV{% if nlv_usd %} (≈ {{ nlv_usd|num(0) }} USD){% else %} (<b>sin NLV en USD</b>: no se puede aplicar){% endif %}.</p>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_nw" {{ 'checked' if form.use_nw }}> Peso máximo de la acción (% del NLV)</span>
+          <input name="nw" value="{{ form.nw }}" inputmode="decimal" list="nw-list"><datalist id="nw-list">{% for o in form.weight_options %}<option value="{{ o }}">{% endfor %}</datalist></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ns" {{ 'checked' if form.use_ns }}> Strike máximo de la put ($)</span>
+          <input name="ns" value="{{ form.ns }}" inputmode="decimal"></label>
+        {% endif %}
         <p class="note">Los filtros de abajo (strike, delta, IV, técnicos, calidad…) se aplican a la <b>put vendida</b>; la comprada es la del mismo vencimiento <i>ancho</i> $ por debajo.
           El crédito se calcula con la vendida al precio de venta elegido y la comprada al <b>ask</b>. Pérdida máxima = (ancho − crédito) × 100, que es también el margen aproximado del spread.
           El yield anual sobre el strike no se aplica: lo sustituyen crédito/ancho y retorno sobre riesgo.</p>
@@ -362,8 +376,8 @@
   <section class="results" id="results-col" data-keep-scroll>
     <div class="summary">
       {% if out %}
-      <div class="headline"><span class="big">{{ out.spreads|length if criteria and criteria.spread_mode else out.results|length }}</span>
-        <span>{{ 'spreads' if criteria and criteria.spread_mode else 'contratos' }} cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></span></div>
+      <div class="headline"><span class="big">{{ out.mixed|length if criteria and criteria.mixed else out.spreads|length if criteria and criteria.spread_mode else out.results|length }}</span>
+        <span>{{ 'filas (puts y spreads)' if criteria and criteria.mixed else 'spreads' if criteria and criteria.spread_mode else 'contratos' }} cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></span></div>
       {% endif %}
       {% if criteria %}
       <p class="applied">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
@@ -380,7 +394,22 @@
       </details>
       {% endif %}
     </div>
-    {% if out and criteria and criteria.spread_mode %}
+    {% if out and criteria and criteria.mixed %}
+    <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results">
+      <tr><th class="tk">Ticker</th><th>Tipo</th><th>Precio</th><th>Strike(s)</th><th>Ancho</th><th>DTE</th><th>Crédito</th>
+        <th class="hl" data-sort-default="desc">Retorno anual s/ capital</th><th>Capital ($)</th><th>Peso NLV si asignado</th>
+        <th>Delta vend.</th><th>IV Rank</th><th>Pérd. máx. ($)</th><th>Breakeven</th><th>Por qué spread</th></tr>
+      {% for m in out.mixed %}{% set r = m.short %}{% set c = r.snapshot.contract %}{% set sp = m.spread %}
+      <tr><td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}">{{ c.ticker }}</a></td>
+        <td>{{ 'Spread' if sp else 'Put' }}</td><td>{{ r.info.underlying_price|num if r.info else '—' }}</td>
+        <td>{{ c.strike|num }}{% if sp %} / {{ sp.long.contract.strike|num }}{% endif %}</td><td>{{ sp.width|num if sp else '—' }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+        <td>{{ m.credit|num }}</td><td class="hl">{{ m.return_on_capital_annualized_pct|pct(0) }}</td>
+        <td title="{{ 'Pérdida máxima' if sp else 'Margen what-if' }}">{{ m.capital|num(0) if m.capital is not none else '—' }}</td><td>{{ m.weight_pct|pct }}</td>
+        <td>{{ r.snapshot.delta|num }}</td><td>{{ r.snapshot.iv_rank|pct(0) }}</td>
+        <td>{{ sp.max_loss|num(0) if sp else '—' }}</td><td>{{ sp.breakeven|num if sp else '—' }}</td><td class="txt muted">{{ m.why_spread }}</td></tr>
+      {% else %}<tr><td colspan="40" class="muted empty">Nada cumple los criterios.</td></tr>{% endfor %}
+    </table></div>
+    {% elif out and criteria and criteria.spread_mode %}
     <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results">
       <tr><th class="tk">Ticker</th><th>Precio</th><th>Vendida</th><th>Comprada</th><th>Ancho</th><th>DTE</th>
         <th>Crédito</th><th>Crédito/ancho</th><th class="hl" data-sort-default="desc">Retorno/riesgo anual</th><th>Retorno/riesgo</th>

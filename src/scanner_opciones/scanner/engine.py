@@ -14,7 +14,7 @@ from scanner_opciones.portfolio.diversification import CandidateImpact, candidat
 from scanner_opciones.scanner.criteria import ScanCriteria
 from scanner_opciones.scanner.filters import reject_reason
 from scanner_opciones.scanner.quality import DEFAULT_EXEMPT, quality_reject
-from scanner_opciones.scanner.spreads import build_spreads
+from scanner_opciones.scanner.spreads import build_mixed, build_spreads
 from scanner_opciones.scanner.signals import signals_reject
 from scanner_opciones.scanner.technical import TechnicalFilter
 from scanner_opciones.config.settings import TechnicalSettings
@@ -40,6 +40,7 @@ class ScanOutput:
     rejected_count: int
     rejections: dict[str, str]  # clave "TICKER expiry strike" -> motivo (para depuración)
     spreads: list = field(default_factory=list)   # SpreadResult (solo con criteria.spread_mode); `results` son entonces las patas vendidas
+    mixed: list = field(default_factory=list)     # MixedRow (solo con criteria.mixed): put desnuda si cabe en los límites, si no spread
 
 
 def run_scan(
@@ -53,9 +54,11 @@ def run_scan(
     technical: Optional[TechnicalSettings] = None,
     exempt_sectors: Optional[Sequence[str]] = None,
     atr: Optional[dict[str, float]] = None,
+    nlv_usd: Optional[float] = None,
 ) -> ScanOutput:
     """`bars` (cierres diarios por ticker) y `technical` solo hacen falta si `criteria.technical_active`."""
     exempt = exempt_sectors
+    naked_min_yield = criteria.min_annual_yield_pct    # en modo «Ambos» solo lo exige la put desnuda
     if criteria.spread_mode:   # el yield sobre el strike no vale para un spread: lo sustituyen crédito/ancho y retorno sobre riesgo
         criteria = replace(criteria, min_annual_yield_pct=0.0)
     tech = TechnicalFilter(criteria, technical or TechnicalSettings(), bars or {}, today) if criteria.technical_active else None
@@ -81,8 +84,9 @@ def run_scan(
             continue
         results.append(build_result(snap, info, positions, criteria, today))
     results.sort(key=lambda r: r.yield_ref_annualized_pct or 0.0, reverse=True)
-    spreads = build_spreads(results, snapshots, criteria, positions) if criteria.spread_mode else []
-    return ScanOutput(results, rejected, rejections, spreads)
+    spreads = build_spreads(results, snapshots, criteria, positions, nlv_usd) if criteria.spread_mode else []
+    mixed = build_mixed(results, spreads, criteria, positions, nlv_usd, naked_min_yield) if criteria.mixed else []
+    return ScanOutput(results, rejected, rejections, spreads, mixed)
 
 
 def build_result(

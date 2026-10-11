@@ -443,7 +443,7 @@ def create_app(
         thresholds = service.settings.risk.cushion_thresholds
         curve, shape = dash.vix_curve(vix, service.now().date()) if vix else (viz.empty(), None)
         vix_note = vix_advice(vix, service.settings.scanner.strategy)
-        nlv = service.state.account.net_liquidation if service.state.account else None
+        nlv = service.nlv_usd() or (service.state.account.net_liquidation if service.state.account else None)   # strikes y posiciones en USD
         mgmt = manage_puts(service.state.positions, nlv, service.now().date(),
                            {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management)
         charts = dict(
@@ -752,19 +752,21 @@ def create_app(
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
         form.update(mode="put", widths=[_fmt(w) for w in sp.widths], width_options=[_fmt(w) for w in sp.width_options],
                     use_cw=False, cw=_fmt(sp.min_credit_width_pct), use_ml=False, ml=_fmt(sp.max_loss),
-                    use_ror=False, ror=_fmt(sp.min_return_on_risk_pct))
+                    use_ror=False, ror=_fmt(sp.min_return_on_risk_pct),
+                    use_mn=False, mn=_fmt(sp.max_loss_nlv_pct), use_nw=False, nw=_fmt(sp.max_naked_weight_pct),
+                    use_ns=False, ns=_fmt(sp.max_naked_strike), weight_options=[_fmt(w) for w in sp.weight_options])
 
         criteria, error, warnings = None, None, []
         try:
             overrides: dict = {}
             if submitted:
                 form["mode"] = qp.get("mode", "put")
-                if form["mode"] not in ("put", "spread"):
+                if form["mode"] not in ("put", "spread", "both"):
                     raise ValueError("modo desconocido")
                 form["widths"] = [w.strip() for w in qp.getlist("w")]
-                for key in ("use_cw", "use_ml", "use_ror"):
+                for key in ("use_cw", "use_ml", "use_ror", "use_mn", "use_nw", "use_ns"):
                     form[key] = key in qp
-                for key in ("cw", "ml", "ror"):
+                for key in ("cw", "ml", "ror", "mn", "nw", "ns"):
                     if key in qp:
                         form[key] = qp.get(key, "").strip()
                 for key in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -880,7 +882,7 @@ def create_app(
                 overrides["min_bollinger_width_pct"] = _required(form["boll_width"], float, "Ancho de bandas (%)")
                 if not (0 < overrides["min_bollinger_width_pct"] <= 100):
                     raise ValueError("el ancho de las bandas debe estar entre 0 y 100 %")
-            if form["mode"] == "spread":
+            if form["mode"] in ("spread", "both"):
                 widths = []
                 for w in form["widths"]:
                     value = _required(w, float, "Ancho del spread")
@@ -893,11 +895,26 @@ def create_app(
                 for use, key, field_name, label, upper in (
                         ("use_cw", "cw", "min_credit_width_pct", "Crédito / ancho mín. (%)", 100),
                         ("use_ml", "ml", "max_spread_loss", "Pérdida máxima ($)", None),
-                        ("use_ror", "ror", "min_return_on_risk_pct", "Retorno sobre riesgo mín. (%)", None)):
+                        ("use_ror", "ror", "min_return_on_risk_pct", "Retorno sobre riesgo mín. (%)", None),
+                        ("use_mn", "mn", "max_loss_nlv_pct", "Pérdida máxima (% del NLV)", 100)):
                     if form[use]:
                         overrides[field_name] = _required(form[key], float, label)
                         if overrides[field_name] <= 0 or (upper is not None and overrides[field_name] >= upper):
                             raise ValueError(f"{label} fuera de rango")
+                if form["mode"] == "both":
+                    for use, key, field_name, label, upper in (
+                            ("use_nw", "nw", "max_naked_weight_pct", "Peso máximo de la acción (% del NLV)", 100),
+                            ("use_ns", "ns", "max_naked_strike", "Strike máximo de la put desnuda ($)", None)):
+                        if form[use]:
+                            overrides[field_name] = _required(form[key], float, label)
+                            if overrides[field_name] <= 0 or (upper is not None and overrides[field_name] > upper):
+                                raise ValueError(f"{label} fuera de rango")
+                    if not (form["use_nw"] or form["use_ns"]):
+                        raise ValueError("en el modo «Ambos» marca al menos un límite de la put desnuda (peso o strike máximo)")
+                    overrides["mixed"] = True
+                    if form["use_nw"] and service.nlv_usd() is None:
+                        warnings.append("No hay NLV en USD (falta la cuenta o el tipo de cambio): el límite de peso no se puede aplicar. "
+                                        "Indica scanner.spreads.usd_per_base en config.yaml.")
             criteria = base.with_filters(**overrides)
             if criteria.strike_below_pct_min < cand.strike_below_pct_min:
                 warnings.append(f"Descuento mín. por debajo del rango guardado ({cand.strike_below_pct_min:g}%): "
@@ -991,7 +1008,7 @@ def create_app(
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
         return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
-                      yield_max=yield_max, strategy_qs=strategy_qs, strategy_on=strategy_on,
+                      yield_max=yield_max, nlv_usd=service.nlv_usd(), strategy_qs=strategy_qs, strategy_on=strategy_on,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
                       candidates=service.settings.scanner.candidates,
                       margin=service.settings.scanner.catalog_margin_pct,

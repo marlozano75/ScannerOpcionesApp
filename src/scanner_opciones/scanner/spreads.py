@@ -10,7 +10,7 @@ from typing import Optional, Sequence
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot
 from scanner_opciones.metrics.yields import mid_price
-from scanner_opciones.portfolio.diversification import candidate_impact
+from scanner_opciones.portfolio.diversification import candidate_impact, nominal
 from scanner_opciones.scanner.criteria import ScanCriteria
 
 EPS = 1e-6
@@ -36,8 +36,68 @@ def _long_leg_index(snapshots: Sequence[ContractSnapshot]) -> dict[tuple, Contra
             for s in snapshots if s.contract.right is OptionRight.PUT}
 
 
+@dataclass(frozen=True)
+class MixedRow:
+    """Fila del modo «Ambos»: una put desnuda (`spread is None`) o un spread, con el capital que inmoviliza."""
+    kind: str                        # put | spread
+    short: "object"                  # ScanResult de la pata vendida
+    spread: Optional[SpreadResult]
+    credit: float                    # por acción
+    capital: Optional[float]         # margen what-if (put) o pérdida máxima (spread), en $
+    return_on_capital_annualized_pct: Optional[float]
+    weight_pct: Optional[float]      # peso de la acción sobre el NLV si te asignan, con esta posición (spread: su ancho)
+    why_spread: str = ""             # por qué la put desnuda no cabe (solo en spreads)
+
+
+def ticker_exposure(positions: Sequence) -> dict[str, float]:
+    """USD por ticker que ya tienes: acciones + nominal de las puts vendidas (en un spread, su ancho)."""
+    out: dict[str, float] = {}
+    for p in positions:
+        if p.option is None:
+            if p.quantity > 0:
+                out[p.ticker] = out.get(p.ticker, 0.0) + p.market_value
+        else:
+            out[p.ticker] = out.get(p.ticker, 0.0) + nominal(p)
+    return out
+
+
+def build_mixed(
+    shorts: Sequence, spreads: Sequence[SpreadResult], criteria: ScanCriteria, positions: Sequence, nlv_usd: Optional[float],
+    naked_min_yield_pct: float = 0.0,
+) -> list[MixedRow]:
+    """Put desnuda si cumple los límites (peso acumulado sobre el NLV y strike máximo); si no, sus spreads. Orden: retorno anualizado sobre capital."""
+    held = ticker_exposure(positions)
+    by_short: dict[int, list[SpreadResult]] = {}
+    for sp in spreads:
+        by_short.setdefault(id(sp.short), []).append(sp)
+    rows: list[MixedRow] = []
+    for r in shorts:
+        c = r.snapshot.contract
+        nominal_naked = c.strike * c.multiplier
+        weight = (held.get(c.ticker, 0.0) + nominal_naked) / nlv_usd * 100 if nlv_usd else None
+        reasons = []
+        if criteria.max_naked_weight_pct is not None and weight is not None and weight > criteria.max_naked_weight_pct:
+            reasons.append(f"pesaría {weight:.1f} % del NLV (máx. {criteria.max_naked_weight_pct:g} %)")
+        if criteria.max_naked_strike is not None and c.strike > criteria.max_naked_strike:
+            reasons.append(f"strike {c.strike:g} > {criteria.max_naked_strike:g}")
+        if not reasons:
+            if (r.yield_ref_annualized_pct or 0.0) < naked_min_yield_pct:
+                continue
+            margin = r.snapshot.initial_margin
+            ror = (r.reference_price * c.multiplier / margin * 365 / r.dte
+                   if margin and margin > 0 and r.reference_price and r.dte > 0 else None)
+            rows.append(MixedRow("put", r, None, r.reference_price or 0.0, margin, ror * 100 if ror is not None else None, weight))
+            continue
+        for sp in by_short.get(id(r), []):
+            w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier) / nlv_usd * 100 if nlv_usd else None
+            rows.append(MixedRow("spread", r, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, "; ".join(reasons)))
+    rows.sort(key=lambda x: (x.return_on_capital_annualized_pct is not None, x.return_on_capital_annualized_pct or 0.0), reverse=True)
+    return rows
+
+
 def build_spreads(
     shorts: Sequence, snapshots: Sequence[ContractSnapshot], criteria: ScanCriteria, positions: list,
+    nlv_usd: Optional[float] = None,
 ) -> list[SpreadResult]:
     """Spreads que cumplen `criteria` (anchos, crédito/ancho, pérdida máxima y retorno sobre riesgo)."""
     index = _long_leg_index(snapshots)
@@ -61,6 +121,8 @@ def build_spreads(
             if criteria.min_credit_width_pct is not None and credit_width < criteria.min_credit_width_pct - EPS:
                 continue
             if criteria.max_spread_loss is not None and max_loss > criteria.max_spread_loss + EPS:
+                continue
+            if criteria.max_loss_nlv_pct is not None and nlv_usd and max_loss / nlv_usd * 100 > criteria.max_loss_nlv_pct + EPS:
                 continue
             if criteria.min_return_on_risk_pct is not None and ror < criteria.min_return_on_risk_pct - EPS:
                 continue

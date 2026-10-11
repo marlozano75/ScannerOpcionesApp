@@ -141,6 +141,15 @@ class AccountSummary:
     gross_position_value: Optional[float] = None
     updated_at: Optional[datetime] = None
     alias: Optional[str] = None                   # nombre de la cuenta en IBKR (tag AccountOrGroup)
+    base_currency: Optional[str] = None           # moneda base de la cuenta (EUR…)
+    usd_per_base: Optional[float] = None          # dólares por unidad de moneda base (EUR→USD); 1 si la cuenta es en USD
+
+    @property
+    def nlv_usd(self) -> Optional[float]:
+        """Valor liquidativo en USD (los strikes y posiciones están en USD). None si falta el NLV o el tipo de cambio."""
+        if self.net_liquidation is None or not self.usd_per_base:
+            return None
+        return self.net_liquidation * self.usd_per_base
 
 
 @dataclass(frozen=True)

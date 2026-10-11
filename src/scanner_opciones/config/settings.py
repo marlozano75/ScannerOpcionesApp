@@ -165,6 +165,12 @@ class SpreadSettings(_Model):
     min_credit_width_pct: float = Field(25, gt=0, lt=100)    # crédito neto / ancho mínimo
     max_loss: float = Field(500, gt=0)               # pérdida máxima por spread en $ ((ancho − crédito) × multiplicador)
     min_return_on_risk_pct: float = Field(30, gt=0)  # crédito / pérdida máxima mínimo
+    # modo «Ambos»: la put desnuda solo se ofrece si cabe en estos límites; si no, sale el spread
+    weight_options: tuple[float, ...] = (5.0, 10.0)  # peso máximo (% del NLV) ofrecido en el formulario
+    max_naked_weight_pct: float = Field(5, gt=0, le=100)   # peso máximo de la acción si te asignan (acciones + puts vendidas + esta)
+    max_naked_strike: float = Field(100, gt=0)       # strike máximo de la put desnuda ($)
+    max_loss_nlv_pct: float = Field(2, gt=0, le=100)  # pérdida máxima del spread como % del NLV
+    usd_per_base: Optional[float] = Field(None, gt=0)  # dólares por unidad de moneda base si IBKR no da el tipo de cambio
 
     @model_validator(mode="after")
     def _check(self) -> "SpreadSettings":

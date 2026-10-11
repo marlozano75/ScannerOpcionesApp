@@ -29,6 +29,11 @@ scanner:
     min_credit_width_pct: 25                # crédito neto / ancho mínimo que propone la caja
     max_loss: 500                           # pérdida máxima por spread ($) que propone la caja
     min_return_on_risk_pct: 30              # crédito / pérdida máxima mínimo que propone la caja
+    weight_options: [5, 10]                 # modo «Ambos»: pesos máximos sobre el NLV ofrecidos
+    max_naked_weight_pct: 5                 # peso máximo de la acción (acciones + puts vendidas + esta) para ofrecer la put desnuda
+    max_naked_strike: 100                   # strike máximo de la put desnuda ($); por encima, solo spread
+    max_loss_nlv_pct: 2                     # pérdida máxima del spread como % del NLV
+    # usd_per_base: 1.17                    # dólares por euro, solo si IBKR no da el tipo de cambio
   quality:                 # opciones del bloque «Calidad de la empresa» del scanner
     liquidity_options: [2, 3, 4]            # liquidez mínima de las opciones (1-5, de tastytrade)
     positive_quarters_options: [2, 3, 4]    # trimestres con beneficios exigidos de los últimos 4
