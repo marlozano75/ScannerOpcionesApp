@@ -100,6 +100,7 @@
   .side .check:has(input[type=checkbox]:checked) { color:#14573f; font-weight:600; }
   .side .opt-row:has(input[type=checkbox]:checked) input:not([type=checkbox]) { background:#e3f1ea; border-color:var(--ok); color:#14573f; font-weight:600; }
   /* condición de la estrategia que se ha desactivado (con el resto de la estrategia cargada): rojo, con el valor conservado */
+  .side .strat-count { margin-left:6px; padding:0 6px; border-radius:8px; background:#e8eaf3; color:#3b4470; font-size:11px; font-weight:600; }
   .side .strat-off { color:var(--red); font-weight:600; }
   .side .strat-off .check, .side .check.strat-off { color:var(--red); text-decoration:line-through; }
   .side .opt-row.strat-off input:not([type=checkbox]), .side select.strat-off { background:#fbe9e9; border-color:var(--red); color:#8f2a2a; text-decoration:line-through; }
@@ -341,7 +342,7 @@
       {% endif %}
       {% if chips %}<div class="chips">{% for sec, text in chips %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}</div>{% endif %}
       {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
-      {% for w in warnings %}<div class="banner info">{{ w }}</div>{% endfor %}
+      {% for w in warnings %}<div class="banner info closable" data-warning><span>{{ w }}</span><button type="button" class="close" title="Quitar el aviso" aria-label="Quitar el aviso">×</button></div>{% endfor %}
       {% if criteria %}
       <details class="viz-box" id="viz-box" data-url="/scanner/impact" open>
         <summary>¿Cuánto descarta cada filtro? <span class="muted">(ver lo restrictiva que es la selección)</span></summary>
@@ -372,6 +373,28 @@
 </dialog>
 
 <script>
+  // Avisos del Scanner: se quitan con la «×» o al tocar por primera vez un filtro; el texto quitado se recuerda en la sesión
+  (function () {
+    const KEY = 'scanner-warnings-dismissed';
+    const read = function () { try { return JSON.parse(sessionStorage.getItem(KEY) || '[]'); } catch (e) { return []; } };
+    const save = function (list) { try { sessionStorage.setItem(KEY, JSON.stringify(list)); } catch (e) { /* sin almacenamiento */ } };
+    const dismiss = function (box) {
+      const text = box.querySelector('span').textContent, list = read();
+      if (list.indexOf(text) < 0) { list.push(text); save(list); }
+      box.remove();
+    };
+    const dismissed = read();
+    document.querySelectorAll('[data-warning]').forEach(function (box) {
+      if (dismissed.indexOf(box.querySelector('span').textContent) >= 0) box.remove();
+      else box.querySelector('.close').addEventListener('click', function () { dismiss(box); });
+    });
+    const form = document.getElementById('scan-form');
+    if (form) {
+      const all = function () { document.querySelectorAll('[data-warning]').forEach(dismiss); };
+      form.addEventListener('change', all);
+      form.addEventListener('click', function (e) { if (e.target.closest('button, a, input, select, label')) all(); });
+    }
+  })();
   // Gráfico del strike: al pulsar un ticker de la tabla se carga su historial de cierres mensuales y el último toque
   (function () {
     const dlg = document.getElementById('strike-dialog');
@@ -405,20 +428,45 @@
     }
     sels.forEach(function (s) { mark(s); s.addEventListener('change', function () { mark(s); }); });
   })();
-  // Condiciones de la estrategia desactivadas: con la estrategia cargada (4+ de sus casillas marcadas) las que se
-  // desmarcan quedan en rojo. Una casilla se activa/desactiva con un clic y conserva su valor; escanea al cambiar.
+  // Condiciones de la estrategia: con la estrategia cargada (4+ de sus casillas marcadas, o cargada antes en esta sesión con el
+  // botón) las que se desmarcan quedan en rojo en vez de desaparecer. Una casilla se activa/desactiva con un clic y conserva su
+  // valor; escanea al cambiar. Cada condición activa muestra cuántos contratos de la ventana descarta ella sola (panel de impacto).
   (function () {
     const BOXES = ['use_delta', 'use_near', 'use_ivr', 'use_ivp', 'use_ivhv', 'use_ivchg', 'use_bid', 'use_atr', 'use_rsi', 'use_boll', 'use_bw'];
+    const KEYS = { use_delta: 'delta', use_near: 'near_level', use_ivr: 'iv_rank', use_ivp: 'iv_pct', use_ivhv: 'iv_hv', use_ivchg: 'iv_change',
+                   use_bid: 'bid', use_atr: 'atr', use_rsi: 'rsi', use_boll: 'bollinger', use_bw: 'bollinger_width', q_earn: 'earnings' };
+    const FLAG = 'strategy-loaded';
     const rows = BOXES.map(function (n) { return form.elements[n]; }).filter(Boolean);
     const earn = form.elements['q_earn'];
+    const all = rows.concat(earn ? [earn] : []);
+    const btn = form.querySelector('a.strategy-btn');
+    if (btn) btn.addEventListener('click', function () { try { sessionStorage.setItem(FLAG, '1'); } catch (e) { /* sin almacenamiento */ } });
+    function loaded() {
+      let flag = false;
+      try { flag = sessionStorage.getItem(FLAG) === '1'; } catch (e) { /* idem */ }
+      return flag || rows.filter(function (c) { return c.checked; }).length >= 4;
+    }
     function paint() {
-      const loaded = rows.filter(function (c) { return c.checked; }).length >= 4;
-      rows.concat(earn ? [earn] : []).forEach(function (c) {
+      const on = loaded();
+      all.forEach(function (c) {
         const row = c.closest('.opt-row') || c.closest('.check');
-        if (row) row.classList.toggle('strat-off', loaded && !c.checked);
+        if (row) row.classList.toggle('strat-off', on && !c.checked);
       });
     }
-    rows.concat(earn ? [earn] : []).forEach(function (c) { c.addEventListener('change', paint); });
+    window.stratCounts = function () {
+      document.querySelectorAll('.strat-count').forEach(function (b) { b.remove(); });
+      all.forEach(function (c) {
+        const tr = c.checked ? document.querySelector('#impact-body tr[data-key="' + KEYS[c.name] + '"]') : null;
+        const host = c.closest('.check') || c.closest('label');
+        if (!tr || !host) return;
+        const b = document.createElement('span');
+        b.className = 'strat-count';
+        b.textContent = '−' + tr.dataset.drop;
+        b.title = 'Contratos del rango (strike y DTE) que descarta este filtro por sí solo';
+        host.appendChild(b);
+      });
+    };
+    all.forEach(function (c) { c.addEventListener('change', paint); });
     paint();
   })();
   // Secciones plegables: se recuerda cuáles están abiertas (por defecto, las dos primeras)
@@ -462,7 +510,7 @@
       loaded = true;
       fetch(box.dataset.url + window.location.search, { headers: { 'X-Requested-With': 'fetch' } })
         .then(function (r) { return r.text(); })
-        .then(function (html) { document.getElementById('impact-body').innerHTML = html; })
+        .then(function (html) { document.getElementById('impact-body').innerHTML = html; if (window.stratCounts) window.stratCounts(); })
         .catch(function () { document.getElementById('impact-body').textContent = 'No se pudo calcular.'; });
     }
     box.addEventListener('toggle', function () {
