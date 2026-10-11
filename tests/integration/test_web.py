@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -785,3 +786,6 @@ def test_header_shows_the_account_id(client_and_service):
     client, svc, gw, created = client_and_service
     html = client.get("/").text
     assert '<span class="acct"' in html and ">DU1<" in html
+    svc.state.account = replace(svc.state.account, alias="MiguelAngel")
+    html = client.get("/").text
+    assert ">MiguelAngel<" in html and "Cuenta de IBKR DU1" in html

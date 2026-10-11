@@ -65,6 +65,8 @@ def build_account_summary(
     def get(tag: str) -> Optional[float]:
         return pick_account_value(values, tag, account_id)
 
+    alias = next((str(v.value) for v in values if v.tag == "AccountOrGroup" and getattr(v, "account", account_id) == account_id
+                  and v.value and v.value != account_id), None)
     cushion = get(tags.cushion)
     severity = get(tags.highest_severity)
     return AccountSummary(
@@ -77,6 +79,7 @@ def build_account_summary(
         highest_severity=int(severity) if severity is not None else None,
         gross_position_value=get(tags.gross_position_value),
         updated_at=now,
+        alias=alias,
     )
 
 

@@ -141,6 +141,7 @@ class IBKRGateway:
     async def get_account_summary(self) -> AccountSummary:
         self._require()
         account = self._account_id()
+        await self._subscribe_portfolio(account)   # sin ella accountValues() va vacío (y no trae el alias)
         # accountValues() se mantiene actualizado por la suscripción automática de ib_async
         values = list(self.ib.accountValues(account))
         # accountSummary aporta valores que accountValues no trae (p. ej. HighestSeverity)

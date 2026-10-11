@@ -41,3 +41,13 @@ async def test_positions_subscribe_the_configured_account_once():
     assert [(p.ticker, p.quantity, p.sector) for p in first] == [("AAPL", 10.0, "Technology")]
     await gw.get_positions()
     assert gw.ib.requests == ["U2"]          # la suscripción se pide una vez, no en cada lectura
+
+
+def test_account_alias_comes_from_account_or_group():
+    from types import SimpleNamespace as NS
+    from scanner_opciones.broker.ibkr_mapper import build_account_summary
+    from scanner_opciones.config.settings import AccountTags
+    values = [NS(tag="AccountOrGroup", value="MiguelAngel", currency="BASE", account="U1"),
+              NS(tag="AccountOrGroup", value="Otra", currency="BASE", account="U2"),
+              NS(tag="NetLiquidation", value="1000", currency="EUR", account="U1")]
+    assert build_account_summary(values, AccountTags(), "U1", datetime(2026, 10, 11)).alias == "MiguelAngel"

@@ -135,6 +135,7 @@ class AccountSummary:
     highest_severity: Optional[int] = None
     gross_position_value: Optional[float] = None
     updated_at: Optional[datetime] = None
+    alias: Optional[str] = None                   # nombre de la cuenta en IBKR (tag AccountOrGroup)
 
 
 @dataclass(frozen=True)

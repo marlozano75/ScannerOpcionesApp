@@ -197,7 +197,7 @@
         <option value="live" {{ 'selected' if mode == 'live' }}>Cuenta real</option>
       </select>
     </form>
-    {% if account_id %}<span class="acct" title="Cuenta de IBKR{{ '' if state.connected else ' (de la última conexión)' }}">{{ account_id }}</span>{% endif %}
+    {% if account_id %}<span class="acct" title="Cuenta de IBKR {{ account_id }}{{ '' if state.connected else ' (de la última conexión)' }}">{{ account_alias or account_id }}</span>{% endif %}
     <span>Últ. refresco: {{ state.last_refresh.strftime('%H:%M:%S') if state.last_refresh else '—' }} (cada {{ refresh_minutes|round|int }} min)</span>
     <form class="inline" method="post" action="/refresh"><button class="secondary" {{ 'disabled' if busy }}>Refrescar ahora</button></form>
   </div>

@@ -309,7 +309,8 @@ def create_app(
     def render(request: Request, name: str, **ctx) -> HTMLResponse:
         base = dict(
             state=service.state, mode=service.settings.ibkr.mode.value,
-            account_id=(service.state.account.account_id if service.state.account else service.settings.ibkr.account), busy=service.busy,
+            account_id=(service.state.account.account_id if service.state.account else service.settings.ibkr.account),
+            account_alias=service.state.account.alias if service.state.account else None, busy=service.busy,
             refresh_minutes=service.settings.refresh_interval_minutes,
             delay_minutes=service.settings.ibkr.delay_minutes,
             pacing_wait=service.pacing_wait_seconds() if service.busy else 0,
