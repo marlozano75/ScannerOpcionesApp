@@ -1,6 +1,7 @@
 """Datos de los filtros de la estrategia: HV30/IV30/cambio de IV con el mercado cerrado, avisos de cobertura, botón que respeta los
 demás filtros y reintento de las velas sin respuesta."""
 import re
+from datetime import timedelta, timezone
 from urllib.parse import parse_qs
 
 import pytest
@@ -41,11 +42,27 @@ async def test_the_iv_stats_are_filled_without_a_market_refresh_and_are_not_requ
     assert vol.calls == [["AAPL"]] and not svc.daily.iv_stats_due()
 
 
-async def test_the_iv_stats_are_due_again_if_a_ticker_still_has_no_hv30():
-    svc = await service_with(FakeVolatility({"AAPL": IVMetrics(iv_rank=10.0, iv_percentile=20.0)}))   # el proveedor no da HV30
+async def test_a_ticker_the_provider_never_gives_iv30_for_is_retried_only_after_a_few_hours():
+    svc = await service_with(FakeVolatility({"AAPL": IVMetrics(iv_rank=10.0, iv_percentile=20.0)}))   # el proveedor no da IV30
     await svc.daily.run_pending()
     await svc.daily.update_iv_stats(["AAPL"])
-    assert svc.daily.iv_stats_due()                    # sigue sin HV30: se vuelve a intentar
+    assert not svc.daily.iv_stats_due()                # recién intentado: no se repite en cada ciclo
+    old = (svc.now().astimezone(timezone.utc) - timedelta(hours=7)).isoformat()
+    svc.meta.set("iv_stats_fetched_at", old)
+    assert svc.daily.iv_stats_due()
+
+
+async def test_a_missing_hv30_is_computed_from_the_stored_closes_and_a_missing_value_does_not_discard():
+    svc = await service_with(FakeVolatility({}))
+    await svc.daily.run_pending()
+    svc.ticker_info.update_iv_stats("AAPL", 50.0, 60.0, None, 27.0, None)
+    c = svc.criteria(min_iv_hv_ratio=1.2, max_iv_change_5d=0.0)
+    assert svc.infos(c)["AAPL"].hv30 is None                       # sin cierres no hay respaldo
+    px = 100.0
+    days = [svc.now().date() - timedelta(days=i) for i in range(40, 0, -1)]
+    svc.bars.upsert("AAPL", [(d, px := px * (1.02 if i % 2 else 0.98)) for i, d in enumerate(days)])
+    assert 30 < svc.infos(c)["AAPL"].hv30 < 90 and svc.ticker_info.get("AAPL").hv30 is None    # calculada, no guardada
+    assert svc.infos(svc.criteria())["AAPL"].hv30 is None          # sin el filtro no se calcula
 
 
 async def test_a_provider_failure_keeps_the_stored_values():
@@ -84,6 +101,7 @@ async def test_data_gap_warnings_name_each_active_filter_with_missing_data():
     c = svc.criteria(min_iv_hv_ratio=1.2, max_iv_change_5d=0.0, min_atr_multiple=2.0)
     text = " | ".join(svc.filter_data_gaps(c))
     assert "IV/HV30 en 1 de 1 tickers" in text and "cambio de IV a 5 días en 1 de 1" in text and "el ATR en 1 de 1" in text
+    assert text.count("no se descartan por este filtro") == 3 and "sus contratos se descartan" not in text
     assert svc.filter_data_gaps(svc.criteria()) == []                      # sin filtros activos no se avisa
     svc.ticker_info.update_iv_stats("AAPL", 50.0, 60.0, 20.0, 27.0, -0.5)
     assert svc.filter_data_gaps(svc.criteria(min_iv_hv_ratio=1.2, max_iv_change_5d=0.0)) == []     # con datos, sin avisos

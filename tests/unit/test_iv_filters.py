@@ -39,8 +39,8 @@ def test_iv_hv_ratio_filter():
     ok = TickerInfo("AAPL", iv30=27.61, hv30=20.15)                                  # 1,37
     assert reject_reason(snap(), 100.0, TODAY, c, info=ok) is None
     assert "IV/HV" in reject_reason(snap(), 100.0, TODAY, c, info=TickerInfo("AAPL", iv30=22.0, hv30=20.0))
-    assert "sin IV30" in reject_reason(snap(), 100.0, TODAY, c, info=TickerInfo("AAPL"))
-    assert "sin IV30" in reject_reason(snap(), 100.0, TODAY, c)
+    assert reject_reason(snap(), 100.0, TODAY, c, info=TickerInfo("AAPL")) is None      # sin dato no se puede evaluar: no descarta
+    assert reject_reason(snap(), 100.0, TODAY, c) is None
     assert reject_reason(snap(), 100.0, TODAY, BASE) is None
 
 
@@ -49,14 +49,22 @@ def test_iv_change_filter_accepts_zero_or_negative_and_rejects_a_rising_iv():
     assert reject_reason(snap(), 100.0, TODAY, c, info=TickerInfo("AAPL", iv_change_5d=-0.8)) is None
     assert reject_reason(snap(), 100.0, TODAY, c, info=TickerInfo("AAPL", iv_change_5d=0.0)) is None
     assert "ha subido" in reject_reason(snap(), 100.0, TODAY, c, info=TickerInfo("AAPL", iv_change_5d=1.04))
-    assert "sin cambio" in reject_reason(snap(), 100.0, TODAY, c, info=TickerInfo("AAPL"))
+    assert reject_reason(snap(), 100.0, TODAY, c, info=TickerInfo("AAPL")) is None     # sin dato no descarta
 
 
 def test_the_engine_passes_the_ticker_info_to_the_iv_filters():
     infos = {"AAPL": TickerInfo("AAPL", underlying_price=100.0, iv30=30.0, hv30=20.0, iv_change_5d=-1.0)}
     c = BASE.with_filters(min_iv_hv_ratio=1.2, max_iv_change_5d=0.0)
     assert len(run_scan([snap()], infos, [], c, TODAY).results) == 1
-    assert run_scan([snap()], {"AAPL": TickerInfo("AAPL", underlying_price=100.0)}, [], c, TODAY).results == []
+    assert len(run_scan([snap()], {"AAPL": TickerInfo("AAPL", underlying_price=100.0)}, [], c, TODAY).results) == 1   # sin dato, pasa
+    bad = {"AAPL": TickerInfo("AAPL", underlying_price=100.0, iv30=20.0, hv30=20.0, iv_change_5d=-1.0)}
+    assert run_scan([snap()], bad, [], c, TODAY).results == []                                                      # con dato malo, no
+
+
+def test_iv30_falls_back_to_the_iv_index_when_tastytrade_gives_no_30_day_value():
+    item = SimpleNamespace(implied_volatility_index_rank="0.5", implied_volatility_percentile="0.6", implied_volatility_30_day=None,
+                           historical_volatility_30_day=None, implied_volatility_index="0.4063")
+    assert to_metrics(item).iv30 == 40.63 and to_metrics(item).hv30 is None
 
 
 def test_hv30_iv30_and_the_iv_change_are_stored_and_a_missing_value_does_not_erase_the_last_one():

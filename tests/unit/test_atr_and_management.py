@@ -38,7 +38,7 @@ def test_the_atr_filter_requires_the_strike_to_be_n_atr_away():
     f = BASE.with_filters(min_atr_multiple=3.0)
     assert reject_reason(snap, 100.0, TODAY, f, atr=3.0) is None                  # 10 ≥ 3 × 3
     assert "ATR" in reject_reason(snap, 100.0, TODAY, f, atr=4.0)                 # 10 < 12
-    assert "sin ATR" in reject_reason(snap, 100.0, TODAY, f)
+    assert reject_reason(snap, 100.0, TODAY, f) is None                           # sin ATR no se puede evaluar: no descarta
     assert reject_reason(snap, 100.0, TODAY, BASE) is None
 
 

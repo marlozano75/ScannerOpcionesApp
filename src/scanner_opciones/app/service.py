@@ -25,6 +25,7 @@ from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
+from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.scanner.impact import ImpactReport, impact_report
@@ -33,6 +34,7 @@ from scanner_opciones.storage.repositories import (
     QualityRepo,
     BarRepo, ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
+from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider
 from scanner_opciones.marketdata.names import CompanyNameProvider
@@ -48,6 +50,7 @@ log = logging.getLogger(__name__)
 LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco completo
 EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos): ya no se usa, se vacía al arrancar
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
+KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
 MAX_SOURCE_NAME = 40  # longitud máxima del nombre de una fuente manual
 MAX_HISTORY = 200     # cargas que recuerda el historial del Universo
 STEP_TIMEOUT_SECONDS = 90  # un paso de red colgado no debe bloquear el refresco para siempre
@@ -827,30 +830,43 @@ class AppService:
         tickers = self.watchlist.list()
         return len(self.bars.last_days(tickers)), len(tickers)
 
+    def infos(self, criteria: Optional[ScanCriteria] = None) -> dict[str, TickerInfo]:
+        """Fichas de los tickers. Si el filtro IV/HV está activo, a las que no tienen HV30 (tastytrade no la calcula para algunos
+        valores) se les pone la calculada con los cierres diarios guardados. No se guarda: se recalcula al consultar."""
+        infos = self.ticker_info.all()
+        if criteria is None or criteria.min_iv_hv_ratio is None:
+            return infos
+        missing = [t for t, i in infos.items() if not i.hv30]
+        if missing:
+            for t, hv in self.bars.hv(missing, self.settings.scanner.technical.hv_period).items():
+                infos[t] = replace(infos[t], hv30=hv)
+        return infos
+
     def filter_data_gaps(self, criteria: ScanCriteria) -> list[str]:
         """Avisos de los filtros activos a los que les faltan datos en parte de la watchlist: sus contratos se descartan, y sin el
         aviso un resultado vacío no se explicaría."""
         tickers = self.watchlist.list()
-        infos = self.ticker_info.all()
         total = len(tickers)
         if not total:
             return []
         c = criteria
-        checks = []
+        infos = self.infos(c)
+        checks = []   # (qué falta, cuántos, qué pasa con ellos, cómo se rellena)
         if c.min_iv_hv_ratio is not None:
-            checks.append(("IV/HV30", sum(1 for t in tickers if not (infos.get(t) and infos[t].iv30 and infos[t].hv30)),
-                           "Se rellenan al bajar la IV (arranque, o tras el recálculo diario de tastytrade)"))
+            checks.append(("IV/HV30", sum(1 for t in tickers if not iv_hv_available(infos.get(t))), KEPT,
+                           "tastytrade no da la IV30/HV30 de algunos valores y no hay cierres suficientes para sustituirlas"))
         if c.max_iv_change_5d is not None:
-            checks.append(("el cambio de IV a 5 días", sum(1 for t in tickers if not infos.get(t) or infos[t].iv_change_5d is None),
-                           "Se rellenan al bajar la IV (arranque, o tras el recálculo diario de tastytrade)"))
+            checks.append(("el cambio de IV a 5 días", sum(1 for t in tickers if not iv_change_available(infos.get(t))), KEPT,
+                           "tastytrade no lo da para algunos valores"))
         if c.min_iv_rank is not None:
-            checks.append(("el IV Rank", sum(1 for t in tickers if not infos.get(t) or infos[t].iv_rank is None), "Se rellenan con la actualización diaria"))
+            checks.append(("el IV Rank", sum(1 for t in tickers if not infos.get(t) or infos[t].iv_rank is None), KEPT,
+                           "Se rellenan con la actualización diaria"))
         if c.min_atr_multiple is not None:
             have = self.bars.atr(tickers, self.settings.scanner.technical.atr_period)
-            checks.append(("el ATR", sum(1 for t in tickers if t not in have),
+            checks.append(("el ATR", sum(1 for t in tickers if t not in have), KEPT,
                            "Hacen falta los máximos y mínimos diarios, que se descargan con el histórico (si tastytrade no responde, se reintenta en la siguiente actualización)"))
-        return [f"Faltan datos para {label} en {n} de {total} tickers: sus contratos se descartan. {hint}."
-                for label, n, hint in checks if n > 0]
+        return [f"Faltan datos para {label} en {n} de {total} tickers: {effect}. {hint}."
+                for label, n, effect, hint in checks if n > 0]
 
     def market_open(self) -> bool:
         return self.market.is_open(self.now())
@@ -1019,7 +1035,7 @@ class AppService:
         snapshots = self.snapshots.all()
         bars = self.bars.all_closes({s.contract.ticker for s in snapshots}) if criteria.technical_active else None
         return run_scan(
-            snapshots, self.ticker_info.all(), self.state.positions, criteria,
+            snapshots, self.infos(criteria), self.state.positions, criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
             self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots),
         )
@@ -1035,7 +1051,7 @@ class AppService:
         snapshots = self.snapshots.all()
         bars = self.bars.all_closes({s.contract.ticker for s in snapshots}) if criteria.technical_active else None
         return impact_report(
-            snapshots, self.ticker_info.all(), criteria, self.now().date(), bars, self.settings.scanner.technical,
+            snapshots, self.infos(criteria), criteria, self.now().date(), bars, self.settings.scanner.technical,
             self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots),
         )
 

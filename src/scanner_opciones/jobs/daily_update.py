@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+IV_STATS_RETRY_HOURS = 6                   # reintento de los tickers a los que tastytrade no da IV30
 IV_STATS_FETCHED_AT = "iv_stats_fetched_at"   # clave de `meta`: cuándo se bajaron IV Rank/Percentile, HV30, IV30 y cambio de IV (UTC)
 METRICS_FETCHED_AT = "metrics_fetched_at"   # clave de `meta`: cuándo se bajaron todas las market metrics (UTC)
 
@@ -184,14 +185,19 @@ class DailyUpdater:
 
     def iv_stats_due(self) -> bool:
         """¿Hay que bajar IV Rank/Percentile, HV30, IV30 y cambio de IV? Sí si se bajaron antes del último recálculo diario de
-        tastytrade o si a algún ticker de la watchlist le falta la HV30 (columnas nuevas, aún sin rellenar)."""
+        tastytrade o si a algún ticker de la watchlist le falta la IV30 (columnas nuevas, aún sin rellenar). Los que tastytrade
+        no calcula (nunca llega su IV30) no pueden repetir la petición en cada ciclo: solo se reintenta pasadas
+        `IV_STATS_RETRY_HOURS` horas desde la última descarga. La HV30 que falta se calcula con los cierres al escanear."""
         if self.volatility is None:
             return False
         if not self._metrics_fresh(IV_STATS_FETCHED_AT):
             return True
         tickers = self.watchlist.list()
         infos = self.ticker_info.all()
-        return any(infos.get(t) is not None and infos[t].hv30 is None for t in tickers)
+        if not any(infos.get(t) is not None and infos[t].iv30 is None for t in tickers):
+            return False
+        raw = self.meta.get(IV_STATS_FETCHED_AT)
+        return datetime.fromisoformat(raw) <= self.now().astimezone(timezone.utc) - timedelta(hours=IV_STATS_RETRY_HOURS)
 
     async def update_iv_stats(self, tickers: list[str]) -> int:
         """IV Rank/Percentile, HV30, IV30 y cambio de IV a 5 días de `tickers` en UNA petición (lotes de 100), SIN depender del

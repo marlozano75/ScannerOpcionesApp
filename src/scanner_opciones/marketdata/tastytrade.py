@@ -82,6 +82,13 @@ def _num(value: Any) -> Optional[float]:
     return None if value is None else float(value)
 
 
+def _iv30(item: Any) -> Optional[float]:
+    """IV a 30 días en % (27,61). Para valores medianos y pequeños tastytrade no calcula `implied_volatility_30_day` pero sí el
+    índice de IV (`implied_volatility_index`, fracción: 0,4063 = 40,63; coincide con el IV30 donde existen ambos)."""
+    value = _num(getattr(item, "implied_volatility_30_day", None))
+    return value if value is not None else _pct(getattr(item, "implied_volatility_index", None))
+
+
 def to_metrics(item: Any) -> Optional[IVMetrics]:
     """`None` si tastytrade no da ni rank ni percentil para ese símbolo."""
     rank = _pct(item.implied_volatility_index_rank)
@@ -92,7 +99,7 @@ def to_metrics(item: Any) -> Optional[IVMetrics]:
     return IVMetrics(
         iv_rank=rank, iv_percentile=percentile,
         hv30=_num(getattr(item, "historical_volatility_30_day", None)),     # tastytrade: ya en % (20,15)
-        iv30=_num(getattr(item, "implied_volatility_30_day", None)),        # ya en % (27,61)
+        iv30=_iv30(item),
         iv_change_5d=_pct(change),                                          # fracción de IV (0,0104) -> puntos (1,04)
     )
 

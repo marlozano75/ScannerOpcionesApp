@@ -355,12 +355,12 @@ def test_the_atr_filter_is_in_the_entry_group_and_the_strategy_button_turns_it_o
         assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad
 
 
-def test_the_atr_filter_discards_everything_without_highs_and_lows_and_the_impact_panel_counts_it(client_and_service):
+def test_the_atr_filter_does_not_discard_anything_without_highs_and_lows_and_the_impact_panel_counts_it(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     assert "Parámetro no válido" not in client.get(BASE + "&use_atr=on&atr_mult=2").text
     shown = lambda q: set(re.findall(r'name="sel" value="([^"]*)"', client.get(BASE + q).text))   # noqa: E731
-    assert shown("") and shown("&use_atr=on&atr_mult=2") == set()                   # sin máximos ni mínimos guardados: sin ATR
+    assert shown("") and shown("&use_atr=on&atr_mult=2") == shown("")               # sin máximos ni mínimos guardados: sin ATR, no descarta
     impact = client.get(BASE.replace("/scanner", "/scanner/impact") + "&use_atr=on&atr_mult=2").text
     assert "Strike a N ATR del precio" in impact
 

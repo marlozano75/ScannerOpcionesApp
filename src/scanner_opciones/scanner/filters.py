@@ -12,12 +12,19 @@ from scanner_opciones.scanner.criteria import ScanCriteria
 _EPS = 1e-9  # tolerancia para comparaciones en el límite (float)
 
 
+def iv_hv_available(info: Optional[TickerInfo]) -> bool:
+    return info is not None and bool(info.iv30) and bool(info.hv30)
+
+
+def iv_change_available(info: Optional[TickerInfo]) -> bool:
+    return info is not None and info.iv_change_5d is not None
+
+
 def iv_hv_reason(info: Optional[TickerInfo], criteria: ScanCriteria) -> Optional[str]:
-    """Motivo por el que IV30 / HV30 no llega al mínimo, o None (también si el filtro no está activo)."""
-    if criteria.min_iv_hv_ratio is None:
+    """Motivo por el que IV30 / HV30 no llega al mínimo, o None (también si el filtro no está activo).
+    Sin IV30 o HV30 el filtro no se puede evaluar y NO descarta (ni siquiera con los respaldos de `AppService.infos`)."""
+    if criteria.min_iv_hv_ratio is None or not iv_hv_available(info):
         return None
-    if info is None or not info.iv30 or not info.hv30:
-        return "sin IV30 / HV30 para calcular IV/HV"
     ratio = info.iv30 / info.hv30
     if ratio < criteria.min_iv_hv_ratio - _EPS:
         return f"IV/HV {ratio:.2f} < {criteria.min_iv_hv_ratio:g}"
@@ -25,11 +32,9 @@ def iv_hv_reason(info: Optional[TickerInfo], criteria: ScanCriteria) -> Optional
 
 
 def iv_change_reason(info: Optional[TickerInfo], criteria: ScanCriteria) -> Optional[str]:
-    """Motivo por el que la IV ha subido más de lo permitido en 5 días, o None."""
-    if criteria.max_iv_change_5d is None:
+    """Motivo por el que la IV ha subido más de lo permitido en 5 días, o None. Sin el dato no se puede evaluar y no descarta."""
+    if criteria.max_iv_change_5d is None or not iv_change_available(info):
         return None
-    if info is None or info.iv_change_5d is None:
-        return "sin cambio de IV a 5 días"
     if info.iv_change_5d > criteria.max_iv_change_5d + _EPS:
         return f"la IV ha subido {info.iv_change_5d:+.2f} puntos en 5 días (> {criteria.max_iv_change_5d:g})"
     return None
@@ -76,12 +81,11 @@ def reject_reason(
         snap.spread_pct is None or snap.spread_pct > criteria.max_spread_pct + _EPS
     ):
         return "spread demasiado alto o desconocido"
-    if criteria.min_iv_rank is not None and (iv_rank is None or iv_rank < criteria.min_iv_rank):
-        return "IV Rank insuficiente o desconocido"
-    if criteria.min_iv_percentile is not None and (
-        iv_percentile is None or iv_percentile < criteria.min_iv_percentile
-    ):
-        return "IV Percentile insuficiente o desconocido"
+    # un dato que falta no se puede evaluar y no descarta (IV Rank, IV Percentile, IV/HV, cambio de IV y ATR)
+    if criteria.min_iv_rank is not None and iv_rank is not None and iv_rank < criteria.min_iv_rank:
+        return "IV Rank insuficiente"
+    if criteria.min_iv_percentile is not None and iv_percentile is not None and iv_percentile < criteria.min_iv_percentile:
+        return "IV Percentile insuficiente"
     if criteria.signals_required <= 0:   # con «al menos N señales», IV/HV y el cambio de IV se cuentan aparte (scanner/signals.py)
         if (why := iv_hv_reason(info, criteria)) is not None:
             return why
@@ -95,9 +99,7 @@ def reject_reason(
             return f"|delta| {d:.2f} < {criteria.min_abs_delta:g}"
         if criteria.max_abs_delta is not None and d > criteria.max_abs_delta + _EPS:
             return f"|delta| {d:.2f} > {criteria.max_abs_delta:g}"
-    if criteria.min_atr_multiple is not None:
-        if atr is None:
-            return "sin ATR (faltan máximos y mínimos diarios)"
+    if criteria.min_atr_multiple is not None and atr is not None:
         if underlying_price - c.strike < criteria.min_atr_multiple * atr - _EPS:
             return f"strike a {underlying_price - c.strike:.2f} del precio, menos de {criteria.min_atr_multiple:g} ATR ({atr:.2f})"
     return None

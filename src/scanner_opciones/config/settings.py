@@ -181,6 +181,7 @@ class TechnicalSettings(_Model):
     chart_near_pct: float = Field(5, ge=0)                # un cierre mensual a menos de este % por encima del strike se marca en amarillo
     rsi_period: int = Field(14, ge=2)                      # RSI de Wilder
     rsi_lookback_days: int = Field(10, ge=2)               # sesiones en las que el RSI debe haber tocado el nivel («rebote»)
+    hv_period: int = Field(30, ge=5)                       # sesiones de la HV30 propia (respaldo si tastytrade no la da)
     atr_period: int = Field(14, ge=2)                      # ATR de Wilder (máximos, mínimos y cierres diarios)
     bollinger_period: int = Field(20, ge=2)
     bollinger_k: float = Field(2.0, gt=0)                  # desviaciones típicas de las bandas

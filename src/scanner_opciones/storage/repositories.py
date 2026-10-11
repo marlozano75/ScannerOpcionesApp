@@ -348,6 +348,22 @@ class BarRepo:
                 out[t] = value
         return out
 
+    def hv(self, tickers: Iterable[str], period: int = 30) -> dict[str, float]:
+        """Volatilidad histórica anualizada en % (desviación típica de los rendimientos logarítmicos diarios de las últimas
+        `period` sesiones oficiales × √252). Aproxima la HV30 de tastytrade, que no la da para algunos valores; sin
+        `period` + 1 cierres no aparece."""
+        import math
+        import statistics
+        out: dict[str, float] = {}
+        for t in tickers:
+            rows = self.db.conn.execute(
+                "SELECT close FROM daily_bars WHERE ticker = ? AND provisional = 0 ORDER BY day DESC LIMIT ?", (t, period + 1)).fetchall()
+            closes = [r["close"] for r in reversed(rows)]
+            if len(closes) < period + 1 or any(c <= 0 for c in closes):
+                continue
+            out[t] = statistics.stdev(math.log(b / a) for a, b in zip(closes, closes[1:])) * math.sqrt(252) * 100
+        return out
+
     def upsert_provisional(self, ticker: str, day: date, price: float) -> None:
         """Guarda el último precio visto como cierre provisional de `day`. Nunca pisa un cierre oficial."""
         with self.db.conn:

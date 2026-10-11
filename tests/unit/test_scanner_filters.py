@@ -99,7 +99,8 @@ class TestOptionalFilters:
         assert reject_reason(snap(), 100.0, TODAY, c, iv_rank=30, iv_percentile=40) is None
         assert "Rank" in reject_reason(snap(), 100.0, TODAY, c, iv_rank=29, iv_percentile=90)
         assert "Percentile" in reject_reason(snap(), 100.0, TODAY, c, iv_rank=50, iv_percentile=39)
-        assert "Rank" in reject_reason(snap(), 100.0, TODAY, c)
+        assert reject_reason(snap(), 100.0, TODAY, c) is None                          # sin dato no descarta
+        assert "Rank" in reject_reason(snap(), 100.0, TODAY, c, iv_rank=29)             # con dato bajo, sí
 
     def test_disabled_filters_ignore_missing_data(self):
         assert reject_reason(snap(oi=None, spread=None), 100.0, TODAY, REGULAR) is None
