@@ -26,6 +26,8 @@ BATCH_SIZE = 100   # símbolos por petición (van en la URL; en cotizaciones es 
 
 Fetch = Callable[[Sequence[str]], Awaitable[Sequence[Any]]]
 CandleFetch = Callable[[Sequence[str], int, float], Awaitable[dict[str, DailyBars]]]   # símbolos, días, espera por lote
+CANDLE_RETRY_WAIT = 5.0  # segundos antes del primer reintento (x2 en el segundo)
+CANDLE_RETRIES = 2      # reintentos (con una conexión nueva) de los símbolos que no responden
 CANDLE_BATCH_SIZE = 50   # suscripciones a velas por lote (con todos a la vez tastytrade corta: «subscription size too big»)
 
 
@@ -146,14 +148,39 @@ class TastytradeVolatility:
         return {s: [(d, px) for d, px, *_ in bars] for s, bars in (await self._sdk_fetch_ohlc(symbols, days, timeout)).items()}
 
     async def _sdk_fetch_ohlc(self, symbols: Sequence[str], days: int, timeout: float) -> dict[str, OhlcBars]:
-        """Velas diarias por DXLink (cierre, máximo y mínimo): un lote de suscripciones por vez; el lote termina cuando todos sus
-        símbolos han enviado el final del snapshot o se agota `timeout` (símbolos desconocidos no responden)."""
+        """Velas diarias por DXLink (cierre, máximo y mínimo). tastytrade a veces no responde a un lote entero (medido: la misma
+        petición da 50/50 y luego 0/50), así que los símbolos sin respuesta se piden de nuevo, hasta `CANDLE_RETRIES` veces,
+        con una conexión nueva."""
+        out: dict[str, OhlcBars] = {}
+        todo = list(symbols)
+        for attempt in range(1 + CANDLE_RETRIES):
+            last = attempt == CANDLE_RETRIES
+            got, todo = await self._candles_pass(todo, days, timeout, keep_partial=last)
+            out.update(got)
+            if not todo:
+                break
+            if not last:
+                wait = CANDLE_RETRY_WAIT * (attempt + 1)   # abrir conexiones nuevas seguidas parece agravarlo: espera creciente
+                log.info("Velas: %d tickers sin respuesta, se reintenta con una conexión nueva en %g s (%d/%d)", len(todo), wait, attempt + 1, CANDLE_RETRIES)
+                await asyncio.sleep(wait)
+        if todo:
+            log.info("Velas: siguen sin respuesta %d tickers: %s", len(todo), ", ".join(sorted(todo)[:40]))
+        return out
+
+    async def _candles_pass(self, symbols: Sequence[str], days: int, timeout: float, keep_partial: bool
+                            ) -> tuple[dict[str, OhlcBars], list[str]]:
+        """Una pasada con una conexión: un lote de suscripciones por vez; el lote termina cuando todos sus símbolos han enviado
+        el final del snapshot o se agota `timeout` (símbolos desconocidos no responden). Devuelve (velas de los que
+        respondieron, símbolos que no); los que no terminaron solo conservan sus velas parciales si `keep_partial`."""
         from tastytrade.dxfeed import Candle
         from tastytrade.streamer import DXLinkStreamer
 
+        if not symbols:
+            return {}, []
         session = self._open_session()
         start = datetime.now() - timedelta(days=days)
         out: dict[str, OhlcBars] = {}
+        unanswered: list[str] = []
         async with DXLinkStreamer(session) as streamer:
             for i in range(0, len(symbols), CANDLE_BATCH_SIZE):
                 batch = list(symbols[i:i + CANDLE_BATCH_SIZE])
@@ -181,9 +208,10 @@ class TastytradeVolatility:
                     log.info("Velas: sin respuesta de %s", ", ".join(sorted(pending)))
                 for sym in batch:
                     await streamer.unsubscribe_candle(sym, "1d")
-                    if bars[sym]:
+                    if bars[sym] and (sym not in pending or keep_partial):
                         out[sym] = [(datetime.fromtimestamp(ms / 1000).date(), *v) for ms, v in sorted(bars[sym].items())]
-        return out
+                unanswered.extend(sorted(pending))
+        return out, unanswered
 
     async def _sdk_fetch_chain(self, symbol: str) -> OptionListing:
         from tastytrade.instruments import OptionType, get_option_chain

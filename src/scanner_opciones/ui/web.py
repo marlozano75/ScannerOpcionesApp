@@ -236,13 +236,20 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
             overrides[field_name] = getattr(qcfg.thresholds, metric)[level] if level else None
 
 
-def strategy_link(settings, form: dict, base) -> tuple[str, bool]:
+# parámetros del formulario que controla la estrategia: el botón los sustituye y respeta todos los demás filtros
+STRATEGY_KEYS = frozenset((
+    "discount", "dte_min", "dte_max", "min_yield", "use_delta", "delta_min", "delta_max", "use_exp", "exp_mult", "use_near", "near_pct",
+    "use_ivr", "ivr", "use_ivp", "ivp", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_bid", "bid", "use_atr", "atr_mult", "use_rsi",
+    "rsi_max", "use_boll", "boll_pctb", "use_bw", "boll_width", "ma200", "q_earn", "q_liq", "reset", "debug"))
+
+
+def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
     """Consulta del botón «Estrategia de venta de puts» (activa de una vez todos sus filtros, con los valores de
-    `scanner.strategy`) y si el formulario actual ya la tiene cargada."""
+    `scanner.strategy`, y conserva el resto de filtros de `current`, la consulta actual) y si el formulario actual ya la tiene cargada."""
     st, fv = settings.scanner.strategy, settings.scanner.filter_values
     params = {
         "submitted": "1", "discount": _fmt(st.strike_below_pct_min), "dte_min": str(st.dte_min), "dte_max": str(st.dte_max),
-        "min_yield": _fmt(st.min_annual_yield_pct), "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
+        "min_yield": _fmt(st.min_annual_yield_pct),
         "use_delta": "on", "delta_min": _fmt(st.min_abs_delta), "delta_max": _fmt(st.max_abs_delta),
         "use_exp": "on", "exp_mult": _fmt(st.expected_move_mult), "use_near": "on", "near_pct": _fmt(st.near_level_pct),
         "use_ivr": "on", "ivr": _fmt(st.min_iv_rank), "use_ivp": "on", "ivp": _fmt(st.min_iv_percentile),
@@ -271,7 +278,8 @@ def strategy_link(settings, form: dict, base) -> tuple[str, bool]:
     on = on and all(form.get(f) for f in ("use_delta", "use_exp", "use_near", "use_ivr", "use_ivp", "use_ivhv", "use_ivchg",
                                           *(u for u in ("use_rsi", "use_boll", "use_bw", "use_atr") if u in params)))
     on = on and (not st.avoid_earnings or bool(form.get("q_earn")))
-    return urlencode(params), on
+    kept = {k: v for k, v in (current.items() if current is not None else ()) if k not in STRATEGY_KEYS} if current is not None and "submitted" in current else {}
+    return urlencode({**kept, **params}), on
 
 
 def _sector_of(row, sector_col: Optional[int], watchlist_sectors: dict) -> Optional[str]:
@@ -829,6 +837,8 @@ def create_app(
                 PriceReference.MID: "mid (media bid/ask)",
                 PriceReference.BID_PLUS_SPREAD: f"bid + {c.price_spread_pct:g}% del spread",
             }[c.price_reference]
+        if c is not None:
+            parsed["warnings"].extend(service.filter_data_gaps(c))
         frame_shown = parsed["form"]["ma_frame"]
         if frame_shown not in ("daily", "weekly", "monthly"):    # parámetro no válido: se muestra el de la configuración
             frame_shown = service.criteria().ma_frame
@@ -838,7 +848,7 @@ def create_app(
                         min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
         qcfg = service.settings.scanner.quality
         counts = quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg)
-        strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria())
+        strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
         return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
                       yield_max=yield_max, strategy_qs=strategy_qs, strategy_on=strategy_on,

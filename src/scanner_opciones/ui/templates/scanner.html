@@ -137,7 +137,7 @@
     <form method="get" action="/scanner" id="scan-form">
       <input type="hidden" name="submitted" value="1">
       <a class="strategy-btn{{ ' on' if strategy_on }}" href="/scanner?{{ strategy_qs }}"
-         title="Carga y activa de una vez los filtros de la estrategia (DTE, delta, IV Rank y Percentile, movimiento esperado, cercanía a la media de 50 o a un soporte, precio sobre la media de 200, sin resultados, liquidez). Los valores salen de scanner.strategy">
+         title="Carga y activa de una vez los filtros de la estrategia (DTE, delta, IV Rank y Percentile, movimiento esperado, cercanía a la media de 50 o a un soporte, precio sobre la media de 200, sin resultados, liquidez). Los valores salen de scanner.strategy; el resto de tus filtros (calidad, tendencia, medias, precio de venta…) se conservan">
         {{ '✓ ' if strategy_on }}Estrategia: venta de puts</a>
       {% if presets %}<div class="presets"><span class="lbl">Configuraciones</span>
         {% for p in presets %}{% set is_on = form.discount == p.discount and form.dte_min == p.dte_min|string and form.dte_max == p.dte_max|string and form.min_yield == p.min_yield %}

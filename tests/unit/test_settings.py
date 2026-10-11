@@ -21,7 +21,7 @@ def test_example_config_loads_with_agreed_defaults():
     ini = s.scanner.initial
     assert (ini.strike_below_pct_min, ini.strike_below_pct_max, ini.dte_min, ini.dte_max) == (10, 30, 1, 35)
     c = s.scanner.candidates
-    assert (c.strike_below_pct_min, c.strike_below_pct_max, c.dte_max) == (10, 30, 35)
+    assert (c.strike_below_pct_min, c.strike_below_pct_max, c.dte_max) == (5, 30, 45)   # cubre la estrategia de venta de puts (DTE 30–45, deltas 0,20–0,30)
     assert s.risk.cushion_thresholds.normal_above == 40
     assert s.risk.cushion_thresholds.concern_above == 30
     assert s.diversification.weeks_ahead == 5
@@ -112,7 +112,7 @@ def test_presets_por_defecto_y_validacion(tmp_path):
     a, m, b = s.scanner.presets
     assert (a.strike_below_pct_min, a.dte_min, a.dte_max, a.min_annual_yield_pct) == (10, 1, 7, 25)
     assert (m.strike_below_pct_min, m.dte_min, m.dte_max, m.min_annual_yield_pct) == (15, 8, 15, 20)
-    assert (b.strike_below_pct_min, b.dte_min, b.dte_max, b.min_annual_yield_pct) == (20, 16, None, 13)
+    assert (b.strike_below_pct_min, b.dte_min, b.dte_max, b.min_annual_yield_pct) == (20, 16, 35, 13)
     bad = tmp_path / "c.yaml"
     bad.write_text(
         "scanner:" + chr(10) + "  presets:" + chr(10)

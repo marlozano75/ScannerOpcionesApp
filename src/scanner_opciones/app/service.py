@@ -131,6 +131,7 @@ class AppService:
         self._quality_running = False
         self._starting = False       # intento de conexión en curso
         self._session_begun = False  # ya se hizo el primer refresco/actualización diaria de la sesión (con o sin TWS)
+        self._iv_stats_running = False
         self._tasty_done = False     # histórico y calidad de tastytrade ya descargados en esta ejecución
         self._account_lock = asyncio.Lock()  # cuenta, posiciones y VIX: aparte, para que un ciclo largo de mercado no los retrase
         self._background: set = set()
@@ -724,6 +725,30 @@ class AppService:
     async def _update_history_and_fundamentals(self) -> None:
         await self._update_history()
         await self._update_fundamentals()
+        await self._update_iv_stats()
+
+    async def _update_iv_stats(self) -> None:
+        """IV Rank/Percentile, HV30, IV30 y cambio de IV de la watchlist, aunque el mercado esté cerrado."""
+        try:
+            if self.daily.iv_stats_due() and await self.daily.update_iv_stats(self.watchlist.list()):
+                self.state.data_version += 1
+        except Exception:
+            log.exception("No se pudieron actualizar la IV y la volatilidad histórica")
+
+    def update_iv_stats_if_due(self) -> None:
+        """Con la app encendida de forma continua, baja la IV y la volatilidad histórica en cuanto pasa el recálculo diario de
+        tastytrade (o si faltan datos), sin esperar a un refresco completo de mercado."""
+        if self._iv_stats_running or not self.daily.iv_stats_due():
+            return
+        self._iv_stats_running = True
+
+        async def run() -> None:
+            try:
+                await self._update_iv_stats()
+            finally:
+                self._iv_stats_running = False
+
+        self.launch(run())
 
     async def _update_fundamentals(self) -> None:
         """Datos de calidad de toda la watchlist (EPS, trimestres, capitalización, liquidez, resultados). Un fallo
@@ -786,6 +811,31 @@ class AppService:
         tickers = self.watchlist.list()
         return len(self.bars.last_days(tickers)), len(tickers)
 
+    def filter_data_gaps(self, criteria: ScanCriteria) -> list[str]:
+        """Avisos de los filtros activos a los que les faltan datos en parte de la watchlist: sus contratos se descartan, y sin el
+        aviso un resultado vacío no se explicaría."""
+        tickers = self.watchlist.list()
+        infos = self.ticker_info.all()
+        total = len(tickers)
+        if not total:
+            return []
+        c = criteria
+        checks = []
+        if c.min_iv_hv_ratio is not None:
+            checks.append(("IV/HV30", sum(1 for t in tickers if not (infos.get(t) and infos[t].iv30 and infos[t].hv30)),
+                           "Se rellenan al bajar la IV (arranque, o tras el recálculo diario de tastytrade)"))
+        if c.max_iv_change_5d is not None:
+            checks.append(("el cambio de IV a 5 días", sum(1 for t in tickers if not infos.get(t) or infos[t].iv_change_5d is None),
+                           "Se rellenan al bajar la IV (arranque, o tras el recálculo diario de tastytrade)"))
+        if c.min_iv_rank is not None:
+            checks.append(("el IV Rank", sum(1 for t in tickers if not infos.get(t) or infos[t].iv_rank is None), "Se rellenan con la actualización diaria"))
+        if c.min_atr_multiple is not None:
+            have = self.bars.atr(tickers, self.settings.scanner.technical.atr_period)
+            checks.append(("el ATR", sum(1 for t in tickers if t not in have),
+                           "Hacen falta los máximos y mínimos diarios, que se descargan con el histórico (si tastytrade no responde, se reintenta en la siguiente actualización)"))
+        return [f"Faltan datos para {label} en {n} de {total} tickers: sus contratos se descartan. {hint}."
+                for label, n, hint in checks if n > 0]
+
     def market_open(self) -> bool:
         return self.market.is_open(self.now())
 
@@ -806,6 +856,7 @@ class AppService:
         captura completa tras el cierre (con datos congelados, para tener el cierre) y después solo
         cartera y VIX, porque precios, IV, cotizaciones y márgenes no pueden cambiar hasta la apertura."""
         self.update_financials_in_background()   # no hace nada si no hay datos viejos
+        self.update_iv_stats_if_due()            # ídem para IV Rank/Percentile, HV30 y cambio de IV (también con el mercado cerrado)
         self.update_quality_if_due()             # ídem: solo si tastytrade ha recalculado sus métricas desde la última descarga
         if not self._paused() or self._capture_needed():
             return await self.refresh_all()

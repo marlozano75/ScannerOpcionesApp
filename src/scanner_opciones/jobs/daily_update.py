@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+IV_STATS_FETCHED_AT = "iv_stats_fetched_at"   # clave de `meta`: cuándo se bajaron IV Rank/Percentile, HV30, IV30 y cambio de IV (UTC)
 METRICS_FETCHED_AT = "metrics_fetched_at"   # clave de `meta`: cuándo se bajaron todas las market metrics (UTC)
 
 
@@ -181,10 +182,42 @@ class DailyUpdater:
         """¿Ha pasado un recálculo diario de tastytrade desde la última descarga completa de las market metrics?"""
         return not self._metrics_fresh()
 
-    def _metrics_fresh(self) -> bool:
+    def iv_stats_due(self) -> bool:
+        """¿Hay que bajar IV Rank/Percentile, HV30, IV30 y cambio de IV? Sí si se bajaron antes del último recálculo diario de
+        tastytrade o si a algún ticker de la watchlist le falta la HV30 (columnas nuevas, aún sin rellenar)."""
+        if self.volatility is None:
+            return False
+        if not self._metrics_fresh(IV_STATS_FETCHED_AT):
+            return True
+        tickers = self.watchlist.list()
+        infos = self.ticker_info.all()
+        return any(infos.get(t) is not None and infos[t].hv30 is None for t in tickers)
+
+    async def update_iv_stats(self, tickers: list[str]) -> int:
+        """IV Rank/Percentile, HV30, IV30 y cambio de IV a 5 días de `tickers` en UNA petición (lotes de 100), SIN depender del
+        refresco de mercado: así se rellenan también con el mercado cerrado o antes de la primera sesión. Un fallo del
+        proveedor deja los datos como estaban. Devuelve cuántas fichas actualizó."""
+        if not tickers or self.volatility is None:
+            return 0
+        try:
+            found = await self.volatility.get_iv_metrics(tickers)
+        except VolatilityError as exc:
+            log.warning("IV y volatilidad histórica no disponibles, se conservan las guardadas: %s", exc)
+            return 0
+        n = 0
+        for ticker, m in found.items():
+            if self.ticker_info.get(ticker) is None:
+                continue
+            self.ticker_info.update_iv_stats(ticker, m.iv_rank, m.iv_percentile, m.hv30, m.iv30, m.iv_change_5d)
+            n += 1
+        self.meta.set(IV_STATS_FETCHED_AT, self.now().astimezone(timezone.utc).isoformat())
+        log.info("IV Rank/Percentile y volatilidad histórica: %d fichas actualizadas", n)
+        return n
+
+    def _metrics_fresh(self, key: str = METRICS_FETCHED_AT) -> bool:
         """¿Las *market metrics* guardadas son posteriores al último recálculo diario de tastytrade? Entonces pedirlas
         otra vez devolvería lo mismo."""
-        raw = self.meta.get(METRICS_FETCHED_AT)
+        raw = self.meta.get(key)
         if not raw:
             return False
         now = self.now().astimezone(timezone.utc)

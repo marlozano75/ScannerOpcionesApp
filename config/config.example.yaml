@@ -54,10 +54,10 @@ scanner:
     exempt_sectors: [financ, energy, utilit, material, real estate]
   catalog_margin_pct: 5    # puntos de más por arriba y por abajo que se GUARDAN (el rango cotizado sigue al precio)
   candidates:              # rango visible y cotizado, respecto al precio actual
-    strike_below_pct_min: 10   # strikes desde un 10 % ...
+    strike_below_pct_min: 5    # strikes desde un 5 % ... (la estrategia de venta de puts trabaja con deltas 0,20–0,30, cerca del precio)
     strike_below_pct_max: 30   # ... hasta un 30 % por debajo del precio
     dte_min: 1
-    dte_max: 35                # vencimientos hasta 35 días
+    dte_max: 45                # vencimientos hasta 45 días (la estrategia usa 30–45)
   price_reference:         # precio de venta con el que se calcula el yield
     mode: bid_plus_spread      # bid | mid | bid_plus_spread
     spread_pct: 25             # X: % del spread sumado al bid (0 = bid, 50 = mid)
@@ -70,7 +70,7 @@ scanner:
   presets:                 # botones del scanner que cargan estos valores y escanean (dte_max null = máximo de candidates)
     - { name: "Corto plazo", strike_below_pct_min: 10, dte_min: 1, dte_max: 7, min_annual_yield_pct: 25 }
     - { name: "Medio plazo", strike_below_pct_min: 15, dte_min: 8, dte_max: 15, min_annual_yield_pct: 20 }
-    - { name: "Largo plazo", strike_below_pct_min: 20, dte_min: 16, dte_max: null, min_annual_yield_pct: 13 }
+    - { name: "Largo plazo", strike_below_pct_min: 20, dte_min: 16, dte_max: 35, min_annual_yield_pct: 13 }
   filters:                       # null = filtro desactivado
     min_bid: 0.01                  # bid mínimo en $: un bid de 0 no se puede vender (y infla el yield con el precio mid)
     min_oi: null
