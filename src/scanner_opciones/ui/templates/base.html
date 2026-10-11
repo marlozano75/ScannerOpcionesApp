@@ -19,6 +19,7 @@
   header nav a:hover { color:var(--ink); background:var(--card); }
   header nav a.active { background:var(--accent); color:#fff; }
   header .right { margin-left:auto; display:flex; gap:12px; align-items:center; color:var(--mute); font-size:13px; }
+  header .acct { font-family:ui-monospace,Consolas,monospace; color:var(--text, inherit); background:rgba(127,127,127,.15); padding:1px 7px; border-radius:4px; }
   main { padding:22px 24px 40px; max-width:1360px; margin:0 auto; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; margin-bottom:16px; }
   h1,h2 { margin:0 0 12px; } h2 { font-size:16px; letter-spacing:.01em; }
@@ -196,6 +197,7 @@
         <option value="live" {{ 'selected' if mode == 'live' }}>Cuenta real</option>
       </select>
     </form>
+    {% if account_id %}<span class="acct" title="Cuenta de IBKR{{ '' if state.connected else ' (de la última conexión)' }}">{{ account_id }}</span>{% endif %}
     <span>Últ. refresco: {{ state.last_refresh.strftime('%H:%M:%S') if state.last_refresh else '—' }} (cada {{ refresh_minutes|round|int }} min)</span>
     <form class="inline" method="post" action="/refresh"><button class="secondary" {{ 'disabled' if busy }}>Refrescar ahora</button></form>
   </div>

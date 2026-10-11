@@ -779,3 +779,9 @@ def test_moving_average_candles_and_comparisons_form(client_and_service):
     assert 'name="ma200"' in client.get(base + "&ma_frame=daily").text
     for bad in ("ma_frame=yearly", "cmp_ema9_ema20=above", "cmp_ma50_ma100=equal"):
         assert "Parámetro no válido" in client.get(base + "&" + bad).text, bad
+
+
+def test_header_shows_the_account_id(client_and_service):
+    client, svc, gw, created = client_and_service
+    html = client.get("/").text
+    assert '<span class="acct"' in html and ">DU1<" in html
