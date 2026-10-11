@@ -38,6 +38,18 @@
   .src-item b { flex:none; width:18px; font-size:11px; opacity:.65; text-align:right; }
   .src-item .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .src-item small { flex:none; opacity:.7; font-variant-numeric:tabular-nums; }
+  .src-item.all { margin-bottom:10px; padding:9px 12px; border:1px solid var(--accent); font-weight:700; font-size:14px; }
+  .src-item.all:hover { background:var(--card); } .src-item.all.active { background:var(--accent); }
+  .src-label { padding:2px 10px 4px; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--mute); }
+  .qbar { padding:6px 12px 8px; margin-bottom:12px; }
+  .qbar > summary { cursor:pointer; font-size:13px; font-weight:700; }
+  .qbar > summary .muted { font-weight:400; font-size:12px; }
+  .qrow { display:flex; flex-wrap:wrap; align-items:center; gap:5px 12px; margin-top:6px; }
+  .qf { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--mute); white-space:nowrap; }
+  .qf select { padding:2px 4px; font-size:12px; border-radius:5px; width:auto; max-width:140px; }
+  .qf.chk { color:var(--ink); cursor:pointer; } .qf.chk input { margin:0; }
+  .qsep { width:1px; align-self:stretch; background:var(--line-strong); }
+  .qbar .preset { padding:2px 9px; text-decoration:none; }
   #rk-apply .scroll { max-height:calc(100vh - 300px); overflow:auto; }
   #rk-apply table.sortable tr:first-child th { position:sticky; top:0; z-index:2; background:var(--panel); box-shadow:inset 0 -1px 0 var(--line-strong); }
   @media (max-width: 900px) { #rk-apply .scroll { max-height:75vh; } }
@@ -73,7 +85,8 @@
       </details>
       <nav class="src-menu" aria-label="Fuentes">
         <a class="src-item hist {{ 'active' if view == 'history' }}" href="/universe?view=history"><b>⏱</b><span class="nm">Historial de carga</span></a>
-        <a class="src-item {{ 'active' if not src and view != 'history' }}" href="/universe?reset=1"><b></b><span class="nm">Todas</span><small>{{ all_count }}</small></a>
+        <a class="src-item all {{ 'active' if not src and view != 'history' }}" href="/universe?reset=1" title="Todas las acciones de todas las fuentes, una fila por ticker"><span class="nm">Universo</span><small>{{ all_count }}</small></a>
+        <div class="src-label">Fuentes</div>
         {% for s in sources %}<a class="src-item {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}" title="{{ s.name }}"><b>{{ numbers[s.name] }}</b><span class="nm">{{ s.name }}</span><small>{{ s.table.rows|length }}</small></a>{% endfor %}
       </nav>
     </div>
@@ -94,6 +107,54 @@
 </div>
 {% elif not table %}<p class="muted" style="margin-top:18px">Aún no hay fuentes: carga un fichero (.xlsx o .html) o añade tickers a mano con el menú de la izquierda.</p>{% endif %}
 {% if table and view != 'history' %}
+<details class="card qbar" id="qbar" open>
+  <summary>Filtros de calidad de la empresa <span class="muted">· {{ n_active }} activo{{ '' if n_active == 1 else 's' }} · pasan {{ rows|length }} de {{ total_rows }}</span></summary>
+  {% if filter_error %}<div class="banner warn">{{ filter_error }}</div>{% endif %}
+  <form method="get" action="/universe" id="qform">
+    {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
+    <div class="qrow">
+      <label class="qf chk"><input type="checkbox" name="q_profit" id="q_profit" {{ 'checked' if qform.q_profit }}> Beneficios 12 m</label>
+      <label class="qf chk"><input type="checkbox" name="q_fcf" id="q_fcf" {{ 'checked' if qform.q_fcf }}> FCF &gt; 0</label>
+      <label class="qf chk"><input type="checkbox" name="q_manage" id="q_manage" {{ 'checked' if qform.q_manage }} title="Pasa con deuda/patrimonio ≤ {{ manageable.max_debt_to_equity|string }} o cobertura de intereses ≥ {{ manageable.min_interest_coverage|string }}×"> Deuda manejable</label>
+      <label class="qf" title="Trimestres con beneficios de los últimos 4">Trim. +
+        <select name="q_quarters" id="q_quarters"><option value="">—</option>
+          {% for n in quality_opts.quarters %}<option value="{{ n }}" {{ 'selected' if qform.q_quarters == n|string }}>≥ {{ n }}</option>{% endfor %}</select></label>
+      <label class="qf" title="Pasivo / patrimonio máximo">Pasivo/Patr.
+        <select name="q_lev" id="q_lev"><option value="">—</option>
+          {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if qform.q_lev == v }}>≤ {{ v }}</option>{% endfor %}</select></label>
+      <span class="qsep"></span>
+      {% set short = {'q_de': 'Deuda/Patr.', 'q_cov': 'Cobertura int.', 'q_cash': 'Efectivo/Deuda CP', 'q_ocfd': 'Flujo op./Deuda', 'q_capex': 'CapEx/Flujo op.', 'q_fcfa': 'FCF/Activos', 'q_bb': 'Recompra neta', 'q_roic': 'ROIC', 'q_loss': 'Años con pérdidas', 'q_revdrop': 'Caídas de ingresos', 'q_evol': 'Volat. beneficios'} %}
+      {% for f in solvency %}
+      <label class="qf" title="{{ f.label }}">{{ short[f.key] }}
+        <select name="{{ f.key }}" id="{{ f.key }}"><option value="">—</option>
+          {% for level, text in f.options %}<option value="{{ level }}" {{ 'selected' if f.value == level }}>{{ text }}</option>{% endfor %}</select></label>
+      {% endfor %}
+    </div>
+    <div class="qrow">
+      {% for p in q_presets %}<button type="button" class="preset qpreset{{ ' active' if p.is_on }}" data-levels='{{ p.levels|tojson }}' data-manage="{{ 1 if p.manage else 0 }}" title="{{ p.title }}">{{ p.name }}</button>{% endfor %}
+      <a class="preset" href="/universe{{ '?src=' ~ (src|urlencode) if src else '?reset=1' }}" title="Quitar todos los filtros de calidad">Quitar filtros</a>
+      <span class="muted" style="font-size:12px">Datos de tastytrade y SEC · sin dato = no cumple · exentos: «{{ exempt_names }}» (pasivo, solvencia y caja)</span>
+    </div>
+  </form>
+</details>
+<script>
+  (function () {
+    var form = document.getElementById('qform'), bar = document.getElementById('qbar');
+    form.addEventListener('change', function () { form.submit(); });
+    try { if (sessionStorage.getItem('uni-qbar') === '0') bar.open = false; } catch (e) { /* sin almacenamiento */ }
+    bar.addEventListener('toggle', function () { try { sessionStorage.setItem('uni-qbar', bar.open ? '1' : '0'); } catch (e) { /* idem */ } });
+    var ids = ['q_de', 'q_cov', 'q_cash', 'q_ocfd', 'q_capex', 'q_fcfa', 'q_bb', 'q_roic', 'q_loss', 'q_revdrop', 'q_evol'];
+    document.querySelectorAll('button.qpreset').forEach(function (b) {   // combinaciones: rellenan la solvencia y filtran
+      b.addEventListener('click', function () {
+        ids.forEach(function (n) { document.getElementById(n).value = ''; });
+        var levels = JSON.parse(b.dataset.levels);
+        Object.keys(levels).forEach(function (n) { document.getElementById(n).value = levels[n]; });
+        document.getElementById('q_manage').checked = b.dataset.manage === '1';
+        form.submit();
+      });
+    });
+  })();
+</script>
 {% if source_info %}
 <details class="card source-info" id="source-info" open>
   <summary>{{ source_info.title }} <span class="muted">· cómo selecciona esta fuente</span></summary>
@@ -120,13 +181,13 @@
 {% endif %}
 {% if not edgar %}<div class="banner info"><b>Falta <code>edgar.contact</code> en config.yaml</b>: sin él no hay datos de pasivo/patrimonio ni de flujo de caja.</div>{% endif %}
 <div class="help-scope" style="margin:0 0 14px;min-height:24px;padding-right:32px">
-  <p class="note">Las columnas de calidad (datos de tastytrade y de la SEC) son solo informativas: los <b>filtros de calidad están en el Scanner</b>.
+  <p class="note">Las columnas de calidad salen de tastytrade y de la SEC. Los filtros de arriba ocultan las acciones que no cumplen, y solo las que se ven (marcadas) se añaden a la watchlist.
     Sectores exentos del pasivo, la solvencia y la caja (se ven como «n/a»): los que llevan «{{ exempt_names }}» en su nombre.
     Datos de calidad disponibles para <b>{{ with_quality }}</b> de {{ rows|length }} acciones mostradas.</p>
-  <span class="muted" style="font-size:13px">Columnas de calidad solo informativas · filtros en el Scanner</span>
+  <span class="muted" style="font-size:13px">Filtros de calidad arriba · liquidez de opciones y resultados, en el Scanner</span>
 </div>
 <form method="post" action="/universe/apply" class="card" id="rk-apply">
-  <h2>{{ rows|length }} acciones <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
+  <h2>{{ rows|length }} acciones{% if rows|length != total_rows %} <span class="muted">de {{ total_rows }}</span>{% endif %} <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
   {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
   <p>
     <button name="mode" value="add">Añadir selección a la watchlist</button>

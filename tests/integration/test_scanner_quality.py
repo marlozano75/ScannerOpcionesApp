@@ -1,5 +1,5 @@
-"""Calidad de la empresa en el Scanner: bloque de solvencia, «deuda baja o manejable», combinaciones, recuentos por opción
-y el panel «¿Cuánto descarta cada filtro?»."""
+"""Calidad de la empresa: bloque de solvencia, «deuda baja o manejable» y combinaciones (barra de filtros del Universo), liquidez
+y resultados (Scanner) y el panel «¿Cuánto descarta cada filtro?»."""
 import json
 import re
 
@@ -9,7 +9,7 @@ from scanner_opciones.config.settings import QualityPreset, QualitySettings
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.scanner.criteria import criteria_from_settings
 from scanner_opciones.scanner.quality import ticker_quality_reject
-from tests.integration.test_web import BASE, client_and_service, refresh  # noqa: F401
+from tests.integration.test_web import BASE, client_and_service, load_rank, refresh  # noqa: F401
 from scanner_opciones.config.settings import Settings
 
 CRIT = criteria_from_settings(Settings())
@@ -55,19 +55,20 @@ def test_quality_presets_are_validated():
 
 def test_the_default_presets_are_the_filters_of_the_analyst_and_none_is_active_by_default(client_and_service):
     client, svc, gw, _ = client_and_service
-    page = client.get("/scanner?reset=1").text
+    load_rank(client)
+    page = client.get("/universe?reset=1").text
     assert "Caja (4 filtros)" in page and "Deuda sana" in page
     caja = re.search(r"data-levels='([^']*)' data-manage=\"0\"[^>]*>Caja \(4 filtros\)", page)
     assert json.loads(caja.group(1)) == {"q_ocfd": "standard", "q_capex": "standard", "q_bb": "strict", "q_fcfa": "strict"}
     assert 'class="preset qpreset active"' not in page                           # ninguna combinación activa por defecto
-    assert re.search(r'name="q_manage" id="q_manage" *>', page)                  # «deuda baja o manejable» desmarcada
+    assert "checked" not in re.search(r'<input[^>]*id="q_manage"[^>]*>', page).group(0)   # «deuda manejable» desmarcada
     assert 'selected' not in page.split('name="q_de"')[1].split('</select>')[0]  # y los selectores de solvencia sin elegir
 
 
 def test_a_preset_marks_itself_active_when_its_levels_are_in_the_url(client_and_service):
     client, svc, gw, _ = client_and_service
-    refresh(client)
-    page = client.get(BASE + "&q_de=standard&q_cash=standard&q_cov=standard").text
+    load_rank(client)
+    page = client.get("/universe?q_de=standard&q_cash=standard&q_cov=standard").text
     assert re.search(r'class="preset qpreset active"[^>]*>Deuda sana', page)
     assert not re.search(r'class="preset qpreset active"[^>]*>Caja', page)
 
@@ -79,50 +80,51 @@ def seed_quality(svc):
                                  ocf_to_debt=0.05, capex_to_ocf=0.8, fcf_to_assets=0.01, net_buyback_pct=-2.0)])
 
 
-def test_the_scanner_applies_solvency_levels_from_the_url(client_and_service):
+def universe_shown(client, query):
+    return set(re.findall(r'name="sel" value="([^"]*)"', client.get("/universe?" + query).text))
+
+
+def test_the_universe_applies_solvency_levels_from_the_url(client_and_service):
     client, svc, gw, _ = client_and_service
-    refresh(client)
-    seed_quality(svc)
-    assert "AAPL" in client.get(BASE).text
-    page = client.get(BASE + "&q_de=strict").text                                 # AAPL tiene deuda/patrimonio 2,0 > 0,5
-    assert "AAPL" not in re.findall(r'name="sel" value="([^"]*)"', page) and "Deuda / patrimonio: Estricto" in page
-    ok = client.get(BASE + "&q_de=flexible").text
-    assert "Deuda / patrimonio: Flexible" in ok                                    # 2,0 > 1,5: tampoco pasa el flexible
-    page = client.get(BASE + "&q_manage=on").text                                  # D/E 2,0 y cobertura 1,0: deuda alta y mal cubierta
-    assert "Deuda baja o manejable" in page and "AAPL" not in re.findall(r'name="sel" value="([^"]*)"', page)
+    load_rank(client)
+    svc.quality.save([TickerInfo("KO", eps_ttm=5.0, debt_to_equity=2.0, interest_coverage=1.0, cash_to_short_debt=0.2,
+                                 ocf_to_debt=0.05, capex_to_ocf=0.8, fcf_to_assets=0.01, net_buyback_pct=-2.0)])
+    assert "KO" in universe_shown(client, "")
+    assert "KO" not in universe_shown(client, "q_de=strict")                       # deuda/patrimonio 2,0 > 0,5
+    assert "KO" not in universe_shown(client, "q_de=flexible")                     # 2,0 > 1,5: tampoco pasa el flexible
+    assert "KO" not in universe_shown(client, "q_manage=on")                       # D/E 2,0 y cobertura 1,0: deuda alta y mal cubierta
+    assert "1 activo" in client.get("/universe?q_de=strict").text
 
 
-def test_an_invalid_level_is_reported_in_the_scanner(client_and_service):
+def test_an_invalid_level_is_reported_in_the_universe(client_and_service):
     client, svc, gw, _ = client_and_service
-    assert "grado de exigencia no permitido" in client.get(BASE + "&q_de=ultra").text
+    load_rank(client)
+    assert "grado de exigencia no permitido" in client.get("/universe?q_de=ultra").text
 
 
-def test_each_option_shows_how_many_tickers_of_the_watchlist_pass_it(client_and_service):
+def test_the_scanner_shows_how_many_tickers_of_the_watchlist_pass_each_liquidity_option(client_and_service):
     client, svc, gw, _ = client_and_service
-    seed_quality(svc)
+    svc.quality.save([TickerInfo("AAPL", eps_ttm=5.0, option_liquidity=3)])
     page = client.get("/scanner?reset=1").text
-    assert re.search(r"Estricto \(≤ 0\.5\) · 0/1", page)                           # la watchlist de prueba tiene 1 ticker (AAPL)
-    assert re.search(r"Beneficios en los últimos 12 meses · 1/1", page)           # AAPL tiene EPS > 0
-    assert re.search(r"Deuda baja o manejable · 0/1", page)
+    assert re.search(r"3 o más · 1/1", page) and re.search(r"4 o más · 0/1", page)   # la watchlist de prueba tiene 1 ticker (AAPL)
 
 
-def test_the_universe_keeps_the_columns_but_has_no_quality_filters(client_and_service):
+def test_the_universe_keeps_the_columns_and_has_the_quality_filters(client_and_service):
     client, svc, gw, _ = client_and_service
-    from tests.integration.test_web import load_rank
     load_rank(client)
     page = client.get("/universe").text
-    assert "<th>Deuda/Patr.</th>" in page and 'name="q_profit"' not in page
+    assert "<th>Deuda/Patr.</th>" in page and 'name="q_profit"' in page
+    assert 'name="q_profit"' not in client.get("/scanner").text
 
 
 # ---- panel de impacto ---------------------------------------------------------------------------------------
 def test_the_impact_panel_lists_only_the_active_filters_most_restrictive_first(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
-    seed_quality(svc)
-    page = client.get(BASE.replace("/scanner", "/scanner/impact") + "&q_profit=on&q_de=strict").text
+    svc.quality.save([TickerInfo("AAPL", eps_ttm=5.0, option_liquidity=2, next_earnings=None)])
+    page = client.get(BASE.replace("/scanner", "/scanner/impact") + "&q_liq=4").text
     assert "Solo este filtro deja" in page and "Solo él descarta" in page
-    assert "Deuda/patrimonio" in page and "Beneficios (12 meses)" in page
-    assert page.index("Deuda/patrimonio") < page.index("Beneficios (12 meses)")      # el más restrictivo primero (deja 0 frente a todos)
+    assert "Liquidez de las opciones" in page and "Beneficios (12 meses)" not in page
     assert "muy restrictivo" in page and "Ningún contrato pasa todos los filtros" in page
 
 
@@ -162,21 +164,22 @@ def test_missing_roic_or_short_history_counts_as_not_meeting_but_exempt_sectors_
     assert reject(bank, min_roic=0.2, max_loss_years=0) is None                    # exenta: no se mide
 
 
-def test_the_scanner_form_offers_roic_and_loss_years_with_their_thresholds(client_and_service):
+def test_the_universe_form_offers_roic_and_loss_years_with_their_thresholds(client_and_service):
     client, svc, gw, _ = client_and_service
-    page = client.get("/scanner?reset=1").text
+    load_rank(client)
+    page = client.get("/universe").text
     assert 'name="q_roic"' in page and 'name="q_loss"' in page
     assert "Estándar (≥ 12 %)" in page and "Estricto (≥ 20 %)" in page and "Flexible (≤ 2)" in page and "Estricto (≤ 0)" in page
 
 
-def test_roic_and_loss_years_filter_the_scan_and_show_in_the_chips(client_and_service):
+def test_roic_and_loss_years_filter_the_universe(client_and_service):
     client, svc, gw, _ = client_and_service
-    refresh(client)
-    svc.quality.save([TickerInfo("AAPL", eps_ttm=5.0, roic=0.10, loss_years=0, fiscal_years=10)])
-    assert "ROIC: Estricto" in client.get(BASE + "&q_roic=strict").text
-    shown = lambda q: {v.split("|")[0] for v in re.findall(r'name="sel" value="([^"]*)"', client.get(BASE + q).text)}   # noqa: E731
-    assert "AAPL" in shown("&q_roic=flexible") and "AAPL" not in shown("&q_roic=standard")  # 10 % ≥ 8 % pero < 12 %
-    assert "AAPL" in shown("&q_loss=strict")                                                # ningún año con pérdidas
+    load_rank(client)
+    svc.quality.save([TickerInfo("KO", eps_ttm=5.0, roic=0.10, loss_years=0, fiscal_years=10)])
+    shown = lambda q: universe_shown(client, q)   # noqa: E731
+    assert "KO" in shown("q_roic=flexible") and "KO" not in shown("q_roic=standard")      # 10 % ≥ 8 % pero < 12 %
+    assert "KO" in shown("q_loss=strict")                                                 # ningún año con pérdidas
+    assert "ROIC" in client.get("/universe?q_roic=strict").text
 
 
 def test_the_universe_shows_the_new_columns(client_and_service):
@@ -200,13 +203,14 @@ def test_quality_repo_round_trips_the_new_fields():
 
 
 # ---- los botones de calidad no deben vaciar el strike y el vencimiento ------------------------------------------
-def test_the_strike_presets_handler_does_not_bind_to_the_quality_preset_buttons(client_and_service):
-    """Regresión: «preset qpreset» casaba con `button.preset` y su clic dejaba descuento, DTE y yield en «undefined»."""
+def test_the_strike_presets_handler_binds_only_to_the_strike_presets(client_and_service):
+    """Los botones de combinaciones de calidad (`preset qpreset`) están en el Universo: el Scanner ya no los lleva, así que su
+    manejador no puede dejar descuento, DTE y yield en «undefined»."""
     client, svc, gw, _ = client_and_service
     page = client.get("/scanner?reset=1").text
-    assert "querySelectorAll('button.preset:not(.qpreset)')" in page
-    assert "querySelectorAll('button.preset')" not in page                       # sin el filtro, el manejador se engancha a las dos familias
-    assert 'class="preset qpreset' in page and "data-discount" not in page.split('class="preset qpreset')[1].split("</button>")[0]
+    assert "querySelectorAll('button.preset')" in page and 'qpreset' not in page
+    load_rank(client)
+    assert 'class="preset qpreset' in client.get("/universe").text and "data-discount" not in client.get("/universe").text
 
 
 # ---- ingresos crecientes y estabilidad de los beneficios ------------------------------------------------------
@@ -224,21 +228,21 @@ def test_revenue_drops_and_volatility_rules_use_the_configured_levels():
     assert reject(TickerInfo("JPM", sector="Financial Services"), max_revenue_drops=0, max_earnings_volatility=0.1) is None
 
 
-def test_the_scanner_form_offers_revenue_drops_and_earnings_volatility(client_and_service):
+def test_the_universe_form_offers_revenue_drops_and_earnings_volatility(client_and_service):
     client, svc, gw, _ = client_and_service
-    page = client.get("/scanner?reset=1").text
+    load_rank(client)
+    page = client.get("/universe").text
     assert 'name="q_revdrop"' in page and 'name="q_evol"' in page
     assert "Estándar (≤ 50 %)" in page and "Estricto (≤ 30 %)" in page and "Años con caída de ingresos" in page
 
 
-def test_revenue_drops_and_volatility_filter_the_scan(client_and_service):
+def test_revenue_drops_and_volatility_filter_the_universe(client_and_service):
     client, svc, gw, _ = client_and_service
-    refresh(client)
-    svc.quality.save([TickerInfo("AAPL", eps_ttm=5.0, revenue_drop_years=1, revenue_years=9, earnings_volatility=0.45)])
-    shown = lambda q: {v.split("|")[0] for v in re.findall(r'name="sel" value="([^"]*)"', client.get(BASE + q).text)}   # noqa: E731
-    assert "AAPL" in shown("&q_revdrop=standard") and "AAPL" not in shown("&q_revdrop=strict")      # 1 caída: ≤ 1 sí, ≤ 0 no
-    assert "AAPL" in shown("&q_evol=standard") and "AAPL" not in shown("&q_evol=strict")            # 0,45 ≤ 0,50 pero > 0,30
-    assert "Volatilidad de los beneficios: Estricto" in client.get(BASE + "&q_evol=strict").text
+    load_rank(client)
+    svc.quality.save([TickerInfo("KO", eps_ttm=5.0, revenue_drop_years=1, revenue_years=9, earnings_volatility=0.45)])
+    shown = lambda q: universe_shown(client, q)   # noqa: E731
+    assert "KO" in shown("q_revdrop=standard") and "KO" not in shown("q_revdrop=strict")      # 1 caída: ≤ 1 sí, ≤ 0 no
+    assert "KO" in shown("q_evol=standard") and "KO" not in shown("q_evol=strict")            # 0,45 ≤ 0,50 pero > 0,30
 
 
 def test_the_universe_shows_the_stability_columns(client_and_service):

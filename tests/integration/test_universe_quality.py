@@ -1,4 +1,5 @@
-"""Calidad de la empresa: las columnas del Universo son informativas y los filtros (los mismos de siempre) están en el Scanner."""
+"""Calidad de la empresa: las columnas y los filtros de la empresa están en el Universo (barra encima de la tabla); en el
+Scanner solo quedan los que dependen de las opciones (liquidez y resultados)."""
 import re
 from datetime import date, datetime, timedelta
 
@@ -48,13 +49,12 @@ def setup(client_and_service):
     return client, svc
 
 
-def test_universe_shows_the_quality_indicators_but_no_filter_form(client_and_service):
+def test_universe_shows_the_quality_indicators_and_the_filter_bar_on_top(client_and_service):
     client, svc = setup(client_and_service)
     page = client.get("/universe").text
     for header in ("EPS 12 m", "Trim. +", "Cap. (B$)", "Liq. opc.", "Resultados", "Pasivo/Patr.", "FCF (M$)"):
         assert f"<th>{header}</th>" in page
-    assert 'id="quality-form"' not in page and "Filtros de calidad</div>" not in page      # los filtros están en el Scanner
-    assert "filtros de calidad están en el Scanner" in page
+    assert 'id="qform"' in page and page.index('id="qform"') < page.index('id="universe-table"')   # barra de filtros encima de la tabla
     assert shown(page) == ALL_TICKERS and "8 acciones" in page
     ko = [row for row in page.split("<tr>") if 'value="KO"' in row][0]
     assert "3/4" not in ko and "4/4" in ko and "2026-10-20" in ko and "+4 %" in ko     # trimestres, resultados, sorpresa
@@ -63,11 +63,13 @@ def test_universe_shows_the_quality_indicators_but_no_filter_form(client_and_ser
     assert "—" in pays                                                                  # sin datos de calidad: guion
 
 
-def test_a_filter_in_the_universe_url_is_ignored(client_and_service):
-    """Los filtros ya no existen en el Universo: una URL antigua con `submitted=1&q_profit=on` muestra todo."""
+def test_a_filter_in_the_universe_url_hides_the_rows_that_do_not_pass(client_and_service):
     client, svc = setup(client_and_service)
-    page = client.get("/universe?submitted=1&q_profit=on&q_quarters=4&q_de=strict").text
-    assert shown(page) == ALL_TICKERS and "descartadas por calidad" not in page
+    query = "q_profit=on&q_quarters=4&q_lev=2"
+    page = client.get(f"/universe?{query}").text
+    assert shown(page) == passing(svc, query) != ALL_TICKERS and f"de {len(ALL_TICKERS)}" in page
+    assert "Quitar filtros" in page and "3 activos" in page
+    assert "Filtro no válido" in client.get("/universe?q_quarters=1").text and shown(client.get("/universe?q_quarters=1").text) == ALL_TICKERS
 
 
 def test_negative_values_are_marked_in_red(client_and_service):
@@ -125,7 +127,7 @@ def test_invalid_filter_values_are_rejected(client_and_service):
             passing(svc, f"q_profit=on&{bad}")
 
 
-def test_option_liquidity_filter_is_in_the_scanner_not_in_the_universe(client_and_service):
+def test_option_liquidity_and_earnings_filters_stay_in_the_scanner(client_and_service):
     client, svc = setup(client_and_service)
     assert "<th>Liq. opc.</th>" in client.get("/universe").text and 'name="q_liq"' not in client.get("/universe").text
     assert 'name="q_liq"' in client.get("/scanner").text

@@ -170,14 +170,14 @@ async def test_scanner_form_reads_the_quality_fields():
     base = "/scanner?submitted=1&discount=1&dte_min=1&dte_max=45&min_yield=0&ref=bid"
     with make_client(svc) as client:
         page = client.get(base).text
-        assert "Calidad de la empresa" in page and "contratos cumplen" in page
+        assert "Opciones: liquidez y resultados" in page and "contratos cumplen" in page
         assert "Ningún contrato" not in page
-        assert "Ningún contrato" in client.get(base + "&q_profit=on").text           # EPS negativo
-        assert "Ningún contrato" in client.get(base + "&q_quarters=3").text
-        assert 'name="q_mcap"' not in page and "Ningún contrato" not in client.get(base + "&q_mcap=2000").text   # ya no filtra
-        assert "no permitida" in client.get(base + "&q_quarters=1").text              # fuera de las opciones configuradas
-        checked = client.get(base + "&q_profit=on&q_earn=on&q_liq=3").text
-        assert 'name="q_profit" id="q_profit" checked' in checked and 'name="q_earn" id="q_earn" checked' in checked
+        # los filtros de la empresa (beneficios, trimestres…) viven en el Universo: el Scanner los ignora
+        assert 'name="q_profit"' not in page and 'name="q_quarters"' not in page
+        assert "Ningún contrato" not in client.get(base + "&q_profit=on&q_quarters=3&q_mcap=2000").text
+        assert "no permitida" not in client.get(base + "&q_quarters=1").text
+        checked = client.get(base + "&q_earn=on&q_liq=3").text
+        assert 'name="q_earn" id="q_earn" checked' in checked and '<option value="3" selected>' in checked
 
 
 async def test_scanner_table_shows_the_quality_columns():

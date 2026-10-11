@@ -41,7 +41,8 @@ def test_the_watchlist_has_an_overview_and_the_universe_a_side_menu_of_sources(c
     uni = client.get("/universe?reset=1").text
     assert 'class="src-menu"' in uni and 'class="shell uni"' in uni and "Cargar ficheros" in uni and "Añadir tickers" in uni
     assert "Acciones por sector" not in uni and "Ficheros cargados" not in uni and "Explorar por fuente" not in uni   # fuera lo informativo
-    assert re.search(r'class="src-item active" href="/universe\?reset=1"', uni)              # «Todas» marcada
+    assert re.search(r'class="src-item all active" href="/universe\?reset=1"', uni)          # «Universo» marcado, aparte de las fuentes
+    assert 'class="src-label">Fuentes<' in uni and 'id="qform"' in uni                       # y los filtros de calidad arriba
     assert 'class="help-scope"' in uni
 
 

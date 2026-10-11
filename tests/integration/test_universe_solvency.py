@@ -33,16 +33,19 @@ def filtered(svc, query):
     return passing(svc, query)
 
 
-def test_the_scanner_form_offers_the_levels_with_their_thresholds_and_how_many_tickers_pass(client_and_service):
+def shown_rows(page):
+    return shown(page)
+
+
+def test_the_universe_form_offers_the_levels_with_their_thresholds(client_and_service):
     client, svc = setup(client_and_service)
-    page = client.get("/scanner").text
+    page = client.get("/universe").text
     for name in ("q_de", "q_cov", "q_cash", "q_ocfd", "q_capex", "q_fcfa", "q_bb"):
         assert f'name="{name}"' in page
-    assert 'id="q_solv_master"' in page and 'name="q_manage"' in page
+    assert 'name="q_manage"' in page and 'class="preset qpreset' in page
     assert "Flexible (≤ 1.5)" in page and "Estándar (≥ 3×)" in page and "Estricto (≥ 5×)" in page
     assert "Estándar (≥ 30 %)" in page and "Estricto (≤ 20 %)" in page and "Estricto (≥ 2 %)" in page
-    assert "Opcionales" in page
-    assert re.search(r"Estándar \(≤ 1\) · \d+/\d+", page)                    # tickers de la watchlist que pasan ese grado
+    assert re.search(r"Estándar \(≤ 1\)", page)
 
 
 def test_debt_to_equity_gets_stricter_with_each_level(client_and_service):
@@ -137,11 +140,12 @@ def test_invalid_level_is_rejected(client_and_service):
             filtered(svc, bad)
 
 
-def test_the_universe_no_longer_has_the_solvency_selectors(client_and_service):
+def test_the_solvency_selectors_live_in_the_universe_and_filter_its_rows(client_and_service):
     client, svc = setup(client_and_service)
     universe = client.get("/universe").text
-    assert 'name="q_de"' not in universe and 'id="q_solv_master"' not in universe
-    assert 'name="q_de"' in client.get("/scanner").text
+    assert 'name="q_de"' in universe and 'id="q_solv_master"' not in universe
+    assert 'name="q_de"' not in client.get("/scanner").text
+    assert shown_rows(client.get("/universe?q_de=strict").text) == filtered(svc, "q_de=strict")
 
 
 def test_the_exemption_list_comes_from_the_configuration(client_and_service):

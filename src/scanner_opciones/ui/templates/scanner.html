@@ -27,14 +27,8 @@
 {% set ma_count = ns.ma_count %}
 {% set frame_names = {'daily': 'diarias', 'weekly': 'semanales', 'monthly': 'mensuales'} %}
 {% set quality = [] %}
-{% if form.q_profit %}{% set _ = quality.append('Beneficios 12 m') %}{% endif %}
-{% if form.q_quarters %}{% set _ = quality.append(form.q_quarters ~ '/4 trimestres') %}{% endif %}
 {% if form.q_liq %}{% set _ = quality.append('Liquidez ≥ ' ~ form.q_liq) %}{% endif %}
 {% if form.q_earn %}{% set _ = quality.append('Sin resultados') %}{% endif %}
-{% if form.q_lev %}{% set _ = quality.append('Pasivo/patr. ≤ ' ~ form.q_lev) %}{% endif %}
-{% if form.q_fcf %}{% set _ = quality.append('FCF > 0') %}{% endif %}
-{% if form.q_manage %}{% set _ = quality.append('Deuda baja o manejable') %}{% endif %}
-{% for f in solvency %}{% if f.value %}{% set _ = quality.append(f.label ~ ': ' ~ level_names[f.value]) %}{% endif %}{% endfor %}
 {% set optional = [] %}
 {% for key, use, label, sign in (('bid', 'use_bid', 'Bid', '≥'), ('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤'), ('ivr', 'use_ivr', 'IV Rank', '≥'), ('ivp', 'use_ivp', 'IV Pctl', '≥')) %}
   {% if form[use] %}{% set _ = optional.append(label ~ ' ' ~ sign ~ ' ' ~ form[key]) %}{% endif %}
@@ -240,56 +234,15 @@
           La <b>pendiente</b> compara la media de hoy con la de hace {{ tech_opts.slope_candles }} velas (las elegidas arriba): ascendente si es mayor, descendente si es menor.</p>
       {% endcall %}
 
-      {% call section('sec-quality', 'Calidad de la empresa', (quality | join(' · ')) or 'Sin filtros', quality|length > 0) %}
-        <p class="note">Datos de tastytrade; los tickers sin dato se descartan, salvo en el filtro de resultados.</p>
-        <div class="fx-sub">Rentabilidad</div>
-        <label class="check"><input type="checkbox" name="q_profit" id="q_profit" {{ 'checked' if form.q_profit }}> Beneficios en los últimos 12 meses{{ count_text('require_profitable', True) }}</label>
-        <label class="field">Trimestres con beneficios (de los últimos 4)
-          <select name="q_quarters" id="q_quarters">
-            <option value="" {{ 'selected' if form.q_quarters == '' }}>Cualquiera</option>
-            {% for n in quality_opts.quarters %}<option value="{{ n }}" {{ 'selected' if form.q_quarters == n|string }}>{{ n }} o más{{ count_text('min_positive_quarters', n) }}</option>{% endfor %}</select></label>
-        <p class="note">EPS de 12 meses mayor que 0 (si tastytrade no lo da, la suma de los 4 últimos trimestres). Exigir 3 de 4 evita que un único trimestre con pérdidas extraordinarias descarte una empresa sana.</p>
-        <div class="fx-sub">Liquidez</div>
+      {% call section('sec-quality', 'Opciones: liquidez y resultados', (quality | join(' · ')) or 'Sin filtros', quality|length > 0) %}
+        <p class="note">Datos de tastytrade; los tickers sin dato se descartan, salvo en el filtro de resultados. Los filtros de calidad de la empresa (beneficios, deuda, caja…) están en la pestaña <a href="/universe">Universo</a>.</p>
         <label class="field">Liquidez de las opciones (1-5)
           <select name="q_liq" id="q_liq">
             <option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>
             {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más{{ count_text('min_option_liquidity', n) }}</option>{% endfor %}</select></label>
         <p class="note">La liquidez es la valoración de tastytrade de las opciones del ticker (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers: úsala con cuidado.</p>
-        <div class="fx-sub">Resultados antes del vencimiento</div>
         <label class="check"><input type="checkbox" name="q_earn" id="q_earn" {{ 'checked' if form.q_earn }}> Evitar vencimientos con resultados</label>
         <p class="note">Se descartan los <b>contratos</b> cuyo vencimiento es igual o posterior a la próxima fecha de resultados: no se vende una put que atraviese un informe. Sin fecha conocida no se descarta nada.</p>
-        <div class="fx-sub">Apalancamiento y caja</div>
-        <label class="field">Pasivo / patrimonio máximo
-          <select name="q_lev" id="q_lev">
-            <option value="" {{ 'selected' if form.q_lev == '' }}>Cualquiera</option>
-            {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if form.q_lev == v }}>{{ v }}{{ count_text('max_liabilities_to_equity', v|float) }}</option>{% endfor %}</select></label>
-        <label class="check"><input type="checkbox" name="q_fcf" id="q_fcf" {{ 'checked' if form.q_fcf }}> Flujo de caja libre positivo (12 meses){{ count_text('require_positive_fcf', True) }}</label>
-        <p class="note">Datos de la SEC. Las <b>financieras</b> quedan exentas. Se descartan los tickers sin dato (los ADR suelen no tenerlo) y los de patrimonio negativo.
-          {% if not quality_opts.edgar %}<b>Sin datos: falta <code>edgar.contact</code> en config.yaml</b> (la SEC exige un contacto en las peticiones).{% endif %}</p>
-        <div class="fx-sub">Solvencia y calidad del flujo de caja</div>
-        {% if q_presets %}<div class="presets" style="border-bottom:0;padding:0 0 8px"><span class="lbl">Combinaciones (ninguna activa por defecto)</span>
-          {% for p in q_presets %}<button type="button" class="preset qpreset{{ ' active' if p.is_on }}" data-levels='{{ p.levels|tojson }}' data-manage="{{ 1 if p.manage else 0 }}"
-            title="{{ p.title }}">{{ p.name }}</button>{% endfor %}
-          <button type="button" class="preset qpreset" data-levels="{}" data-manage="0" data-clear="1" title="Quitar todos los filtros de solvencia">Ninguno</button>
-        </div>{% endif %}
-        <label class="field" title="Aplica el mismo grado a los cuatro filtros de solvencia">Mismo grado para los cuatro
-          <select id="q_solv_master"><option value="">— elegir —</option>
-            {% for level, label in levels %}<option value="{{ level }}">{{ label }}</option>{% endfor %}</select></label>
-        {% for f in solvency if f.core %}
-        <label class="field">{{ f.label }}
-          <select name="{{ f.key }}" id="{{ f.key }}"><option value="">Sin filtro</option>
-            {% for level, text in f.options %}<option value="{{ level }}" {{ 'selected' if f.value == level }}>{{ text }}</option>{% endfor %}</select></label>
-        {% endfor %}
-        <label class="check"><input type="checkbox" name="q_manage" id="q_manage" {{ 'checked' if form.q_manage }}> Deuda baja o manejable{{ count_text('require_manageable_debt', True) }}</label>
-        <p class="note">Pasa con deuda/patrimonio ≤ {{ manageable.max_debt_to_equity|string }} <b>o</b> cobertura de intereses ≥ {{ manageable.min_interest_coverage|string }}×: solo se descarta la deuda alta Y mal cubierta.</p>
-        <div class="fx-sub">Opcionales (sin filtro por defecto)</div>
-        {% for f in solvency if not f.core %}
-        <label class="field">{{ f.label }}
-          <select name="{{ f.key }}" id="{{ f.key }}"><option value="">Sin filtro</option>
-            {% for level, text in f.options %}<option value="{{ level }}" {{ 'selected' if f.value == level }}>{{ text }}</option>{% endfor %}</select></label>
-        {% endfor %}
-        <p class="note">Tras cada opción, <b>«· n/N»</b>: cuántos de los N tickers de la watchlist pasan ese valor por separado (los de sectores exentos pasan; un dato que falta no pasa).
-          Exentos: sectores con «{{ exempt_names }}» en su nombre.</p>
       {% endcall %}
 
       {% call section('sec-optional', 'Filtros opcionales', (optional | join(' · ')) or 'Sin filtros', optional|length > 0) %}
@@ -419,22 +372,8 @@
     });
     load();
   })();
-  // Combinaciones de calidad: rellenan los filtros de solvencia y escanean («Ninguno» los quita)
-  document.querySelectorAll('button.qpreset').forEach(function (b) {
-    b.addEventListener('click', function () {
-      ['q_de', 'q_cov', 'q_cash', 'q_ocfd', 'q_capex', 'q_fcfa', 'q_bb', 'q_roic', 'q_loss', 'q_revdrop', 'q_evol'].forEach(function (n) { document.getElementById(n).value = ''; });
-      const levels = JSON.parse(b.dataset.levels);
-      Object.keys(levels).forEach(function (n) { document.getElementById(n).value = levels[n]; });
-      document.getElementById('q_manage').checked = b.dataset.manage === '1';
-      form.submit();
-    });
-  });
-  document.getElementById('q_solv_master').addEventListener('change', function () {
-    const v = this.value;
-    ['q_de', 'q_cov', 'q_cash', 'q_ocfd'].forEach(function (n) { document.getElementById(n).value = v; });
-  });
   // Configuraciones preconfiguradas: cargan sus valores en el formulario (el resto de filtros se conserva) y escanean
-  document.querySelectorAll('button.preset:not(.qpreset)').forEach(function (b) {   // las combinaciones de calidad (.qpreset) tienen su propio manejador
+  document.querySelectorAll('button.preset').forEach(function (b) {
     b.addEventListener('click', function () {
       document.getElementById('discount').value = b.dataset.discount;
       document.getElementById('dte_min').value = b.dataset.dteMin;

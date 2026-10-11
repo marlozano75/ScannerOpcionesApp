@@ -202,18 +202,22 @@ def quality_form(base) -> dict:
     }
 
 
-def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidity: bool = True, solvency: bool = False) -> None:
+def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidity: bool = True, solvency: bool = False,
+                 company: bool = True) -> None:
     """Lee los filtros de calidad de la URL (scanner y Universo comparten parser). Cada valor se valida contra las
     listas permitidas de la configuración. `earnings`: el filtro de resultados es por contrato, solo existe en el scanner.
     `liquidity`: la liquidez de las opciones solo se filtra en el scanner (en el Universo es solo un indicador).
-    `solvency`: los filtros de solvencia con grado de exigencia y el de «deuda baja o manejable» (scanner)."""
-    form["q_profit"], form["q_fcf"] = "q_profit" in qp, "q_fcf" in qp
-    overrides["require_profitable"], overrides["require_positive_fcf"] = form["q_profit"], form["q_fcf"]
+    `solvency`: los filtros de solvencia con grado de exigencia y el de «deuda baja o manejable» (Universo).
+    `company`: los filtros de la empresa (beneficios, trimestres, apalancamiento, FCF): viven en el Universo; el
+    scanner solo conserva los que dependen de las opciones (liquidez y resultados)."""
+    if company:
+        form["q_profit"], form["q_fcf"] = "q_profit" in qp, "q_fcf" in qp
+        overrides["require_profitable"], overrides["require_positive_fcf"] = form["q_profit"], form["q_fcf"]
     if earnings:
         form["q_earn"] = "q_earn" in qp
         overrides["avoid_earnings"] = form["q_earn"]
     for key, field_name, cast, options, label in QUALITY_SELECTS:
-        if key == "q_liq" and not liquidity:
+        if (key == "q_liq" and not liquidity) or (key != "q_liq" and not company):
             continue
         form[key] = qp.get(key, "").strip()
         overrides[field_name] = _required(form[key], cast, label) if form[key] else None
@@ -417,18 +421,37 @@ def create_app(
             for r in s_.table.rows:
                 member.setdefault(r.ticker, []).append(numbers[s_.name])
         rows = list(table.rows) if table is not None else []
-        # los datos de calidad son columnas informativas; los filtros están en el Scanner
+        # filtros de calidad de la empresa (arriba de la tabla): se aplican a las filas; las que no pasan no se muestran
         qcfg = service.settings.scanner.quality
         qinfos = service.quality.all()
         ident = service.universe_identity()                               # ticker -> (empresa, sector) de todo el Universo
         sectors = {t: i.sector for t, i in service.ticker_info.all().items()}
         sector_col = next((i for i, c in enumerate(table.columns) if c.name.strip().lower() == "sector"), None) if table else None
+        base = service.criteria()
+        form, overrides, filter_error = quality_form(base), {}, None
+        try:
+            read_quality(request.query_params, form, overrides, qcfg, earnings=False, liquidity=False, solvency=True)
+        except ValueError as exc:
+            form, overrides, filter_error = quality_form(base), {}, f"Filtro no válido: {exc}"
+        criteria = base.with_filters(**overrides)
+        total_rows = len(rows)
         exempt_tickers: set[str] = set()
+        shown = []
         for row in rows:
             info = replace(qinfos.get(row.ticker) or TickerInfo(row.ticker),
                            sector=_sector_of(row, sector_col, sectors) or ident.get(row.ticker, ("", ""))[1] or None)
             if is_exempt(info, qcfg.exempt_sectors):
                 exempt_tickers.add(row.ticker)
+            if ticker_quality_reject(info, criteria, qcfg.exempt_sectors) is None:
+                shown.append(row)
+        rows = shown
+        labels = {key: label for key, _, _, label, _, _ in SOLVENCY_UI}
+        q_presets = [dict(name=p.name, levels=p.levels, manage=p.manageable_debt,
+                          title=" · ".join([f"{labels[k]}: {qcfg.level_labels[v]}" for k, v in p.levels.items()]
+                                           + (["Deuda baja o manejable"] if p.manageable_debt else [])),
+                          is_on=all(form.get(k) == v for k, v in p.levels.items()) and form.get("q_manage") == p.manageable_debt
+                          and bool(p.levels or p.manageable_debt)) for p in qcfg.presets]
+        n_active = sum(1 for k, v in form.items() if v and k != "q_earn")
         with_quality = sum(1 for r in rows if r.ticker in qinfos)
         active = {s.name for s in sources}
         files = [(name, at, [s.name for s in srcs if s.name in active]) for name, (at, srcs) in service.universe_files.items()]
@@ -445,7 +468,11 @@ def create_app(
                       all_count=len(member), manual=[(n, len(t)) for n, t in service.manual_sources.items()],
                       source_info=info, in_watchlist=set(service.watchlist.list()),
                       qinfos=qinfos, with_quality=with_quality, edgar=bool(service.settings.edgar.contact.strip()),
-                      exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors))
+                      exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors),
+                      total_rows=total_rows, qform=form, filter_error=filter_error, n_active=n_active, q_presets=q_presets,
+                      solvency=solvency_controls(qcfg, form), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
+                      quality_opts=dict(quarters=qcfg.positive_quarters_options,
+                                        leverage=[_fmt(v) for v in qcfg.leverage_options]))
 
     @app.post("/universe/load")
     async def universe_load(files: list[UploadFile]):
@@ -639,7 +666,7 @@ def create_app(
                         raise ValueError(f"{label} no puede ser negativo")
                 if None not in (overrides["min_price"], overrides["max_price"]) and overrides["min_price"] > overrides["max_price"]:
                     raise ValueError("el precio mínimo no puede superar el máximo")
-                read_quality(qp, form, overrides, service.settings.scanner.quality, earnings=True, solvency=True)
+                read_quality(qp, form, overrides, service.settings.scanner.quality, earnings=True, company=False)
                 form["touch"] = qp.get("touch", "").strip()
                 overrides["min_days_since_touch"] = _required(form["touch"], int, "Días desde el último toque") if form["touch"] else None
                 if overrides["min_days_since_touch"] is not None and overrides["min_days_since_touch"] not in tcfg.touch_min_days_options:
@@ -719,20 +746,10 @@ def create_app(
                         min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
         qcfg = service.settings.scanner.quality
         counts = quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg)
-        labels = {key: label for key, _, _, label, _, _ in SOLVENCY_UI}
-        q_presets = [dict(name=p.name, levels=p.levels, manage=p.manageable_debt,
-                          title=" · ".join([f"{labels[k]}: {qcfg.level_labels[v]}" for k, v in p.levels.items()]
-                                           + (["Deuda baja o manejable"] if p.manageable_debt else [])),
-                          is_on=all(parsed["form"].get(k) == v for k, v in p.levels.items())
-                          and parsed["form"].get("q_manage") == p.manageable_debt
-                          and bool(p.levels or p.manageable_debt)) for p in qcfg.presets]
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
         return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
                       yield_max=yield_max,
-                      solvency=solvency_controls(qcfg, parsed["form"], counts), q_presets=q_presets,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
-                      levels=list(qcfg.level_labels.items()), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
-                      exempt_names=", ".join(qcfg.exempt_sectors),
                       candidates=service.settings.scanner.candidates,
                       margin=service.settings.scanner.catalog_margin_pct,
                       ma_hidden=unavailable_ma_fields(
@@ -744,10 +761,7 @@ def create_app(
                           durations=[(d, _days_label(d)) for d in service.settings.scanner.technical.trend_durations],
                           touches=[(d, _days_label(d)) for d in service.settings.scanner.technical.touch_min_days_options]),
                       quality_opts=dict(
-                          quarters=service.settings.scanner.quality.positive_quarters_options,
-                          liquidity=service.settings.scanner.quality.liquidity_options,
-                          leverage=[_fmt(v) for v in service.settings.scanner.quality.leverage_options],
-                          edgar=bool(service.settings.edgar.contact.strip())),
+                          liquidity=service.settings.scanner.quality.liquidity_options),
                       report=service.state.last_refresh_report, **parsed)
 
     @app.get("/favicon.ico", include_in_schema=False)

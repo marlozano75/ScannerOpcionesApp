@@ -134,9 +134,7 @@ async def test_scanner_form_reads_the_financial_fields_and_shows_the_columns():
     base = "/scanner?submitted=1&discount=1&dte_min=1&dte_max=45&min_yield=0&ref=bid"
     with make_client(svc) as client:
         page = client.get(base).text
-        assert "Apalancamiento y caja" in page and "Pasivo/Patr." in page and "3.5" in page
-        assert "falta <code>edgar.contact</code>" in page                  # sin contacto configurado se avisa
-        assert "Ningún contrato" in client.get(base + "&q_lev=2").text
-        assert "Ningún contrato" in client.get(base + "&q_fcf=on").text
-        assert "no permitida" in client.get(base + "&q_lev=7").text
-        assert 'name="q_fcf" id="q_fcf" checked' in client.get(base + "&q_fcf=on&q_lev=5").text
+        assert "Pasivo/Patr." in page and "3.5" in page
+        assert 'name="q_lev"' not in page and 'name="q_fcf"' not in page   # esos filtros están en el Universo
+        assert "Ningún contrato" not in client.get(base + "&q_lev=2&q_fcf=on").text
+        assert "no permitida" not in client.get(base + "&q_lev=7").text
