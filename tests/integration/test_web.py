@@ -847,10 +847,12 @@ def test_scanner_spread_mode_renders_and_validates(client_and_service):
     refresh(client)
     put = client.get(BASE)
     assert put.status_code == 200 and 'value="spread"' in put.text and "sec-spread" not in put.text.split("<aside")[1].split("</aside>")[0]
-    r = client.get(BASE + "&mode=spread&w=5&w=10&use_cw=on&cw=25&use_ror=on&ror=30")
+    r = client.get(BASE + "&mode=spread&w=5&w=10&use_cw=on&cw=25&use_mn=on&mn=2")
     assert r.status_code == 200
     assert "Retorno/riesgo anual" in r.text and "Anchos 5, 10 $" in r.text and "spreads" in r.text
-    for bad in ("&mode=otro", "&mode=spread", "&mode=spread&w=7", "&mode=spread&w=5&use_cw=on&cw=150", "&mode=spread&w=5&use_ml=on&ml=abc"):
+    # sin ningún valor de los límites (cambio de instrumento) quedan marcados los de config
+    assert "Crédito/ancho ≥ 25 %" in client.get(BASE + "&mode=spread&w=5").text
+    for bad in ("&mode=otro", "&mode=spread", "&mode=spread&w=7", "&mode=spread&w=5&use_cw=on&cw=150", "&mode=spread&w=5&use_mn=on&mn=abc"):
         assert "Parámetro no válido" in client.get(BASE + bad).text, bad
 
 
@@ -859,5 +861,5 @@ def test_scanner_both_mode_renders_and_validates(client_and_service):
     refresh(client)
     r = client.get(BASE + "&mode=both&w=5&use_nw=on&nw=5&use_ns=on&ns=100")
     assert r.status_code == 200 and "Retorno anual s/ capital" in r.text and "Put si pesa" in r.text
-    for bad in ("&mode=both&w=5", "&mode=both&w=5&use_nw=on&nw=0", "&mode=both&w=5&use_ns=on&ns=abc", "&mode=both&w=5&use_nw=on&nw=5&use_mn=on&mn=500"):
+    for bad in ("&mode=both&w=5&nw=5&ns=100", "&mode=both&w=5&use_nw=on&nw=0", "&mode=both&w=5&use_ns=on&ns=abc", "&mode=both&w=5&use_nw=on&nw=5&use_mn=on&mn=500"):
         assert "Parámetro no válido" in client.get(BASE + bad).text, bad

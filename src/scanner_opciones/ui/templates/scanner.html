@@ -51,8 +51,6 @@
 {% if form.mode != 'put' %}
   {% set _ = spreadf.append('Anchos ' ~ (form.widths | join(', ')) ~ ' $') %}
   {% if form.use_cw %}{% set _ = spreadf.append('Crédito/ancho ≥ ' ~ form.cw ~ ' %') %}{% endif %}
-  {% if form.use_ml %}{% set _ = spreadf.append('Pérdida máx. ≤ ' ~ form.ml ~ ' $') %}{% endif %}
-  {% if form.use_ror %}{% set _ = spreadf.append('Retorno/riesgo ≥ ' ~ form.ror ~ ' %') %}{% endif %}
   {% if form.use_mn %}{% set _ = spreadf.append('Pérdida máx. ≤ ' ~ form.mn ~ ' % NLV') %}{% endif %}
   {% if form.mode == 'both' %}
     {% if form.use_nw %}{% set _ = spreadf.append('Put si pesa ≤ ' ~ form.nw ~ ' % NLV') %}{% endif %}
@@ -182,7 +180,7 @@
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
         <div class="fgrid"><span class="lbl full">Ancho (strike vendido − comprado, $)</span>
         {% for w in form.width_options %}<label class="check"><input type="checkbox" name="w" value="{{ w }}" {{ 'checked' if w in form.widths }}> {{ w }} $</label>{% endfor %}</div>
-        {% for key, use, label in (('cw', 'use_cw', 'Crédito / ancho mín. (%)'), ('ml', 'use_ml', 'Pérdida máxima ($)'), ('mn', 'use_mn', 'Pérdida máxima (% del NLV)'), ('ror', 'use_ror', 'Retorno sobre riesgo mín. (%)')) %}
+        {% for key, use, label in (('cw', 'use_cw', 'Crédito / ancho mín. (%)'), ('mn', 'use_mn', 'Pérdida máxima (% del NLV)')) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
@@ -196,7 +194,7 @@
         {% endif %}
         <p class="note">Los filtros de abajo (strike, delta, IV, técnicos, calidad…) se aplican a la <b>put vendida</b>; la comprada es la del mismo vencimiento <i>ancho</i> $ por debajo.
           El crédito se calcula con la vendida al precio de venta elegido y la comprada al <b>ask</b>. Pérdida máxima = (ancho − crédito) × 100, que es también el margen aproximado del spread.
-          El yield anual sobre el strike no se aplica: lo sustituyen crédito/ancho y retorno sobre riesgo.</p>
+          El yield anual sobre el strike no se aplica: lo sustituye el crédito/ancho (equivale al retorno sobre riesgo: 25 % de crédito/ancho = 33 % de retorno/riesgo).</p>
       {% endcall %}
       {% endif %}
 

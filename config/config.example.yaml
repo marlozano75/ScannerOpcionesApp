@@ -27,8 +27,6 @@ scanner:
     width_options: [1, 2.5, 5, 10]          # anchos ofrecidos (strike vendido − comprado, en $)
     widths: [5]                             # anchos marcados por defecto
     min_credit_width_pct: 25                # crédito neto / ancho mínimo que propone la caja
-    max_loss: 500                           # pérdida máxima por spread ($) que propone la caja
-    min_return_on_risk_pct: 30              # crédito / pérdida máxima mínimo que propone la caja
     weight_options: [5, 10]                 # modo «Ambos»: pesos máximos sobre el NLV ofrecidos
     max_naked_weight_pct: 5                 # peso máximo de la acción (acciones + puts vendidas + esta) para ofrecer la put desnuda
     max_naked_strike: 100                   # strike máximo de la put desnuda ($); por encima, solo spread

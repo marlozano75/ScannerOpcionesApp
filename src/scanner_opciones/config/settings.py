@@ -163,8 +163,6 @@ class SpreadSettings(_Model):
     width_options: tuple[float, ...] = (1.0, 2.5, 5.0, 10.0)
     widths: tuple[float, ...] = (5.0,)               # anchos marcados por defecto
     min_credit_width_pct: float = Field(25, gt=0, lt=100)    # crédito neto / ancho mínimo
-    max_loss: float = Field(500, gt=0)               # pérdida máxima por spread en $ ((ancho − crédito) × multiplicador)
-    min_return_on_risk_pct: float = Field(30, gt=0)  # crédito / pérdida máxima mínimo
     # modo «Ambos»: la put desnuda solo se ofrece si cabe en estos límites; si no, sale el spread
     weight_options: tuple[float, ...] = (5.0, 10.0)  # peso máximo (% del NLV) ofrecido en el formulario
     max_naked_weight_pct: float = Field(5, gt=0, le=100)   # peso máximo de la acción si te asignan (acciones + puts vendidas + esta)

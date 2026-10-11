@@ -751,10 +751,9 @@ def create_app(
 
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
         form.update(mode="put", widths=[_fmt(w) for w in sp.widths], width_options=[_fmt(w) for w in sp.width_options],
-                    use_cw=False, cw=_fmt(sp.min_credit_width_pct), use_ml=False, ml=_fmt(sp.max_loss),
-                    use_ror=False, ror=_fmt(sp.min_return_on_risk_pct),
-                    use_mn=False, mn=_fmt(sp.max_loss_nlv_pct), use_nw=False, nw=_fmt(sp.max_naked_weight_pct),
-                    use_ns=False, ns=_fmt(sp.max_naked_strike), weight_options=[_fmt(w) for w in sp.weight_options])
+                    use_cw=True, cw=_fmt(sp.min_credit_width_pct),
+                    use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_nw=True, nw=_fmt(sp.max_naked_weight_pct),
+                    use_ns=True, ns=_fmt(sp.max_naked_strike), weight_options=[_fmt(w) for w in sp.weight_options])
 
         criteria, error, warnings = None, None, []
         try:
@@ -764,9 +763,13 @@ def create_app(
                 if form["mode"] not in ("put", "spread", "both"):
                     raise ValueError("modo desconocido")
                 form["widths"] = [w.strip() for w in qp.getlist("w")]
-                for key in ("use_cw", "use_ml", "use_ror", "use_mn", "use_nw", "use_ns"):
-                    form[key] = key in qp
-                for key in ("cw", "ml", "ror", "mn", "nw", "ns"):
+                # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
+                # de instrumento) los límites conservan sus valores marcados por defecto
+                for shown_keys in (("cw", "mn"), ("nw", "ns")):
+                    if any(key in qp for key in shown_keys):
+                        for key in shown_keys:
+                            form[f"use_{key}"] = f"use_{key}" in qp
+                for key in ("cw", "mn", "nw", "ns"):
                     if key in qp:
                         form[key] = qp.get(key, "").strip()
                 for key in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -894,8 +897,6 @@ def create_app(
                 overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(widths))))
                 for use, key, field_name, label, upper in (
                         ("use_cw", "cw", "min_credit_width_pct", "Crédito / ancho mín. (%)", 100),
-                        ("use_ml", "ml", "max_spread_loss", "Pérdida máxima ($)", None),
-                        ("use_ror", "ror", "min_return_on_risk_pct", "Retorno sobre riesgo mín. (%)", None),
                         ("use_mn", "mn", "max_loss_nlv_pct", "Pérdida máxima (% del NLV)", 100)):
                     if form[use]:
                         overrides[field_name] = _required(form[key], float, label)
