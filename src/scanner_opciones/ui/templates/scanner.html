@@ -114,6 +114,8 @@
   .chips { margin-top:10px; }
   .chips button.chip { font-size:12px; padding:3px 10px; font-weight:600; background:var(--field); color:var(--ink); }
   .chips button.chip:hover { filter:none; border-color:var(--accent); }
+  table.impact button.rm-filter { font-size:11px; padding:1px 8px; }
+  .chips button.chip.strat-off-chip { background:#fbe9e9; border-color:var(--red); color:#8f2a2a; text-decoration:line-through; }
   .summary .banner { margin:10px 0 0; font-size:13px; }
   .table-form { flex:none; height:max(460px, calc(100vh - 190px)); display:flex; flex-direction:column; }
   .table-form .scroll { flex:1; min-height:0; overflow:auto; }
@@ -452,6 +454,33 @@
         const row = c.closest('.opt-row') || c.closest('.check');
         if (row) row.classList.toggle('strat-off', on && !c.checked);
       });
+      chips(on);
+    }
+    // Chips rojos (tachados) de las condiciones desactivadas, junto a los de los filtros activos encima del panel de impacto
+    function chips(on) {
+      document.querySelectorAll('.chip.strat-off-chip').forEach(function (b) { b.remove(); });
+      if (!on) return;
+      let box = document.querySelector('.results .chips');
+      all.forEach(function (c) {
+        if (c.checked) return;
+        const sec = c.closest('details.fx');
+        const host = c.closest('.check') || c.closest('label');
+        if (!sec || !host) return;
+        if (!box) {
+          box = document.createElement('div');
+          box.className = 'chips';
+          const anchor = document.querySelector('.results .banner, .results #viz-box');
+          if (!anchor) return;
+          anchor.parentNode.insertBefore(box, anchor);
+        }
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chip strat-off-chip';
+        b.dataset.open = sec.id;
+        b.title = 'Condición de la estrategia desactivada: ver este filtro';
+        b.textContent = host.textContent.replace(/[−\s]*\d*$/, '').trim() || c.name;
+        box.appendChild(b);
+      });
     }
     window.stratCounts = function () {
       document.querySelectorAll('.strat-count').forEach(function (b) { b.remove(); });
@@ -468,6 +497,32 @@
     };
     all.forEach(function (c) { c.addEventListener('change', paint); });
     paint();
+  })();
+  // «Quitar» del panel de impacto: desactiva los controles asociados a esa línea y vuelve a escanear
+  (function () {
+    const form = document.getElementById('scan-form');
+    const body = document.getElementById('impact-body');
+    if (!form || !body) return;
+    const OFF = {   // clave del panel -> casillas a desmarcar, cajas a vaciar y selects a poner en su valor neutro
+      yield: { set: { min_yield: '0' } }, price: { set: { price_min: '', price_max: '' } },
+      bid: { uncheck: ['use_bid'] }, oi: { uncheck: ['use_oi'] }, bid_size: { uncheck: ['use_bidsize'] }, spread: { uncheck: ['use_spread'] },
+      iv_rank: { uncheck: ['use_ivr'] }, iv_pct: { uncheck: ['use_ivp'] }, iv_hv: { uncheck: ['use_ivhv'] }, iv_change: { uncheck: ['use_ivchg'] },
+      atr: { uncheck: ['use_atr'] }, delta: { uncheck: ['use_delta'] }, near_level: { uncheck: ['use_near'] }, rsi: { uncheck: ['use_rsi'] },
+      bollinger: { uncheck: ['use_boll'] }, bollinger_width: { uncheck: ['use_bw'] },
+      signals: { uncheck: ['use_ivhv', 'use_ivchg', 'use_rsi', 'use_boll', 'use_near'] },
+      earnings: { uncheck: ['q_earn'] }, liquidity: { set: { q_liq: '' } },
+      trend: { set: { trend_dir: 'off' } }, support: { uncheck: ['support'] }, touch: { set: { touch: '' } },
+      averages: { sectionSelects: 'sec-ma' },
+    };
+    body.addEventListener('click', function (e) {
+      const btn = e.target.closest('button.rm-filter');
+      const rule = btn && OFF[btn.dataset.key];
+      if (!rule) return;
+      (rule.uncheck || []).forEach(function (n) { if (form.elements[n]) form.elements[n].checked = false; });
+      Object.keys(rule.set || {}).forEach(function (n) { if (form.elements[n]) form.elements[n].value = rule.set[n]; });
+      if (rule.sectionSelects) document.querySelectorAll('#' + rule.sectionSelects + ' select').forEach(function (s) { if (s.name !== 'ma_frame') s.value = 'any'; });
+      form.submit();
+    });
   })();
   // Secciones plegables: se recuerda cuáles están abiertas (por defecto, las dos primeras)
   (function () {

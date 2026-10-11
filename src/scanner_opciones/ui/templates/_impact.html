@@ -9,7 +9,7 @@
   {% if report.conflicts %}<br><b>Se estorban entre sí</b> (cada uno deja contratos, pero ninguno en común): {% for a, b in report.conflicts %}«{{ a }}» × «{{ b }}»{{ '; ' if not loop.last }}{% endfor %}.{% endif %}</p>{% endif %}
 <table class="impact">
   <tr><th>Filtro</th><th title="Contratos que pasan si solo se aplica este filtro">Solo este filtro deja</th>
-    <th title="Contratos que descarta únicamente este filtro: los recuperarías al quitarlo">Solo él descarta</th><th></th></tr>
+    <th title="Contratos que descarta únicamente este filtro: los recuperarías al quitarlo">Solo él descarta</th><th></th><th></th></tr>
   {% for f in report.filters %}
   {% set pct = (100 * f.alone / report.window) if report.window else 0 %}
   <tr data-key="{{ f.key }}" data-drop="{{ report.window - f.alone }}">
@@ -18,6 +18,7 @@
     <td>{{ f.exclusive }}</td>
     <td>{% if pct < 25 %}<span class="tag hard">muy restrictivo</span>{% elif pct < 60 %}<span class="tag mid">restrictivo</span>{% else %}<span class="tag soft">suave</span>{% endif %}
       {% if f.exclusive == 0 %}<span class="tag none" title="Los demás filtros ya descartan todo lo que este descartaría">redundante</span>{% endif %}</td>
+    <td><button type="button" class="rm-filter" data-key="{{ f.key }}" title="Desactivar este filtro (y los asociados a esta línea) y volver a escanear">Quitar</button></td>
   </tr>
   {% endfor %}
 </table>
