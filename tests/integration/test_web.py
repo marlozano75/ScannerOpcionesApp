@@ -792,3 +792,51 @@ def test_header_shows_the_account_id(client_and_service):
     svc.state.account = replace(svc.state.account, alias="MiguelAngel")
     html = client.get("/").text
     assert ">MiguelAngel<" in html and "Cuenta de IBKR DU1" in html
+
+
+def test_scanner_config_page_edits_presets_and_strategy(client_and_service):
+    client, svc, _, _ = client_and_service
+    r = client.get("/scanner/config")
+    assert r.status_code == 200 and "Corto plazo" in r.text and 's_max_abs_delta' in r.text
+    assert "/scanner/config" in client.get("/scanner").text          # enlace «Editar» junto a los botones
+    form = {"n_presets": "4", "p0_name": "Corto X", "p0_discount": "12", "p0_dte_min": "2", "p0_dte_max": "9", "p0_yield": "30",
+            "p1_name": "", "p2_name": "Largo plazo", "p2_discount": "20", "p2_dte_min": "16", "p2_dte_max": "", "p2_yield": "13",
+            "p3_name": "", "s_max_abs_delta": "0,25", "s_min_iv_rank": "40", "s_dte_min": "30", "s_dte_max": "45",
+            "s_strike_below_pct_min": "5", "s_min_annual_yield_pct": "10", "s_use_rsi": "on"}
+    post = client.post("/scanner/config", data=form, follow_redirects=False)
+    assert post.status_code == 303 and "ok=" in post.headers["location"]
+    st = svc.settings.scanner
+    assert [p.name for p in st.presets] == ["Corto X", "Largo plazo"] and st.presets[0].dte_max == 9 and st.presets[1].dte_max is None
+    assert st.strategy.max_abs_delta == 0.25 and st.strategy.min_iv_rank == 40
+    assert st.strategy.use_atr is False and st.strategy.use_rsi is True      # casilla sin marcar = desactivada
+    page = client.get("/scanner?submitted=1")
+    assert "Corto X" in page.text and "Medio plazo" not in page.text         # el botón usa lo editado
+    assert "delta_max=0.25" in page.text                                     # y el de la estrategia también
+
+
+def test_scanner_config_rejects_invalid_and_keeps_previous(client_and_service):
+    client, svc, _, _ = client_and_service
+    before = svc.settings.scanner.strategy
+    bad = {"n_presets": "1", "p0_name": "X", "p0_discount": "10", "p0_dte_min": "1", "p0_dte_max": "7", "p0_yield": "20",
+           "s_max_abs_delta": "abc"}
+    r = client.post("/scanner/config", data=bad, follow_redirects=False)
+    assert "error=" in r.headers["location"]
+    bad["s_max_abs_delta"] = "5"      # delta > 1: lo rechaza el modelo
+    r = client.post("/scanner/config", data={**bad, "s_dte_min": "50", "s_dte_max": "45"}, follow_redirects=False)
+    assert "error=" in r.headers["location"] and svc.settings.scanner.strategy == before
+    assert svc.meta.get("scanner_user_config") is None
+
+
+def test_scanner_config_persists_and_resets(client_and_service):
+    client, svc, _, _ = client_and_service
+    yaml_presets = svc.settings.scanner.presets
+    svc.save_scanner_config([dict(name="Solo", strike_below_pct_min=11.0, dte_min=1, dte_max=None, min_annual_yield_pct=9.0)],
+                            {**svc.settings.scanner.strategy.model_dump(), "min_iv_rank": 33})
+    svc.settings.scanner.presets  # aplicado
+    svc.reset_scanner_config()
+    assert svc.settings.scanner.presets == yaml_presets and svc.settings.scanner.strategy.min_iv_rank == 50
+    svc.save_scanner_config([dict(name="Solo", strike_below_pct_min=11.0, dte_min=1, dte_max=None, min_annual_yield_pct=9.0)],
+                            {**svc.settings.scanner.strategy.model_dump(), "min_iv_rank": 33})
+    svc._set_scanner_config(*svc._yaml_scanner)       # simula un reinicio: vuelve a leer la base de datos
+    svc._load_scanner_config()
+    assert [p.name for p in svc.settings.scanner.presets] == ["Solo"] and svc.settings.scanner.strategy.min_iv_rank == 33

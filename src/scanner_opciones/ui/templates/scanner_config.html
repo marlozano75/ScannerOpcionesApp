@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Configuraciones del Scanner{% endblock %}
+{% block content %}
+<style>
+  .cfg-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:8px 22px; }
+  .cfg-grid label { display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:13px; }
+  .cfg-grid input[type=text] { width:84px; text-align:right; }
+  .cfg-pre { border-collapse:collapse; font-size:13px; }
+  .cfg-pre td, .cfg-pre th { padding:3px 8px; text-align:left; font-weight:normal; }
+  .cfg-pre th { color:var(--mute); font-size:12px; }
+  .cfg-pre input[type=text] { width:80px; } .cfg-pre input.nm { width:160px; }
+  .cfg-actions { display:flex; gap:10px; align-items:center; margin-top:14px; }
+</style>
+<div class="card cfg">
+  <h2>Configuraciones y estrategia de venta de puts</h2>
+  <p class="muted">Edita los botones <b>Corto / Medio / Largo plazo</b> y los valores que carga el botón <b>Estrategia: venta de puts</b>. Se guardan en la base de datos
+    y mandan sobre <code>config.yaml</code> hasta que pulses «Restaurar».
+    <a href="/scanner">← Volver al Scanner</a></p>
+  {% if ok %}<div class="banner ok">{{ ok }}</div>{% endif %}
+  {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
+  {% for g in gap %}<div class="banner info">Aviso: {{ g }}: solo se escanean los contratos guardados, amplía <code>scanner.candidates</code> en config.yaml.</div>{% endfor %}
+  <form method="post" action="/scanner/config">
+    <h3>Configuraciones (botones del Scanner)</h3>
+    <p class="note">Descuento mín., DTE y yield que carga cada botón. DTE máx. vacío = el máximo del rango guardado. Para quitar una, vacía su nombre; la última fila vacía sirve para añadir otra.</p>
+    <table class="cfg-pre">
+      <tr><th>Nombre</th><th>Descuento mín. (%)</th><th>DTE mín.</th><th>DTE máx.</th><th>Yield anual mín. (%)</th></tr>
+      {% for p in presets + [dict(name='', discount='', dte_min='', dte_max='', min_yield='')] %}{% set i = loop.index0 %}
+      <tr><td><input class="nm" type="text" name="p{{ i }}_name" value="{{ p.name }}"></td>
+        <td><input type="text" name="p{{ i }}_discount" value="{{ p.discount }}" inputmode="decimal"></td>
+        <td><input type="text" name="p{{ i }}_dte_min" value="{{ p.dte_min }}" inputmode="numeric"></td>
+        <td><input type="text" name="p{{ i }}_dte_max" value="{{ p.dte_max }}" inputmode="numeric"></td>
+        <td><input type="text" name="p{{ i }}_yield" value="{{ p.min_yield }}" inputmode="decimal"></td></tr>
+      {% endfor %}
+    </table>
+    <input type="hidden" name="n_presets" value="{{ presets|length + 1 }}">
+    <h3 style="margin-top:20px">Estrategia: venta de puts</h3>
+    {% for title, fields in groups %}
+    <h4 style="margin:14px 0 6px">{{ title }}</h4>
+    <div class="cfg-grid">
+      {% for key, label, kind, value in fields %}
+      <label>{{ label }}
+        {% if kind == 'bool' %}<input type="checkbox" name="s_{{ key }}" {{ 'checked' if value }}>
+        {% else %}<input type="text" name="s_{{ key }}" value="{{ '' if value is none else value }}" inputmode="decimal">{% endif %}</label>
+      {% endfor %}
+    </div>
+    {% endfor %}
+    <div class="cfg-actions">
+      <button>Guardar</button>
+      <button type="submit" formaction="/scanner/config/reset" formnovalidate class="secondary"
+        onclick="return confirm('¿Volver a los valores de config.yaml? Se pierden los editados aquí.')" {{ '' if user_edited else 'disabled' }}>Restaurar los de config.yaml</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -13,7 +13,9 @@ from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from scanner_opciones.app.service import AppService, SelectedContract
+from pydantic import ValidationError
+
+from scanner_opciones.app.service import SCANNER_USER_CONFIG, AppService, SelectedContract
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
@@ -242,6 +244,67 @@ STRATEGY_KEYS = frozenset((
     "discount", "dte_min", "dte_max", "min_yield", "use_delta", "delta_min", "delta_max", "use_near", "near_pct",
     "use_ivr", "ivr", "use_ivp", "ivp", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_bid", "bid", "use_atr", "atr_mult", "use_rsi", "signals",
     "rsi_max", "use_boll", "boll_pctb", "use_bw", "boll_width", "ma200", "q_earn", "q_liq", "reset", "debug"))
+
+
+# Valores de la estrategia que se editan desde la aplicación: (grupo, [(campo, etiqueta, tipo)]); tipos: float, int, bool, ofloat/oint
+# (opcional: vacío = None). El resto de campos de `StrategySettings` se conserva como está.
+STRATEGY_FIELDS = (
+    ("Strike, vencimiento y prima", (
+        ("strike_below_pct_min", "Descuento mín. del strike (%)", "float"), ("dte_min", "DTE mín.", "int"), ("dte_max", "DTE máx.", "int"),
+        ("min_annual_yield_pct", "Yield anual mín. (%)", "float"))),
+    ("Delta y volatilidad", (
+        ("min_abs_delta", "|Delta| mín. (vacío = sin mínimo)", "ofloat"), ("max_abs_delta", "|Delta| máx.", "float"),
+        ("min_iv_rank", "IV Rank mín.", "float"), ("min_iv_percentile", "IV Percentile mín.", "float"),
+        ("min_iv_hv_ratio", "IV / HV30 mín.", "float"), ("max_iv_change_5d", "Cambio de IV a 5 días máx. (puntos)", "float"))),
+    ("Señales de entrada", (
+        ("min_signals", "Señales mínimas (0 = todas las marcadas)", "int"), ("near_level_pct", "Cerca de la media de 50 / soporte (%)", "float"),
+        ("max_rsi_level", "Nivel de RSI tocado", "float"), ("max_bollinger_pctb", "Bollinger %B máx.", "float"),
+        ("min_bollinger_width_pct", "Ancho de bandas mín. (%)", "float"), ("min_atr_multiple", "Strike a N × ATR", "float"))),
+    ("Qué activa el botón", (
+        ("use_rsi", "RSI rebotando", "bool"), ("use_bollinger", "Bollinger %B", "bool"), ("use_bollinger_width", "Ancho de bandas", "bool"),
+        ("use_atr", "ATR", "bool"), ("price_above_ma200", "Precio sobre la MA200", "bool"), ("avoid_earnings", "Evitar resultados", "bool"),
+        ("min_option_liquidity", "Liquidez de opciones mín. (1-5, vacío = no exigir)", "oint"))),
+    ("Aviso del VIX (Panel)", (
+        ("min_vix", "VIX: primas pobres por debajo de", "float"), ("ideal_vix_min", "VIX: ideal desde", "float"),
+        ("max_vix", "VIX: nervioso por encima de", "float"))),
+)
+
+
+def _read_num(raw, cast, label: str):
+    text = str(raw or "").strip().replace(",", ".")
+    try:
+        return cast(text)
+    except ValueError:
+        raise ValueError(f"{label}: «{raw}» no es un número válido") from None
+
+
+def parse_scanner_config(form, current: dict) -> tuple[list[dict], dict]:
+    """Lee el formulario de edición de las configuraciones (presets) y de la estrategia de venta de puts. `current` es la estrategia
+    actual (dict): los campos que el formulario no lleva se conservan. Lanza `ValueError` con el campo erróneo."""
+    presets = []
+    for i in range(int(form.get("n_presets", "0") or 0)):
+        name = str(form.get(f"p{i}_name", "")).strip()
+        if not name:    # nombre vacío = quitar la configuración
+            continue
+        dte_max = str(form.get(f"p{i}_dte_max", "")).strip()
+        presets.append(dict(
+            name=name, strike_below_pct_min=_read_num(form.get(f"p{i}_discount"), float, f"{name}: descuento mín."),
+            dte_min=_read_num(form.get(f"p{i}_dte_min"), int, f"{name}: DTE mín."),
+            dte_max=_read_num(dte_max, int, f"{name}: DTE máx.") if dte_max else None,
+            min_annual_yield_pct=_read_num(form.get(f"p{i}_yield"), float, f"{name}: yield mín.")))
+    strategy = dict(current)
+    for _, fields in STRATEGY_FIELDS:
+        for key, label, kind in fields:
+            raw = form.get(f"s_{key}")
+            if kind != "bool" and raw is None:     # el formulario no lo trae: se conserva
+                continue
+            if kind == "bool":
+                strategy[key] = f"s_{key}" in form
+            elif kind in ("ofloat", "oint"):
+                strategy[key] = _read_num(raw, float if kind == "ofloat" else int, label) if str(raw or "").strip() else None
+            else:
+                strategy[key] = _read_num(raw, float if kind == "float" else int, label)
+    return presets, strategy
 
 
 def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
@@ -811,6 +874,43 @@ def create_app(
         except ValueError as exc:
             error = f"Parámetro no válido: {exc}"
         return dict(form=form, criteria=criteria, error=error, warnings=warnings)
+
+    # ---- configuraciones y estrategia editables ------------------------------------------------
+    @app.get("/scanner/config", response_class=HTMLResponse)
+    async def scanner_config_page(request: Request, ok: str = "", error: str = ""):
+        sc = service.settings.scanner
+        cur = sc.strategy.model_dump()
+        presets = [dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
+                        dte_max="" if p.dte_max is None else p.dte_max, min_yield=_fmt(p.min_annual_yield_pct)) for p in sc.presets]
+        groups = [(title, [(key, label, kind, cur[key]) for key, label, kind in fields]) for title, fields in STRATEGY_FIELDS]
+        cand = sc.candidates
+        gap = []
+        if sc.strategy.dte_max > cand.dte_max:
+            gap.append(f"el DTE máx. de la estrategia ({sc.strategy.dte_max}) supera el rango guardado ({cand.dte_max})")
+        if sc.strategy.strike_below_pct_min < cand.strike_below_pct_min:
+            gap.append(f"el descuento mín. de la estrategia ({_fmt(sc.strategy.strike_below_pct_min)} %) es menor que el del rango guardado ({_fmt(cand.strike_below_pct_min)} %)")
+        return render(request, "scanner_config.html", presets=presets, groups=groups, ok=ok, error=error,
+                      gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)))
+
+    @app.post("/scanner/config")
+    async def scanner_config_save(request: Request):
+        form = await request.form()
+        try:
+            presets, strategy = parse_scanner_config(form, service.settings.scanner.strategy.model_dump())
+            service.save_scanner_config(presets, strategy)
+        except ValidationError as exc:
+            msg = "; ".join(f"{'.'.join(str(x) for x in e['loc'])}: {e['msg']}" for e in exc.errors())
+            return RedirectResponse(f"/scanner/config?{urlencode({'error': msg})}", status_code=303)
+        except ValueError as exc:
+            return RedirectResponse(f"/scanner/config?{urlencode({'error': str(exc)})}", status_code=303)
+        remembered.pop("scanner", None)
+        return RedirectResponse(f"/scanner/config?{urlencode({'ok': 'Guardado. Los botones del Scanner ya usan estos valores.'})}", status_code=303)
+
+    @app.post("/scanner/config/reset")
+    async def scanner_config_reset():
+        service.reset_scanner_config()
+        remembered.pop("scanner", None)
+        return RedirectResponse(f"/scanner/config?{urlencode({'ok': 'Restaurados los valores de config.yaml.'})}", status_code=303)
 
     @app.get("/scanner/impact", response_class=HTMLResponse)
     async def scanner_impact(request: Request):

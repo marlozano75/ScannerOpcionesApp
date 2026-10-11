@@ -156,6 +156,7 @@
         <button type="button" class="preset{{ ' active' if is_on }}" data-discount="{{ p.discount }}" data-dte-min="{{ p.dte_min }}"
           data-dte-max="{{ p.dte_max }}" data-yield="{{ p.min_yield }}"
           title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield anual mín. {{ p.min_yield }} %">{{ p.name }}</button>{% endfor %}
+        <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Editar estas configuraciones y los valores de la estrategia de venta de puts">✎ Editar</a>
       </div>{% endif %}
 
       {% call section('sec-contract', 'Strike y vencimiento', '≥ ' ~ form.discount ~ ' % · DTE ' ~ form.dte_min ~ '–' ~ form.dte_max) %}
