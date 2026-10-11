@@ -184,8 +184,12 @@ async def test_refresh_updates_underlying_price_each_cycle(env):
     assert report.prices_updated == 1
     info = env.info.get("AAPL")
     assert info.underlying_price == 88.0 and info.updated_daily_at == NOW   # no cuenta como actualización diaria
-    # con el precio nuevo, el strike 80 pasa a estar a 9,1 % (ya no cumple el 10 % mínimo): sale del alcance
-    assert report.in_scope == 1
+    # con el precio nuevo, el strike 80 pasa a estar a 9,1 %: ya no cumple el 10 % de `scanner.initial`, pero sigue dentro de la
+    # ventana de la estrategia de venta de puts (strikes ≥ 5 %, DTE 30–45), así que se sigue cotizando
+    assert report.in_scope == 2
+    env.gw.prices["AAPL"] = 79.0                      # el strike 80 queda por encima del precio y el 75 a 5,06 %
+    report = await env.refresh.run()
+    assert report.in_scope == 1                       # el 80 sale del alcance de los dos escaneos
 
 
 async def test_refresh_keeps_previous_price_when_no_live_price(env):
@@ -507,7 +511,8 @@ async def test_refresh_follows_the_price_and_fetches_contracts_that_come_into_th
     assert [c.strike for c in env.contracts.list("AAPL")] == [60.0, 75.0]   # 60 entra; 80 (0 %) sale
     assert [c.strike for c in env.gw.qualified] == [60.0]                   # solo se valida lo nuevo
     assert (report.contracts_added, report.contracts_removed) == (1, 1)
-    assert [s.contract.strike for s in env.snaps.all("AAPL")] == [60.0]     # 60 (-25 %) es el único en el filtro
+    # 60 (-25 %) está en `scanner.initial`; 75 (-6,3 %) ya no, pero sigue en la ventana de la estrategia (strikes ≥ 5 %, DTE 30–45)
+    assert [s.contract.strike for s in env.snaps.all("AAPL")] == [60.0, 75.0]
     env.gw.qualified.clear()
     await env.refresh.run()                                                 # sin movimiento no se pide nada
     assert env.gw.qualified == []
@@ -551,3 +556,20 @@ async def test_zero_bid_after_hours_without_a_previous_good_bid_is_kept_as_it_co
     await env.refresh.run()
     s = {x.contract.strike: x for x in env.snaps.all("AAPL")}[75.0]
     assert (s.bid, s.ask) == (0.0, 7.5)
+
+
+async def test_the_default_quote_scope_adds_the_strategy_window_to_the_initial_filter(env):
+    """Regresión: ampliar `scanner.candidates` guardaba contratos (DTE 36–45, strikes 5–10 %) que nunca se cotizaban porque el refresco
+    solo cotizaba `scanner.initial`, y la estrategia salía vacía."""
+    scope = env.refresh.default_scope()
+    info = type("I", (), {"underlying_price": 100.0})()
+
+    def in_scope(strike, days):
+        return env.refresh._in_scope(OptionContract("AAPL", TODAY + timedelta(days=days), strike), info, scope, TODAY)
+
+    assert in_scope(85.0, 20)            # -15 %, 20 días: scanner.initial
+    assert not in_scope(93.0, 20)        # -7 %, 20 días: ni initial (≥ 10 %) ni estrategia (DTE ≥ 30)
+    assert in_scope(93.0, 40)            # -7 %, 40 días: solo la ventana de la estrategia
+    assert in_scope(85.0, 44)            # DTE 36–45: solo la ventana de la estrategia
+    assert not in_scope(85.0, 50)        # fuera de todo
+    assert not in_scope(97.0, 40)        # -3 %: más cerca del precio que el 5 % de la estrategia

@@ -208,7 +208,7 @@ def test_price_reference_selector_defaults_and_columns(client_and_service):
     # columnas agrupadas: ticker, sector y precio juntos; yields juntos (el anual destacado y orden por defecto); delta con la IV
     assert '<th class="tk">Ticker</th><th class="txt">Sector</th><th>Precio</th><th>Strike</th>' in r.text
     assert '<th class="hl" data-sort-default="desc">Yield anual</th><th>Yield bid anual</th>' in r.text
-    assert "<th>Delta</th><th>IV</th><th>IV Rank</th><th>IV Pctl</th>" in r.text
+    assert "<th>Delta</th><th" in r.text and "<th>IV</th><th>IV Rank</th><th>IV Pctl</th>" in r.text and "Dist. σ" not in r.text
     for gone in ("Vence", "Prima ref.", "Yield", "Bid", "Ask", "Last", "Margen ini.", "Yield bid", "Hora precio",
                  "Ex-div (d)", "FCF (M$)", "Actualizado"):
         assert f"<th>{gone}</th>" not in r.text
@@ -613,7 +613,7 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     for name, value in (("bid", "0.01"), ("oi", "100"), ("bidsize", "20"), ("spread", "35")):
         assert f'<input name="{name}" value="{value}"' in opt
     iv = html.split('id="sec-iv"')[1].split("</details>")[0]          # IV Rank y Percentile viven en el grupo de volatilidad
-    for name, value in (("ivr", "30"), ("ivp", "50"), ("delta_min", "0.2"), ("delta_max", "0.3"), ("exp_mult", "1")):
+    for name, value in (("ivr", "30"), ("ivp", "50"), ("delta_min", ""), ("delta_max", "0.3")):
         assert f'name="{name}" value="{value}"' in iv
     # los valores de una configuración escanean sin error
     r = client.get("/scanner?submitted=1&discount=20&dte_min=16&dte_max=35&min_yield=13")

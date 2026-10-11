@@ -18,7 +18,7 @@ from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.metrics.spread import spread_pct
 from scanner_opciones.metrics.yields import annualized_yield_pct, gross_yield_pct
 from scanner_opciones.metrics.yields import strike_distance_pct
-from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
+from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings, strategy_criteria
 from scanner_opciones.scanner.filters import reject_reason
 from scanner_opciones.storage.repositories import ContractRepo, SnapshotRepo, TickerInfoRepo
 from typing import Callable, Optional, Sequence
@@ -71,10 +71,11 @@ class RefreshJob:
         self.now = now
 
     def default_scope(self) -> list[ScanCriteria]:
-        """Por defecto se cotizan solo los contratos que encajan con los valores iniciales del
-        filtro del scanner: el rango guardado (hasta -40 % / 45 DTE) es demasiado grande para
-        cotizarlo entero cada pocos minutos. Para el resto, ver `run(criteria=...)`."""
-        return [criteria_from_settings(self.settings)]
+        """Por defecto se cotizan solo los contratos que encajan con los valores iniciales del filtro del scanner
+        (`scanner.initial`) o con la ventana de la estrategia de venta de puts (`scanner.strategy`): el rango guardado
+        es demasiado grande para cotizarlo entero cada pocos minutos. Para el resto, ver `run(criteria=...)`. Los
+        márgenes (what-if) solo se piden a los que además pasan alguno de los dos escaneos (delta, yield, IV Rank…)."""
+        return [criteria_from_settings(self.settings), strategy_criteria(self.settings)]
 
     @staticmethod
     def _in_scope(contract: OptionContract, info, criteria: Sequence[ScanCriteria], today) -> bool:

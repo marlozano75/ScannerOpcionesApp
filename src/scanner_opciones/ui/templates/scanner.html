@@ -33,15 +33,15 @@
 {% for key, use, label, sign in (('bid', 'use_bid', 'Bid', '≥'), ('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤')) %}
   {% if form[use] %}{% set _ = optional.append(label ~ ' ' ~ sign ~ ' ' ~ form[key]) %}{% endif %}
 {% endfor %}
-{# grupo de volatilidad (IV, delta, movimiento esperado) y técnico de entrada (cercanía a la media de 50 o a un soporte) #}
+{# grupo de volatilidad (IV, delta) y técnico de entrada (cercanía a la media de 50 o a un soporte) #}
 {% set ivgroup = [] %}
 {% if form.use_ivr %}{% set _ = ivgroup.append('IV Rank ≥ ' ~ form.ivr) %}{% endif %}
 {% if form.use_ivp %}{% set _ = ivgroup.append('IV Pctl ≥ ' ~ form.ivp) %}{% endif %}
-{% if form.use_delta %}{% set _ = ivgroup.append('|Δ| ' ~ form.delta_min ~ '–' ~ form.delta_max) %}{% endif %}
-{% if form.use_exp %}{% set _ = ivgroup.append('Fuera de ' ~ form.exp_mult ~ '× mov. esperado') %}{% endif %}
+{% if form.use_delta %}{% set _ = ivgroup.append('|Δ| ' ~ ((form.delta_min ~ '–' ~ form.delta_max) if form.delta_min and form.delta_max else (('≤ ' ~ form.delta_max) if form.delta_max else ('≥ ' ~ form.delta_min)))) %}{% endif %}
 {% if form.use_ivhv %}{% set _ = ivgroup.append('IV/HV ≥ ' ~ form.ivhv) %}{% endif %}
 {% if form.use_ivchg %}{% set _ = ivgroup.append('ΔIV 5d ≤ ' ~ form.ivchg) %}{% endif %}
 {% set entry = [] %}
+{% if form.signals and form.signals != '0' %}{% set _ = entry.append('≥ ' ~ form.signals ~ ' señales de entrada') %}{% endif %}
 {% if form.use_near %}{% set _ = entry.append('A ≤ ' ~ form.near_pct ~ ' % de MA50 o soporte') %}{% endif %}
 {% if form.use_atr %}{% set _ = entry.append('Strike a ≥ ' ~ form.atr_mult ~ ' ATR') %}{% endif %}
 {% if form.use_rsi %}{% set _ = entry.append('RSI rebota desde ≤ ' ~ form.rsi_max) %}{% endif %}
@@ -137,7 +137,7 @@
     <form method="get" action="/scanner" id="scan-form">
       <input type="hidden" name="submitted" value="1">
       <a class="strategy-btn{{ ' on' if strategy_on }}" href="/scanner?{{ strategy_qs }}"
-         title="Carga y activa de una vez los filtros de la estrategia (DTE, delta, IV Rank y Percentile, movimiento esperado, cercanía a la media de 50 o a un soporte, precio sobre la media de 200, sin resultados, liquidez). Los valores salen de scanner.strategy; el resto de tus filtros (calidad, tendencia, medias, precio de venta…) se conservan">
+         title="Carga y activa de una vez los filtros de la estrategia (DTE, delta, IV Rank y Percentile, cercanía a la media de 50 o a un soporte, precio sobre la media de 200, sin resultados, liquidez). Los valores salen de scanner.strategy; el resto de tus filtros (calidad, tendencia, medias, precio de venta…) se conservan">
         {{ '✓ ' if strategy_on }}Estrategia: venta de puts</a>
       {% if presets %}<div class="presets"><span class="lbl">Configuraciones</span>
         {% for p in presets %}{% set is_on = form.discount == p.discount and form.dte_min == p.dte_min|string and form.dte_max == p.dte_max|string and form.min_yield == p.min_yield %}
@@ -176,10 +176,8 @@
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_delta" {{ 'checked' if form.use_delta }}> |Delta| del put entre</span>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_delta" {{ 'checked' if form.use_delta }}> |Delta| del put (mín. opcional, máx.)</span>
           <span style="display:flex;gap:4px"><input name="delta_min" value="{{ form.delta_min }}" inputmode="decimal" size="4" style="width:46px"><input name="delta_max" value="{{ form.delta_max }}" inputmode="decimal" size="4" style="width:46px"></span></label>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_exp" {{ 'checked' if form.use_exp }}> Strike fuera del mov. esperado (×)</span>
-          <input name="exp_mult" value="{{ form.exp_mult }}" inputmode="decimal"></label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ivhv" {{ 'checked' if form.use_ivhv }}> IV / HV30 mín.</span>
           <input name="ivhv" value="{{ form.ivhv }}" inputmode="decimal"></label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ivchg" {{ 'checked' if form.use_ivchg }}> Cambio de IV a 5 días ≤ (puntos)</span>
@@ -187,11 +185,15 @@
         <p class="note"><b>IV / HV30</b> &gt; 1,2: las opciones están caras frente a lo que realmente se mueve la acción (tastytrade: IV a 30 días ÷ volatilidad histórica a 30 días).
           <b>Cambio de IV a 5 días</b> ≤ 0: el miedo deja de crecer. El <b>VIX</b> no es un filtro: su aviso (primas pobres, mercado nervioso, condiciones ideales) está en el Panel, junto a su gráfico.</p>
         <p class="note">Marca cada filtro para aplicarlo (las cajas traen los valores de la estrategia). <b>Delta</b>: −0,20 a −0,30 ≈ 70–80 % de probabilidad de expirar sin valor.
-          <b>Movimiento esperado</b> = precio × IV del contrato × √(DTE/365): el strike debe quedar por debajo de precio − N × ese movimiento.
           IV Rank &gt; 30 % es aceptable y &gt; 50 % ideal.</p>
       {% endcall %}
 
       {% call section('sec-entry', 'Técnicos de entrada', (entry | join(' · ')) or 'Sin filtros', entry|length > 0) %}
+        <label class="field">Señales de entrada: cumplir al menos
+          <select name="signals" id="signals"><option value="0" {{ 'selected' if form.signals in ('', '0') }}>Todas las marcadas</option>
+            {% for n in (1, 2, 3, 4, 5) %}<option value="{{ n }}" {{ 'selected' if form.signals == n|string }}>{{ n }} de las marcadas</option>{% endfor %}</select></label>
+        <p class="note">Cuentan como <b>señales</b>: IV/HV, IV que no sube, cerca de MA50/soporte, RSI y Bollinger %B. Con «al menos N» basta con que se cumplan N de las marcadas
+          (con menos marcadas, todas); los demás filtros (delta, DTE, yield, IV Rank, ATR, resultados…) siguen siendo obligatorios. Es lo que pide la estrategia: no hace falta que se cumplan todas las señales de timing.</p>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_near" {{ 'checked' if form.use_near }}> Precio a ≤ X % de MA50 o soporte</span>
           <input name="near_pct" value="{{ form.near_pct }}" inputmode="decimal"></label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_atr" {{ 'checked' if form.use_atr }}> Strike a ≥ N ATR(14) del precio</span>

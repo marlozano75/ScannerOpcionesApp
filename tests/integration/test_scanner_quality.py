@@ -272,22 +272,25 @@ def test_the_strategy_button_activates_every_related_filter_and_marks_itself_on(
     page = client.get("/scanner?reset=1").text
     href = re.search(r'<a class="strategy-btn" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
     q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
-    assert (q["dte_min"], q["dte_max"], q["delta_min"], q["delta_max"], q["ivr"], q["ivp"]) == ("30", "45", "0.2", "0.3", "50", "50")
+    assert (q["dte_min"], q["dte_max"], q["delta_max"], q["ivr"], q["ivp"]) == ("30", "45", "0.3", "50", "50")
+    assert "delta_min" not in q and q["signals"] == "2" and not any("exp" in k for k in q)   # solo delta máximo; ≥ 2 señales
     assert q["ma200"] == "above" and q["q_earn"] == "on" and q["q_liq"] == "3"
-    assert all(q[k] == "on" for k in ("use_delta", "use_exp", "use_near", "use_ivr", "use_ivp"))
+    assert all(q[k] == "on" for k in ("use_delta", "use_near", "use_ivr", "use_ivp"))
     on = client.get(href).text
     assert 'class="strategy-btn on"' in on and "Parámetro no válido" not in on                    # la estrategia cargada se marca
-    for chip in ("|Δ| 0.2–0.3", "IV Rank ≥ 50", "A ≤ 3 % de MA50 o soporte", "Sin resultados"):
+    for chip in ("|Δ| ≤ 0.3", "≥ 2 señales de entrada", "IV Rank ≥ 50", "A ≤ 3 % de MA50 o soporte", "Sin resultados"):
         assert chip in on
     assert 'class="strategy-btn on"' not in client.get(href.replace("delta_max=0.3", "delta_max=0.4")).text   # cambiar un valor la desmarca
 
 
-def test_invalid_delta_expected_move_and_near_values_are_reported(client_and_service):
+def test_invalid_delta_and_near_values_are_reported(client_and_service):
     client, svc, gw, _ = client_and_service
     for bad in ("use_delta=on&delta_min=0.4&delta_max=0.3", "use_delta=on&delta_min=abc&delta_max=0.3",
-                "use_exp=on&exp_mult=9", "use_near=on&near_pct=0"):
+                "use_near=on&near_pct=0", "use_delta=on&delta_min=&delta_max=", "signals=9"):
         assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad
     assert "Parámetro no válido" not in client.get(BASE + "&delta_min=0.4&delta_max=0.3").text   # desmarcado: la caja no se lee
+    assert "Parámetro no válido" not in client.get(BASE + "&use_delta=on&delta_min=&delta_max=0.3").text   # solo máximo
+    assert "Parámetro no válido" not in client.get(BASE + "&use_delta=on&delta_min=0.2&delta_max=").text   # solo mínimo
 
 
 def test_the_timing_filters_are_in_the_entry_group_and_the_strategy_only_turns_on_the_rsi(client_and_service):
@@ -366,3 +369,20 @@ def test_the_panel_shows_the_put_management_card(client_and_service):
     client, svc, gw, _ = client_and_service
     page = client.get("/").text
     assert "Gestión de puts vendidas" in page
+
+
+def test_the_scanner_form_has_the_signals_selector_and_the_sigma_column(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    page = client.get(BASE + "&signals=2&use_near=on&near_pct=3").text
+    entry = page.split('id="sec-entry"')[1].split("</details>")[0]
+    assert 'name="signals"' in entry and '<option value="2" selected>' in entry and "≥ 2 señales de entrada" in page
+    assert "Dist. σ" not in page and 'name="use_exp"' not in page
+
+
+def test_an_empty_scan_explains_why_and_what_would_recover_contracts(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    page = client.get(BASE + "&use_oi=on&oi=100000000&use_bidsize=on&bidsize=99999999").text
+    assert "Ningún contrato pasa todos los filtros" in page and "OI mínimo" in page and "Bid size mínimo" in page
+    assert "Ningún contrato pasa todos los filtros" not in client.get(BASE).text      # con resultados no hay aviso

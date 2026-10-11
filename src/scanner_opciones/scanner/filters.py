@@ -1,7 +1,6 @@
 """Predicados de filtrado. `reject_reason` devuelve el motivo de descarte o None si pasa."""
 from __future__ import annotations
 
-import math
 from datetime import date
 from typing import Optional
 
@@ -11,6 +10,29 @@ from scanner_opciones.metrics.yields import annualized_yield_pct, gross_yield_re
 from scanner_opciones.scanner.criteria import ScanCriteria
 
 _EPS = 1e-9  # tolerancia para comparaciones en el límite (float)
+
+
+def iv_hv_reason(info: Optional[TickerInfo], criteria: ScanCriteria) -> Optional[str]:
+    """Motivo por el que IV30 / HV30 no llega al mínimo, o None (también si el filtro no está activo)."""
+    if criteria.min_iv_hv_ratio is None:
+        return None
+    if info is None or not info.iv30 or not info.hv30:
+        return "sin IV30 / HV30 para calcular IV/HV"
+    ratio = info.iv30 / info.hv30
+    if ratio < criteria.min_iv_hv_ratio - _EPS:
+        return f"IV/HV {ratio:.2f} < {criteria.min_iv_hv_ratio:g}"
+    return None
+
+
+def iv_change_reason(info: Optional[TickerInfo], criteria: ScanCriteria) -> Optional[str]:
+    """Motivo por el que la IV ha subido más de lo permitido en 5 días, o None."""
+    if criteria.max_iv_change_5d is None:
+        return None
+    if info is None or info.iv_change_5d is None:
+        return "sin cambio de IV a 5 días"
+    if info.iv_change_5d > criteria.max_iv_change_5d + _EPS:
+        return f"la IV ha subido {info.iv_change_5d:+.2f} puntos en 5 días (> {criteria.max_iv_change_5d:g})"
+    return None
 
 
 def reject_reason(
@@ -60,17 +82,11 @@ def reject_reason(
         iv_percentile is None or iv_percentile < criteria.min_iv_percentile
     ):
         return "IV Percentile insuficiente o desconocido"
-    if criteria.min_iv_hv_ratio is not None:
-        if info is None or not info.iv30 or not info.hv30:
-            return "sin IV30 / HV30 para calcular IV/HV"
-        ratio = info.iv30 / info.hv30
-        if ratio < criteria.min_iv_hv_ratio - _EPS:
-            return f"IV/HV {ratio:.2f} < {criteria.min_iv_hv_ratio:g}"
-    if criteria.max_iv_change_5d is not None:
-        if info is None or info.iv_change_5d is None:
-            return "sin cambio de IV a 5 días"
-        if info.iv_change_5d > criteria.max_iv_change_5d + _EPS:
-            return f"la IV ha subido {info.iv_change_5d:+.2f} puntos en 5 días (> {criteria.max_iv_change_5d:g})"
+    if criteria.signals_required <= 0:   # con «al menos N señales», IV/HV y el cambio de IV se cuentan aparte (scanner/signals.py)
+        if (why := iv_hv_reason(info, criteria)) is not None:
+            return why
+        if (why := iv_change_reason(info, criteria)) is not None:
+            return why
     if criteria.min_abs_delta is not None or criteria.max_abs_delta is not None:
         if snap.delta is None:
             return "delta desconocida"
@@ -84,11 +100,5 @@ def reject_reason(
             return "sin ATR (faltan máximos y mínimos diarios)"
         if underlying_price - c.strike < criteria.min_atr_multiple * atr - _EPS:
             return f"strike a {underlying_price - c.strike:.2f} del precio, menos de {criteria.min_atr_multiple:g} ATR ({atr:.2f})"
-    if criteria.expected_move_mult is not None:
-        if snap.iv is None or snap.iv <= 0:
-            return "sin IV del contrato para calcular el movimiento esperado"
-        limit = underlying_price - criteria.expected_move_mult * underlying_price * snap.iv * math.sqrt(dte / 365)
-        if c.strike > limit + _EPS:
-            return f"strike {c.strike:g} dentro del movimiento esperado (límite {limit:.2f})"
     return None
 

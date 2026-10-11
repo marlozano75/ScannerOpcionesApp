@@ -1,4 +1,4 @@
-"""Filtros de la estrategia de venta de puts: delta, strike fuera del movimiento esperado y cercanía a la media de 50 o a un soporte."""
+"""Filtros de la estrategia de venta de puts: delta y cercanía a la media de 50 o a un soporte."""
 import math
 from datetime import date, datetime, timedelta
 
@@ -23,7 +23,8 @@ def snap(strike=90.0, days=36, delta=-0.22, iv=0.30):
 
 def test_strategy_defaults_are_the_documented_ones_and_validated():
     st = Settings().scanner.strategy
-    assert (st.dte_min, st.dte_max, st.min_abs_delta, st.max_abs_delta, st.min_iv_rank) == (30, 45, 0.20, 0.30, 50)
+    assert (st.dte_min, st.dte_max, st.min_abs_delta, st.max_abs_delta, st.min_iv_rank) == (30, 45, None, 0.30, 50)   # delta: solo máximo
+    assert st.min_signals == 2
     with pytest.raises(ValueError, match="min_abs_delta"):
         StrategySettings(min_abs_delta=0.4, max_abs_delta=0.3)
     with pytest.raises(ValueError, match="dte_min"):
@@ -45,15 +46,6 @@ def test_only_a_minimum_or_only_a_maximum_delta_also_works():
     assert "delta" in reject_reason(snap(delta=-0.45), 100.0, TODAY, BASE.with_filters(max_abs_delta=0.30))
 
 
-def test_expected_move_limit_is_price_times_iv_times_sqrt_of_the_days():
-    # precio 100, IV 30 %, 36 días: movimiento = 100·0,30·√(36/365) ≈ 9,42 → límite ≈ 90,58
-    assert math.isclose(100 * 0.30 * math.sqrt(36 / 365), 9.42, abs_tol=0.01)
-    c = BASE.with_filters(expected_move_mult=1.0)
-    assert reject_reason(snap(strike=90.0), 100.0, TODAY, c) is None
-    assert "movimiento esperado" in reject_reason(snap(strike=91.0), 100.0, TODAY, c)
-    assert reject_reason(snap(strike=91.0), 100.0, TODAY, BASE.with_filters(expected_move_mult=0.5)) is None   # medio movimiento
-    assert "movimiento esperado" in reject_reason(snap(strike=85.0), 100.0, TODAY, BASE.with_filters(expected_move_mult=2.0))
-    assert "sin IV" in reject_reason(snap(iv=None), 100.0, TODAY, c)
 
 
 def bars(values):

@@ -57,6 +57,61 @@ class TechnicalFilter:
                 return f"el cierre visitó el strike hace {days} días (< {minimum})"
         return None
 
+    # ---- señales de entrada (cada una devuelve el motivo por el que NO se cumple, o None) ------------------------------------
+    def _near_reason(self, ticker: str, price: float, series) -> Optional[str]:
+        c = self.c
+        if c.near_level_pct is None:
+            return None
+        zone = self._zone(ticker, price)
+        levels = [v for v in (ta.sma([px for _, px in series], 50), zone.high if zone else None) if v]
+        if not levels:
+            return "sin media de 50 días ni soporte probado"
+        nearest = min(abs(price - v) / v * 100 for v in levels)
+        if nearest > c.near_level_pct + 1e-9:
+            return f"precio a {nearest:.1f}% de la media de 50 y del soporte (> {c.near_level_pct:g}%)"
+        return None
+
+    def _rsi_reason(self, ticker: str, price: float, series) -> Optional[str]:
+        c = self.c
+        if c.rsi_rebound_max is None:
+            return None
+        ok, why = ta.rsi_rebound([px for _, px in series], c.rsi_rebound_max, self.cfg.rsi_lookback_days, self.cfg.rsi_period)
+        return None if ok else why
+
+    def _bands(self, series):
+        return ta.bollinger([px for _, px in series], self.cfg.bollinger_period, self.cfg.bollinger_k)
+
+    def _boll_pctb_reason(self, ticker: str, price: float, series) -> Optional[str]:
+        c = self.c
+        if c.max_bollinger_pctb is None:
+            return None
+        bands = self._bands(series)
+        if bands is None or bands[2] <= bands[0]:
+            return f"sin datos para Bollinger({self.cfg.bollinger_period}, {self.cfg.bollinger_k:g}) ({len(series)} cierres)"
+        pctb = (price - bands[0]) / (bands[2] - bands[0])
+        if pctb > c.max_bollinger_pctb + 1e-9:
+            return f"precio lejos de la banda inferior de Bollinger (%B {pctb:.2f} > {c.max_bollinger_pctb:g})"
+        return None
+
+    def _boll_width_reason(self, price: float, series) -> Optional[str]:
+        c = self.c
+        if c.min_bollinger_width_pct is None:
+            return None
+        bands = self._bands(series)
+        if bands is None or bands[2] <= bands[0]:
+            return f"sin datos para Bollinger({self.cfg.bollinger_period}, {self.cfg.bollinger_k:g}) ({len(series)} cierres)"
+        width = (bands[2] - bands[0]) / bands[1] * 100
+        if width < c.min_bollinger_width_pct - 1e-9:
+            return f"bandas de Bollinger estrechas ({width:.1f}% < {c.min_bollinger_width_pct:g}%)"
+        return None
+
+    def signal_results(self, ticker: str, price: float) -> list[tuple[str, bool]]:
+        """(nombre, cumple) de las señales técnicas activas del ticker: cercanía a MA50/soporte, RSI y Bollinger %B."""
+        series = self.bars.get(ticker, [])
+        checks = (("cerca de MA50/soporte", self._near_reason), ("RSI rebota", self._rsi_reason), ("Bollinger %B", self._boll_pctb_reason))
+        active = {"cerca de MA50/soporte": self.c.near_level_pct, "RSI rebota": self.c.rsi_rebound_max, "Bollinger %B": self.c.max_bollinger_pctb}
+        return [(name, not series and False or fn(ticker, price, series) is None) for name, fn in checks if active[name] is not None]
+
     def _zone(self, ticker: str, price: float) -> Optional[ta.Zone]:
         if ticker not in self._zone_cache:
             cfg = self.cfg
@@ -84,30 +139,12 @@ class TechnicalFilter:
                 )
             if not ok:
                 return f"tendencia {'alcista' if up else 'bajista'}: {why}"
-        if c.near_level_pct is not None:
-            zone = self._zone(ticker, price)
-            levels = [v for v in (ta.sma([px for _, px in series], 50), zone.high if zone else None) if v]
-            if not levels:
-                return "sin media de 50 días ni soporte probado"
-            nearest = min(abs(price - v) / v * 100 for v in levels)
-            if nearest > c.near_level_pct + 1e-9:
-                return f"precio a {nearest:.1f}% de la media de 50 y del soporte (> {c.near_level_pct:g}%)"
-        closes = [px for _, px in series]
-        if c.rsi_rebound_max is not None:
-            ok, why = ta.rsi_rebound(closes, c.rsi_rebound_max, cfg.rsi_lookback_days, cfg.rsi_period)
-            if not ok:
-                return why
-        if c.max_bollinger_pctb is not None or c.min_bollinger_width_pct is not None:
-            bands = ta.bollinger(closes, cfg.bollinger_period, cfg.bollinger_k)
-            if bands is None or bands[2] <= bands[0]:
-                return f"sin datos para Bollinger({cfg.bollinger_period}, {cfg.bollinger_k:g}) ({len(closes)} cierres)"
-            low, mid, high = bands
-            pctb = (price - low) / (high - low)
-            if c.max_bollinger_pctb is not None and pctb > c.max_bollinger_pctb + 1e-9:
-                return f"precio lejos de la banda inferior de Bollinger (%B {pctb:.2f} > {c.max_bollinger_pctb:g})"
-            width = (high - low) / mid * 100
-            if c.min_bollinger_width_pct is not None and width < c.min_bollinger_width_pct - 1e-9:
-                return f"bandas de Bollinger estrechas ({width:.1f}% < {c.min_bollinger_width_pct:g}%)"
+        if c.signals_required <= 0:   # con «al menos N señales», cercanía, RSI y Bollinger %B se cuentan aparte (scanner/signals.py)
+            for check in (self._near_reason, self._rsi_reason, self._boll_pctb_reason):
+                if (why := check(ticker, price, series)) is not None:
+                    return why
+        if (why := self._boll_width_reason(price, series)) is not None:
+            return why
         lines, before, n_bars = self._lines(ticker)
         frame = _FRAME_NAMES[c.ma_frame]
 

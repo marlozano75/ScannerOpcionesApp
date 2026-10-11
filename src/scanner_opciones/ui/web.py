@@ -21,6 +21,7 @@ from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.portfolio.management import manage_puts
+from scanner_opciones.scanner.impact import explain_empty
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, viz
@@ -238,8 +239,8 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
 
 # parámetros del formulario que controla la estrategia: el botón los sustituye y respeta todos los demás filtros
 STRATEGY_KEYS = frozenset((
-    "discount", "dte_min", "dte_max", "min_yield", "use_delta", "delta_min", "delta_max", "use_exp", "exp_mult", "use_near", "near_pct",
-    "use_ivr", "ivr", "use_ivp", "ivp", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_bid", "bid", "use_atr", "atr_mult", "use_rsi",
+    "discount", "dte_min", "dte_max", "min_yield", "use_delta", "delta_min", "delta_max", "use_near", "near_pct",
+    "use_ivr", "ivr", "use_ivp", "ivp", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_bid", "bid", "use_atr", "atr_mult", "use_rsi", "signals",
     "rsi_max", "use_boll", "boll_pctb", "use_bw", "boll_width", "ma200", "q_earn", "q_liq", "reset", "debug"))
 
 
@@ -249,12 +250,13 @@ def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
     st, fv = settings.scanner.strategy, settings.scanner.filter_values
     params = {
         "submitted": "1", "discount": _fmt(st.strike_below_pct_min), "dte_min": str(st.dte_min), "dte_max": str(st.dte_max),
-        "min_yield": _fmt(st.min_annual_yield_pct),
-        "use_delta": "on", "delta_min": _fmt(st.min_abs_delta), "delta_max": _fmt(st.max_abs_delta),
-        "use_exp": "on", "exp_mult": _fmt(st.expected_move_mult), "use_near": "on", "near_pct": _fmt(st.near_level_pct),
+        "min_yield": _fmt(st.min_annual_yield_pct), "use_delta": "on", "delta_max": _fmt(st.max_abs_delta),
+        "use_near": "on", "near_pct": _fmt(st.near_level_pct),
         "use_ivr": "on", "ivr": _fmt(st.min_iv_rank), "use_ivp": "on", "ivp": _fmt(st.min_iv_percentile),
-        "use_bid": "on", "bid": _fmt(fv.min_bid),
+        "use_bid": "on", "bid": _fmt(fv.min_bid), "signals": str(st.min_signals),
     }
+    if st.min_abs_delta is not None:       # por defecto solo máximo: el mínimo de prima lo pone el yield
+        params["delta_min"] = _fmt(st.min_abs_delta)
     params.update(use_ivhv="on", ivhv=_fmt(st.min_iv_hv_ratio), use_ivchg="on", ivchg=_fmt(st.max_iv_change_5d))
     for use, key, enabled, value in (("use_rsi", "rsi_max", st.use_rsi, st.max_rsi_level),
                                      ("use_boll", "boll_pctb", st.use_bollinger, st.max_bollinger_pctb),
@@ -269,13 +271,11 @@ def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
         params["q_earn"] = "on"
     if st.min_option_liquidity is not None:
         params["q_liq"] = str(st.min_option_liquidity)
-    checks = {"discount": "discount", "dte_min": "dte_min", "dte_max": "dte_max", "min_yield": "min_yield",
-              "delta_min": "delta_min", "delta_max": "delta_max", "exp_mult": "exp_mult", "near_pct": "near_pct",
-              "ivr": "ivr", "ivp": "ivp", "ma200": "ma200", "q_liq": "q_liq",
-              "rsi_max": "rsi_max", "boll_pctb": "boll_pctb", "boll_width": "boll_width",
-              "ivhv": "ivhv", "ivchg": "ivchg", "atr_mult": "atr_mult"}
-    on = all(form.get(f) == params[p] for p, f in checks.items() if p in params)
-    on = on and all(form.get(f) for f in ("use_delta", "use_exp", "use_near", "use_ivr", "use_ivp", "use_ivhv", "use_ivchg",
+    checks = ("discount", "dte_min", "dte_max", "min_yield", "delta_max", "near_pct", "ivr", "ivp", "ma200", "q_liq", "rsi_max", "boll_pctb",
+              "boll_width", "ivhv", "ivchg", "atr_mult", "signals")
+    on = all(form.get(f) == params[f] for f in checks if f in params)
+    on = on and form.get("delta_min", "") == params.get("delta_min", "")           # en blanco = sin mínimo
+    on = on and all(form.get(f) for f in ("use_delta", "use_near", "use_ivr", "use_ivp", "use_ivhv", "use_ivchg",
                                           *(u for u in ("use_rsi", "use_boll", "use_bw", "use_atr") if u in params)))
     on = on and (not st.avoid_earnings or bool(form.get("q_earn")))
     kept = {k: v for k, v in (current.items() if current is not None else ()) if k not in STRATEGY_KEYS} if current is not None and "submitted" in current else {}
@@ -677,9 +677,10 @@ def create_app(
             # desmarcado: la caja muestra su valor por defecto (marcarlo lo aplica)
             form[key] = _fmt(cfg_value if cfg_value is not None else shown[key])
 
-        st = service.settings.scanner.strategy       # delta, movimiento esperado y cercanía a un nivel: marcar el filtro lo aplica
-        form.update(use_delta=False, delta_min=_fmt(st.min_abs_delta), delta_max=_fmt(st.max_abs_delta),
-                    use_exp=False, exp_mult=_fmt(st.expected_move_mult), use_near=False, near_pct=_fmt(st.near_level_pct),
+        st = service.settings.scanner.strategy       # delta y cercanía a un nivel: marcar el filtro lo aplica
+        form.update(use_delta=False, delta_min=_fmt(st.min_abs_delta) if st.min_abs_delta is not None else "", delta_max=_fmt(st.max_abs_delta),
+                    signals=str(base.signals_required),
+                    use_near=False, near_pct=_fmt(st.near_level_pct),
                     use_rsi=False, rsi_max=_fmt(st.max_rsi_level), use_boll=False, boll_pctb=_fmt(st.max_bollinger_pctb),
                     use_bw=False, boll_width=_fmt(st.min_bollinger_width_pct),
                     use_atr=False, atr_mult=_fmt(st.min_atr_multiple),
@@ -734,10 +735,10 @@ def create_app(
                 for key in optional:
                     form[f"use_{key}"] = f"use_{key}" in qp
                     form[key] = qp.get(key, "").strip()
-                for key in ("use_delta", "use_exp", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg", "use_atr"):
+                for key in ("use_delta", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg", "use_atr"):
                     form[key] = key in qp
-                for key in ("delta_min", "delta_max", "exp_mult", "near_pct", "rsi_max", "boll_pctb", "boll_width",
-                            "ivhv", "ivchg", "atr_mult"):
+                for key in ("delta_min", "delta_max", "near_pct", "rsi_max", "boll_pctb", "boll_width",
+                            "ivhv", "ivchg", "atr_mult", "signals"):
                     form[key] = qp.get(key, "").strip()
                 overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento mín. del strike")
                 overrides["min_annual_yield_pct"] = _required(form["min_yield"], float, "Yield anual mín.")
@@ -763,15 +764,17 @@ def create_app(
             for key, (field_name, cast, _) in optional.items():
                 # sin marcar = filtro desactivado, aunque la configuración tenga un valor
                 overrides[field_name] = _required(form[key], cast, field_name) if form[f"use_{key}"] else None
-            if form["use_delta"]:
-                lo, hi = _required(form["delta_min"], float, "Delta mín."), _required(form["delta_max"], float, "Delta máx.")
-                if not (0 <= lo <= hi <= 1):
+            if form["use_delta"]:   # basta con un máximo (o un mínimo): la caja vacía no se aplica
+                lo = _required(form["delta_min"], float, "Delta mín.") if form["delta_min"] else None
+                hi = _required(form["delta_max"], float, "Delta máx.") if form["delta_max"] else None
+                if lo is None and hi is None:
+                    raise ValueError("indica una delta mínima o máxima")
+                if not all(0 <= v <= 1 for v in (lo, hi) if v is not None) or (lo is not None and hi is not None and lo > hi):
                     raise ValueError("la delta debe cumplir 0 ≤ mín. ≤ máx. ≤ 1 (en valor absoluto)")
                 overrides["min_abs_delta"], overrides["max_abs_delta"] = lo, hi
-            if form["use_exp"]:
-                overrides["expected_move_mult"] = _required(form["exp_mult"], float, "Movimiento esperado (×)")
-                if not (0 < overrides["expected_move_mult"] <= 5):
-                    raise ValueError("el múltiplo del movimiento esperado debe estar entre 0 y 5")
+            if form["signals"] not in ("", "0", "1", "2", "3", "4", "5"):
+                raise ValueError("número de señales de entrada no permitido")
+            overrides["signals_required"] = int(form["signals"] or 0)
             if form["use_near"]:
                 overrides["near_level_pct"] = _required(form["near_pct"], float, "Distancia a la media de 50 o al soporte (%)")
                 if not (0 < overrides["near_level_pct"] <= 50):
@@ -839,6 +842,9 @@ def create_app(
             }[c.price_reference]
         if c is not None:
             parsed["warnings"].extend(service.filter_data_gaps(c))
+            if out is not None and not out.results:   # el aviso cuesta ~1 s: solo cuando no sale nada
+                if (hint := explain_empty(service.scan_impact(c))) is not None:
+                    parsed["warnings"].append(hint)
         frame_shown = parsed["form"]["ma_frame"]
         if frame_shown not in ("daily", "weekly", "monthly"):    # parámetro no válido: se muestra el de la configuración
             frame_shown = service.criteria().ma_frame

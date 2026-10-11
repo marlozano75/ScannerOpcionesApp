@@ -9,6 +9,7 @@ Funciones puras sobre los snapshots; no se guarda nada.
 """
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional, Sequence
@@ -18,6 +19,7 @@ from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, SOLVENCY_RULES, ScanCriteria
 from scanner_opciones.scanner.filters import reject_reason
 from scanner_opciones.scanner.quality import DEFAULT_EXEMPT, quality_reject
+from scanner_opciones.scanner.signals import SIGNAL_FIELDS, signals_reject
 from scanner_opciones.scanner.technical import TechnicalFilter
 
 # (clave, etiqueta, {campo del criterio: valor que lo desactiva})
@@ -34,11 +36,11 @@ _GROUPS: tuple[tuple[str, str, dict], ...] = (
     ("iv_change", "Cambio de IV a 5 días", {"max_iv_change_5d": None}),
     ("atr", "Strike a N ATR del precio", {"min_atr_multiple": None}),
     ("delta", "Delta del put", {"min_abs_delta": None, "max_abs_delta": None}),
-    ("expected_move", "Strike fuera del movimiento esperado", {"expected_move_mult": None}),
     ("near_level", "Cerca de la media de 50 o de un soporte", {"near_level_pct": None}),
     ("rsi", "RSI rebotando desde el nivel de sobreventa", {"rsi_rebound_max": None}),
     ("bollinger", "Bollinger: cerca de la banda inferior", {"max_bollinger_pctb": None}),
     ("bollinger_width", "Bollinger: bandas no estrechas", {"min_bollinger_width_pct": None}),
+    ("signals", "Señales de entrada (al menos N)", {"signals_required": 0, **{f: None for f in SIGNAL_FIELDS}}),
     ("profit", "Beneficios (12 meses)", {"require_profitable": False}),
     ("quarters", "Trimestres con beneficios", {"min_positive_quarters": None}),
     ("liquidity", "Liquidez de las opciones", {"min_option_liquidity": None}),
@@ -67,11 +69,23 @@ class ImpactReport:
     window: int                         # contratos dentro del rango de descuento y DTE con cotización válida
     final: int                          # los que pasan TODOS los filtros activos
     filters: tuple[FilterImpact, ...]   # solo los filtros activos, del más restrictivo al menos
+    conflicts: tuple[tuple[str, str], ...] = ()   # con 0 resultados: pares de filtros que, aunque cada uno deja contratos, no comparten ninguno
+
+
+_SIGNAL_GROUPS = {"iv_hv", "iv_change", "rsi", "bollinger", "near_level"}   # con «al menos N señales» cuentan como un único grupo
 
 
 def active_groups(criteria: ScanCriteria) -> list[tuple[str, str, dict]]:
     """Los grupos de filtros que `criteria` tiene activos (algún campo distinto del valor neutro)."""
-    return [g for g in _GROUPS if any(getattr(criteria, f) != neutral for f, neutral in g[2].items())]
+    mode = criteria.signals_required > 0
+    out = []
+    for g in _GROUPS:
+        if g[0] == "signals":
+            if mode and any(getattr(criteria, f) is not None for f in SIGNAL_FIELDS):
+                out.append(g)
+        elif not (mode and g[0] in _SIGNAL_GROUPS) and any(getattr(criteria, f) != neutral for f, neutral in g[2].items()):
+            out.append(g)
+    return out
 
 
 def _neutral(criteria: ScanCriteria) -> ScanCriteria:
@@ -97,6 +111,8 @@ def _passes(
             continue
         if tech is not None and tech.reject(c.ticker, price, c.strike) is not None:
             continue
+        if signals_reject(criteria, info, tech, c.ticker, price) is not None:
+            continue
         out.append(snap)
     return out
 
@@ -111,10 +127,34 @@ def impact_report(
     window = _passes(snapshots, infos, neutral, today, bars, technical, exempt_sectors, atr)   # el resto solo mira estos
     final = _passes(window, infos, criteria, today, bars, technical, exempt_sectors, atr)
     rows = []
+    alone_sets: dict[str, set] = {}
     for key, label, fields in groups:
         alone = _passes(window, infos, neutral.with_filters(**{f: getattr(criteria, f) for f in fields}),
                         today, bars, technical, exempt_sectors, atr)
         without = _passes(window, infos, criteria.with_filters(**fields), today, bars, technical, exempt_sectors, atr)
         rows.append(FilterImpact(key, label, len(alone), len(without) - len(final)))
+        alone_sets[key] = {(s.contract.ticker, s.contract.expiry, s.contract.strike) for s in alone}
     rows.sort(key=lambda r: (r.alone, -r.exclusive))
-    return ImpactReport(len(window), len(final), tuple(rows))
+    conflicts: tuple[tuple[str, str], ...] = ()
+    if not final and len(rows) > 1:
+        conflicts = tuple((a.label, b.label) for a, b in itertools.combinations(rows, 2)
+                          if alone_sets[a.key] and alone_sets[b.key] and not (alone_sets[a.key] & alone_sets[b.key]))[:6]
+    return ImpactReport(len(window), len(final), tuple(rows), conflicts)
+
+
+def explain_empty(report: ImpactReport) -> Optional[str]:
+    """Frase que explica por qué no sale ningún contrato (o None si sale alguno o no hay filtros): qué filtro, quitado solo, devolvería contratos, qué
+    filtros se estorban entre sí o, si no, cuáles son los más restrictivos."""
+    if report.final > 0 or not report.filters:
+        return None
+    head = f"Ningún contrato pasa todos los filtros (hay {report.window} dentro del rango de strike y DTE)."
+    recover = sorted((f for f in report.filters if f.exclusive > 0), key=lambda f: -f.exclusive)
+    if recover:
+        return head + " Quitando solo " + "; o solo ".join(f"«{f.label}» recuperarías {f.exclusive}" for f in recover[:3]) + "."
+    parts = []
+    if report.conflicts:
+        parts.append("Se estorban entre sí: " + "; ".join(f"«{a}» × «{b}»" for a, b in report.conflicts[:3]) + ".")
+    tight = [f for f in report.filters if report.window and f.alone * 4 < report.window][:3]
+    if tight:
+        parts.append("Los más restrictivos: " + ", ".join(f"«{f.label}» (por sí solo deja {f.alone})" for f in tight) + ".")
+    return " ".join([head, *parts, "Quitar un solo filtro no basta: relaja varios a la vez."])

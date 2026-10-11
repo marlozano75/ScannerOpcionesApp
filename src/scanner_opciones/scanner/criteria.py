@@ -68,8 +68,8 @@ class ScanCriteria:
     max_abs_delta: Optional[float] = None
     min_iv_hv_ratio: Optional[float] = None       # IV a 30 días / volatilidad histórica a 30 días mínimo (> 1,2 = opciones caras)
     max_iv_change_5d: Optional[float] = None      # cambio de la IV en 5 días máximo, en puntos (0 = la IV ya no sube)
+    signals_required: int = 0                     # >0: de las señales de entrada marcadas (IV/HV, IV no sube, RSI, Bollinger %B, cerca de MA50/soporte) basta con N
     min_atr_multiple: Optional[float] = None      # distancia del strike al precio ≥ N × ATR(14) (2–3 = fuera del ruido diario)
-    expected_move_mult: Optional[float] = None    # strike por debajo de precio − N × (precio × IV × √(DTE/365))
     # filtros técnicos (ver scanner/technical.py); los valores por defecto no filtran nada
     trend_direction: str = "off"          # off | up | down
     trend_method: str = "low"             # low (mínimo/máximo sin romper) | swings (máximos y mínimos crecientes) | lows (solo mínimos crecientes / máximos decrecientes)
@@ -176,3 +176,14 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
         price_reference=settings.scanner.price_reference.mode,
         price_spread_pct=settings.scanner.price_reference.spread_pct,
     )
+
+
+def strategy_criteria(settings: Settings) -> ScanCriteria:
+    """Ventana de la estrategia de venta de puts (rangos de strike y DTE, delta, yield y bid, IV Rank/Percentile): amplía lo que se cotiza
+    (junto a `scanner.initial`) y decide a qué contratos se les pide el margen. Sin filtros que necesiten la ficha del ticker."""
+    st, fv = settings.scanner.strategy, settings.scanner.filter_values
+    return criteria_from_settings(settings).with_filters(
+        strike_below_pct_min=st.strike_below_pct_min, strike_below_pct_max=settings.scanner.candidates.strike_below_pct_max,
+        dte_min=st.dte_min, dte_max=st.dte_max, min_annual_yield_pct=st.min_annual_yield_pct,
+        min_abs_delta=st.min_abs_delta, max_abs_delta=st.max_abs_delta, min_bid=fv.min_bid,
+        min_iv_rank=st.min_iv_rank, min_iv_percentile=st.min_iv_percentile)

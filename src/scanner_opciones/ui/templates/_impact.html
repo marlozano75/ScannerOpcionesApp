@@ -5,7 +5,8 @@
 <p style="margin:0 0 8px">De <b>{{ report.window }}</b> contratos con descuento y DTE dentro del rango, pasan <b>{{ report.final }}</b>
   ({{ (100 * report.final / report.window)|round(1) if report.window else 0 }} %) con todos los filtros activos.</p>
 {% if report.final == 0 %}<p class="banner info" style="margin:0 0 8px">Ningún contrato pasa todos los filtros a la vez. Quitar uno solo no basta
-  (la columna «Solo él descarta» lo muestra): relaja primero los más restrictivos, que son los de arriba.</p>{% endif %}
+  (la columna «Solo él descarta» lo muestra): relaja primero los más restrictivos, que son los de arriba.
+  {% if report.conflicts %}<br><b>Se estorban entre sí</b> (cada uno deja contratos, pero ninguno en común): {% for a, b in report.conflicts %}«{{ a }}» × «{{ b }}»{{ '; ' if not loop.last }}{% endfor %}.{% endif %}</p>{% endif %}
 <table class="impact">
   <tr><th>Filtro</th><th title="Contratos que pasan si solo se aplica este filtro">Solo este filtro deja</th>
     <th title="Contratos que descarta únicamente este filtro: los recuperarías al quitarlo">Solo él descarta</th><th></th></tr>
