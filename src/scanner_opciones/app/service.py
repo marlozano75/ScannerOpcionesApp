@@ -855,7 +855,7 @@ class AppService:
         checks = []   # (qué falta, cuántos, qué pasa con ellos, cómo se rellena)
         if c.min_iv_hv_ratio is not None:
             checks.append(("IV/HV30", sum(1 for t in tickers if not iv_hv_available(infos.get(t))), KEPT,
-                           "tastytrade no da la IV30/HV30 de algunos valores y no hay cierres suficientes para sustituirlas"))
+                           "tastytrade no da la IV30/HV30 de algunos valores; se sustituyen con el índice de IV y los cierres diarios, y falta si tampoco hay esos"))
         if c.max_iv_change_5d is not None:
             checks.append(("el cambio de IV a 5 días", sum(1 for t in tickers if not iv_change_available(infos.get(t))), KEPT,
                            "tastytrade no lo da para algunos valores"))
