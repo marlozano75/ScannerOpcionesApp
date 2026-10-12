@@ -165,6 +165,7 @@ class SpreadSettings(_Model):
     min_return_on_risk_pct: float = Field(10, gt=0)   # retorno mínimo del PERIODO sobre el riesgo: crédito / (ancho − crédito), sin anualizar (como el yield de TPC)
     min_long_oi: int = Field(10, ge=0)               # OI mínimo de la pata comprada
     max_long_spread_pct: float = Field(25, gt=0)     # spread bid/ask máximo de la pata comprada (%); sin bid no pasa
+    max_short_spread_pct: float = Field(25, gt=0)    # spread bid/ask máximo de la pata vendida del spread (%); sin bid no pasa
     min_credit_usd: float = Field(30, gt=0)          # crédito neto mínimo por spread, en $ por contrato (descarta spreads de céntimos)
     # modo «Ambos»: la put desnuda solo se ofrece si cabe en este límite; si no, sale el spread
     max_naked_strike: float = Field(100, gt=0)       # strike máximo de la put desnuda ($)

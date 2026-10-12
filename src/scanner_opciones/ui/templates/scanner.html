@@ -52,6 +52,7 @@
   {% set _ = spreadf.append('Mejor ancho por put' if form.best_width else 'Todos los anchos') %}
   {% if form.use_mc %}{% set _ = spreadf.append('Crédito ≥ ' ~ form.mc ~ ' $') %}{% endif %}
   {% if form.use_rr %}{% set _ = spreadf.append('Retorno/riesgo ≥ ' ~ form.rr ~ ' %') %}{% endif %}
+  {% if form.use_ss %}{% set _ = spreadf.append('Spread vendida ≤ ' ~ form.ss ~ ' %') %}{% endif %}
   {% if form.use_lo %}{% set _ = spreadf.append('OI comprada ≥ ' ~ form.lo) %}{% endif %}
   {% if form.use_ls %}{% set _ = spreadf.append('Spread comprada ≤ ' ~ form.ls ~ ' %') %}{% endif %}
   {% if form.use_mn %}{% set _ = spreadf.append('Pérdida máx. ≤ ' ~ form.mn ~ ' % NLV') %}{% endif %}
@@ -74,7 +75,7 @@
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto) #}
 {% set offs = [] %}
 {% if form.mode != 'put' %}
-  {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
+  {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_ss', 'Spread vendida'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
   {% if form.mode == 'both' %}{% for use, label in (('use_ns', 'Strike máx. put'),) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}{% endif %}
 {% endif %}
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-iv'), ('use_ivhv', 'IV/HV', 'sec-iv'),
@@ -199,7 +200,7 @@
       {% if form.mode != 'put' %}
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
         <label class="check"><input type="checkbox" name="best_width" {{ 'checked' if form.best_width }}> Solo el mejor ancho por put (se prueban todos los anchos; gana el de mayor retorno anualizado sobre riesgo)</label>
-        {% for key, use, label in (('rr', 'use_rr', 'Retorno s/ riesgo mín. (%, hasta el vencimiento)'), ('mc', 'use_mc', 'Crédito mín. ($ por contrato)'), ('lo', 'use_lo', 'OI mín. pata comprada'), ('ls', 'use_ls', 'Spread bid/ask máx. pata comprada (%)'), ('mn', 'use_mn', 'Pérdida máxima (% del NLV)')) %}
+        {% for key, use, label in (('rr', 'use_rr', 'Retorno s/ riesgo mín. (%, hasta el vencimiento)'), ('mc', 'use_mc', 'Crédito mín. ($ por contrato)'), ('ss', 'use_ss', 'Spread bid/ask máx. pata vendida (%)'), ('lo', 'use_lo', 'OI mín. pata comprada'), ('ls', 'use_ls', 'Spread bid/ask máx. pata comprada (%)'), ('mn', 'use_mn', 'Pérdida máxima (% del NLV)')) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}

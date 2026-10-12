@@ -105,6 +105,10 @@ def build_spreads(
         sell = r.reference_price
         if sell is None:
             continue
+        if criteria.max_short_spread_pct is not None:   # con un spread enorme el precio de referencia (bid + X % del spread) es irreal
+            sb, sa = r.snapshot.bid, r.snapshot.ask
+            if sb is None or sa is None or sb <= 0 or (sa - sb) / mid_price(sb, sa) * 100 > criteria.max_short_spread_pct + EPS:
+                continue
         for width in criteria.spread_widths:
             long = index.get((sc.ticker, sc.expiry, round(sc.strike - width, 4)))
             if long is None or long.ask is None or long.ask <= 0 or mid_price(long.bid, long.ask) is None:

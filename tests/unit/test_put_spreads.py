@@ -87,6 +87,14 @@ def test_long_leg_needs_open_interest_and_a_two_sided_market():
     assert scan([snap(90, 2.0, 2.2), snap(85, 0.0, 0.3)]).spreads                # sin el filtro, pasaba
 
 
+def test_short_leg_needs_a_real_market_for_its_reference_price():
+    wide = [snap(90, 0.05, 2.35), snap(85, 0.5, 0.6)]                           # caso EOG 135/134: la referencia (bid + 25 % del spread) es irreal
+    ref = dict(price_reference=PriceReference.BID_PLUS_SPREAD, price_spread_pct=25.0, min_credit_width_pct=None)
+    assert scan(wide, **ref).spreads                                              # sin el filtro, salía
+    assert not scan(wide, max_short_spread_pct=25, **ref).spreads
+    assert scan([snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)], max_short_spread_pct=25, **ref).spreads
+
+
 # ---- modo «Ambos»: put desnuda si cabe en los límites, si no spread ------------------------------------------------
 from types import SimpleNamespace
 
