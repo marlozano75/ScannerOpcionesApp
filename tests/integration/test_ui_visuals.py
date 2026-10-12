@@ -29,7 +29,7 @@ def test_every_scanner_filter_section_is_in_the_page_and_explanations_are_notes_
     sections = re.findall(r'<details class="fx[^"]*" id="(sec-[a-z]+)"', page)
     assert set(sections) == {"sec-contract", "sec-yield", "sec-trend", "sec-levels", "sec-price", "sec-ma", "sec-quality", "sec-optional", "sec-iv", "sec-entry"}
     assert page.count('class="note"') >= 6 and ".note-help { display:none; }" in page          # notas ocultas por el script, visibles sin JS
-    assert "open = { 'sec-contract': true, 'sec-yield': true }" in page                       # primera visita: solo las dos primeras abiertas
+    assert "if (!open) open = {};" in page                                                        # primera visita: todas cerradas
 
 
 def test_the_watchlist_has_an_overview_and_the_universe_a_side_menu_of_sources(client_and_service):

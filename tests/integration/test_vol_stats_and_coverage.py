@@ -120,14 +120,14 @@ def test_the_strategy_button_keeps_the_filters_that_are_not_part_of_the_strategy
     client, svc, gw, _ = client_and_service
     url = BASE + "&ref=mid&use_oi=on&oi=300&trend_dir=up&price_min=20&dte_min=5&use_near=on&near_pct=9&use_boll=on&boll_pctb=0.1"
     page = client.get(url).text
-    href = re.search(r'<a class="strategy-btn(?: on)?" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
+    href = re.search(r'<a class="preset strategy(?: on)?" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
     q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
     assert (q["ref"], q["use_oi"], q["oi"], q["trend_dir"], q["price_min"]) == ("mid", "on", "300", "up", "20")     # se conservan
     assert q["dte_min"] == "30" and q["near_pct"] == "3" and "use_boll" not in q and "boll_pctb" not in q               # la estrategia manda
     on = client.get(href).text
-    assert 'class="strategy-btn on"' in on and "Tendencia alcista" in on and "OI ≥ 300" in on
+    assert 'class="preset strategy active"' in on and "Tendencia alcista" in on and "OI ≥ 300" in on
     first = client.get("/scanner?reset=1").text                                                                         # sin consulta previa: solo la estrategia
-    href0 = re.search(r'<a class="strategy-btn" href="(/scanner\?[^"]+)"', first).group(1).replace("&amp;", "&")
+    href0 = re.search(r'<a class="preset strategy" href="(/scanner\?[^"]+)"', first).group(1).replace("&amp;", "&")
     assert "trend_dir" not in href0 and "use_oi" not in href0
 
 

@@ -271,17 +271,17 @@ def test_the_strategy_button_activates_every_related_filter_and_marks_itself_on(
     from urllib.parse import parse_qs
     client, svc, gw, _ = client_and_service
     page = client.get("/scanner?reset=1").text
-    href = re.search(r'<a class="strategy-btn" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
+    href = re.search(r'<a class="preset strategy" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
     q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
     assert (q["dte_min"], q["dte_max"], q["delta_max"], q["ivr"], q["ivp"]) == ("30", "45", "0.3", "50", "50")
     assert "delta_min" not in q and q["signals"] == "2" and not any("exp" in k for k in q)   # solo delta máximo; ≥ 2 señales
     assert q["ma200"] == "above" and "q_earn" not in q and q["q_liq"] == "3"        # evitar resultados: desactivado por defecto
     assert all(q[k] == "on" for k in ("use_delta", "use_near", "use_ivr", "use_ivp"))
     on = client.get(href).text
-    assert 'class="strategy-btn on"' in on and "Parámetro no válido" not in on                    # la estrategia cargada se marca
+    assert 'class="preset strategy active"' in on and "Parámetro no válido" not in on                    # la estrategia cargada se marca
     for chip in ("|Δ| ≤ 0.3", "≥ 2 señales de entrada", "IV Rank ≥ 50", "A ≤ 3 % de MA50 o soporte"):
         assert chip in on
-    assert 'class="strategy-btn on"' not in client.get(href.replace("delta_max=0.3", "delta_max=0.4")).text   # cambiar un valor la desmarca
+    assert 'class="preset strategy active"' not in client.get(href.replace("delta_max=0.3", "delta_max=0.4")).text   # cambiar un valor la desmarca
 
 
 def test_invalid_delta_and_near_values_are_reported(client_and_service):
@@ -301,11 +301,11 @@ def test_the_timing_filters_are_in_the_entry_group_and_the_strategy_only_turns_o
     entry = page.split('id="sec-entry"')[1].split("</details>")[0]
     for name, value in (("rsi_max", "35"), ("boll_pctb", "0.3"), ("boll_width", "6")):
         assert f'name="{name}" value="{value}"' in entry
-    href = re.search(r'<a class="strategy-btn" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
+    href = re.search(r'<a class="preset strategy" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
     q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
     assert q["use_rsi"] == "on" and q["rsi_max"] == "35" and "use_boll" not in q and "use_bw" not in q
     on = client.get(href).text
-    assert 'class="strategy-btn on"' in on and "RSI rebota desde ≤ 35" in on
+    assert 'class="preset strategy active"' in on and "RSI rebota desde ≤ 35" in on
     assert "Bollinger %B ≤ 0.3" in client.get(BASE + "&use_boll=on&boll_pctb=0.3").text
 
 
@@ -325,11 +325,11 @@ def test_the_strategy_button_also_loads_the_iv_filters_and_the_vix_is_only_a_mes
     for name, value in (("ivhv", "1.2"), ("ivchg", "0")):
         assert f'name="{name}" value="{value}"' in iv
     assert "vix_min" not in page and "use_vix" not in page                       # el VIX no es un filtro del scanner
-    href = re.search(r'<a class="strategy-btn" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
+    href = re.search(r'<a class="preset strategy" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
     q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
     assert all(q[k] == "on" for k in ("use_ivhv", "use_ivchg")) and not any("vix" in k for k in q)
     on = client.get(href).text
-    assert 'class="strategy-btn on"' in on and "IV/HV ≥ 1.2" in on
+    assert 'class="preset strategy active"' in on and "IV/HV ≥ 1.2" in on
     svc.state.vix = VixData(current=11.0, last_closes=[], futures=[], updated_at=None)
     panel = client.get("/").text
     assert 'class="banner warn"' in panel and "primas pobres" in panel          # el aviso está junto al gráfico del VIX
@@ -347,11 +347,11 @@ def test_the_atr_filter_is_in_the_entry_group_and_the_strategy_button_turns_it_o
     page = client.get("/scanner?reset=1").text
     entry = page.split('id="sec-entry"')[1].split("</details>")[0]
     assert 'name="atr_mult" value="2"' in entry
-    href = re.search(r'<a class="strategy-btn" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
+    href = re.search(r'<a class="preset strategy" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
     q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
     assert q["use_atr"] == "on" and q["atr_mult"] == "2"
     on = client.get(href).text
-    assert 'class="strategy-btn on"' in on and "Strike a ≥ 2 ATR" in on
+    assert 'class="preset strategy active"' in on and "Strike a ≥ 2 ATR" in on
     for bad in ("use_atr=on&atr_mult=0", "use_atr=on&atr_mult=x", "use_atr=on&atr_mult=11"):
         assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad
 

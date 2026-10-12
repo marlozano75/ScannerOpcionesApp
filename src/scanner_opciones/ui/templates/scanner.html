@@ -69,6 +69,25 @@
 {% for o in ivgroup %}{% set _ = chips.append(('sec-iv', o)) %}{% endfor %}
 {% for o in entry %}{% set _ = chips.append(('sec-entry', o)) %}{% endfor %}
 {% for o in optional %}{% set _ = chips.append(('sec-optional', o)) %}{% endfor %}
+{# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto) #}
+{% set offs = [] %}
+{% if form.mode != 'put' %}
+  {% for use, label in (('use_cw', 'Crédito/ancho'), ('use_mn', 'Pérdida máx. NLV')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
+  {% if form.mode == 'both' %}{% for use, label in (('use_nw', 'Peso máx. put'), ('use_ns', 'Strike máx. put')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}{% endif %}
+{% endif %}
+{% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-iv'), ('use_ivhv', 'IV/HV', 'sec-iv'),
+    ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-entry'), ('use_rsi', 'RSI', 'sec-entry'),
+    ('use_boll', 'Bollinger %B', 'sec-entry'), ('use_bw', 'Ancho de bandas', 'sec-entry'), ('use_bid', 'Bid mín.', 'sec-optional'), ('use_oi', 'OI', 'sec-optional'),
+    ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
+  {% if not form[use] %}{% set _ = offs.append((sec, label)) %}{% endif %}
+{% endfor %}
+{% if not form.q_liq %}{% set _ = offs.append(('sec-quality', 'Liquidez')) %}{% endif %}
+{% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia')) %}{% endif %}
+{% if not form.support %}{% set _ = offs.append(('sec-levels', 'Soporte')) %}{% endif %}
+{% if not form.touch %}{% set _ = offs.append(('sec-levels', 'Último toque')) %}{% endif %}
+{% if not price_on %}{% set _ = offs.append(('sec-price', 'Precio')) %}{% endif %}
+{% if not ma_count %}{% set _ = offs.append(('sec-ma', 'Medias')) %}{% endif %}
+{% if not form.signals or form.signals == '0' %}{% set _ = offs.append(('sec-entry', 'Mín. de señales')) %}{% endif %}
 
 <style>
   td.mini { padding-top:2px; padding-bottom:2px; } td.mini a.chart-link { border:0; display:block; line-height:0; } td.mini img { display:block; }
@@ -122,7 +141,8 @@
   .summary .headline { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
   .summary .big { font-size:28px; font-weight:700; line-height:1; letter-spacing:-.01em; }
   .summary .applied { margin:6px 0 0; font-size:12px; color:var(--mute); }
-  .chips { margin-top:10px; }
+  .chips { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; } .chips + .chips { margin-top:6px; }
+  .chips .chips-lbl { font-size:12px; font-weight:600; color:var(--mute); min-width:98px; }
   .chips button.chip { font-size:12px; padding:3px 10px; font-weight:600; background:var(--field); color:var(--ink); }
   .chips button.chip:hover { filter:none; border-color:var(--accent); }
   table.impact button.rm-filter { font-size:11px; padding:1px 8px; }
@@ -159,15 +179,14 @@
     <div class="side-scroll" id="side-scroll" data-keep-scroll>
     <form method="get" action="/scanner" id="scan-form">
       <input type="hidden" name="submitted" value="1">
-      <a class="strategy-btn{{ ' on' if strategy_on }}" href="/scanner?{{ strategy_qs }}"
-         title="Perfil Tastytrade (venta de volatilidad): carga y activa de una vez DTE 30–45, delta, IV Rank y Percentile, IV/HV, señales de entrada, precio sobre la media de 200 y liquidez. Se gestiona al 50 % de la prima y a 21 DTE. Los valores salen de scanner.strategy; sustituye los filtros del otro perfil y conserva el resto (calidad, tendencia, medias, precio de venta…)">
-        {{ '✓ ' if strategy_on }}Perfil Tastytrade: venta de volatilidad</a>
-      {% if presets %}<div class="presets"><span class="lbl">Perfiles TPC (The Premium Collector): calidad, mantener hasta el vencimiento</span>
+      <div class="presets"><span class="lbl">Perfiles</span>
         {% for p in presets %}
         <a class="preset{{ ' active' if p.on }}" href="/scanner?{{ p.qs }}" style="text-decoration:none"
-          title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield del periodo mín. {{ p.min_yield }} %. Sustituye los filtros del perfil Tastytrade (delta, IV Rank, señales…) y conserva el resto">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
-        <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Editar estos perfiles y los valores del perfil Tastytrade">✎ Editar</a>
-      </div>{% endif %}
+          title="TPC (The Premium Collector, mantener hasta el vencimiento): descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield del periodo mín. {{ p.min_yield }} %. Sustituye los filtros del perfil Tastytrade (delta, IV Rank, señales…) y conserva el resto">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
+        <a class="preset strategy{{ ' active' if strategy_on }}" href="/scanner?{{ strategy_qs }}" style="text-decoration:none"
+          title="Perfil Tastytrade (venta de volatilidad): carga y activa de una vez DTE 30–45, delta, IV Rank y Percentile, IV/HV, señales de entrada, precio sobre la media de 200 y liquidez. Se gestiona al 50 % de la prima y a 21 DTE. Los valores son editables (✎ Editar); sustituye los filtros del otro perfil y conserva el resto">{{ '✓ ' if strategy_on }}Tastytrade</a>
+        <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Editar los valores por defecto de todos los perfiles (TPC y Tastytrade)">✎ Editar</a>
+      </div>
 
       <label class="field" style="margin:6px 0">Instrumento
         <select name="mode" id="mode">
@@ -381,7 +400,10 @@
         yield del periodo ≥ {{ criteria.min_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
         {% if report %}· última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados){% endif %}.</p>
       {% endif %}
-      {% if chips %}<div class="chips">{% for sec, text in chips %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}</div>{% endif %}
+      <div class="chips"><span class="chips-lbl">Activados ({{ chips|length }})</span>
+        {% for sec, text in chips %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% else %}<span class="muted">ninguno</span>{% endfor %}</div>
+      <div class="chips off"><span class="chips-lbl">Desactivados ({{ offs|length }})</span>
+        {% for sec, text in offs %}<button type="button" class="chip strat-off-chip" data-open="{{ sec }}" title="Filtro desactivado: ver este filtro">{{ text }}</button>{% else %}<span class="muted">ninguno</span>{% endfor %}</div>
       {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
       {% for w in warnings %}<div class="banner info closable" data-warning><span>{{ w }}</span><button type="button" class="close" title="Quitar el aviso" aria-label="Quitar el aviso">×</button></div>{% endfor %}
       {% if criteria %}
@@ -513,7 +535,7 @@
     const rows = BOXES.map(function (n) { return form.elements[n]; }).filter(Boolean);
     const earn = form.elements['q_earn'];
     const all = rows.concat(earn ? [earn] : []);
-    const btn = form.querySelector('a.strategy-btn');
+    const btn = form.querySelector('a.preset.strategy');
     if (btn) btn.addEventListener('click', function () { try { sessionStorage.setItem(FLAG, '1'); } catch (e) { /* sin almacenamiento */ } });
     function loaded() {
       let flag = false;
@@ -525,33 +547,6 @@
       all.forEach(function (c) {
         const row = c.closest('.opt-row') || c.closest('.check');
         if (row) row.classList.toggle('strat-off', on && !c.checked);
-      });
-      chips(on);
-    }
-    // Chips rojos (tachados) de las condiciones desactivadas, junto a los de los filtros activos encima del panel de impacto
-    function chips(on) {
-      document.querySelectorAll('.chip.strat-off-chip').forEach(function (b) { b.remove(); });
-      if (!on) return;
-      let box = document.querySelector('.results .chips');
-      all.forEach(function (c) {
-        if (c.checked) return;
-        const sec = c.closest('details.fx');
-        const host = c.closest('.check') || c.closest('label');
-        if (!sec || !host) return;
-        if (!box) {
-          box = document.createElement('div');
-          box.className = 'chips';
-          const anchor = document.querySelector('.results .banner, .results #viz-box');
-          if (!anchor) return;
-          anchor.parentNode.insertBefore(box, anchor);
-        }
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'chip strat-off-chip';
-        b.dataset.open = sec.id;
-        b.title = 'Condición de la estrategia desactivada: ver este filtro';
-        b.textContent = host.textContent.replace(/[−\s]*\d*$/, '').trim() || c.name;
-        box.appendChild(b);
       });
     }
     window.stratCounts = function () {
@@ -601,7 +596,7 @@
     const KEY = 'scan-open';
     let open = null;
     try { open = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (e) { /* sin almacenamiento */ }
-    if (!open) open = { 'sec-contract': true, 'sec-yield': true };
+    if (!open) open = {};
     document.querySelectorAll('details.fx').forEach(function (d) {
       d.open = !!open[d.id];
       d.addEventListener('toggle', function () {

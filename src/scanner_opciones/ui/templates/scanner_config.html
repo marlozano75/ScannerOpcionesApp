@@ -9,6 +9,10 @@
   .cfg-pre td, .cfg-pre th { padding:3px 8px; text-align:left; font-weight:normal; }
   .cfg-pre th { color:var(--mute); font-size:12px; }
   .cfg-pre input[type=text] { width:80px; } .cfg-pre input.nm { width:160px; }
+  .cfg-sec { border:1px solid var(--line); border-radius:8px; margin:8px 0; padding:0 12px; }
+  .cfg-sec > summary { cursor:pointer; padding:9px 0; font-weight:600; }
+  .cfg-sec[open] > summary { border-bottom:1px solid var(--line); margin-bottom:10px; }
+  .cfg-sec[open] { padding-bottom:12px; }
   .cfg-actions { display:flex; gap:10px; align-items:center; margin-top:14px; }
 </style>
 <div class="card cfg">
@@ -20,7 +24,7 @@
   {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
   {% for g in gap %}<div class="banner info">Aviso: {{ g }}: solo se escanean los contratos guardados, amplía <code>scanner.candidates</code> en config.yaml.</div>{% endfor %}
   <form method="post" action="/scanner/config">
-    <h3>Perfiles TPC (botones del Scanner)</h3>
+    <details class="cfg-sec"><summary>Perfiles TPC (botones del Scanner)</summary>
     <p class="note">Descuento mín., DTE y yield que carga cada perfil. El yield es el del periodo (prima / strike hasta el vencimiento, sin anualizar; TPC pide el 1 %). DTE máx. vacío = el máximo del rango guardado. Para quitar uno, vacía su nombre; la última fila vacía sirve para añadir otro.</p>
     <table class="cfg-pre">
       <tr><th>Nombre</th><th>Descuento mín. (%)</th><th>DTE mín.</th><th>DTE máx.</th><th>Yield periodo mín. (%)</th></tr>
@@ -33,9 +37,9 @@
       {% endfor %}
     </table>
     <input type="hidden" name="n_presets" value="{{ presets|length + 1 }}">
-    <h3 style="margin-top:20px">Perfil Tastytrade: venta de volatilidad</h3>
+    </details>
     {% for title, fields in groups %}
-    <h4 style="margin:14px 0 6px">{{ title }}</h4>
+    <details class="cfg-sec"><summary>Perfil Tastytrade · {{ title }}</summary>
     <div class="cfg-grid">
       {% for key, label, kind, value in fields %}
       <label>{{ label }}
@@ -43,6 +47,7 @@
         {% else %}<input type="text" name="s_{{ key }}" value="{{ '' if value is none else value }}" inputmode="decimal">{% endif %}</label>
       {% endfor %}
     </div>
+    </details>
     {% endfor %}
     <div class="cfg-actions">
       <button>Guardar</button>
