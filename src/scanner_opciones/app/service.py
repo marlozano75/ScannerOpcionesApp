@@ -1118,7 +1118,7 @@ class AppService:
     def scan_impact(self, criteria: ScanCriteria) -> ImpactReport:
         """Cuánto descarta cada filtro activo (ver `scanner/impact.py`). En modo spread se mide la pata vendida, sin yield."""
         if criteria.spread_mode:
-            criteria = criteria.with_filters(min_annual_yield_pct=0.0)
+            criteria = criteria.with_filters(min_yield_pct=0.0)
         snapshots = self.snapshots.all()
         bars = self.bars.all_closes({s.contract.ticker for s in snapshots}) if criteria.technical_active else None
         return impact_report(

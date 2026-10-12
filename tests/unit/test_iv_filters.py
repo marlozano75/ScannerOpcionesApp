@@ -15,7 +15,7 @@ from scanner_opciones.storage.repositories import TickerInfoRepo
 
 TODAY = date(2026, 10, 6)
 NOW = datetime(2026, 10, 6, 12, 0)
-BASE = criteria_from_settings(Settings()).with_filters(strike_below_pct_min=0, dte_min=1, dte_max=60, min_annual_yield_pct=0)
+BASE = criteria_from_settings(Settings()).with_filters(strike_below_pct_min=0, dte_min=1, dte_max=60, min_yield_pct=0)
 
 
 def snap(strike=90.0):

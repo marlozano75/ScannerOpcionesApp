@@ -165,7 +165,7 @@
       {% if presets %}<div class="presets"><span class="lbl">Perfiles TPC (The Premium Collector): calidad, mantener hasta el vencimiento</span>
         {% for p in presets %}
         <a class="preset{{ ' active' if p.on }}" href="/scanner?{{ p.qs }}" style="text-decoration:none"
-          title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield anual mín. {{ p.min_yield }} % (≈ 1 % del periodo en el DTE mínimo). Sustituye los filtros del perfil Tastytrade (delta, IV Rank, señales…) y conserva el resto">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
+          title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield del periodo mín. {{ p.min_yield }} %. Sustituye los filtros del perfil Tastytrade (delta, IV Rank, señales…) y conserva el resto">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
         <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Editar estos perfiles y los valores del perfil Tastytrade">✎ Editar</a>
       </div>{% endif %}
 
@@ -209,7 +209,7 @@
 
       {% call section('sec-yield', 'Rentabilidad', '≥ ' ~ form.min_yield ~ ' % · ' ~ ref_names.get(form.ref, form.ref)) %}
         <div class="fgrid">
-          <label class="field">Yield anual mín. (%) {{ num("min_yield", 6, form.min_yield) }}</label>
+          <label class="field" title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo mín. (%) {{ num("min_yield", 6, form.min_yield) }}</label>
           <label class="field">Precio de venta
             <select name="ref" id="ref">
               <option value="bid" {{ 'selected' if form.ref == 'bid' }}>Bid</option>
@@ -378,7 +378,7 @@
       {% endif %}
       {% if criteria %}
       <p class="applied">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
-        yield anual ≥ {{ criteria.min_annual_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
+        yield del periodo ≥ {{ criteria.min_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
         {% if report %}· última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados){% endif %}.</p>
       {% endif %}
       {% if chips %}<div class="chips">{% for sec, text in chips %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}</div>{% endif %}

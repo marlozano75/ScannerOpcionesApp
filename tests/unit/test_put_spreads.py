@@ -10,7 +10,7 @@ from scanner_opciones.scanner.engine import run_scan
 TODAY = date(2026, 10, 6)
 NOW = datetime(2026, 10, 6, 12, 0)
 BASE = criteria_from_settings(Settings()).with_filters(
-    strike_below_pct_min=0, dte_min=1, dte_max=60, min_annual_yield_pct=50.0, price_reference=PriceReference.BID,
+    strike_below_pct_min=0, dte_min=1, dte_max=60, min_yield_pct=50.0, price_reference=PriceReference.BID,
     min_bid=None, spread_mode=True, spread_widths=(5.0,))
 INFO = {"AAPL": TickerInfo("AAPL", underlying_price=100.0)}
 
@@ -68,7 +68,7 @@ from types import SimpleNamespace
 from scanner_opciones.broker.ibkr_mapper import account_fx
 from scanner_opciones.domain.models import Position
 
-MIX = dict(mixed=True, spread_widths=(5.0,), min_annual_yield_pct=0.0)
+MIX = dict(mixed=True, spread_widths=(5.0,), min_yield_pct=0.0)
 
 
 def mixed(snaps, positions=(), nlv=100_000.0, **over):
@@ -105,8 +105,8 @@ def test_spread_loss_limit_in_percent_of_nlv():
 
 
 def test_naked_rows_keep_the_annual_yield_filter_but_spreads_do_not():
-    assert not [r for r in mixed(legs(), max_naked_weight_pct=10, min_annual_yield_pct=50.0) if r.kind == "put"]   # rinde ~27 % anual
-    assert mixed(legs(), max_naked_weight_pct=5, min_annual_yield_pct=50.0)[0].kind == "spread"
+    assert not [r for r in mixed(legs(), max_naked_weight_pct=10, min_yield_pct=50.0) if r.kind == "put"]   # rinde ~2 % en el periodo (~27 % anual)
+    assert mixed(legs(), max_naked_weight_pct=5, min_yield_pct=50.0)[0].kind == "spread"
 
 
 def test_rows_ordered_by_annualized_return_on_capital():

@@ -110,7 +110,7 @@ def test_discount_dte_and_yield_are_editable(client_and_service):
     assert "Ningún contrato cumple" in client.get(
         "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=50").text
     wide = client.get("/scanner?submitted=1&discount=15&dte_min=1&dte_max=60&min_yield=0.1")
-    assert "contratos cumplen" in wide.text and "yield anual ≥ 0.1%" in wide.text and "DTE 1–60" in wide.text
+    assert "contratos cumplen" in wide.text and "yield del periodo ≥ 0.1%" in wide.text and "DTE 1–60" in wide.text
 
 
 def test_warning_when_outside_stored_range(client_and_service):
@@ -228,7 +228,7 @@ def test_price_reference_changes_which_contracts_pass(client_and_service):
     for c in svc.contracts.list("AAPL"):          # spread muy ancho: bid 0.40 / ask 1.60 (mid 1.00)
         gw.quotes[c] = OptionQuote(bid=0.40, ask=1.60, open_interest=500)
     refresh(client)
-    url = "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=15"
+    url = "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=1"
     assert "Ningún contrato cumple" in client.get(url + "&ref=bid&ref_x=25").text          # 0.40/75 = 0.53 %
     assert "Ningún contrato cumple" in client.get(url + "&ref=bid_plus_spread&ref_x=25").text   # 0.70/75 = 0.93 %
     assert "contratos cumplen" in client.get(url + "&ref=mid&ref_x=25").text              # 1.00/75 = 1.33 %
@@ -605,8 +605,8 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     links = {m.group(2): dict(parse_qsl(m.group(1).replace("&amp;", "&")))
              for m in re.finditer(r'<a class="preset" href="/scanner\?([^"]+)"[^>]*>([^<]+)</a>', form)}
     mensual, tactico = links["Mensual (TPC)"], links["Táctico (TPC)"]
-    assert (mensual["discount"], mensual["dte_min"], mensual["dte_max"], mensual["min_yield"]) == ("20", "25", "35", "15")
-    assert (tactico["discount"], tactico["dte_min"], tactico["dte_max"], tactico["min_yield"]) == ("10", "10", "14", "36.5")
+    assert (mensual["discount"], mensual["dte_min"], mensual["dte_max"], mensual["min_yield"]) == ("20", "25", "35", "1")
+    assert (tactico["discount"], tactico["dte_min"], tactico["dte_max"], tactico["min_yield"]) == ("10", "10", "14", "1")
     assert "Corto plazo" not in form and "use_delta" not in mensual and "q_earn" not in mensual
     # − / + en las cajas principales, no en los filtros opcionales
     for name in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -807,7 +807,7 @@ def test_scanner_config_page_edits_presets_and_strategy(client_and_service):
     form = {"n_presets": "4", "p0_name": "Corto X", "p0_discount": "12", "p0_dte_min": "2", "p0_dte_max": "9", "p0_yield": "30",
             "p1_name": "", "p2_name": "Largo plazo", "p2_discount": "20", "p2_dte_min": "16", "p2_dte_max": "", "p2_yield": "13",
             "p3_name": "", "s_max_abs_delta": "0,25", "s_min_iv_rank": "40", "s_dte_min": "30", "s_dte_max": "45",
-            "s_strike_below_pct_min": "5", "s_min_annual_yield_pct": "10", "s_use_rsi": "on"}
+            "s_strike_below_pct_min": "5", "s_min_yield_pct": "10", "s_use_rsi": "on"}
     post = client.post("/scanner/config", data=form, follow_redirects=False)
     assert post.status_code == 303 and "ok=" in post.headers["location"]
     st = svc.settings.scanner
@@ -835,12 +835,12 @@ def test_scanner_config_rejects_invalid_and_keeps_previous(client_and_service):
 def test_scanner_config_persists_and_resets(client_and_service):
     client, svc, _, _ = client_and_service
     yaml_presets = svc.settings.scanner.presets
-    svc.save_scanner_config([dict(name="Solo", strike_below_pct_min=11.0, dte_min=1, dte_max=None, min_annual_yield_pct=9.0)],
+    svc.save_scanner_config([dict(name="Solo", strike_below_pct_min=11.0, dte_min=1, dte_max=None, min_yield_pct=9.0)],
                             {**svc.settings.scanner.strategy.model_dump(), "min_iv_rank": 33})
     svc.settings.scanner.presets  # aplicado
     svc.reset_scanner_config()
     assert svc.settings.scanner.presets == yaml_presets and svc.settings.scanner.strategy.min_iv_rank == 50
-    svc.save_scanner_config([dict(name="Solo", strike_below_pct_min=11.0, dte_min=1, dte_max=None, min_annual_yield_pct=9.0)],
+    svc.save_scanner_config([dict(name="Solo", strike_below_pct_min=11.0, dte_min=1, dte_max=None, min_yield_pct=9.0)],
                             {**svc.settings.scanner.strategy.model_dump(), "min_iv_rank": 33})
     svc._set_scanner_config(*svc._yaml_scanner)       # simula un reinicio: vuelve a leer la base de datos
     svc._load_scanner_config()

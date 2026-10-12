@@ -10,7 +10,7 @@ from scanner_opciones.scanner.impact import active_groups, impact_report
 TODAY = date(2026, 9, 29)
 NOW = datetime(2026, 9, 29, 12, 0)
 # sin el bid mínimo por defecto: estos tests miden solo los filtros que ellos activan
-BASE = criteria_from_settings(Settings()).with_filters(min_bid=None, min_annual_yield_pct=0)
+BASE = criteria_from_settings(Settings()).with_filters(min_bid=None, min_yield_pct=0)
 INFOS = {"AAPL": TickerInfo("AAPL", underlying_price=100.0)}
 
 

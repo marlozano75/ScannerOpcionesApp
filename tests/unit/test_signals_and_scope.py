@@ -15,7 +15,7 @@ from scanner_opciones.scanner.technical import TechnicalFilter
 
 TODAY = date(2026, 10, 6)
 NOW = datetime(2026, 10, 6, 12, 0)
-BASE = criteria_from_settings(Settings()).with_filters(strike_below_pct_min=0, dte_min=1, dte_max=60, min_annual_yield_pct=0, min_bid=None)
+BASE = criteria_from_settings(Settings()).with_filters(strike_below_pct_min=0, dte_min=1, dte_max=60, min_yield_pct=0, min_bid=None)
 
 
 def snap(strike=90.0, days=36, delta=-0.22, iv=0.30):
@@ -97,7 +97,7 @@ def test_strategy_criteria_is_the_strategy_window():
     c = strategy_criteria(s)
     assert (c.dte_min, c.dte_max, c.strike_below_pct_min) == (30, 45, 5)
     assert c.strike_below_pct_max == s.scanner.candidates.strike_below_pct_max
-    assert (c.min_abs_delta, c.max_abs_delta) == (None, 0.30) and c.min_iv_rank == 50 and c.min_annual_yield_pct == 10.0
+    assert (c.min_abs_delta, c.max_abs_delta) == (None, 0.30) and c.min_iv_rank == 50 and c.min_yield_pct == 1.0
 
 
 # ---- explicación del resultado vacío --------------------------------------------------------------------------------------

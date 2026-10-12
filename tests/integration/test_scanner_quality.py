@@ -133,7 +133,7 @@ def test_the_impact_panel_without_filters_says_so(client_and_service):
     refresh(client)
     url = BASE.replace("/scanner", "/scanner/impact").replace("min_yield=1", "min_yield=0")   # sin yield mínimo ni filtros marcados
     assert "No hay ningún filtro activo" in client.get(url).text
-    assert "Yield anual mínimo" in client.get(BASE.replace("/scanner", "/scanner/impact")).text   # el yield mínimo es un filtro más
+    assert "Yield mínimo del periodo" in client.get(BASE.replace("/scanner", "/scanner/impact")).text   # el yield mínimo es un filtro más
 
 
 def test_the_scanner_page_has_the_lazy_impact_panel(client_and_service):

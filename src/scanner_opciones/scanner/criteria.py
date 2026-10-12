@@ -54,7 +54,7 @@ SOLVENCY_RULES = (
 class ScanCriteria:
     strike_below_pct_min: float
     strike_below_pct_max: float
-    min_annual_yield_pct: float
+    min_yield_pct: float
     dte_min: int
     dte_max: int
     min_oi: Optional[int] = None
@@ -177,7 +177,7 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
     return ScanCriteria(
         strike_below_pct_min=ini.strike_below_pct_min,
         strike_below_pct_max=ini.strike_below_pct_max,
-        min_annual_yield_pct=ini.min_annual_yield_pct,
+        min_yield_pct=ini.min_yield_pct,
         dte_min=ini.dte_min,
         dte_max=ini.dte_max,
         min_oi=f.min_oi, min_bid=f.min_bid, min_bid_size=f.min_bid_size, max_spread_pct=f.max_spread_pct,
@@ -195,6 +195,6 @@ def strategy_criteria(settings: Settings) -> ScanCriteria:
     st, fv = settings.scanner.strategy, settings.scanner.filter_values
     return criteria_from_settings(settings).with_filters(
         strike_below_pct_min=st.strike_below_pct_min, strike_below_pct_max=settings.scanner.candidates.strike_below_pct_max,
-        dte_min=st.dte_min, dte_max=st.dte_max, min_annual_yield_pct=st.min_annual_yield_pct,
+        dte_min=st.dte_min, dte_max=st.dte_max, min_yield_pct=st.min_yield_pct,
         min_abs_delta=st.min_abs_delta, max_abs_delta=st.max_abs_delta, min_bid=fv.min_bid,
         min_iv_rank=st.min_iv_rank, min_iv_percentile=st.min_iv_percentile)

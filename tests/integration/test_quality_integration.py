@@ -136,7 +136,7 @@ async def scanned_service(**info_fields):
 
 
 def strikes(svc, **overrides):
-    crit = svc.criteria().with_filters(strike_below_pct_min=1, strike_below_pct_max=40, min_annual_yield_pct=0,
+    crit = svc.criteria().with_filters(strike_below_pct_min=1, strike_below_pct_max=40, min_yield_pct=0,
                                        dte_min=1, dte_max=45, **overrides)
     return sorted(r.snapshot.contract.strike for r in svc.scan(crit).results)
 

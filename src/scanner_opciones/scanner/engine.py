@@ -58,9 +58,9 @@ def run_scan(
 ) -> ScanOutput:
     """`bars` (cierres diarios por ticker) y `technical` solo hacen falta si `criteria.technical_active`."""
     exempt = exempt_sectors
-    naked_min_yield = criteria.min_annual_yield_pct    # en modo «Ambos» solo lo exige la put desnuda
+    naked_min_yield = criteria.min_yield_pct    # en modo «Ambos» solo lo exige la put desnuda
     if criteria.spread_mode:   # el yield sobre el strike no vale para un spread: lo sustituyen crédito/ancho y retorno sobre riesgo
-        criteria = replace(criteria, min_annual_yield_pct=0.0)
+        criteria = replace(criteria, min_yield_pct=0.0)
     tech = TechnicalFilter(criteria, technical or TechnicalSettings(), bars or {}, today) if criteria.technical_active else None
     results: list[ScanResult] = []
     rejections: dict[str, str] = {}

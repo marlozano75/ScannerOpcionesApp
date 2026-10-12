@@ -32,7 +32,7 @@ async def service_with_history(values):
 
 
 def strikes(svc, **overrides):
-    crit = svc.criteria().with_filters(strike_below_pct_min=1, strike_below_pct_max=40, min_annual_yield_pct=0,
+    crit = svc.criteria().with_filters(strike_below_pct_min=1, strike_below_pct_max=40, min_yield_pct=0,
                                        dte_min=1, dte_max=45, **overrides)
     return sorted(r.snapshot.contract.strike for r in svc.scan(crit).results)
 
@@ -45,7 +45,7 @@ async def test_without_technical_filters_the_history_is_not_needed():
 async def test_ticker_without_history_is_rejected_by_any_technical_filter():
     svc = await service_with_history(None)
     assert strikes(svc, ma50="above") == []
-    out = svc.scan(svc.criteria().with_filters(strike_below_pct_min=1, min_annual_yield_pct=0, dte_max=45, ma50="above"),
+    out = svc.scan(svc.criteria().with_filters(strike_below_pct_min=1, min_yield_pct=0, dte_max=45, ma50="above"),
                    include_rejections=True)
     assert out.rejections and all(why.startswith("sin ") for why in out.rejections.values())   # sin histórico / sin datos para la media
 
@@ -134,7 +134,7 @@ async def test_moving_averages_with_weekly_and_monthly_candles():
     assert strikes(svc, ma50="below", ma_frame="daily") == []
     # con velas mensuales solo hay ~12 velas: la MA50 no se puede calcular y descarta el ticker, con motivo
     assert strikes(svc, ma50="below", ma_frame="monthly") == []
-    out = svc.scan(svc.criteria().with_filters(strike_below_pct_min=1, min_annual_yield_pct=0, dte_max=45,
+    out = svc.scan(svc.criteria().with_filters(strike_below_pct_min=1, min_yield_pct=0, dte_max=45,
                                                ma50="below", ma_frame="monthly"), include_rejections=True)
     assert any("sin datos para MA50" in why and "mensuales" in why for why in out.rejections.values())
     assert strikes(svc, ema9="below", ma_frame="monthly") == [75.0, 80.0]    # la EMA 9 mensual sí (12 velas ≥ 9)
@@ -152,7 +152,7 @@ async def test_moving_average_slope():
     svc = await service_with_history([100] * 60)                             # plana (como el precio de hoy): ni sube ni baja
     assert strikes(svc, slope_ma50="up") == [] and strikes(svc, slope_ma50="down") == []
     svc = await service_with_history([74 + i * 0.1 for i in range(52)])      # 52 velas: la MA 50 existe pero no la de hace 5
-    out = svc.scan(svc.criteria().with_filters(strike_below_pct_min=1, min_annual_yield_pct=0, dte_max=45, slope_ma50="up"),
+    out = svc.scan(svc.criteria().with_filters(strike_below_pct_min=1, min_yield_pct=0, dte_max=45, slope_ma50="up"),
                    include_rejections=True)
     assert out.rejections and all("pendiente de MA50" in why for why in out.rejections.values())
 

@@ -24,7 +24,7 @@ from scanner_opciones.scanner.technical import TechnicalFilter
 
 # (clave, etiqueta, {campo del criterio: valor que lo desactiva})
 _GROUPS: tuple[tuple[str, str, dict], ...] = (
-    ("yield", "Yield anual mínimo", {"min_annual_yield_pct": 0.0}),
+    ("yield", "Yield mínimo del periodo", {"min_yield_pct": 0.0}),
     ("price", "Precio del subyacente", {"min_price": None, "max_price": None}),
     ("bid", "Bid mínimo", {"min_bid": None}),
     ("oi", "OI mínimo", {"min_oi": None}),

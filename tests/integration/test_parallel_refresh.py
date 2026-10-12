@@ -116,7 +116,7 @@ async def test_margins_are_not_requested_after_consecutive_what_if_failures():
         asked.append(contract)
         raise DataUnavailableError("TWS no respondió")
     env.gw.what_if_margin = silent
-    env.settings = Settings.model_validate({"scanner": {"initial": {"min_annual_yield_pct": 0}}})
+    env.settings = Settings.model_validate({"scanner": {"initial": {"min_yield_pct": 0}}})
     env.refresh.settings = env.settings
     refresh_module.MARGIN_MAX_FAILURES, saved = 1, refresh_module.MARGIN_MAX_FAILURES
     try:
@@ -158,7 +158,7 @@ async def test_a_stale_margin_is_kept_when_tws_does_not_answer():
 
     env = Env()
     c75, c80 = await _prepare_refresh(env)
-    env.settings = Settings.model_validate({"scanner": {"initial": {"min_annual_yield_pct": 0}}})
+    env.settings = Settings.model_validate({"scanner": {"initial": {"min_yield_pct": 0}}})
     env.refresh.settings = env.settings
     await env.refresh.run()                                    # guarda el margen de 1500
     assert env.snaps.all("AAPL")[0].initial_margin == 1500.0

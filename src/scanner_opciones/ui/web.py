@@ -251,7 +251,7 @@ STRATEGY_KEYS = frozenset((
 STRATEGY_FIELDS = (
     ("Strike, vencimiento y prima", (
         ("strike_below_pct_min", "Descuento mín. del strike (%)", "float"), ("dte_min", "DTE mín.", "int"), ("dte_max", "DTE máx.", "int"),
-        ("min_annual_yield_pct", "Yield anual mín. (%)", "float"))),
+        ("min_yield_pct", "Yield mín. del periodo (%)", "float"))),
     ("Delta y volatilidad", (
         ("min_abs_delta", "|Delta| mín. (vacío = sin mínimo)", "ofloat"), ("max_abs_delta", "|Delta| máx.", "float"),
         ("min_iv_rank", "IV Rank mín.", "float"), ("min_iv_percentile", "IV Percentile mín.", "float"),
@@ -291,7 +291,7 @@ def parse_scanner_config(form, current: dict) -> tuple[list[dict], dict]:
             name=name, strike_below_pct_min=_read_num(form.get(f"p{i}_discount"), float, f"{name}: descuento mín."),
             dte_min=_read_num(form.get(f"p{i}_dte_min"), int, f"{name}: DTE mín."),
             dte_max=_read_num(dte_max, int, f"{name}: DTE máx.") if dte_max else None,
-            min_annual_yield_pct=_read_num(form.get(f"p{i}_yield"), float, f"{name}: yield mín.")))
+            min_yield_pct=_read_num(form.get(f"p{i}_yield"), float, f"{name}: yield mín.")))
     strategy = dict(current)
     for _, fields in STRATEGY_FIELDS:
         for key, label, kind in fields:
@@ -313,7 +313,7 @@ def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
     st, fv = settings.scanner.strategy, settings.scanner.filter_values
     params = {
         "submitted": "1", "discount": _fmt(st.strike_below_pct_min), "dte_min": str(st.dte_min), "dte_max": str(st.dte_max),
-        "min_yield": _fmt(st.min_annual_yield_pct), "use_delta": "on", "delta_max": _fmt(st.max_abs_delta),
+        "min_yield": _fmt(st.min_yield_pct), "use_delta": "on", "delta_max": _fmt(st.max_abs_delta),
         "use_near": "on", "near_pct": _fmt(st.near_level_pct),
         "use_ivr": "on", "ivr": _fmt(st.min_iv_rank), "use_ivp": "on", "ivp": _fmt(st.min_iv_percentile),
         "use_bid": "on", "bid": _fmt(fv.min_bid), "signals": str(st.min_signals),
@@ -353,7 +353,7 @@ def preset_link(settings, preset, form: dict, current=None) -> tuple[str, bool]:
     params = {
         "submitted": "1", "discount": _fmt(preset.strike_below_pct_min), "dte_min": str(preset.dte_min),
         "dte_max": str(preset.dte_max if preset.dte_max is not None else cand.dte_max),
-        "min_yield": _fmt(preset.min_annual_yield_pct), "use_bid": "on", "bid": _fmt(fv.min_bid),
+        "min_yield": _fmt(preset.min_yield_pct), "use_bid": "on", "bid": _fmt(fv.min_bid),
     }
     on = all(form.get(k) == params[k] for k in ("discount", "dte_min", "dte_max", "min_yield"))
     kept = {k: v for k, v in (current.items() if current is not None else ()) if k not in STRATEGY_KEYS} if current is not None and "submitted" in current else {}
@@ -735,7 +735,7 @@ def create_app(
         form = {
             "discount": _fmt(base.strike_below_pct_min),
             "dte_min": str(base.dte_min), "dte_max": str(base.dte_max),
-            "min_yield": _fmt(base.min_annual_yield_pct),
+            "min_yield": _fmt(base.min_yield_pct),
             "ref": base.price_reference.value, "ref_x": _fmt(base.price_spread_pct),
             "trend_dir": base.trend_direction, "trend_method": base.trend_method,
             "trend_window": str(base.trend_window_months),
@@ -852,7 +852,7 @@ def create_app(
                     if key in qp or key in ("delta_min", "delta_max", "signals"):
                         form[key] = qp.get(key, "").strip()
                 overrides["strike_below_pct_min"] = _required(form["discount"], float, "Descuento mín. del strike")
-                overrides["min_annual_yield_pct"] = _required(form["min_yield"], float, "Yield anual mín.")
+                overrides["min_yield_pct"] = _required(form["min_yield"], float, "Yield mín. del periodo")
                 overrides["dte_min"] = _required(form["dte_min"], int, "DTE mín.")
                 overrides["dte_max"] = _required(form["dte_max"], int, "DTE máx.")
                 try:
@@ -868,7 +868,7 @@ def create_app(
                     raise ValueError("el descuento del strike debe estar entre 0 y 100")
                 if lo > hi:
                     raise ValueError(f"el descuento mínimo no puede superar el máximo del rango guardado ({hi:g} %)")
-                if overrides["min_annual_yield_pct"] < 0:
+                if overrides["min_yield_pct"] < 0:
                     raise ValueError("el yield mínimo no puede ser negativo")
                 if overrides["dte_min"] < 0 or overrides["dte_min"] > overrides["dte_max"]:
                     raise ValueError("los DTE deben cumplir 0 ≤ mín. ≤ máx.")
@@ -960,7 +960,7 @@ def create_app(
         sc = service.settings.scanner
         cur = sc.strategy.model_dump()
         presets = [dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
-                        dte_max="" if p.dte_max is None else p.dte_max, min_yield=_fmt(p.min_annual_yield_pct)) for p in sc.presets]
+                        dte_max="" if p.dte_max is None else p.dte_max, min_yield=_fmt(p.min_yield_pct)) for p in sc.presets]
         groups = [(title, [(key, label, kind, cur[key]) for key, label, kind in fields]) for title, fields in STRATEGY_FIELDS]
         cand = sc.candidates
         gap = []
@@ -1033,7 +1033,7 @@ def create_app(
             qs, on = preset_link(service.settings, p, parsed["form"], request.query_params)
             presets.append(dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
                                 dte_max=p.dte_max if p.dte_max is not None else cand.dte_max,
-                                min_yield=_fmt(p.min_annual_yield_pct), qs=qs, on=on))
+                                min_yield=_fmt(p.min_yield_pct), qs=qs, on=on))
         qcfg = service.settings.scanner.quality
         counts = quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg)
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)

@@ -101,7 +101,7 @@ class InitialFilterSettings(_Model):
     """Valores iniciales del filtro del scanner (todos editables en el formulario)."""
     strike_below_pct_min: float = Field(10, ge=0, lt=100)  # descuento mínimo del strike (%)
     strike_below_pct_max: float = Field(30, ge=0, lt=100)  # descuento máximo del strike (%)
-    min_annual_yield_pct: float = Field(12.0, ge=0)  # yield anualizado mínimo (≈ 1 % bruto a 30 días)
+    min_yield_pct: float = Field(1.0, ge=0)  # yield mínimo del PERIODO (prima / strike hasta el vencimiento, sin anualizar; el 1 % de TPC)
     dte_min: int = Field(1, ge=0)
     dte_max: int = Field(35, ge=0)
 
@@ -121,7 +121,7 @@ class ScannerPreset(_Model):
     strike_below_pct_min: float = Field(ge=0, lt=100)
     dte_min: int = Field(ge=0)
     dte_max: Optional[int] = Field(None, ge=0)
-    min_annual_yield_pct: float = Field(ge=0)
+    min_yield_pct: float = Field(ge=0)
 
     @model_validator(mode="after")
     def _check(self) -> "ScannerPreset":
@@ -130,12 +130,11 @@ class ScannerPreset(_Model):
         return self
 
 
-# Perfiles del método The Premium Collector (TPC). El yield anualizado mínimo equivale a un 1 % del periodo en el DTE mínimo del
-# perfil (1 % × 365 / dte_min): así ningún contrato del rango queda por debajo del 1 % de prima sobre el strike.
+# Perfiles del método The Premium Collector (TPC): prima mínima del 1 % del strike hasta el vencimiento (yield del periodo, sin anualizar).
 #   Mensual: ~30 DTE, strike 20–25 % por debajo.  Táctico: menos de 15 DTE, strike ~10 % por debajo (cuando el mercado cae).
 DEFAULT_PRESETS = (
-    ScannerPreset(name="Mensual (TPC)", strike_below_pct_min=20, dte_min=25, dte_max=35, min_annual_yield_pct=15),
-    ScannerPreset(name="Táctico (TPC)", strike_below_pct_min=10, dte_min=10, dte_max=14, min_annual_yield_pct=36.5),
+    ScannerPreset(name="Mensual (TPC)", strike_below_pct_min=20, dte_min=25, dte_max=35, min_yield_pct=1.0),
+    ScannerPreset(name="Táctico (TPC)", strike_below_pct_min=10, dte_min=10, dte_max=14, min_yield_pct=1.0),
 )
 
 
@@ -304,7 +303,7 @@ class StrategySettings(_Model):
     strike_below_pct_min: float = Field(5, ge=0, lt=100)   # descuento mínimo del strike (%)
     dte_min: int = Field(30, ge=0)
     dte_max: int = Field(45, ge=0)
-    min_annual_yield_pct: float = Field(10.0, ge=0)        # ≈ 1 % del strike a 30–45 días
+    min_yield_pct: float = Field(1.0, ge=0)         # prima mínima del periodo (% del strike hasta el vencimiento)
     # |delta| de la put: solo MÁXIMO por defecto (≤ 0,30 ≈ 70 % o más de probabilidad de expirar sin valor). El mínimo de prima lo pone el
     # yield mínimo; con un mínimo de delta (0,20) se descartaba el 92 % de los contratos y sale casi todo lo más seguro
     min_abs_delta: Optional[float] = Field(None, gt=0, le=1)

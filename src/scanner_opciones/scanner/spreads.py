@@ -81,7 +81,7 @@ def build_mixed(
         if criteria.max_naked_strike is not None and c.strike > criteria.max_naked_strike:
             reasons.append(f"strike {c.strike:g} > {criteria.max_naked_strike:g}")
         if not reasons:
-            if (r.yield_ref_annualized_pct or 0.0) < naked_min_yield_pct:
+            if (r.yield_ref_pct or 0.0) < naked_min_yield_pct:
                 continue
             margin = r.snapshot.initial_margin
             ror = (r.reference_price * c.multiplier / margin * 365 / r.dte

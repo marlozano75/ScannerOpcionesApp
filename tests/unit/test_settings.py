@@ -110,14 +110,12 @@ def test_delayed_data_sets_delay_and_minimum_refresh_interval():
 def test_presets_por_defecto_y_validacion(tmp_path):
     s = load_settings(EXAMPLE)
     m, t = s.scanner.presets
-    assert (m.name, m.strike_below_pct_min, m.dte_min, m.dte_max, m.min_annual_yield_pct) == ("Mensual (TPC)", 20, 25, 35, 15)
-    assert (t.name, t.strike_below_pct_min, t.dte_min, t.dte_max, t.min_annual_yield_pct) == ("Táctico (TPC)", 10, 10, 14, 36.5)
-    for p in (m, t):      # el yield anual equivale a un 1 % del periodo en el DTE mínimo
-        assert p.min_annual_yield_pct == pytest.approx(1 * 365 / p.dte_min, abs=0.5)
+    assert (m.name, m.strike_below_pct_min, m.dte_min, m.dte_max, m.min_yield_pct) == ("Mensual (TPC)", 20, 25, 35, 1.0)
+    assert (t.name, t.strike_below_pct_min, t.dte_min, t.dte_max, t.min_yield_pct) == ("Táctico (TPC)", 10, 10, 14, 1.0)
     bad = tmp_path / "c.yaml"
     bad.write_text(
         "scanner:" + chr(10) + "  presets:" + chr(10)
-        + "    - {name: x, strike_below_pct_min: 10, dte_min: 20, dte_max: 5, min_annual_yield_pct: 1}" + chr(10),
+        + "    - {name: x, strike_below_pct_min: 10, dte_min: 20, dte_max: 5, min_yield_pct: 1}" + chr(10),
         encoding="utf-8",
     )
     with pytest.raises(ConfigError):

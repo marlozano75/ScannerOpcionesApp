@@ -21,9 +21,9 @@
   {% for g in gap %}<div class="banner info">Aviso: {{ g }}: solo se escanean los contratos guardados, amplía <code>scanner.candidates</code> en config.yaml.</div>{% endfor %}
   <form method="post" action="/scanner/config">
     <h3>Perfiles TPC (botones del Scanner)</h3>
-    <p class="note">Descuento mín., DTE y yield que carga cada perfil. El yield anual equivale a un 1 % del periodo en el DTE mínimo (1 % × 365 / DTE mín.: 25 DTE ≈ 15 %, 10 DTE ≈ 36,5 %). DTE máx. vacío = el máximo del rango guardado. Para quitar uno, vacía su nombre; la última fila vacía sirve para añadir otro.</p>
+    <p class="note">Descuento mín., DTE y yield que carga cada perfil. El yield es el del periodo (prima / strike hasta el vencimiento, sin anualizar; TPC pide el 1 %). DTE máx. vacío = el máximo del rango guardado. Para quitar uno, vacía su nombre; la última fila vacía sirve para añadir otro.</p>
     <table class="cfg-pre">
-      <tr><th>Nombre</th><th>Descuento mín. (%)</th><th>DTE mín.</th><th>DTE máx.</th><th>Yield anual mín. (%)</th></tr>
+      <tr><th>Nombre</th><th>Descuento mín. (%)</th><th>DTE mín.</th><th>DTE máx.</th><th>Yield periodo mín. (%)</th></tr>
       {% for p in presets + [dict(name='', discount='', dte_min='', dte_max='', min_yield='')] %}{% set i = loop.index0 %}
       <tr><td><input class="nm" type="text" name="p{{ i }}_name" value="{{ p.name }}"></td>
         <td><input type="text" name="p{{ i }}_discount" value="{{ p.discount }}" inputmode="decimal"></td>
