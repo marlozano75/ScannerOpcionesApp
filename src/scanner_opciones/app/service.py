@@ -34,6 +34,7 @@ from scanner_opciones.scanner.filters import iv_change_available, iv_hv_availabl
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.scanner.impact import ImpactReport, impact_report
+from scanner_opciones.scanner.spread_check import CheckRow, spread_check
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     QualityRepo,
@@ -1228,6 +1229,11 @@ class AppService:
             return acc.net_liquidation
         manual = self.settings.scanner.spreads.usd_per_base
         return acc.net_liquidation * manual if manual else None
+
+    def spread_check(self, criteria: ScanCriteria) -> list[CheckRow]:
+        """Para cada put vendida que pasa el escaneo COMO PUT SOLA (con su yield mínimo), qué condiciones del spread cumple y cuáles no."""
+        put_scan = self.scan(criteria.with_filters(spread_mode=False, mixed=False))
+        return spread_check(put_scan.results, self.snapshots.all(), criteria, self.nlv_usd())
 
     def scan_impact(self, criteria: ScanCriteria) -> ImpactReport:
         """Cuánto descarta cada filtro activo (ver `scanner/impact.py`). En modo spread se mide la pata vendida, sin yield."""

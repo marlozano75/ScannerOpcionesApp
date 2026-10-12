@@ -154,3 +154,36 @@ def test_account_nlv_usd():
     from scanner_opciones.domain.models import AccountSummary
     assert AccountSummary("U1", net_liquidation=20000.0, base_currency="EUR", usd_per_base=1.25).nlv_usd == 25000.0
     assert AccountSummary("U1", net_liquidation=20000.0).nlv_usd is None
+
+
+# ---- revisión de spreads: por qué cada put vendida sale o no como spread -----------------------------------------
+from scanner_opciones.scanner.spread_check import spread_check
+
+
+def check(snaps, **over):
+    c = BASE.with_filters(**{"min_yield_pct": 0.0, **over})
+    shorts = run_scan(snaps, INFO, [], c.with_filters(spread_mode=False), TODAY).results
+    return spread_check(shorts, snaps, c, 100_000.0)
+
+
+def test_check_marks_each_condition_and_matches_build_spreads():
+    legs = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]
+    row = [r for r in check(legs, min_return_on_risk_pct=10, min_spread_credit=30, min_long_oi=10) if r.strike == 90][0]
+    assert row.outcome == "spread" and not row.failed and row.checks["long"].ok and row.checks["ror"].ok is True
+    assert [s.short.snapshot.contract.strike for s in scan(legs, min_return_on_risk_pct=10, min_spread_credit=30, min_long_oi=10).spreads] == [90]
+    bad = [r for r in check(legs, min_return_on_risk_pct=90) if r.strike == 90][0]
+    assert bad.outcome == "no" and bad.checks["ror"].ok is False and "Retorno/riesgo (%)" in bad.failed
+    assert not scan(legs, min_return_on_risk_pct=90).spreads
+
+
+def test_check_reports_missing_long_leg_and_illiquid_long_leg():
+    no_leg = [r for r in check([snap(90, 2.0, 2.2), snap(86, 0.5, 0.6)]) if r.strike == 90][0]
+    assert no_leg.checks["long"].ok is False and no_leg.outcome == "no"
+    eog = [r for r in check([snap(90, 2.0, 2.2), snap(85, 0.0, 0.3)], max_long_spread_pct=25) if r.strike == 90][0]
+    assert eog.checks["long_spread"].ok is False and eog.checks["long_spread"].text == "sin bid"
+
+
+def test_check_in_both_mode_tells_put_from_spread():
+    legs = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]
+    assert [r.outcome for r in check(legs, mixed=True, max_naked_strike=100) if r.strike == 90] == ["put"]
+    assert [r.outcome for r in check(legs, mixed=True, max_naked_strike=85) if r.strike == 90] == ["spread"]

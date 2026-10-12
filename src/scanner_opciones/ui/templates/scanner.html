@@ -148,6 +148,10 @@
   .chips .chips-lbl { font-size:12px; font-weight:600; color:var(--mute); min-width:98px; }
   .chips button.chip { font-size:12px; padding:3px 10px; font-weight:600; background:var(--field); color:var(--ink); }
   .chips button.chip:hover { filter:none; border-color:var(--accent); }
+  table.sc-check td.sc-ok, table.sc-check td.sc-bad { font-weight:600; }
+  .sc-ok { color:#1a7f37; } .sc-bad { color:#b3361b; } .sc-na { color:#8a8f98; }
+  table.sc-check td.sc-ok { background:rgba(26,127,55,.10); } table.sc-check td.sc-bad { background:rgba(179,54,27,.10); }
+  .sc-wrap { max-height:420px; overflow:auto; }
   table.impact button.rm-filter { font-size:11px; padding:1px 8px; }
   .chips button.chip.strat-off-chip { background:#fbe9e9; border-color:var(--red); color:#8f2a2a; text-decoration:line-through; }
   .summary .banner { margin:10px 0 0; font-size:13px; }
@@ -410,6 +414,12 @@
         <summary>¿Cuánto descarta cada filtro? <span class="muted">(ver lo restrictiva que es la selección)</span></summary>
         <div id="impact-body" class="muted">Calculando…</div>
       </details>
+      {% if criteria.spread_mode %}
+      <details class="viz-box" id="spread-box" data-url="/scanner/spread-check">
+        <summary>Revisión de spreads <span class="muted">(por qué cada put vendida que cumple como put sale o no como spread)</span></summary>
+        <div id="spread-body" class="muted">Calculando…</div>
+      </details>
+      {% endif %}
       {% endif %}
     </div>
     {% if out and criteria and criteria.mixed %}
@@ -620,6 +630,21 @@
     const el = form.querySelector('[name=' + n + ']');
     el.addEventListener('change', function () { form.submit(); });   // editar X o el precio escanea
   });
+  // Panel «Revisión de spreads» (modos Spread y Ambos): se calcula al abrirlo
+  (function () {
+    const box = document.getElementById('spread-box');
+    if (!box) return;
+    let loaded = false;
+    function load() {
+      if (loaded || !box.open) return;
+      loaded = true;
+      fetch(box.dataset.url + window.location.search, { headers: { 'X-Requested-With': 'fetch' } })
+        .then(function (r) { return r.text(); })
+        .then(function (html) { document.getElementById('spread-body').innerHTML = html; })
+        .catch(function () { document.getElementById('spread-body').textContent = 'No se pudo calcular.'; });
+    }
+    box.addEventListener('toggle', load);
+  })();
   // Panel «¿Cuánto descarta cada filtro?»: se calcula al abrirlo (abierto por defecto, salvo que se haya cerrado)
   (function () {
     const box = document.getElementById('viz-box');

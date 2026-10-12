@@ -884,6 +884,18 @@ def test_scanner_spread_mode_renders_and_validates(client_and_service):
         assert "Parámetro no válido" in client.get(BASE + bad).text, bad
 
 
+def test_scanner_spread_check_panel(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    assert "id=\"spread-box\"" not in client.get(BASE).text                              # solo en los modos Spread y Ambos
+    for mode in ("spread", "both&use_ns=on&ns=100"):
+        page = client.get(BASE + "&mode=" + mode)
+        assert "id=\"spread-box\"" in page.text and "/scanner/spread-check" in page.text
+        frag = client.get("/scanner/spread-check?" + BASE.split("?")[1] + "&mode=" + mode)
+        assert frag.status_code == 200 and ("Resultado" in frag.text or "Ninguna put vendida" in frag.text)
+    assert "Solo en los modos" in client.get("/scanner/spread-check?" + BASE.split("?")[1]).text
+
+
 def test_scanner_both_mode_renders_and_validates(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)

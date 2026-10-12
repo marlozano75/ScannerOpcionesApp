@@ -26,6 +26,7 @@ from scanner_opciones.portfolio.management import manage_puts
 from scanner_opciones.scanner.impact import explain_empty
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
+from scanner_opciones.scanner.spread_check import COLUMNS as SPREAD_CHECK_COLS
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
@@ -269,6 +270,9 @@ STRATEGY_FIELDS = (
         ("max_vix", "VIX: nervioso por encima de", "float"))),
 )
 
+
+SPREAD_CHECK_MAX = 400   # filas máximas del panel «Revisión de spreads»
+SPREAD_CHECK_COLUMNS = SPREAD_CHECK_COLS
 
 SPREAD_FIELDS = (    # valores iniciales del modo Spread del Scanner (`scanner.spreads`); en el formulario van como `sp_<clave>`
     ("width_options", "Anchos que se prueban ($, separados por comas)", "floats"),
@@ -1032,6 +1036,16 @@ def create_app(
         if parsed["criteria"] is None:
             return render(request, "_impact.html", error=parsed["error"] or "Parámetros no válidos", report=None)
         return render(request, "_impact.html", error=None, report=service.scan_impact(parsed["criteria"]))
+
+    @app.get("/scanner/spread-check", response_class=HTMLResponse)
+    async def scanner_spread_check(request: Request):
+        """Panel «Revisión de spreads» (fragmento HTML, se carga al abrirlo): cada put vendida que pasa como put sola y sus condiciones de spread."""
+        parsed = parse_scan(request.query_params)
+        c = parsed["criteria"]
+        if c is None or not c.spread_mode:
+            return render(request, "_spread_check.html", error=parsed["error"] or "Solo en los modos Spread y Ambos.", rows=[], columns=[], mixed=False)
+        rows = service.spread_check(c)
+        return render(request, "_spread_check.html", error=None, rows=rows[:SPREAD_CHECK_MAX], total=len(rows), columns=SPREAD_CHECK_COLUMNS, mixed=c.mixed)
 
     @app.get("/scanner", response_class=HTMLResponse)
     async def scanner(request: Request, debug: int = 0):
