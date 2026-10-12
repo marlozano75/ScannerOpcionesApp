@@ -460,7 +460,8 @@ def create_app(
         vix_note = vix_advice(vix, service.settings.scanner.strategy)
         nlv = service.nlv_usd() or (service.state.account.net_liquidation if service.state.account else None)   # strikes y posiciones en USD
         mgmt = manage_puts(service.state.positions, nlv, service.now().date(),
-                           {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management)
+                           {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
+                           service.put_profiles())
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
             cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),
@@ -470,6 +471,16 @@ def create_app(
         return render(request, "dashboard.html", sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
+
+    @app.post("/management/profile")
+    async def management_profile(request: Request):
+        """Cambia el perfil de gestión (Tastytrade / TPC) de una put vendida del Panel."""
+        form = await request.form()
+        try:
+            service.set_put_profile(str(form.get("key", "")), str(form.get("profile", "")))
+        except ValueError:
+            return Response("Perfil de gestión no válido", status_code=400)
+        return RedirectResponse("/#gestion", status_code=303)
 
     @app.post("/refresh")
     async def refresh():

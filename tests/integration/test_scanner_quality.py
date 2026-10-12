@@ -387,3 +387,26 @@ def test_an_empty_scan_explains_why_and_what_would_recover_contracts(client_and_
     page = client.get(BASE + "&use_oi=on&oi=100000000&use_bidsize=on&bidsize=99999999").text
     assert "Ningún contrato pasa todos los filtros" in page and "OI mínimo" in page and "Bid size mínimo" in page
     assert "Ningún contrato pasa todos los filtros" not in client.get(BASE).text      # con resultados no hay aviso
+
+
+def test_put_management_profile_is_chosen_per_put_and_remembered(client_and_service):
+    from datetime import timedelta
+    from scanner_opciones.domain.enums import OptionRight
+    from scanner_opciones.domain.models import OptionContract, Position
+    client, svc, gw, _ = client_and_service
+    option = OptionContract("AAPL", svc.now().date() + timedelta(days=20), 90.0, OptionRight.PUT)
+    svc.state.positions = [Position("AAPL", -1, -90.0, "Technology", option, 110.0)]       # 18 % de la prima ganada a 20 DTE
+    key = f"AAPL|{option.expiry.isoformat()}|90"
+    page = client.get("/").text
+    assert f'name="key" value="{key}"' in page and "Revisar: quedan" not in page          # por defecto: TPC (mantiene hasta el vencimiento)
+    assert '<option value="tpc" selected>' in page
+    r = client.post("/management/profile", data={"key": key, "profile": "tastytrade"}, follow_redirects=False)
+    assert r.status_code == 303 and svc.put_profiles() == {key: "tastytrade"}
+    page = client.get("/").text
+    assert "Revisar: quedan" in page and '<option value="tastytrade" selected>' in page   # Tastytrade revisa a 21 DTE
+    assert client.post("/management/profile", data={"key": key, "profile": "x"}).status_code == 400
+    assert client.post("/management/profile", data={"key": "mal", "profile": "tpc"}).status_code == 400
+    assert client.post("/management/profile", data={"key": "AAPL|no-fecha|90", "profile": "tpc"}).status_code == 400
+    assert svc.put_profiles() == {key: "tastytrade"}
+    svc.set_put_profile(f"MSFT|{(svc.now().date() - timedelta(days=1)).isoformat()}|300", "tpc")   # ya vencida: se olvida
+    assert svc.put_profiles() == {key: "tastytrade"}

@@ -119,6 +119,17 @@ risk:
 diversification:
   weeks_ahead: 5
 
+management:                # tarjeta «Gestión de puts vendidas» del Panel (avisos, nunca órdenes)
+  take_profit_pct: 50        # Tastytrade: recoger beneficios al capturar este % de la prima
+  review_dte: 21             # Tastytrade: a este DTE sin llegar al objetivo, cerrar o rolar
+  near_strike_pct: 2         # aviso cuando el precio está a menos de este % por encima del strike
+  warn_position_pct: 5       # Tastytrade: peso por acción tras asignación (aviso) ...
+  max_position_pct: 10       # ... y alerta
+  default_profile: tpc       # perfil de cada put mientras no elijas otro en el Panel: tpc | tastytrade
+  tpc_close_capture_pct: 90  # TPC (mantener hasta el vencimiento, sin rolar): aviso de que casi toda la prima está ganada
+  tpc_warn_position_pct: 10  # TPC: peso por acción tras asignación (el método usa un techo del 15 %)
+  tpc_max_position_pct: 15
+
 vix:
   history_days: 5
   futures_ahead: 3

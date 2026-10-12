@@ -28,16 +28,18 @@
   {% else %}<p class="muted">Sin datos de cuenta (¿TWS conectado?).</p>{% endif %}
 </div>
 
-<div class="card">
+<div class="card" id="gestion">
   <h2>Gestión de puts vendidas{% if mgmt.attention %} <span class="muted" style="font-weight:400">· {{ mgmt.attention }} aviso{{ '' if mgmt.attention == 1 else 's' }} importante{{ '' if mgmt.attention == 1 else 's' }}</span>{% endif %}</h2>
   {% if mgmt.puts %}
   <table class="sortable">
-    <tr><th>Ticker</th><th>Vencimiento</th><th>DTE</th><th>Strike</th><th>Contratos</th><th>Prima cobrada</th><th>Recomprar a</th><th>Capturado</th><th>Precio</th><th>Avisos</th></tr>
+    <tr><th>Ticker</th><th>Vencimiento</th><th>DTE</th><th>Strike</th><th>Contratos</th><th>Prima cobrada</th><th>Recomprar a</th><th>Capturado</th><th>Precio</th><th title="Cómo se gestiona esta put: Tastytrade (recoger al 50 %, revisar a 21 DTE) o TPC (mantener hasta el vencimiento, sin rolar)">Gestión</th><th>Avisos</th></tr>
     {% for s in mgmt.puts %}
     <tr><td><b>{{ s.ticker }}</b></td><td data-sort="{{ s.expiry.isoformat() }}">{{ s.expiry.strftime('%d/%m/%Y') }}</td><td>{{ s.dte }}</td><td{% if s.long_strike is not none %} data-sort="{{ s.strike }}" title="Spread: vendida {{ s.strike|num }} / comprada {{ s.long_strike|num }}"{% endif %}>{{ s.strike|num }}{% if s.long_strike is not none %}/{{ s.long_strike|num }} <span class="muted">spread</span>{% endif %}</td><td>{{ s.contracts }}</td>
       <td>{{ s.entry_credit|num if s.entry_credit is not none else '—' }}</td><td>{{ s.current_price|num if s.current_price is not none else '—' }}</td>
       <td{% if s.captured_pct is not none %} data-sort="{{ s.captured_pct }}"{% endif %}>{{ s.captured_pct|pct(0) if s.captured_pct is not none else '—' }}</td>
       <td>{{ s.underlying_price|num if s.underlying_price is not none else '—' }}</td>
+      <td data-sort="{{ s.profile }}"><form method="post" action="/management/profile" style="margin:0"><input type="hidden" name="key" value="{{ s.key }}">
+        <select name="profile" onchange="this.form.submit()" style="font-size:12px"><option value="tastytrade" {{ 'selected' if s.profile == 'tastytrade' }}>Tastytrade</option><option value="tpc" {{ 'selected' if s.profile == 'tpc' }}>TPC</option></select></form></td>
       <td>{% for a in s.alerts %}<span class="mg {{ a.level }}">{{ a.text }}</span>{% else %}<span class="muted">—</span>{% endfor %}</td></tr>
     {% endfor %}
   </table>
@@ -49,8 +51,8 @@
       <td{% if w.pct_nlv is not none %} data-sort="{{ w.pct_nlv }}"{% endif %}>{% if w.level %}<span class="mg {{ w.level }}">{% endif %}{{ w.pct_nlv|pct(1) if w.pct_nlv is not none else '—' }}{% if w.level %}</span>{% endif %}</td></tr>
     {% endfor %}
   </table>
-  <p class="muted" style="margin:8px 0 0;font-size:12px">Avisos orientativos, no órdenes: recoger beneficios al {{ mgmt_cfg.take_profit_pct|round|int }} % de la prima; a ≤ {{ mgmt_cfg.review_dte }} DTE sin llegar a ese objetivo, cerrar o rolar a un vencimiento posterior cobrando crédito;
-    una asignación no debería pasar del {{ mgmt_cfg.warn_position_pct|round|int }}–{{ mgmt_cfg.max_position_pct|round|int }} % del NLV por acción. Las puts vendidas con una comprada del mismo vencimiento y strike inferior se tratan como spread (una fila, prima y valor netos; el riesgo y el peso usan su ancho). «Capturado» necesita el coste medio que da TWS (sin él aparece «—»); los pesos no convierten moneda (cuenta EUR, strikes USD).</p>
+  <p class="muted" style="margin:8px 0 0;font-size:12px">Avisos orientativos, no órdenes. <b>Tastytrade</b>: recoger beneficios al {{ mgmt_cfg.take_profit_pct|round|int }} % de la prima; a ≤ {{ mgmt_cfg.review_dte }} DTE sin llegar a ese objetivo, cerrar o rolar a un vencimiento posterior cobrando crédito;
+    una asignación no debería pasar del {{ mgmt_cfg.warn_position_pct|round|int }}–{{ mgmt_cfg.max_position_pct|round|int }} % del NLV por acción. <b>TPC</b>: mantener hasta el vencimiento, sin recoger al {{ mgmt_cfg.take_profit_pct|round|int }} % ni rolar (si te asignan, reevalúa la tesis y valora vender calls); peso por acción {{ mgmt_cfg.tpc_warn_position_pct|round|int }}–{{ mgmt_cfg.tpc_max_position_pct|round|int }} % del NLV (si todas las puts de la acción son TPC). El perfil se elige por put y se recuerda; sin elegir, se usa «{{ 'TPC' if mgmt_cfg.default_profile == 'tpc' else 'Tastytrade' }}» (<code>management.default_profile</code>). Las puts vendidas con una comprada del mismo vencimiento y strike inferior se tratan como spread (una fila, prima y valor netos; el riesgo y el peso usan su ancho). «Capturado» necesita el coste medio que da TWS (sin él aparece «—»); los pesos no convierten moneda (cuenta EUR, strikes USD).</p>
   {% else %}<p class="muted">No hay puts vendidas abiertas.</p>{% endif %}
 </div>
 

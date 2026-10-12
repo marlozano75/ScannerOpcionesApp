@@ -24,6 +24,7 @@ from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
+from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES
 from scanner_opciones.portfolio.spreads import with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
@@ -51,6 +52,7 @@ log = logging.getLogger(__name__)
 LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco completo
 EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos): ya no se usa, se vacía al arrancar
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
+PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
 KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
 MAX_SOURCE_NAME = 40  # longitud máxima del nombre de una fuente manual
@@ -846,6 +848,24 @@ class AppService:
         """Vuelve a los presets y la estrategia de config.yaml."""
         self.meta.set(SCANNER_USER_CONFIG, "")
         self._set_scanner_config(*self._yaml_scanner)
+
+    def put_profiles(self) -> dict[str, str]:
+        """Perfil de gestión (tastytrade | tpc) elegido para cada put vendida, por `portfolio.management.put_key`."""
+        try:
+            data = json.loads(self.meta.get(PUT_PROFILES) or "{}")
+        except ValueError:
+            return {}
+        return {str(k): str(v) for k, v in data.items() if v in PUT_PROFILE_NAMES}
+
+    def set_put_profile(self, key: str, profile: str) -> None:
+        """Recuerda el perfil de gestión de una put (`TICKER|AAAA-MM-DD|strike`). Olvida las ya vencidas. `ValueError` si no es válido."""
+        parts = key.split("|")
+        if profile not in PUT_PROFILE_NAMES or len(parts) != 3 or not parts[0]:
+            raise ValueError("perfil de gestión no válido")
+        date.fromisoformat(parts[1])
+        today = self.now().date().isoformat()
+        data = {k: v for k, v in {**self.put_profiles(), key: profile}.items() if k.split("|")[1] >= today}
+        self.meta.set(PUT_PROFILES, json.dumps(data))
 
     def record_today_prices(self) -> int:
         """Guarda el último precio de cada ticker como cierre provisional de la sesión de hoy en el histórico (lo

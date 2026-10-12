@@ -18,7 +18,7 @@ from scanner_opciones.storage.repositories import BarRepo
 TODAY = date(2026, 10, 6)
 NOW = datetime(2026, 10, 6, 12, 0)
 BASE = criteria_from_settings(Settings()).with_filters(strike_below_pct_min=0, dte_min=1, dte_max=60, min_annual_yield_pct=0)
-CFG = ManagementSettings()
+CFG = ManagementSettings(default_profile="tastytrade")      # las pruebas de abajo comprueban las reglas de Tastytrade (el valor por defecto es TPC)
 
 
 # ---- ATR -----------------------------------------------------------------------------------------------------
@@ -134,3 +134,50 @@ def test_the_report_orders_by_expiry_ignores_long_puts_and_counts_important_warn
 def test_management_settings_are_validated():
     with pytest.raises(ValueError, match="warn_position_pct"):
         ManagementSettings(warn_position_pct=12, max_position_pct=10)
+
+
+# ---- perfil de gestión por put: Tastytrade (50 % / 21 DTE) o TPC (mantener hasta el vencimiento) -------------------
+def test_tpc_holds_to_expiry_without_take_profit_or_review_alerts():
+    half = short_put(market_value=-100.0)                                          # 55 % de la prima ganada
+    assert "Recoger beneficios" in alerts(put_status(half, TODAY, 100.0, CFG))["ok"]
+    tpc = put_status(half, TODAY, 100.0, CFG, "tpc")
+    assert tpc.profile == "tpc" and tpc.alerts == ()                               # ni «recoger» ni aviso: se mantiene
+    assert put_status(short_put(days=10), TODAY, 100.0, CFG, "tpc").alerts == ()  # y a 10 DTE sin ganancia tampoco hay «Revisar»
+    assert "Revisar" in alerts(put_status(short_put(days=10), TODAY, 100.0, CFG))["warn"]
+    near_zero = put_status(short_put(market_value=-10.0), TODAY, 100.0, CFG, "tpc")  # 95 % ganado
+    assert "Casi toda la prima ganada" in alerts(near_zero)["info"]
+
+
+def test_tpc_does_not_suggest_rolling_when_in_the_money():
+    text = alerts(put_status(short_put(), TODAY, 89.0, CFG, "tpc"))["warn"]
+    assert "no se rola" in text and "vender calls" in text
+    assert "Valora cerrar" in alerts(put_status(short_put(), TODAY, 89.0, CFG))["warn"]
+
+
+def test_tpc_weights_use_the_looser_ceiling_only_when_every_put_of_the_stock_is_tpc():
+    from scanner_opciones.portfolio.management import put_key
+    p = short_put("AAPL", 120.0, qty=-1)                                           # 12 000 / 100 000 = 12 %
+    assert ticker_weights([p], 100_000.0, CFG)[0].level == "warn"                  # Tastytrade: > 10 %
+    assert ticker_weights([p], 100_000.0, CFG, {put_key(p): "tpc"})[0].level == "info"      # TPC: 10–15 %
+    q = short_put("AAPL", 120.0, qty=-1, days=40)
+    mixed = ticker_weights([p, q], 100_000.0, CFG, {put_key(p): "tpc"})[0]         # 24 % con una put Tastytrade: umbrales estrictos
+    assert mixed.level == "warn"
+    assert ticker_weights([short_put("AAPL", 140.0, qty=-1)], 100_000.0, CFG, {put_key(short_put("AAPL", 140.0)): "tpc"})[0].level == "info"
+    assert ticker_weights([short_put("AAPL", 160.0, qty=-1)], 100_000.0, CFG, {put_key(short_put("AAPL", 160.0)): "tpc"})[0].level == "warn"
+
+
+def test_manage_puts_applies_the_chosen_profile_and_the_configured_default():
+    from scanner_opciones.portfolio.management import put_key
+    p = short_put(days=10)
+    chosen = manage_puts([p], 1_000_000.0, TODAY, {"AAPL": 100.0}, CFG, {put_key(p): "tpc"})
+    assert chosen.puts[0].profile == "tpc" and chosen.puts[0].alerts == () and chosen.puts[0].key == put_key(p)
+    assert ManagementSettings().default_profile == "tpc"                          # sin elegir, TPC
+    default_tpc = ManagementSettings()
+    assert manage_puts([p], 1_000_000.0, TODAY, {"AAPL": 100.0}, default_tpc).puts[0].profile == "tpc"
+    assert manage_puts([p], 1_000_000.0, TODAY, {"AAPL": 100.0}, default_tpc, {put_key(p): "tastytrade"}).puts[0].profile == "tastytrade"
+    assert manage_puts([p], 1_000_000.0, TODAY, {"AAPL": 100.0}, CFG).puts[0].profile == "tastytrade"
+
+
+def test_tpc_position_ceilings_are_validated():
+    with pytest.raises(ValueError, match="tpc_warn_position_pct"):
+        ManagementSettings(tpc_warn_position_pct=20, tpc_max_position_pct=15)
