@@ -12,6 +12,7 @@ from typing import Callable, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import ScannerPreset, Settings, StrategySettings
+from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError, VolatilityError, WatchlistError
 from scanner_opciones.domain.models import (
     AccountSummary, OptionContract, Position, RiskStatus, SectorExposure, VixData,
@@ -25,6 +26,7 @@ from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.community.data import CommunityData, CommunityError, load_community
+from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, snapshot_key
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES
 from scanner_opciones.portfolio.spreads import with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
@@ -882,6 +884,19 @@ class AppService:
         """{ticker: (traders en 30 días, traders en 7 días)} que han vendido puts o spreads de puts."""
         data = self.community()
         return {t.ticker: (t.month_traders, t.week_traders) for t in data.tickers} if data is not None else {}
+
+    def community_ideas(self) -> list[IdeaView]:
+        """Las ideas del JSON de la comunidad comparadas con los datos de hoy (precio, cotización de las patas, cierre del día de la apertura)."""
+        data = self.community()
+        if data is None or not data.ideas:
+            return []
+        tickers = {i.ticker for i in data.ideas}
+        watchlist = set(self.watchlist.list())
+        snapshots = {snapshot_key(s.contract.ticker, s.contract.expiry, s.contract.strike): s
+                     for t in sorted(tickers & watchlist) for s in self.snapshots.all(t) if s.contract.right is OptionRight.PUT}
+        ref = self.criteria()
+        return evaluate_ideas(data.ideas, self.now().date(), snapshots, self.ticker_info.all(), self.bars.all_closes(tickers & watchlist),
+                              watchlist, ref.price_reference, ref.price_spread_pct)
 
     def community_stale(self) -> Optional[float]:
         """Horas desde que se generó el JSON si superan `community.stale_hours` (la rutina no ha corrido); None si está al día o no hay."""

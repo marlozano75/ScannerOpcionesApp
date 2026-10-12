@@ -93,3 +93,32 @@ def test_the_scanner_warns_when_the_daily_routine_has_not_run(client_and_service
     assert "Los datos de la comunidad de Tortuga tienen 5 días" in client.get(BASE).text
     write(path, payload(svc.now().isoformat()), bump=60)
     assert "Los datos de la comunidad de Tortuga" not in client.get(BASE).text
+
+
+def ideas_payload(contract):
+    ideas = [
+        {"date": "2026-10-09", "trader": "Ana", "ticker": "AAPL", "strategy": "Short Put", "expiry": contract.expiry.isoformat(),
+         "short_strike": contract.strike, "long_strike": None, "contracts": 1, "credit": 1.0},
+        {"date": "2026-10-09", "trader": "Beto", "ticker": "ZZZ", "strategy": "Short Put", "expiry": "2026-11-20",
+         "short_strike": 30, "long_strike": None, "contracts": 1, "credit": 0.5},
+    ]
+    return json.dumps({"version": 1, "generated_at": "2026-10-12T13:00:00", "tickers": [{"ticker": "AAPL", "month_traders": 3, "month_operations": 4}],
+                       "ideas": ideas})
+
+
+def test_the_ideas_page_values_each_idea_with_todays_quote_and_filters(client_and_service, tmp_path):
+    client, svc, gw, _ = client_and_service
+    assert "Todavía no hay datos de la comunidad" in client.get("/ideas").text
+    refresh(client)
+    contract = svc.contracts.list("AAPL")[0]
+    path = tmp_path / "tortuga.json"
+    write(path, ideas_payload(contract))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
+    page = client.get("/ideas").text
+    assert '<a href="/ideas" class=active>Ideas</a>' in page.replace('class="active"', "class=active") and "Ideas de la comunidad de Tortuga" in page
+    assert "Vigente" in page and "Sin valorar: no está en tu watchlist" in page and "2 de 2 ideas · 1 vigentes" in page
+    only = client.get("/ideas?solo=1").text
+    assert "Vigente" in only and "ZZZ" not in only and "1 de 2 ideas" in only
+    ana = client.get("/ideas?trader=Ana").text
+    assert '<td class="txt">Ana</td>' in ana and '<td class="txt">Beto</td>' not in ana
+    assert "Ninguna idea cumple los filtros" in client.get("/ideas?strategy=Bull+Put+Spread").text

@@ -68,7 +68,7 @@ DTE y de strike, yield mínimo, filtros, umbrales del semáforo, semanas de dive
 `src/scanner_opciones/`: `config`, `domain`, `metrics`, `watchlist`, `storage`, `broker` (puerto +
 `IBKRGateway` + `FakeGateway`), `scanner`, `portfolio`, `jobs`, `app` (servicio), `ui` (FastAPI + Jinja2).
 
-**Comunidad de Tortuga Trades.** La rutina `scripts/actualizar_comunidad.ps1` (programable cada día con `scripts/programar_comunidad.ps1`) deja un JSON con los tickers que más venden los traders de la comunidad y sus últimas aperturas; la aplicación crea con él la fuente «Tortuga» del Universo y muestra en el Scanner la columna «Comunidad» (traders en 30 y 7 días). Los trades llegan con un día de retraso: son ideas, no señales.
+**Comunidad de Tortuga Trades.** La rutina `scripts/actualizar_comunidad.ps1` (programable cada día con `scripts/programar_comunidad.ps1`) deja un JSON con los tickers que más venden los traders de la comunidad y sus últimas aperturas; la aplicación crea con él la fuente «Tortuga» del Universo y muestra en el Scanner la columna «Comunidad» (traders en 30 y 7 días). Los trades llegan con un día de retraso: son ideas, no señales. La pestaña **Ideas** compara cada apertura reciente con el precio y las cotizaciones de hoy (Vigente, Prima menor, el subyacente ha caído, en el dinero, sin valorar o vencida).
 
 **Perfiles del Scanner.** «Mensual (TPC)» (strike ≥ 20 % por debajo, DTE 25–35, yield del periodo ≥ 1 %) y «Táctico (TPC)» (≥ 10 %, DTE 10–14, ≥ 1 %) siguen el método The Premium Collector (calidad, sin delta ni técnico, mantener hasta el vencimiento); son enlaces que sustituyen los filtros del perfil Tastytrade y la tabla muestra el «Yield periodo». Se retiró el «Corto plazo».
 

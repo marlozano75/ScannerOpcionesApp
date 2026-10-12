@@ -509,6 +509,18 @@ def create_app(
         return render(request, "watchlist.html", tickers=tickers, infos=infos, message=message, groups=message_groups(message),
                       ov=page_charts.watchlist_overview(tickers, infos))
 
+    # ---- ideas de la comunidad ---------------------------------------------------------------
+    @app.get("/ideas", response_class=HTMLResponse)
+    async def ideas(request: Request, solo: int = 0, venc: int = 0, trader: str = "", strategy: str = ""):
+        data = service.community()
+        everything = service.community_ideas() if data is not None else []
+        views = [v for v in everything
+                 if (venc or v.status != "expired") and (not solo or v.in_watchlist)
+                 and (not trader or v.idea.trader == trader) and (not strategy or v.idea.strategy == strategy)]
+        return render(request, "ideas.html", data=data, file_path=service.settings.community.path, views=views, total=len(everything),
+                      valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, strategy=strategy,
+                      traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale())
+
     @app.post("/excluded/dismiss")
     async def excluded_dismiss():
         """Cierra el aviso de tickers sacados de la watchlist (la «x» del aviso)."""

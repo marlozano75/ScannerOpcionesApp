@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .idea-valid { color:#1d6b3f; font-weight:600; } .idea-lower { color:#8a6d00; font-weight:600; }
+  .idea-dropped, .idea-itm { color:#b3361b; font-weight:600; } .idea-no_data, .idea-expired { color:var(--mute); }
+  .ideas-bar { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin:0 0 10px; }
+</style>
+<div class="card">
+  <h2>Ideas de la comunidad de Tortuga</h2>
+  {% if not data %}
+  <p class="muted">Todavía no hay datos de la comunidad. La rutina <code>scripts/actualizar_comunidad.ps1</code> deja el fichero
+    <code>{{ file_path }}</code> (se programa con <code>scripts/programar_comunidad.ps1</code>).</p>
+  {% else %}
+  <p class="muted" style="margin-top:0">Aperturas de <b>Short Put</b> y <b>Bull Put Spread</b> de los últimos días, generadas el
+    {{ data.generated_at.strftime('%d/%m/%Y %H:%M') }}. Tortuga las publica <b>un día después</b> (IBKR Flex): cada idea se compara con el precio y
+    las cotizaciones de hoy. El «precio al abrir» es el cierre del día de la apertura (aproximado). Son ideas de otros traders, no recomendaciones:
+    muchas son valores especulativos que no pasarían tus filtros de calidad.</p>
+  {% if stale %}<div class="banner err">Los datos tienen {{ (stale / 24)|round|int }} días: la rutina diaria no se ha ejecutado.</div>{% endif %}
+  <form method="get" action="/ideas" class="ideas-bar">
+    <label class="check"><input type="checkbox" name="solo" value="1" {{ 'checked' if solo }} onchange="this.form.submit()"> Solo tickers de mi watchlist</label>
+    <label class="check"><input type="checkbox" name="venc" value="1" {{ 'checked' if venc }} onchange="this.form.submit()"> Mostrar vencidas</label>
+    <label>Trader <select name="trader" onchange="this.form.submit()"><option value="">Todos</option>
+      {% for t in traders %}<option value="{{ t }}" {{ 'selected' if t == trader }}>{{ t }}</option>{% endfor %}</select></label>
+    <label>Estrategia <select name="strategy" onchange="this.form.submit()"><option value="">Todas</option>
+      {% for s in ('Short Put', 'Bull Put Spread') %}<option value="{{ s }}" {{ 'selected' if s == strategy }}>{{ s }}</option>{% endfor %}</select></label>
+    <span class="muted">{{ views|length }} de {{ total }} ideas · {{ valid }} vigentes</span>
+  </form>
+  {% if views %}
+  <table class="sortable">
+    <tr><th>Fecha</th><th class="txt">Trader</th><th>Ticker</th><th class="txt">Estrategia</th><th>Strike</th><th>Vence</th><th>DTE</th>
+      <th title="Cierre del día de la apertura">Precio al abrir</th><th>Precio hoy</th><th title="Variación del subyacente desde la apertura">Var.</th>
+      <th title="Distancia del strike vendido por debajo del precio">Desc. al abrir</th><th>Desc. hoy</th>
+      <th title="Prima neta por acción que cobró">Prima al abrir</th><th title="Prima neta que se cobraría hoy con el precio de venta de referencia (en un spread, vendida − ask de la comprada)">Prima hoy</th>
+      <th title="Prima / strike (put) o / ancho (spread), sin anualizar">Yield hoy</th><th>Delta hoy</th><th class="txt">Estado</th></tr>
+    {% for v in views %}{% set i = v.idea %}
+    <tr><td data-sort="{{ i.day.isoformat() }}">{{ i.day.strftime('%d/%m') }}</td><td class="txt">{{ i.trader }}</td><td><b>{{ i.ticker }}</b>{% if not v.in_watchlist %} <span class="muted" title="No está en tu watchlist">·</span>{% endif %}</td>
+      <td class="txt">{{ 'Put' if i.long_strike is none else 'Spread' }}</td>
+      <td data-sort="{{ i.short_strike }}">{{ i.short_strike|num }}{% if i.long_strike is not none %}/{{ i.long_strike|num }}{% endif %}{% if i.contracts > 1 %} <span class="muted">×{{ i.contracts }}</span>{% endif %}</td>
+      <td data-sort="{{ i.expiry.isoformat() }}">{{ i.expiry.strftime('%d/%m/%Y') }}</td><td>{{ v.dte }}</td>
+      <td>{{ v.price_open|num if v.price_open is not none else '—' }}</td><td>{{ v.price_now|num if v.price_now is not none else '—' }}</td>
+      <td{% if v.move_pct is not none %} data-sort="{{ v.move_pct }}"{% endif %}>{{ v.move_pct|pct if v.move_pct is not none else '—' }}</td>
+      <td>{{ v.otm_open_pct|pct if v.otm_open_pct is not none else '—' }}</td><td>{{ v.otm_now_pct|pct if v.otm_now_pct is not none else '—' }}</td>
+      <td>{{ i.credit|num }}</td><td>{{ v.premium_now|num if v.premium_now is not none else '—' }}</td>
+      <td>{{ v.yield_now_pct|pct if v.yield_now_pct is not none else '—' }}</td><td>{{ v.delta_now|num if v.delta_now is not none else '—' }}</td>
+      <td class="txt idea-{{ v.status }}">{{ v.text }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">Ninguna idea cumple los filtros.</p>{% endif %}
+  {% endif %}
+</div>
+{% endblock %}
