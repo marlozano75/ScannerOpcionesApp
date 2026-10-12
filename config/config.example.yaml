@@ -25,6 +25,8 @@ daily_update:
 scanner:
   spreads:                 # modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior)
     width_options: [1, 2.5, 5, 10, 15, 20]        # anchos que se prueban todos (strike vendido − comprado, en $)
+    min_long_oi: 10                         # pata comprada: OI mínimo
+    max_long_spread_pct: 25                 # pata comprada: spread bid/ask máximo (%); sin bid no pasa
     min_credit_usd: 30                      # crédito neto mínimo por spread ($ por contrato)
     min_return_on_risk_pct: 10              # retorno mínimo hasta el vencimiento sobre el riesgo (crédito / pérdida máxima), sin anualizar
     max_naked_strike: 100                   # strike máximo de la put desnuda ($); por encima, solo spread

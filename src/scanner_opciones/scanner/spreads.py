@@ -109,6 +109,11 @@ def build_spreads(
             long = index.get((sc.ticker, sc.expiry, round(sc.strike - width, 4)))
             if long is None or long.ask is None or long.ask <= 0 or mid_price(long.bid, long.ask) is None:
                 continue
+            if criteria.min_long_oi is not None and (long.open_interest or 0) < criteria.min_long_oi:
+                continue
+            if criteria.max_long_spread_pct is not None:   # un ask sin bid no es un mercado: spread de 200 % o más
+                if long.bid is None or long.bid <= 0 or (long.ask - long.bid) / mid_price(long.bid, long.ask) * 100 > criteria.max_long_spread_pct + EPS:
+                    continue
             credit = sell - long.ask
             max_loss_ps = width - credit
             if credit <= EPS or max_loss_ps <= EPS:

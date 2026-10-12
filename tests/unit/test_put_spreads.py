@@ -78,6 +78,15 @@ def test_min_credit_per_contract_drops_penny_spreads():
     assert scan(legs, min_spread_credit=140).spreads and not scan(legs, min_spread_credit=141).spreads
 
 
+def test_long_leg_needs_open_interest_and_a_two_sided_market():
+    ok = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]                               # OI 300, spread ~18 %
+    assert scan(ok, min_long_oi=10, max_long_spread_pct=25).spreads
+    assert not scan(ok, min_long_oi=500).spreads                                 # OI insuficiente
+    assert not scan(ok, max_long_spread_pct=10).spreads                          # spread demasiado abierto
+    assert not scan([snap(90, 2.0, 2.2), snap(85, 0.0, 0.3)], max_long_spread_pct=25).spreads   # ask sin bid (caso EOG)
+    assert scan([snap(90, 2.0, 2.2), snap(85, 0.0, 0.3)]).spreads                # sin el filtro, pasaba
+
+
 # ---- modo «Ambos»: put desnuda si cabe en los límites, si no spread ------------------------------------------------
 from types import SimpleNamespace
 
