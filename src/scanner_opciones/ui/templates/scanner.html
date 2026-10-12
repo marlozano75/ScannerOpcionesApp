@@ -636,6 +636,8 @@
   (function () {
     const box = document.getElementById('spread-box');
     if (!box) return;
+    // la página se recarga sola al terminar un refresco: se recuerda si estaba abierto
+    try { if (sessionStorage.getItem('spread-open') === '1') box.open = true; } catch (e) { /* sin almacenamiento */ }
     let loaded = false;
     function load() {
       if (loaded || !box.open) return;
@@ -645,7 +647,11 @@
         .then(function (html) { document.getElementById('spread-body').innerHTML = html; })
         .catch(function () { document.getElementById('spread-body').textContent = 'No se pudo calcular.'; });
     }
-    box.addEventListener('toggle', load);
+    box.addEventListener('toggle', function () {
+      try { sessionStorage.setItem('spread-open', box.open ? '1' : '0'); } catch (e) { /* idem */ }
+      load();
+    });
+    load();
   })();
   // Panel «¿Cuánto descarta cada filtro?»: se calcula al abrirlo (abierto por defecto, salvo que se haya cerrado)
   (function () {
