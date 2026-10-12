@@ -164,7 +164,6 @@ class ScanCriteria:
     max_loss_nlv_pct: Optional[float] = None       # pérdida máxima del spread como % del NLV
     # modo «Ambos» (`mixed`): la put desnuda solo se ofrece si cumple estos límites (basta incumplir uno para pasar a spread)
     mixed: bool = False
-    max_naked_weight_pct: Optional[float] = None   # peso máximo de la acción sobre el NLV si te asignan (acciones + puts vendidas + esta)
     max_naked_strike: Optional[float] = None       # strike máximo de la put desnuda ($)
 
     def with_filters(self, **overrides) -> "ScanCriteria":

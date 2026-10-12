@@ -54,7 +54,6 @@
   {% if form.use_rr %}{% set _ = spreadf.append('Retorno/riesgo ≥ ' ~ form.rr ~ ' %') %}{% endif %}
   {% if form.use_mn %}{% set _ = spreadf.append('Pérdida máx. ≤ ' ~ form.mn ~ ' % NLV') %}{% endif %}
   {% if form.mode == 'both' %}
-    {% if form.use_nw %}{% set _ = spreadf.append('Put si pesa ≤ ' ~ form.nw ~ ' % NLV') %}{% endif %}
     {% if form.use_ns %}{% set _ = spreadf.append('Put si strike ≤ ' ~ form.ns) %}{% endif %}
   {% endif %}
 {% endif %}
@@ -74,7 +73,7 @@
 {% set offs = [] %}
 {% if form.mode != 'put' %}
   {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_mn', 'Pérdida máx. NLV')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
-  {% if form.mode == 'both' %}{% for use, label in (('use_nw', 'Peso máx. put'), ('use_ns', 'Strike máx. put')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}{% endif %}
+  {% if form.mode == 'both' %}{% for use, label in (('use_ns', 'Strike máx. put'),) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}{% endif %}
 {% endif %}
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-iv'), ('use_ivhv', 'IV/HV', 'sec-iv'),
     ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-entry'), ('use_rsi', 'RSI', 'sec-entry'),
@@ -203,10 +202,7 @@
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
         {% if form.mode == 'both' %}
-        <p class="note"><b>Límites de la put desnuda</b>: si incumple <i>uno</i>, esa put sale como spread.
-          El peso es acumulado: acciones que ya tienes + nominal de tus puts vendidas (en un spread, su ancho) + esta put, sobre tu NLV{% if nlv_usd %} (≈ {{ nlv_usd|num(0) }} USD){% else %} (<b>sin NLV en USD</b>: no se puede aplicar){% endif %}.</p>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_nw" {{ 'checked' if form.use_nw }}> Peso máximo de la acción (% del NLV)</span>
-          <input name="nw" value="{{ form.nw }}" inputmode="decimal" list="nw-list"><datalist id="nw-list">{% for o in form.weight_options %}<option value="{{ o }}">{% endfor %}</datalist></label>
+        <p class="note"><b>Límite de la put desnuda</b>: si su strike supera el máximo, esa put sale como spread (con el motivo). La lista se ordena por retorno anualizado sobre capital: margen what-if (put) o pérdida máxima (spread).</p>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ns" {{ 'checked' if form.use_ns }}> Strike máximo de la put ($)</span>
           <input name="ns" value="{{ form.ns }}" inputmode="decimal"></label>
         {% endif %}

@@ -790,8 +790,7 @@ def create_app(
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
         form.update(mode="put", best_width=True,
                     use_rr=True, rr=_fmt(sp.min_return_on_risk_pct), use_mc=True, mc=_fmt(sp.min_credit_usd),
-                    use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_nw=True, nw=_fmt(sp.max_naked_weight_pct),
-                    use_ns=True, ns=_fmt(sp.max_naked_strike), weight_options=[_fmt(w) for w in sp.weight_options])
+                    use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_ns=True, ns=_fmt(sp.max_naked_strike))
 
         criteria, error, warnings = None, None, []
         try:
@@ -800,15 +799,15 @@ def create_app(
                 form["mode"] = qp.get("mode", "put")
                 if form["mode"] not in ("put", "spread", "both"):
                     raise ValueError("modo desconocido")
-                if any(key in qp for key in ("rr", "mc", "mn", "nw", "ns")):   # bloque visible: lo enviado manda
+                if any(key in qp for key in ("rr", "mc", "mn", "ns")):   # bloque visible: lo enviado manda
                     form["best_width"] = "best_width" in qp
                 # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
                 # de instrumento) los límites conservan sus valores marcados por defecto
-                for shown_keys in (("rr", "mc", "mn"), ("nw", "ns")):
+                for shown_keys in (("rr", "mc", "mn"), ("ns",)):
                     if any(key in qp for key in shown_keys):
                         for key in shown_keys:
                             form[f"use_{key}"] = f"use_{key}" in qp
-                for key in ("rr", "mc", "mn", "nw", "ns"):
+                for key in ("rr", "mc", "mn", "ns"):
                     if key in qp:
                         form[key] = qp.get(key, "").strip()
                 for key in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -935,19 +934,12 @@ def create_app(
                         if overrides[field_name] <= 0 or (upper is not None and overrides[field_name] >= upper):
                             raise ValueError(f"{label} fuera de rango")
                 if form["mode"] == "both":
-                    for use, key, field_name, label, upper in (
-                            ("use_nw", "nw", "max_naked_weight_pct", "Peso máximo de la acción (% del NLV)", 100),
-                            ("use_ns", "ns", "max_naked_strike", "Strike máximo de la put desnuda ($)", None)):
-                        if form[use]:
-                            overrides[field_name] = _required(form[key], float, label)
-                            if overrides[field_name] <= 0 or (upper is not None and overrides[field_name] > upper):
-                                raise ValueError(f"{label} fuera de rango")
-                    if not (form["use_nw"] or form["use_ns"]):
-                        raise ValueError("en el modo «Ambos» marca al menos un límite de la put desnuda (peso o strike máximo)")
+                    if not form["use_ns"]:
+                        raise ValueError("en el modo «Ambos» marca el strike máximo de la put desnuda")
+                    overrides["max_naked_strike"] = _required(form["ns"], float, "Strike máximo de la put desnuda ($)")
+                    if overrides["max_naked_strike"] <= 0:
+                        raise ValueError("Strike máximo de la put desnuda ($) fuera de rango")
                     overrides["mixed"] = True
-                    if form["use_nw"] and service.nlv_usd() is None:
-                        warnings.append("No hay NLV en USD (falta la cuenta o el tipo de cambio): el límite de peso no se puede aplicar. "
-                                        "Indica scanner.spreads.usd_per_base en config.yaml.")
             criteria = base.with_filters(**overrides)
             if criteria.strike_below_pct_min < cand.strike_below_pct_min:
                 warnings.append(f"Descuento mín. por debajo del rango guardado ({cand.strike_below_pct_min:g}%): "

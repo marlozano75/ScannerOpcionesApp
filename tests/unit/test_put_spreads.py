@@ -95,38 +95,32 @@ def legs(strike=90):
     return [snap(strike, 2.0, 2.2), snap(strike - 5, 0.5, 0.6)]
 
 
-def test_naked_put_when_it_fits_the_weight_limit_and_spread_when_it_does_not():
-    rows = mixed(legs(), max_naked_weight_pct=10)         # 9.000 $ / 100.000 = 9 % ≤ 10 %
+def test_naked_put_when_the_strike_fits_and_spread_when_it_does_not():
+    rows = mixed(legs(), max_naked_strike=100)
     assert [r.kind for r in rows if r.short.snapshot.contract.strike == 90] == ["put"]
-    rows = mixed(legs(), max_naked_weight_pct=5)          # 9 % > 5 %: sale el spread
+    rows = mixed(legs(), max_naked_strike=85)             # 90 > 85: sale el spread
     top = [r for r in rows if r.short.snapshot.contract.strike == 90]
-    assert [r.kind for r in top] == ["spread"] and "NLV" in top[0].why_spread and round(top[0].weight_pct, 1) == 0.5
+    assert [r.kind for r in top] == ["spread"] and "strike" in top[0].why_spread and round(top[0].weight_pct, 1) == 0.5
 
 
-def test_weight_is_cumulative_with_shares_and_existing_puts():
+def test_weight_is_informative_and_cumulative_with_shares():
     shares = Position("AAPL", 100, 4000.0)                                   # 4 % del NLV ya en acciones
-    held_put = Position("AAPL", -1, -50.0, option=OptionContract("AAPL", TODAY + timedelta(days=20), 70.0, OptionRight.PUT))
-    assert mixed(legs(), [shares], max_naked_weight_pct=15)[0].kind == "put"         # 4 + 9 = 13 %
-    assert all(r.kind == "spread" for r in mixed(legs(), [shares, held_put], max_naked_weight_pct=15) if r.short.snapshot.contract.strike == 90)  # 4 + 7 + 9 = 20 %
-
-
-def test_either_limit_is_enough_to_switch_to_spread():
-    assert mixed(legs(), max_naked_weight_pct=10, max_naked_strike=85)[0].kind == "spread"          # peso cabe, el strike no
-    assert mixed(legs(), max_naked_weight_pct=10, max_naked_strike=100)[0].kind == "put"
+    put = [r for r in mixed(legs(), [shares], max_naked_strike=100) if r.short.snapshot.contract.strike == 90][0]
+    assert put.kind == "put" and round(put.weight_pct, 1) == 13.0            # 4 + 9 %; ya no limita, solo se muestra
 
 
 def test_spread_loss_limit_in_percent_of_nlv():
-    rows = mixed(legs(), max_naked_weight_pct=5, max_loss_nlv_pct=0.3)       # pérdida 360 $ = 0,36 % del NLV
+    rows = mixed(legs(), max_naked_strike=85, max_loss_nlv_pct=0.3)       # pérdida 360 $ = 0,36 % del NLV
     assert not [r for r in rows if r.kind == "spread"]
 
 
 def test_naked_rows_keep_the_annual_yield_filter_but_spreads_do_not():
-    assert not [r for r in mixed(legs(), max_naked_weight_pct=10, min_yield_pct=50.0) if r.kind == "put"]   # rinde ~2 % en el periodo (~27 % anual)
-    assert mixed(legs(), max_naked_weight_pct=5, min_yield_pct=50.0)[0].kind == "spread"
+    assert not [r for r in mixed(legs(), max_naked_strike=100, min_yield_pct=50.0) if r.kind == "put"]   # rinde ~2 % en el periodo (~27 % anual)
+    assert mixed(legs(), max_naked_strike=85, min_yield_pct=50.0)[0].kind == "spread"
 
 
 def test_rows_ordered_by_annualized_return_on_capital():
-    rows = mixed(legs() + [snap(60, 1.0, 1.1), snap(55, 0.2, 0.3)], max_naked_weight_pct=5)
+    rows = mixed(legs() + [snap(60, 1.0, 1.1), snap(55, 0.2, 0.3)], max_naked_strike=50)
     vals = [r.return_on_capital_annualized_pct for r in rows]
     assert vals == sorted(vals, reverse=True)
 

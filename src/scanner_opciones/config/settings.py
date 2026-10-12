@@ -164,9 +164,7 @@ class SpreadSettings(_Model):
     width_options: tuple[float, ...] = (1.0, 2.5, 5.0, 10.0, 15.0, 20.0)
     min_return_on_risk_pct: float = Field(10, gt=0)   # retorno mínimo del PERIODO sobre el riesgo: crédito / (ancho − crédito), sin anualizar (como el yield de TPC)
     min_credit_usd: float = Field(30, gt=0)          # crédito neto mínimo por spread, en $ por contrato (descarta spreads de céntimos)
-    # modo «Ambos»: la put desnuda solo se ofrece si cabe en estos límites; si no, sale el spread
-    weight_options: tuple[float, ...] = (5.0, 10.0, 15.0)  # peso máximo (% del NLV) ofrecido en el formulario (TPC: techo del 15 % tras asignación)
-    max_naked_weight_pct: float = Field(5, gt=0, le=100)   # peso máximo de la acción si te asignan (acciones + puts vendidas + esta)
+    # modo «Ambos»: la put desnuda solo se ofrece si cabe en este límite; si no, sale el spread
     max_naked_strike: float = Field(100, gt=0)       # strike máximo de la put desnuda ($)
     max_loss_nlv_pct: float = Field(2, gt=0, le=100)  # pérdida máxima del spread como % del NLV
     usd_per_base: Optional[float] = Field(None, gt=0)  # dólares por unidad de moneda base si IBKR no da el tipo de cambio

@@ -867,7 +867,7 @@ def test_scanner_spread_mode_renders_and_validates(client_and_service):
 def test_scanner_both_mode_renders_and_validates(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
-    r = client.get(BASE + "&mode=both&w=5&use_nw=on&nw=5&use_ns=on&ns=100")
-    assert r.status_code == 200 and "Retorno anual s/ capital" in r.text and "Put si pesa" in r.text
-    for bad in ("&mode=both&w=5&nw=5&ns=100", "&mode=both&w=5&use_nw=on&nw=0", "&mode=both&w=5&use_ns=on&ns=abc", "&mode=both&w=5&use_nw=on&nw=5&use_mn=on&mn=500"):
+    r = client.get(BASE + "&mode=both&use_ns=on&ns=100")
+    assert r.status_code == 200 and "Retorno anual s/ capital" in r.text and "Put si strike ≤ 100" in r.text
+    for bad in ("&mode=both&ns=100", "&mode=both&use_ns=on&ns=0", "&mode=both&use_ns=on&ns=abc", "&mode=both&use_ns=on&ns=100&use_mn=on&mn=500"):
         assert "Parámetro no válido" in client.get(BASE + bad).text, bad

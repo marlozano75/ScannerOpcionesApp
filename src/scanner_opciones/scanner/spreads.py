@@ -76,8 +76,6 @@ def build_mixed(
         nominal_naked = c.strike * c.multiplier
         weight = (held.get(c.ticker, 0.0) + nominal_naked) / nlv_usd * 100 if nlv_usd else None
         reasons = []
-        if criteria.max_naked_weight_pct is not None and weight is not None and weight > criteria.max_naked_weight_pct:
-            reasons.append(f"pesaría {weight:.1f} % del NLV (máx. {criteria.max_naked_weight_pct:g} %)")
         if criteria.max_naked_strike is not None and c.strike > criteria.max_naked_strike:
             reasons.append(f"strike {c.strike:g} > {criteria.max_naked_strike:g}")
         if not reasons:
