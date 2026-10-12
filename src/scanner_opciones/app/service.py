@@ -24,6 +24,7 @@ from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
+from scanner_opciones.community.data import CommunityData, CommunityError, load_community
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES
 from scanner_opciones.portfolio.spreads import with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
@@ -45,13 +46,14 @@ from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.rankedstocks.loader import build_table, clean_ticker
 from scanner_opciones.universe.sources import MANUAL, SOURCE_COLUMN, Source, identities, load_sources
-from scanner_opciones.watchlist.parser import ParseResult
+from scanner_opciones.watchlist.parser import ParseResult, parse_tokens
 
 log = logging.getLogger(__name__)
 
 LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco completo
 EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos): ya no se usa, se vacía al arrancar
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
+COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
 KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
@@ -128,6 +130,9 @@ class AppService:
         self.names = names
         self.universe_info: dict[str, dict[str, str]] = self._load_info()   # nombre/sector que ninguna fuente trae
         self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
+        self._community: Optional[tuple[float, CommunityData]] = None    # (mtime del JSON, datos) de la comunidad de Tortuga
+        self._community_error: Optional[str] = None
+        self._community_syncing = False
         self.manual_sources: dict[str, list[str]] = self._load_manual()   # fuentes con nombre: tickers escritos a mano
         self.source_excluded: dict[str, set[str]] = self._load_excluded()  # tickers quitados a mano de una fuente de fichero
         # aviso de los tickers recién sacados de la watchlist por inservibles (ticker -> motivo); solo en memoria
@@ -515,6 +520,7 @@ class AppService:
         else:
             await self.refresh_all()
         self.update_financials_in_background()
+        self.sync_community_in_background()
         if self.manual_sources:
             self.launch(self.complete_info())
         if self.settings.daily_update.run_on_startup:
@@ -849,6 +855,92 @@ class AppService:
         self.meta.set(SCANNER_USER_CONFIG, "")
         self._set_scanner_config(*self._yaml_scanner)
 
+    def community(self) -> Optional[CommunityData]:
+        """Datos de la comunidad de Tortuga (JSON de la rutina diaria), releídos solo si el fichero cambió. None si no existe; si el nuevo
+        es inválido se conservan los últimos buenos (y se avisa una vez en el log)."""
+        path = Path(self.settings.community.path)
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            self._community = None
+            return None
+        if self._community is not None and self._community[0] == mtime:
+            return self._community[1]
+        try:
+            data = load_community(path)
+        except CommunityError as exc:
+            if self._community_error != str(exc):
+                log.warning("Comunidad: %s no es válido (%s); se conservan los últimos datos buenos", path, exc)
+                self._community_error = str(exc)
+            return self._community[1] if self._community is not None else None
+        self._community, self._community_error = (mtime, data), None
+        for w in data.warnings:
+            log.warning("Comunidad: %s", w)
+        return data
+
+    def community_counts(self) -> dict[str, tuple[int, int]]:
+        """{ticker: (traders en 30 días, traders en 7 días)} que han vendido puts o spreads de puts."""
+        data = self.community()
+        return {t.ticker: (t.month_traders, t.week_traders) for t in data.tickers} if data is not None else {}
+
+    def community_stale(self) -> Optional[float]:
+        """Horas desde que se generó el JSON si superan `community.stale_hours` (la rutina no ha corrido); None si está al día o no hay."""
+        data = self.community()
+        if data is None:
+            return None
+        now = self.now()
+        generated = data.generated_at if data.generated_at.tzinfo is None or now.tzinfo is not None else data.generated_at.replace(tzinfo=None)
+        try:
+            hours = (now - generated).total_seconds() / 3600
+        except TypeError:       # uno con zona horaria y el otro sin ella
+            hours = (now.replace(tzinfo=None) - generated.replace(tzinfo=None)).total_seconds() / 3600
+        return hours if hours > self.settings.community.stale_hours else None
+
+    def sync_community_in_background(self) -> None:
+        """Vuelca los tickers de la comunidad en su fuente del Universo si hay un JSON nuevo, sin esperar y sin solaparse."""
+        if self._community_syncing or self.community() is None:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._community_syncing = True
+
+        async def run() -> None:
+            try:
+                await self.sync_community_source()
+            except Exception:
+                log.exception("No se pudo actualizar la fuente de la comunidad")
+            finally:
+                self._community_syncing = False
+
+        self.launch(run())
+
+    async def sync_community_source(self) -> Optional[dict]:
+        """La fuente del Universo (`community.source_name`) pasa a ser los tickers con más traders vendiendo puts en 30 días
+        (`min_traders`, `universe_top`). No hace nada si ese JSON ya se volcó. Devuelve el resultado de `add_manual_tickers`."""
+        cfg = self.settings.community
+        data = self.community()
+        if data is None:
+            return None
+        stamp = data.generated_at.isoformat()
+        if self.meta.get(COMMUNITY_SYNCED) == stamp and cfg.source_name in self.manual_sources:
+            return None
+        top = sorted((t for t in data.tickers if t.month_traders >= cfg.min_traders),
+                     key=lambda t: (-t.month_traders, -t.month_operations, t.ticker))[:cfg.universe_top]
+        parsed = parse_tokens([t.ticker for t in top])
+        if not parsed.tickers:
+            log.info("Comunidad: ningún ticker llega a %d traders; la fuente «%s» no cambia", cfg.min_traders, cfg.source_name)
+            return None
+        try:
+            result = await self.add_manual_tickers(parsed, cfg.source_name, replace_source=True)
+        except WatchlistError as exc:
+            log.warning("Comunidad: no se pudo actualizar la fuente «%s»: %s", cfg.source_name, exc)
+            return None
+        self.meta.set(COMMUNITY_SYNCED, stamp)
+        self.state.data_version += 1
+        return result
+
     def put_profiles(self) -> dict[str, str]:
         """Perfil de gestión (tastytrade | tpc) elegido para cada put vendida, por `portfolio.management.put_key`."""
         try:
@@ -946,6 +1038,7 @@ class AppService:
         self.update_financials_in_background()   # no hace nada si no hay datos viejos
         self.update_iv_stats_if_due()            # ídem para IV Rank/Percentile, HV30 y cambio de IV (también con el mercado cerrado)
         self.update_quality_if_due()             # ídem: solo si tastytrade ha recalculado sus métricas desde la última descarga
+        self.sync_community_in_background()      # ídem: solo si la rutina diaria dejó un JSON nuevo de la comunidad
         if not self._paused() or self._capture_needed():
             return await self.refresh_all()
         log.info("Mercado cerrado: se refrescan solo cartera y VIX")

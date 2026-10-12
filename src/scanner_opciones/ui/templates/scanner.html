@@ -431,7 +431,7 @@
         {% for r in out.results %}{% set c = r.snapshot.contract %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
           <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
-            {{ cols.cells(r, yield_max) }}
+            {{ cols.cells(r, yield_max, community) }}
             <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px"></td></tr>
         {% else %}<tr><td colspan="40" class="muted empty">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
       </table></div>

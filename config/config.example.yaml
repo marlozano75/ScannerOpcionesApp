@@ -165,6 +165,15 @@ trend:
   history_days: 1400
   batch_timeout_seconds: 20
 
+# Comunidad de traders de Tortuga Trades: un JSON que deja la rutina diaria scripts/actualizar_comunidad.ps1 (se programa con
+# scripts/programar_comunidad.ps1). Los trades llegan con un día de retraso (IBKR Flex): sirven para ideas y consenso, no como señal.
+community:
+  path: data/community/tortuga.json
+  source_name: Tortuga       # fuente del Universo con los tickers más vendidos por la comunidad
+  universe_top: 40           # cuántos tickers entran en esa fuente (los de más traders en 30 días)
+  min_traders: 3             # traders mínimos en 30 días para entrar
+  stale_hours: 72            # horas sin rutina a partir de las cuales se avisa
+
 storage:
   path: data/app.db
 

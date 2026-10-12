@@ -479,6 +479,16 @@ class ManagementSettings(_Model):
         return self
 
 
+class CommunitySettings(_Model):
+    """Comunidad de traders de Tortuga Trades: un JSON que deja una rutina diaria (`scripts/actualizar_comunidad.ps1`). Los trades
+    llegan con un día de retraso (IBKR Flex): sirven para ideas y consenso, no como señal de entrada."""
+    path: str = "data/community/tortuga.json"
+    source_name: str = "Tortuga"       # fuente del Universo con los tickers más vendidos por la comunidad
+    universe_top: int = Field(40, ge=1)    # cuántos tickers entran en esa fuente (los de más traders en 30 días)
+    min_traders: int = Field(3, ge=1)      # traders mínimos en 30 días para entrar en la fuente
+    stale_hours: int = Field(72, ge=1)     # el Scanner avisa si el JSON es más viejo
+
+
 class Settings(_Model):
     ibkr: IbkrSettings = IbkrSettings()
     refresh: RefreshSettings = RefreshSettings()
@@ -495,6 +505,7 @@ class Settings(_Model):
     logging: LoggingSettings = LoggingSettings()
     market: MarketSettings = MarketSettings()
     management: ManagementSettings = ManagementSettings()
+    community: CommunitySettings = CommunitySettings()
 
     @property
     def refresh_interval_minutes(self) -> float:

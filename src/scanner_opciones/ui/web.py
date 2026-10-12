@@ -1021,6 +1021,9 @@ def create_app(
             }[c.price_reference]
         if c is not None:
             parsed["warnings"].extend(service.filter_data_gaps(c))
+            if (stale := service.community_stale()) is not None:
+                parsed["warnings"].append(f"Los datos de la comunidad de Tortuga tienen {stale / 24:.0f} días: la rutina diaria no se ha ejecutado "
+                                          "(scripts/actualizar_comunidad.ps1).")
             if out is not None and not out.results:   # el aviso cuesta ~1 s: solo cuando no sale nada
                 if (hint := explain_empty(service.scan_impact(c))) is not None:
                     parsed["warnings"].append(hint)
@@ -1039,6 +1042,7 @@ def create_app(
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
         return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
+                      community=service.community_counts(),
                       yield_max=yield_max, nlv_usd=service.nlv_usd(), strategy_qs=strategy_qs, strategy_on=strategy_on,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
                       candidates=service.settings.scanner.candidates,
