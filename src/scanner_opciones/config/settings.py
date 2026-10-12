@@ -162,7 +162,7 @@ class SpreadSettings(_Model):
     """Modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior): anchos
     probados siempre todos (en $) y valores que aparecen en las cajas de los filtros del spread."""
     width_options: tuple[float, ...] = (1.0, 2.5, 5.0, 10.0, 15.0, 20.0)
-    min_credit_width_pct: float = Field(10, gt=0, lt=100)    # crédito neto / ancho mínimo
+    min_return_on_risk_pct: float = Field(10, gt=0)   # retorno mínimo del PERIODO sobre el riesgo: crédito / (ancho − crédito), sin anualizar (como el yield de TPC)
     min_credit_usd: float = Field(30, gt=0)          # crédito neto mínimo por spread, en $ por contrato (descarta spreads de céntimos)
     # modo «Ambos»: la put desnuda solo se ofrece si cabe en estos límites; si no, sale el spread
     weight_options: tuple[float, ...] = (5.0, 10.0, 15.0)  # peso máximo (% del NLV) ofrecido en el formulario (TPC: techo del 15 % tras asignación)

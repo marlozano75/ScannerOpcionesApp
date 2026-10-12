@@ -789,7 +789,7 @@ def create_app(
 
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
         form.update(mode="put", best_width=True,
-                    use_cw=True, cw=_fmt(sp.min_credit_width_pct), use_mc=True, mc=_fmt(sp.min_credit_usd),
+                    use_rr=True, rr=_fmt(sp.min_return_on_risk_pct), use_mc=True, mc=_fmt(sp.min_credit_usd),
                     use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_nw=True, nw=_fmt(sp.max_naked_weight_pct),
                     use_ns=True, ns=_fmt(sp.max_naked_strike), weight_options=[_fmt(w) for w in sp.weight_options])
 
@@ -800,15 +800,15 @@ def create_app(
                 form["mode"] = qp.get("mode", "put")
                 if form["mode"] not in ("put", "spread", "both"):
                     raise ValueError("modo desconocido")
-                if any(key in qp for key in ("cw", "mc", "mn", "nw", "ns")):   # bloque visible: lo enviado manda
+                if any(key in qp for key in ("rr", "mc", "mn", "nw", "ns")):   # bloque visible: lo enviado manda
                     form["best_width"] = "best_width" in qp
                 # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
                 # de instrumento) los límites conservan sus valores marcados por defecto
-                for shown_keys in (("cw", "mc", "mn"), ("nw", "ns")):
+                for shown_keys in (("rr", "mc", "mn"), ("nw", "ns")):
                     if any(key in qp for key in shown_keys):
                         for key in shown_keys:
                             form[f"use_{key}"] = f"use_{key}" in qp
-                for key in ("cw", "mc", "mn", "nw", "ns"):
+                for key in ("rr", "mc", "mn", "nw", "ns"):
                     if key in qp:
                         form[key] = qp.get(key, "").strip()
                 for key in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -927,7 +927,7 @@ def create_app(
             if form["mode"] in ("spread", "both"):
                 overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(sp.width_options))), best_width=bool(form["best_width"]))
                 for use, key, field_name, label, upper in (
-                        ("use_cw", "cw", "min_credit_width_pct", "Crédito / ancho mín. (%)", 100),
+                        ("use_rr", "rr", "min_return_on_risk_pct", "Retorno s/ riesgo mín. (%)", None),
                         ("use_mc", "mc", "min_spread_credit", "Crédito mín. ($ por contrato)", None),
                         ("use_mn", "mn", "max_loss_nlv_pct", "Pérdida máxima (% del NLV)", 100)):
                     if form[use]:

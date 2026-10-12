@@ -852,14 +852,14 @@ def test_scanner_spread_mode_renders_and_validates(client_and_service):
     refresh(client)
     put = client.get(BASE)
     assert put.status_code == 200 and 'value="spread"' in put.text and "sec-spread" not in put.text.split("<aside")[1].split("</aside>")[0]
-    r = client.get(BASE + "&mode=spread&use_cw=on&cw=25&use_mc=on&mc=20&use_mn=on&mn=2&best_width=on")
+    r = client.get(BASE + "&mode=spread&use_rr=on&rr=25&use_mc=on&mc=20&use_mn=on&mn=2&best_width=on")
     assert r.status_code == 200
     assert "Retorno/riesgo anual" in r.text and "Mejor ancho por put" in r.text and "Crédito ≥ 20 $" in r.text and "spreads" in r.text
-    assert "Todos los anchos" in client.get(BASE + "&mode=spread&use_cw=on&cw=25").text      # casilla del mejor ancho desmarcada
+    assert "Todos los anchos" in client.get(BASE + "&mode=spread&use_rr=on&rr=25").text      # casilla del mejor ancho desmarcada
     # sin ningún valor de los límites (cambio de instrumento) quedan marcados los de config, y el mejor ancho activo
     first = client.get(BASE + "&mode=spread").text
-    assert "Crédito/ancho ≥ 10 %" in first and "Crédito ≥ 30 $" in first and "Mejor ancho por put" in first
-    for bad in ("&mode=otro", "&mode=spread&use_cw=on&cw=150", "&mode=spread&use_mn=on&mn=abc", "&mode=spread&use_mc=on&mc=abc",
+    assert "Retorno/riesgo ≥ 10 %" in first and "Crédito ≥ 30 $" in first and "Mejor ancho por put" in first
+    for bad in ("&mode=otro", "&mode=spread&use_rr=on&rr=abc", "&mode=spread&use_mn=on&mn=abc", "&mode=spread&use_mc=on&mc=abc",
                 "&mode=spread&use_mc=on&mc=0"):
         assert "Parámetro no válido" in client.get(BASE + bad).text, bad
 
