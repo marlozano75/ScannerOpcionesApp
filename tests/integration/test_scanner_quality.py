@@ -203,12 +203,13 @@ def test_quality_repo_round_trips_the_new_fields():
 
 
 # ---- los botones de calidad no deben vaciar el strike y el vencimiento ------------------------------------------
-def test_the_strike_presets_handler_binds_only_to_the_strike_presets(client_and_service):
-    """Los botones de combinaciones de calidad (`preset qpreset`) están en el Universo: el Scanner ya no los lleva, así que su
-    manejador no puede dejar descuento, DTE y yield en «undefined»."""
+def test_the_strike_presets_are_links_and_quality_presets_stay_in_the_universe(client_and_service):
+    """Los perfiles TPC del Scanner son enlaces (sin manejador JS) y los botones de combinaciones de calidad (`preset qpreset`)
+    están en el Universo: el Scanner no los lleva."""
     client, svc, gw, _ = client_and_service
     page = client.get("/scanner?reset=1").text
-    assert "querySelectorAll('button.preset')" in page and 'qpreset' not in page
+    assert "querySelectorAll('button.preset')" not in page and 'qpreset' not in page
+    assert re.search(r'<a class="preset" href="/scanner\?[^"]*discount=20[^"]*"[^>]*>Mensual \(TPC\)</a>', page)
     load_rank(client)
     assert 'class="preset qpreset' in client.get("/universe").text and "data-discount" not in client.get("/universe").text
 
@@ -274,11 +275,11 @@ def test_the_strategy_button_activates_every_related_filter_and_marks_itself_on(
     q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
     assert (q["dte_min"], q["dte_max"], q["delta_max"], q["ivr"], q["ivp"]) == ("30", "45", "0.3", "50", "50")
     assert "delta_min" not in q and q["signals"] == "2" and not any("exp" in k for k in q)   # solo delta máximo; ≥ 2 señales
-    assert q["ma200"] == "above" and q["q_earn"] == "on" and q["q_liq"] == "3"
+    assert q["ma200"] == "above" and "q_earn" not in q and q["q_liq"] == "3"        # evitar resultados: desactivado por defecto
     assert all(q[k] == "on" for k in ("use_delta", "use_near", "use_ivr", "use_ivp"))
     on = client.get(href).text
     assert 'class="strategy-btn on"' in on and "Parámetro no válido" not in on                    # la estrategia cargada se marca
-    for chip in ("|Δ| ≤ 0.3", "≥ 2 señales de entrada", "IV Rank ≥ 50", "A ≤ 3 % de MA50 o soporte", "Sin resultados"):
+    for chip in ("|Δ| ≤ 0.3", "≥ 2 señales de entrada", "IV Rank ≥ 50", "A ≤ 3 % de MA50 o soporte"):
         assert chip in on
     assert 'class="strategy-btn on"' not in client.get(href.replace("delta_max=0.3", "delta_max=0.4")).text   # cambiar un valor la desmarca
 

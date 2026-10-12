@@ -130,10 +130,12 @@ class ScannerPreset(_Model):
         return self
 
 
+# Perfiles del método The Premium Collector (TPC). El yield anualizado mínimo equivale a un 1 % del periodo en el DTE mínimo del
+# perfil (1 % × 365 / dte_min): así ningún contrato del rango queda por debajo del 1 % de prima sobre el strike.
+#   Mensual: ~30 DTE, strike 20–25 % por debajo.  Táctico: menos de 15 DTE, strike ~10 % por debajo (cuando el mercado cae).
 DEFAULT_PRESETS = (
-    ScannerPreset(name="Corto plazo", strike_below_pct_min=10, dte_min=1, dte_max=7, min_annual_yield_pct=25),
-    ScannerPreset(name="Medio plazo", strike_below_pct_min=15, dte_min=8, dte_max=15, min_annual_yield_pct=20),
-    ScannerPreset(name="Largo plazo", strike_below_pct_min=20, dte_min=16, dte_max=None, min_annual_yield_pct=13),
+    ScannerPreset(name="Mensual (TPC)", strike_below_pct_min=20, dte_min=25, dte_max=35, min_annual_yield_pct=15),
+    ScannerPreset(name="Táctico (TPC)", strike_below_pct_min=10, dte_min=10, dte_max=14, min_annual_yield_pct=36.5),
 )
 
 
@@ -164,7 +166,7 @@ class SpreadSettings(_Model):
     widths: tuple[float, ...] = (5.0,)               # anchos marcados por defecto
     min_credit_width_pct: float = Field(25, gt=0, lt=100)    # crédito neto / ancho mínimo
     # modo «Ambos»: la put desnuda solo se ofrece si cabe en estos límites; si no, sale el spread
-    weight_options: tuple[float, ...] = (5.0, 10.0)  # peso máximo (% del NLV) ofrecido en el formulario
+    weight_options: tuple[float, ...] = (5.0, 10.0, 15.0)  # peso máximo (% del NLV) ofrecido en el formulario (TPC: techo del 15 % tras asignación)
     max_naked_weight_pct: float = Field(5, gt=0, le=100)   # peso máximo de la acción si te asignan (acciones + puts vendidas + esta)
     max_naked_strike: float = Field(100, gt=0)       # strike máximo de la put desnuda ($)
     max_loss_nlv_pct: float = Field(2, gt=0, le=100)  # pérdida máxima del spread como % del NLV
@@ -294,7 +296,8 @@ class QualitySettings(_Model):
 
 
 class StrategySettings(_Model):
-    """Estrategia de venta de puts «tras una caída que se calma»: valores que carga el botón «Estrategia» del scanner (activa de una
+    """Perfil «Tastytrade» (venta de volatilidad: IV Rank alto, delta ≤ 0,30, 30–45 DTE, gestión al 50 %/21 DTE) y, a la vez, la estrategia
+    de venta de puts «tras una caída que se calma»: valores que carga el botón del scanner (activa de una
     vez todos los filtros relacionados) y valores que muestran por defecto las cajas de delta y cercanía a
     un nivel. Orientativos, no reglas exactas. Solo se escanean los contratos guardados: para tener DTE 30–45 y strikes cercanos,
     `scanner.candidates` tiene que cubrir ese rango (`dte_max` ≥ `dte_max` de aquí y `strike_below_pct_min` ≤ el de aquí)."""
@@ -312,7 +315,9 @@ class StrategySettings(_Model):
     near_level_pct: float = Field(3.0, gt=0, le=50)        # precio a ≤ N % de la media de 50 o de un soporte
     min_option_liquidity: Optional[int] = Field(3, ge=1, le=5)   # None = no exigirla al cargar la estrategia
     price_above_ma200: bool = True
-    avoid_earnings: bool = True
+    # False: en temporada de resultados casi todos los vencimientos los incluyen (medido el 2026-10-12: 92 % de los contratos con
+    # IV Rank ≥ 30) y el IV Rank alto es en parte la IV de los resultados; evitarlos dejaría el perfil casi vacío. Se puede activar.
+    avoid_earnings: bool = False
     # señales de timing: basta con una o dos, por eso el botón solo activa el RSI por defecto
     max_rsi_level: float = Field(35, gt=0, lt=100)         # el RSI debe haber tocado este nivel (o menos) y hoy subir
     max_bollinger_pctb: float = Field(0.30, ge=-1, le=2)   # %B = (precio − banda inferior) / (superior − inferior); ≤ 0,3 = cerca de la inferior

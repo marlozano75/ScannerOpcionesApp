@@ -27,7 +27,7 @@ scanner:
     width_options: [1, 2.5, 5, 10]          # anchos ofrecidos (strike vendido − comprado, en $)
     widths: [5]                             # anchos marcados por defecto
     min_credit_width_pct: 25                # crédito neto / ancho mínimo que propone la caja
-    weight_options: [5, 10]                 # modo «Ambos»: pesos máximos sobre el NLV ofrecidos
+    weight_options: [5, 10, 15]             # modo «Ambos»: pesos máximos sobre el NLV ofrecidos (TPC: techo del 15 % tras asignación)
     max_naked_weight_pct: 5                 # peso máximo de la acción (acciones + puts vendidas + esta) para ofrecer la put desnuda
     max_naked_strike: 100                   # strike máximo de la put desnuda ($); por encima, solo spread
     max_loss_nlv_pct: 2                     # pérdida máxima del spread como % del NLV
@@ -76,10 +76,10 @@ scanner:
     min_annual_yield_pct: 12.0   # yield anualizado mínimo (prima / strike × 365 / DTE)
     dte_min: 1
     dte_max: 35
-  presets:                 # botones del scanner que cargan estos valores y escanean (dte_max null = máximo de candidates)
-    - { name: "Corto plazo", strike_below_pct_min: 10, dte_min: 1, dte_max: 7, min_annual_yield_pct: 25 }
-    - { name: "Medio plazo", strike_below_pct_min: 15, dte_min: 8, dte_max: 15, min_annual_yield_pct: 20 }
-    - { name: "Largo plazo", strike_below_pct_min: 20, dte_min: 16, dte_max: 35, min_annual_yield_pct: 13 }
+  presets:                 # perfiles TPC: botones del scanner que cargan estos valores y escanean (dte_max null = máximo de candidates)
+    # yield anual mín. = 1 % del periodo en el DTE mínimo (1 % × 365 / dte_min)
+    - { name: "Mensual (TPC)", strike_below_pct_min: 20, dte_min: 25, dte_max: 35, min_annual_yield_pct: 15 }
+    - { name: "Táctico (TPC)", strike_below_pct_min: 10, dte_min: 10, dte_max: 14, min_annual_yield_pct: 36.5 }
   filters:                       # null = filtro desactivado
     min_bid: 0.01                  # bid mínimo en $: un bid de 0 no se puede vender (y infla el yield con el precio mid)
     min_oi: null

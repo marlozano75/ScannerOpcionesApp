@@ -170,4 +170,4 @@ def test_the_example_config_stores_the_range_the_strategy_needs():
     s = load_settings(Path(__file__).parents[2] / "config" / "config.example.yaml")
     c, st = s.scanner.candidates, s.scanner.strategy
     assert c.strike_below_pct_min <= st.strike_below_pct_min and c.dte_max >= st.dte_max and c.dte_min <= st.dte_min
-    assert s.scanner.presets[2].dte_max == 35                                             # Largo plazo conserva su 16–35
+    assert [(p.name, p.dte_min, p.dte_max) for p in s.scanner.presets] == [("Mensual (TPC)", 25, 35), ("Táctico (TPC)", 10, 14)]

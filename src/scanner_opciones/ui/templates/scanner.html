@@ -160,14 +160,13 @@
     <form method="get" action="/scanner" id="scan-form">
       <input type="hidden" name="submitted" value="1">
       <a class="strategy-btn{{ ' on' if strategy_on }}" href="/scanner?{{ strategy_qs }}"
-         title="Carga y activa de una vez los filtros de la estrategia (DTE, delta, IV Rank y Percentile, cercanía a la media de 50 o a un soporte, precio sobre la media de 200, sin resultados, liquidez). Los valores salen de scanner.strategy; el resto de tus filtros (calidad, tendencia, medias, precio de venta…) se conservan">
-        {{ '✓ ' if strategy_on }}Estrategia: venta de puts</a>
-      {% if presets %}<div class="presets"><span class="lbl">Configuraciones</span>
-        {% for p in presets %}{% set is_on = form.discount == p.discount and form.dte_min == p.dte_min|string and form.dte_max == p.dte_max|string and form.min_yield == p.min_yield %}
-        <button type="button" class="preset{{ ' active' if is_on }}" data-discount="{{ p.discount }}" data-dte-min="{{ p.dte_min }}"
-          data-dte-max="{{ p.dte_max }}" data-yield="{{ p.min_yield }}"
-          title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield anual mín. {{ p.min_yield }} %">{{ p.name }}</button>{% endfor %}
-        <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Editar estas configuraciones y los valores de la estrategia de venta de puts">✎ Editar</a>
+         title="Perfil Tastytrade (venta de volatilidad): carga y activa de una vez DTE 30–45, delta, IV Rank y Percentile, IV/HV, señales de entrada, precio sobre la media de 200 y liquidez. Se gestiona al 50 % de la prima y a 21 DTE. Los valores salen de scanner.strategy; sustituye los filtros del otro perfil y conserva el resto (calidad, tendencia, medias, precio de venta…)">
+        {{ '✓ ' if strategy_on }}Perfil Tastytrade: venta de volatilidad</a>
+      {% if presets %}<div class="presets"><span class="lbl">Perfiles TPC (The Premium Collector): calidad, mantener hasta el vencimiento</span>
+        {% for p in presets %}
+        <a class="preset{{ ' active' if p.on }}" href="/scanner?{{ p.qs }}" style="text-decoration:none"
+          title="Descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield anual mín. {{ p.min_yield }} % (≈ 1 % del periodo en el DTE mínimo). Sustituye los filtros del perfil Tastytrade (delta, IV Rank, señales…) y conserva el resto">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
+        <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Editar estos perfiles y los valores del perfil Tastytrade">✎ Editar</a>
       </div>{% endif %}
 
       <label class="field" style="margin:6px 0">Instrumento
@@ -647,16 +646,6 @@
     });
     load();
   })();
-  // Configuraciones preconfiguradas: cargan sus valores en el formulario (el resto de filtros se conserva) y escanean
-  document.querySelectorAll('button.preset').forEach(function (b) {
-    b.addEventListener('click', function () {
-      document.getElementById('discount').value = b.dataset.discount;
-      document.getElementById('dte_min').value = b.dataset.dteMin;
-      document.getElementById('dte_max').value = b.dataset.dteMax;
-      document.getElementById('min_yield').value = b.dataset.yield;
-      form.submit();
-    });
-  });
   // Botones − / + de cada caja: suman o restan 1 y escanean (varios clics seguidos se acumulan en un solo escaneo)
   let timer = null;
   document.querySelectorAll('button.step').forEach(function (b) {

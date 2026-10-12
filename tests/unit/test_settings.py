@@ -109,10 +109,11 @@ def test_delayed_data_sets_delay_and_minimum_refresh_interval():
 
 def test_presets_por_defecto_y_validacion(tmp_path):
     s = load_settings(EXAMPLE)
-    a, m, b = s.scanner.presets
-    assert (a.strike_below_pct_min, a.dte_min, a.dte_max, a.min_annual_yield_pct) == (10, 1, 7, 25)
-    assert (m.strike_below_pct_min, m.dte_min, m.dte_max, m.min_annual_yield_pct) == (15, 8, 15, 20)
-    assert (b.strike_below_pct_min, b.dte_min, b.dte_max, b.min_annual_yield_pct) == (20, 16, 35, 13)
+    m, t = s.scanner.presets
+    assert (m.name, m.strike_below_pct_min, m.dte_min, m.dte_max, m.min_annual_yield_pct) == ("Mensual (TPC)", 20, 25, 35, 15)
+    assert (t.name, t.strike_below_pct_min, t.dte_min, t.dte_max, t.min_annual_yield_pct) == ("Táctico (TPC)", 10, 10, 14, 36.5)
+    for p in (m, t):      # el yield anual equivale a un 1 % del periodo en el DTE mínimo
+        assert p.min_annual_yield_pct == pytest.approx(1 * 365 / p.dte_min, abs=0.5)
     bad = tmp_path / "c.yaml"
     bad.write_text(
         "scanner:" + chr(10) + "  presets:" + chr(10)

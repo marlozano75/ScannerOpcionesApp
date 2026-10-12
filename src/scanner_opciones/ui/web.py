@@ -345,6 +345,21 @@ def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
     return urlencode({**kept, **params}), on
 
 
+def preset_link(settings, preset, form: dict, current=None) -> tuple[str, bool]:
+    """Consulta de un perfil TPC (Mensual / Táctico): carga descuento, DTE y yield y SUSTITUYE los filtros propios de la estrategia
+    Tastytrade (delta, IV Rank, señales, resultados…: `STRATEGY_KEYS`), de modo que los perfiles no se mezclan; el resto de filtros
+    de `current` (precio de venta, calidad, tendencia…) se conserva. Devuelve también si el formulario ya lo tiene cargado."""
+    cand, fv = settings.scanner.candidates, settings.scanner.filter_values
+    params = {
+        "submitted": "1", "discount": _fmt(preset.strike_below_pct_min), "dte_min": str(preset.dte_min),
+        "dte_max": str(preset.dte_max if preset.dte_max is not None else cand.dte_max),
+        "min_yield": _fmt(preset.min_annual_yield_pct), "use_bid": "on", "bid": _fmt(fv.min_bid),
+    }
+    on = all(form.get(k) == params[k] for k in ("discount", "dte_min", "dte_max", "min_yield"))
+    kept = {k: v for k, v in (current.items() if current is not None else ()) if k not in STRATEGY_KEYS} if current is not None and "submitted" in current else {}
+    return urlencode({**kept, **params}), on
+
+
 def _sector_of(row, sector_col: Optional[int], watchlist_sectors: dict) -> Optional[str]:
     """Sector de una fila del Universo: el de IBKR si el ticker está en la watchlist y, si no, el del fichero."""
     if watchlist_sectors.get(row.ticker):
@@ -1002,9 +1017,12 @@ def create_app(
         if frame_shown not in ("daily", "weekly", "monthly"):    # parámetro no válido: se muestra el de la configuración
             frame_shown = service.criteria().ma_frame
         cand = service.settings.scanner.candidates
-        presets = [dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
-                        dte_max=p.dte_max if p.dte_max is not None else cand.dte_max,
-                        min_yield=_fmt(p.min_annual_yield_pct)) for p in service.settings.scanner.presets]
+        presets = []
+        for p in service.settings.scanner.presets:
+            qs, on = preset_link(service.settings, p, parsed["form"], request.query_params)
+            presets.append(dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
+                                dte_max=p.dte_max if p.dte_max is not None else cand.dte_max,
+                                min_yield=_fmt(p.min_annual_yield_pct), qs=qs, on=on))
         qcfg = service.settings.scanner.quality
         counts = quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg)
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)

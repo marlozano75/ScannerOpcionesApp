@@ -12,16 +12,16 @@
   .cfg-actions { display:flex; gap:10px; align-items:center; margin-top:14px; }
 </style>
 <div class="card cfg">
-  <h2>Configuraciones y estrategia de venta de puts</h2>
-  <p class="muted">Edita los botones <b>Corto / Medio / Largo plazo</b> y los valores que carga el botón <b>Estrategia: venta de puts</b>. Se guardan en la base de datos
+  <h2>Perfiles del Scanner</h2>
+  <p class="muted">Edita los perfiles <b>TPC (Mensual / Táctico)</b> y los valores que carga el perfil <b>Tastytrade</b>. Se guardan en la base de datos
     y mandan sobre <code>config.yaml</code> hasta que pulses «Restaurar».
     <a href="/scanner">← Volver al Scanner</a></p>
   {% if ok %}<div class="banner ok">{{ ok }}</div>{% endif %}
   {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
   {% for g in gap %}<div class="banner info">Aviso: {{ g }}: solo se escanean los contratos guardados, amplía <code>scanner.candidates</code> en config.yaml.</div>{% endfor %}
   <form method="post" action="/scanner/config">
-    <h3>Configuraciones (botones del Scanner)</h3>
-    <p class="note">Descuento mín., DTE y yield que carga cada botón. DTE máx. vacío = el máximo del rango guardado. Para quitar una, vacía su nombre; la última fila vacía sirve para añadir otra.</p>
+    <h3>Perfiles TPC (botones del Scanner)</h3>
+    <p class="note">Descuento mín., DTE y yield que carga cada perfil. El yield anual equivale a un 1 % del periodo en el DTE mínimo (1 % × 365 / DTE mín.: 25 DTE ≈ 15 %, 10 DTE ≈ 36,5 %). DTE máx. vacío = el máximo del rango guardado. Para quitar uno, vacía su nombre; la última fila vacía sirve para añadir otro.</p>
     <table class="cfg-pre">
       <tr><th>Nombre</th><th>Descuento mín. (%)</th><th>DTE mín.</th><th>DTE máx.</th><th>Yield anual mín. (%)</th></tr>
       {% for p in presets + [dict(name='', discount='', dte_min='', dte_max='', min_yield='')] %}{% set i = loop.index0 %}
@@ -33,7 +33,7 @@
       {% endfor %}
     </table>
     <input type="hidden" name="n_presets" value="{{ presets|length + 1 }}">
-    <h3 style="margin-top:20px">Estrategia: venta de puts</h3>
+    <h3 style="margin-top:20px">Perfil Tastytrade: venta de volatilidad</h3>
     {% for title, fields in groups %}
     <h4 style="margin:14px 0 6px">{{ title }}</h4>
     <div class="cfg-grid">

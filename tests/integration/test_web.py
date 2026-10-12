@@ -1,3 +1,5 @@
+import re
+from urllib.parse import parse_qsl
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
@@ -207,7 +209,7 @@ def test_price_reference_selector_defaults_and_columns(client_and_service):
     assert "precio de venta: bid + 25% del spread" in r.text
     # columnas agrupadas: ticker, sector y precio juntos; yields juntos (el anual destacado y orden por defecto); delta con la IV
     assert '<th class="tk">Ticker</th><th class="txt">Sector</th><th>Precio</th><th>Strike</th>' in r.text
-    assert '<th class="hl" data-sort-default="desc">Yield anual</th><th>Yield bid anual</th>' in r.text
+    assert '<th class="hl" data-sort-default="desc">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th>Yield bid anual</th>' in r.text
     assert "<th>Delta</th><th" in r.text and "<th>IV</th><th>IV Rank</th><th>IV Pctl</th>" in r.text and "Dist. σ" not in r.text
     for gone in ("Vence", "Prima ref.", "Yield", "Bid", "Ask", "Last", "Margen ini.", "Yield bid", "Hora precio",
                  "Ex-div (d)", "FCF (M$)", "Actualizado"):
@@ -598,11 +600,14 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     client, svc, gw, _ = client_and_service
     html = client.get("/scanner?reset=1").text
     form = html.split('id="scan-form"')[1].split("</form>")[0]
-    # tres configuraciones; la segunda toma el DTE máx. de la ventana guardada (35)
-    assert form.count('type="button" class="preset"') == 3                       # (los de calidad llevan class="preset qpreset")
-    assert 'data-discount="10" data-dte-min="1"' in form and 'data-dte-max="7" data-yield="25"' in form
-    assert 'data-discount="15" data-dte-min="8"' in form and 'data-dte-max="15" data-yield="20"' in form
-    assert 'data-discount="20" data-dte-min="16"' in form and 'data-dte-max="35" data-yield="13"' in form
+    # dos perfiles TPC, como enlaces que sustituyen los filtros de Tastytrade (los de calidad llevan class="preset qpreset")
+    assert form.count('<a class="preset"') == 2 and 'type="button" class="preset"' not in form
+    links = {m.group(2): dict(parse_qsl(m.group(1).replace("&amp;", "&")))
+             for m in re.finditer(r'<a class="preset" href="/scanner\?([^"]+)"[^>]*>([^<]+)</a>', form)}
+    mensual, tactico = links["Mensual (TPC)"], links["Táctico (TPC)"]
+    assert (mensual["discount"], mensual["dte_min"], mensual["dte_max"], mensual["min_yield"]) == ("20", "25", "35", "15")
+    assert (tactico["discount"], tactico["dte_min"], tactico["dte_max"], tactico["min_yield"]) == ("10", "10", "14", "36.5")
+    assert "Corto plazo" not in form and "use_delta" not in mensual and "q_earn" not in mensual
     # − / + en las cajas principales, no en los filtros opcionales
     for name in ("discount", "dte_min", "dte_max", "min_yield"):
         box = form.split(f'name="{name}" id="{name}"')[1].split("</span>")[0]
@@ -797,7 +802,7 @@ def test_header_shows_the_account_id(client_and_service):
 def test_scanner_config_page_edits_presets_and_strategy(client_and_service):
     client, svc, _, _ = client_and_service
     r = client.get("/scanner/config")
-    assert r.status_code == 200 and "Corto plazo" in r.text and 's_max_abs_delta' in r.text
+    assert r.status_code == 200 and "Mensual (TPC)" in r.text and 's_max_abs_delta' in r.text
     assert "/scanner/config" in client.get("/scanner").text          # enlace «Editar» junto a los botones
     form = {"n_presets": "4", "p0_name": "Corto X", "p0_discount": "12", "p0_dte_min": "2", "p0_dte_max": "9", "p0_yield": "30",
             "p1_name": "", "p2_name": "Largo plazo", "p2_discount": "20", "p2_dte_min": "16", "p2_dte_max": "", "p2_yield": "13",
@@ -810,7 +815,7 @@ def test_scanner_config_page_edits_presets_and_strategy(client_and_service):
     assert st.strategy.max_abs_delta == 0.25 and st.strategy.min_iv_rank == 40
     assert st.strategy.use_atr is False and st.strategy.use_rsi is True      # casilla sin marcar = desactivada
     page = client.get("/scanner?submitted=1")
-    assert "Corto X" in page.text and "Medio plazo" not in page.text         # el botón usa lo editado
+    assert "Corto X" in page.text and "Táctico (TPC)" not in page.text        # el botón usa lo editado
     assert "delta_max=0.25" in page.text                                     # y el de la estrategia también
 
 
