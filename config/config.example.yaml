@@ -24,8 +24,8 @@ daily_update:
 
 scanner:
   spreads:                 # modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior)
-    width_options: [1, 2.5, 5, 10, 15, 20]        # anchos ofrecidos (strike vendido − comprado, en $)
-    widths: [5]                             # anchos marcados por defecto
+    width_options: [1, 2.5, 5, 10, 15, 20]        # anchos que se prueban todos (strike vendido − comprado, en $)
+    min_credit_usd: 30                      # crédito neto mínimo por spread ($ por contrato)
     min_credit_width_pct: 10                # crédito neto / ancho mínimo que propone la caja
     weight_options: [5, 10, 15]             # modo «Ambos»: pesos máximos sobre el NLV ofrecidos (TPC: techo del 15 % tras asignación)
     max_naked_weight_pct: 5                 # peso máximo de la acción (acciones + puts vendidas + esta) para ofrecer la put desnuda

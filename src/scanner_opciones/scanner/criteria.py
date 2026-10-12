@@ -158,6 +158,7 @@ class ScanCriteria:
     spread_widths: tuple[float, ...] = ()
     best_width: bool = False                       # una sola fila por put vendida: el ancho con mejor retorno anualizado sobre riesgo
     min_credit_width_pct: Optional[float] = None   # crédito neto / ancho mínimo (%)
+    min_spread_credit: Optional[float] = None      # crédito neto mínimo por spread, $ por contrato
     max_spread_loss: Optional[float] = None        # pérdida máxima por spread en $
     min_return_on_risk_pct: Optional[float] = None  # crédito / pérdida máxima mínimo (%)
     max_loss_nlv_pct: Optional[float] = None       # pérdida máxima del spread como % del NLV

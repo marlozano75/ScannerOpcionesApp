@@ -160,10 +160,10 @@ class FilterValues(_Model):
 
 class SpreadSettings(_Model):
     """Modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior): anchos
-    ofrecidos (en $) y valores que aparecen en las cajas de los filtros del spread."""
+    probados siempre todos (en $) y valores que aparecen en las cajas de los filtros del spread."""
     width_options: tuple[float, ...] = (1.0, 2.5, 5.0, 10.0, 15.0, 20.0)
-    widths: tuple[float, ...] = (5.0,)               # anchos marcados por defecto
     min_credit_width_pct: float = Field(10, gt=0, lt=100)    # crédito neto / ancho mínimo
+    min_credit_usd: float = Field(30, gt=0)          # crédito neto mínimo por spread, en $ por contrato (descarta spreads de céntimos)
     # modo «Ambos»: la put desnuda solo se ofrece si cabe en estos límites; si no, sale el spread
     weight_options: tuple[float, ...] = (5.0, 10.0, 15.0)  # peso máximo (% del NLV) ofrecido en el formulario (TPC: techo del 15 % tras asignación)
     max_naked_weight_pct: float = Field(5, gt=0, le=100)   # peso máximo de la acción si te asignan (acciones + puts vendidas + esta)
@@ -175,8 +175,6 @@ class SpreadSettings(_Model):
     def _check(self) -> "SpreadSettings":
         if not self.width_options or any(w <= 0 for w in self.width_options):
             raise ValueError("width_options debe tener anchos positivos")
-        if not set(self.widths) <= set(self.width_options):
-            raise ValueError("widths debe estar contenido en width_options")
         return self
 
 

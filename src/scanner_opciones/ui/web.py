@@ -788,8 +788,8 @@ def create_app(
                     use_ivhv=False, ivhv=_fmt(st.min_iv_hv_ratio), use_ivchg=False, ivchg=_fmt(st.max_iv_change_5d),)
 
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
-        form.update(mode="put", best_width=False, widths=[_fmt(w) for w in sp.widths], width_options=[_fmt(w) for w in sp.width_options],
-                    use_cw=True, cw=_fmt(sp.min_credit_width_pct),
+        form.update(mode="put", best_width=True,
+                    use_cw=True, cw=_fmt(sp.min_credit_width_pct), use_mc=True, mc=_fmt(sp.min_credit_usd),
                     use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_nw=True, nw=_fmt(sp.max_naked_weight_pct),
                     use_ns=True, ns=_fmt(sp.max_naked_strike), weight_options=[_fmt(w) for w in sp.weight_options])
 
@@ -800,16 +800,15 @@ def create_app(
                 form["mode"] = qp.get("mode", "put")
                 if form["mode"] not in ("put", "spread", "both"):
                     raise ValueError("modo desconocido")
-                if any(key in qp for key in ("cw", "mn", "nw", "ns")):   # bloque visible: lo enviado manda (puede no haber ninguno)
-                    form["widths"] = [w.strip() for w in qp.getlist("w")]
+                if any(key in qp for key in ("cw", "mc", "mn", "nw", "ns")):   # bloque visible: lo enviado manda
                     form["best_width"] = "best_width" in qp
                 # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
                 # de instrumento) los límites conservan sus valores marcados por defecto
-                for shown_keys in (("cw", "mn"), ("nw", "ns")):
+                for shown_keys in (("cw", "mc", "mn"), ("nw", "ns")):
                     if any(key in qp for key in shown_keys):
                         for key in shown_keys:
                             form[f"use_{key}"] = f"use_{key}" in qp
-                for key in ("cw", "mn", "nw", "ns"):
+                for key in ("cw", "mc", "mn", "nw", "ns"):
                     if key in qp:
                         form[key] = qp.get(key, "").strip()
                 for key in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -926,17 +925,10 @@ def create_app(
                 if not (0 < overrides["min_bollinger_width_pct"] <= 100):
                     raise ValueError("el ancho de las bandas debe estar entre 0 y 100 %")
             if form["mode"] in ("spread", "both"):
-                widths = []
-                for w in form["widths"]:
-                    value = _required(w, float, "Ancho del spread")
-                    if not any(abs(value - o) < 1e-9 for o in sp.width_options):
-                        raise ValueError("ancho del spread no permitido")
-                    widths.append(value)
-                if not widths:
-                    raise ValueError("marca al menos un ancho para el spread")
-                overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(widths))), best_width=bool(form["best_width"]))
+                overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(sp.width_options))), best_width=bool(form["best_width"]))
                 for use, key, field_name, label, upper in (
                         ("use_cw", "cw", "min_credit_width_pct", "Crédito / ancho mín. (%)", 100),
+                        ("use_mc", "mc", "min_spread_credit", "Crédito mín. ($ por contrato)", None),
                         ("use_mn", "mn", "max_loss_nlv_pct", "Pérdida máxima (% del NLV)", 100)):
                     if form[use]:
                         overrides[field_name] = _required(form[key], float, label)

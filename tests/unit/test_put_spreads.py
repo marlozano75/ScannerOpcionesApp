@@ -73,6 +73,11 @@ def test_best_width_keeps_one_spread_per_short_put():
                if x.short.snapshot.contract.strike == s.short.snapshot.contract.strike)) < 1e-9 for s in best.spreads)
 
 
+def test_min_credit_per_contract_drops_penny_spreads():
+    legs = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]                             # crédito 1,40 → 140 $ por contrato
+    assert scan(legs, min_spread_credit=140).spreads and not scan(legs, min_spread_credit=141).spreads
+
+
 # ---- modo «Ambos»: put desnuda si cabe en los límites, si no spread ------------------------------------------------
 from types import SimpleNamespace
 

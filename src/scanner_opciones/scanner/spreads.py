@@ -120,6 +120,8 @@ def build_spreads(
             max_loss = max_loss_ps * sc.multiplier
             if criteria.min_credit_width_pct is not None and credit_width < criteria.min_credit_width_pct - EPS:
                 continue
+            if criteria.min_spread_credit is not None and credit * sc.multiplier < criteria.min_spread_credit - EPS:
+                continue
             if criteria.max_spread_loss is not None and max_loss > criteria.max_spread_loss + EPS:
                 continue
             if criteria.max_loss_nlv_pct is not None and nlv_usd and max_loss / nlv_usd * 100 > criteria.max_loss_nlv_pct + EPS:
