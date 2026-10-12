@@ -847,6 +847,26 @@ def test_scanner_config_persists_and_resets(client_and_service):
     assert [p.name for p in svc.settings.scanner.presets] == ["Solo"] and svc.settings.scanner.strategy.min_iv_rank == 33
 
 
+def test_scanner_config_edits_spread_defaults_persists_and_resets(client_and_service):
+    client, svc, _, _ = client_and_service
+    assert "sp_min_credit_usd" in client.get("/scanner/config").text
+    base = {"n_presets": "1", "p0_name": "Solo", "p0_discount": "10", "p0_dte_min": "1", "p0_dte_max": "7", "p0_yield": "1"}
+    post = client.post("/scanner/config", data={**base, "sp_min_credit_usd": "55", "sp_width_options": "2,5; 10", "sp_min_long_oi": "20",
+                                                "sp_usd_per_base": ""}, follow_redirects=False)
+    assert "ok=" in post.headers["location"]
+    sp = svc.settings.scanner.spreads
+    assert sp.min_credit_usd == 55 and sp.width_options == (2.0, 5.0, 10.0) and sp.min_long_oi == 20 and sp.usd_per_base is None
+    assert "Crédito ≥ 55 $" in client.get(BASE + "&mode=spread").text            # el Scanner arranca con lo editado
+    bad = client.post("/scanner/config", data={**base, "sp_min_credit_usd": "abc"}, follow_redirects=False)
+    assert "error=" in bad.headers["location"] and svc.settings.scanner.spreads.min_credit_usd == 55
+    svc._set_scanner_config(*svc._yaml_scanner)                                  # simula un reinicio
+    assert svc.settings.scanner.spreads.min_credit_usd == 30
+    svc._load_scanner_config()
+    assert svc.settings.scanner.spreads.min_credit_usd == 55
+    svc.reset_scanner_config()
+    assert svc.settings.scanner.spreads.min_credit_usd == 30 and svc.settings.scanner.spreads.width_options[-1] == 20
+
+
 def test_scanner_spread_mode_renders_and_validates(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)

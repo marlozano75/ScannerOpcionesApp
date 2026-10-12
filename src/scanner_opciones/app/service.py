@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway
-from scanner_opciones.config.settings import ScannerPreset, Settings, StrategySettings
+from scanner_opciones.config.settings import ScannerPreset, Settings, SpreadSettings, StrategySettings
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError, VolatilityError, WatchlistError
 from scanner_opciones.domain.models import (
@@ -123,7 +123,7 @@ class AppService:
             volatility, prices, syncer, self.market,
         )
         self.state = AppState()
-        self._yaml_scanner = (settings.scanner.presets, settings.scanner.strategy)   # los de config.yaml, para restaurarlos
+        self._yaml_scanner = (settings.scanner.presets, settings.scanner.strategy, settings.scanner.spreads)   # los de config.yaml, para restaurarlos
         self._load_scanner_config()
         self._load_portfolio()
         # ficheros del universo (RankedStocks, HelloStocks): nombre -> (hora de carga, fuentes); en memoria y en disco
@@ -825,11 +825,14 @@ class AppService:
 
         self.launch(run())
 
-    def _set_scanner_config(self, presets: tuple[ScannerPreset, ...], strategy: StrategySettings) -> None:
-        """Sustituye los presets y la estrategia en los ajustes que comparten el servicio y los jobs (son `frozen`, así que se
+    def _set_scanner_config(self, presets: tuple[ScannerPreset, ...], strategy: StrategySettings,
+                            spreads: Optional[SpreadSettings] = None) -> None:
+        """Sustituye los presets, la estrategia y los valores del modo Spread en los ajustes que comparten el servicio y los jobs (son `frozen`, así que se
         escribe en el objeto directamente): todo lo que los lee (botones, refresco, aviso del VIX) los ve en la siguiente llamada."""
         object.__setattr__(self.settings.scanner, "presets", presets)
         object.__setattr__(self.settings.scanner, "strategy", strategy)
+        if spreads is not None:
+            object.__setattr__(self.settings.scanner, "spreads", spreads)
 
     def _load_scanner_config(self) -> None:
         raw = self.meta.get(SCANNER_USER_CONFIG)
@@ -837,20 +840,23 @@ class AppService:
             return
         try:
             data = json.loads(raw)
-            self._set_scanner_config(tuple(ScannerPreset(**p) for p in data["presets"]), StrategySettings(**data["strategy"]))
+            spreads = SpreadSettings(**data["spreads"]) if data.get("spreads") else None   # las guardadas antes no lo traen
+            self._set_scanner_config(tuple(ScannerPreset(**p) for p in data["presets"]), StrategySettings(**data["strategy"]), spreads)
         except Exception:   # una configuración guardada que ya no es válida (cambió el modelo): se usa la de config.yaml
             log.exception("Configuración del Scanner guardada no válida; se usa la de config.yaml")
 
-    def save_scanner_config(self, presets: list[dict], strategy: dict) -> None:
-        """Guarda y aplica los presets (Corto/Medio/Largo…) y los valores de la estrategia de venta de puts editados en la
+    def save_scanner_config(self, presets: list[dict], strategy: dict, spreads: Optional[dict] = None) -> None:
+        """Guarda y aplica los presets (Mensual/Táctico…), los valores de la estrategia de venta de puts y los del modo Spread editados en la
         aplicación; sobreviven a reinicios y mandan sobre config.yaml hasta `reset_scanner_config`. Lanza `ValidationError`/
         `ValueError` si no son válidos (no se guarda nada)."""
         new_presets = tuple(ScannerPreset(**p) for p in presets)
         if not new_presets:
             raise ValueError("Tiene que quedar al menos una configuración")
         new_strategy = StrategySettings(**strategy)
-        self.meta.set(SCANNER_USER_CONFIG, json.dumps({"presets": [p.model_dump() for p in new_presets], "strategy": new_strategy.model_dump()}))
-        self._set_scanner_config(new_presets, new_strategy)
+        new_spreads = SpreadSettings(**spreads) if spreads is not None else self.settings.scanner.spreads
+        self.meta.set(SCANNER_USER_CONFIG, json.dumps({"presets": [p.model_dump() for p in new_presets], "strategy": new_strategy.model_dump(),
+                                                       "spreads": new_spreads.model_dump()}))
+        self._set_scanner_config(new_presets, new_strategy, new_spreads)
 
     def reset_scanner_config(self) -> None:
         """Vuelve a los presets y la estrategia de config.yaml."""

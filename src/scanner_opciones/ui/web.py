@@ -270,12 +270,42 @@ STRATEGY_FIELDS = (
 )
 
 
+SPREAD_FIELDS = (    # valores iniciales del modo Spread del Scanner (`scanner.spreads`); en el formulario van como `sp_<clave>`
+    ("width_options", "Anchos que se prueban ($, separados por comas)", "floats"),
+    ("min_return_on_risk_pct", "Retorno mín. sobre riesgo (%, hasta el vencimiento)", "float"),
+    ("min_credit_usd", "Crédito mín. ($ por contrato)", "float"),
+    ("min_long_oi", "OI mín. de la pata comprada", "int"),
+    ("max_long_spread_pct", "Spread bid/ask máx. de la pata comprada (%)", "float"),
+    ("max_loss_nlv_pct", "Pérdida máxima (% del NLV)", "float"),
+    ("max_naked_strike", "Strike máximo de la put desnuda en «Ambos» ($)", "float"),
+    ("usd_per_base", "Dólares por unidad de moneda base (vacío = el de IBKR)", "ofloat"),
+)
+
+
 def _read_num(raw, cast, label: str):
     text = str(raw or "").strip().replace(",", ".")
     try:
         return cast(text)
     except ValueError:
         raise ValueError(f"{label}: «{raw}» no es un número válido") from None
+
+
+def parse_spread_config(form, current: dict) -> dict:
+    """Lee los valores del modo Spread del formulario de edición (`sp_<clave>`); los campos que no vienen se conservan."""
+    out = dict(current)
+    for key, label, kind in SPREAD_FIELDS:
+        raw = form.get(f"sp_{key}")
+        if raw is None:
+            continue
+        if kind == "floats":
+            out[key] = [_read_num(x, float, label) for x in str(raw).replace(";", ",").split(",") if x.strip()]
+            if not out[key]:
+                raise ValueError(f"{label}: indica al menos un ancho")
+        elif kind == "ofloat":
+            out[key] = _read_num(raw, float, label) if str(raw).strip() else None
+        else:
+            out[key] = _read_num(raw, float if kind == "float" else int, label)
+    return out
 
 
 def parse_scanner_config(form, current: dict) -> tuple[list[dict], dict]:
@@ -962,13 +992,15 @@ def create_app(
         presets = [dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
                         dte_max="" if p.dte_max is None else p.dte_max, min_yield=_fmt(p.min_yield_pct)) for p in sc.presets]
         groups = [(title, [(key, label, kind, cur[key]) for key, label, kind in fields]) for title, fields in STRATEGY_FIELDS]
+        sp = sc.spreads.model_dump()
+        spread_fields = [(key, label, kind, ", ".join(_fmt(w) for w in sp[key]) if kind == "floats" else sp[key]) for key, label, kind in SPREAD_FIELDS]
         cand = sc.candidates
         gap = []
         if sc.strategy.dte_max > cand.dte_max:
             gap.append(f"el DTE máx. de la estrategia ({sc.strategy.dte_max}) supera el rango guardado ({cand.dte_max})")
         if sc.strategy.strike_below_pct_min < cand.strike_below_pct_min:
             gap.append(f"el descuento mín. de la estrategia ({_fmt(sc.strategy.strike_below_pct_min)} %) es menor que el del rango guardado ({_fmt(cand.strike_below_pct_min)} %)")
-        return render(request, "scanner_config.html", presets=presets, groups=groups, ok=ok, error=error,
+        return render(request, "scanner_config.html", presets=presets, groups=groups, spread_fields=spread_fields, ok=ok, error=error,
                       gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)))
 
     @app.post("/scanner/config")
@@ -976,14 +1008,14 @@ def create_app(
         form = await request.form()
         try:
             presets, strategy = parse_scanner_config(form, service.settings.scanner.strategy.model_dump())
-            service.save_scanner_config(presets, strategy)
+            service.save_scanner_config(presets, strategy, parse_spread_config(form, service.settings.scanner.spreads.model_dump()))
         except ValidationError as exc:
             msg = "; ".join(f"{'.'.join(str(x) for x in e['loc'])}: {e['msg']}" for e in exc.errors())
             return RedirectResponse(f"/scanner/config?{urlencode({'error': msg})}", status_code=303)
         except ValueError as exc:
             return RedirectResponse(f"/scanner/config?{urlencode({'error': str(exc)})}", status_code=303)
         remembered.pop("scanner", None)
-        return RedirectResponse(f"/scanner/config?{urlencode({'ok': 'Guardado. Los botones del Scanner ya usan estos valores.'})}", status_code=303)
+        return RedirectResponse(f"/scanner/config?{urlencode({'ok': 'Guardado. Los botones y el modo Spread del Scanner ya usan estos valores.'})}", status_code=303)
 
     @app.post("/scanner/config/reset")
     async def scanner_config_reset():

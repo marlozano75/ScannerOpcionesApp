@@ -17,7 +17,7 @@
 </style>
 <div class="card cfg">
   <h2>Perfiles del Scanner</h2>
-  <p class="muted">Edita los perfiles <b>TPC (Mensual / Táctico)</b> y los valores que carga el perfil <b>Tastytrade</b>. Se guardan en la base de datos
+  <p class="muted">Edita los perfiles <b>TPC (Mensual / Táctico)</b>, los valores que carga el perfil <b>Tastytrade</b> y los iniciales del <b>modo Spread</b>. Se guardan en la base de datos
     y mandan sobre <code>config.yaml</code> hasta que pulses «Restaurar».
     <a href="/scanner">← Volver al Scanner</a></p>
   {% if ok %}<div class="banner ok">{{ ok }}</div>{% endif %}
@@ -49,6 +49,15 @@
     </div>
     </details>
     {% endfor %}
+    <details class="cfg-sec"><summary>Modo Spread · valores iniciales</summary>
+    <p class="note">Valores con los que arrancan las casillas del bloque «Spread» del Scanner (siguen siendo editables allí para cada consulta).
+      Se prueban todos los anchos; sale el mejor por put. El strike máximo solo afecta al modo «Ambos».</p>
+    <div class="cfg-grid">
+      {% for key, label, kind, value in spread_fields %}
+      <label>{{ label }}<input type="text" name="sp_{{ key }}" value="{{ '' if value is none else value }}" inputmode="decimal"></label>
+      {% endfor %}
+    </div>
+    </details>
     <div class="cfg-actions">
       <button>Guardar</button>
       <button type="submit" formaction="/scanner/config/reset" formnovalidate class="secondary"
