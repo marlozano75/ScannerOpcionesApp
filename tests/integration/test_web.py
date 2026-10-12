@@ -892,7 +892,7 @@ def test_scanner_spread_check_panel(client_and_service):
         page = client.get(BASE + "&mode=" + mode)
         assert "id=\"spread-box\"" in page.text and "/scanner/spread-check" in page.text
         frag = client.get("/scanner/spread-check?" + BASE.split("?")[1] + "&mode=" + mode)
-        assert frag.status_code == 200 and ("Resultado" in frag.text or "Ninguna put vendida" in frag.text)
+        assert frag.status_code == 200 and ("Resultado" in frag.text or "Ninguna put vendida" in frag.text or "no se descarta ninguna" in frag.text)
     assert "Solo en los modos" in client.get("/scanner/spread-check?" + BASE.split("?")[1]).text
 
 

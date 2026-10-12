@@ -1043,9 +1043,11 @@ def create_app(
         parsed = parse_scan(request.query_params)
         c = parsed["criteria"]
         if c is None or not c.spread_mode:
-            return render(request, "_spread_check.html", error=parsed["error"] or "Solo en los modos Spread y Ambos.", rows=[], columns=[], mixed=False)
-        rows = service.spread_check(c)
-        return render(request, "_spread_check.html", error=None, rows=rows[:SPREAD_CHECK_MAX], total=len(rows), columns=SPREAD_CHECK_COLUMNS, mixed=c.mixed)
+            return render(request, "_spread_check.html", error=parsed["error"] or "Solo en los modos Spread y Ambos.", rows=[], total=0, dropped=0, columns=[], mixed=False)
+        every = service.spread_check(c)
+        rows = [r for r in every if r.outcome == "no"]      # solo las que se descartan; las que salen ya están en la tabla de resultados
+        return render(request, "_spread_check.html", error=None, rows=rows[:SPREAD_CHECK_MAX], total=len(every), dropped=len(rows),
+                      columns=SPREAD_CHECK_COLUMNS, mixed=c.mixed)
 
     @app.get("/scanner", response_class=HTMLResponse)
     async def scanner(request: Request, debug: int = 0):
