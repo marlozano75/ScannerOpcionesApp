@@ -1,8 +1,8 @@
 {# Columnas de los resultados del scanner, agrupadas: subyacente (ticker, sector, precio), contrato (strike, descuento, DTE),
    yields, delta con la volatilidad, liquidez del contrato, calidad de la empresa y cartera.
-   «Yield anual» es la columna destacada (`hl`) y la que ordena por defecto. El vencimiento sale al pasar el ratón por el DTE. #}
+   «Yield anual» es la columna destacada (`hl`) y la que ordena por defecto. El vencimiento (día/mes) va junto al strike. #}
 {% macro head() -%}
-<th class="tk">Ticker</th><th class="txt">Sector</th><th>Precio</th><th>Strike</th><th data-nosort>Historial</th><th>Desc.</th><th>DTE</th>
+<th class="tk">Ticker</th><th class="txt">Sector</th><th>Precio</th><th>Strike</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort>Historial</th><th>Desc.</th><th>DTE</th>
 <th class="hl" data-sort-default="desc">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th>Yield bid anual</th>
 <th>Delta</th><th>IV</th><th>IV Rank</th><th>IV Pctl</th>
 <th>Spread</th><th>Bid size</th><th>OI</th><th>Liq. opc.</th><th title="Traders de la comunidad de Tortuga que han vendido puts o spreads de puts en este valor en los últimos 30 días (entre paréntesis, en los últimos 7). Informativo: los trades llegan con un día de retraso">Comunidad</th>
@@ -12,7 +12,7 @@
 
 {% macro cells(r, ymax=0, community={}) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
 <td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el historial de cierres frente al strike y el último toque">{{ c.ticker }}</a></td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
-<td>{{ c.strike|num }}</td><td class="mini"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el gráfico grande"><img loading="lazy" width="110" height="30" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ c.strike }}"></a></td><td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+<td>{{ c.strike|num }}</td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td><td class="mini"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el gráfico grande"><img loading="lazy" width="110" height="30" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ c.strike }}"></a></td><td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
 <td class="hl cb"{% if ymax and r.yield_ref_annualized_pct is not none %} style="--p:{{ (100 * r.yield_ref_annualized_pct / ymax)|round(0)|int }}%"{% endif %}>{{ r.yield_ref_annualized_pct|pct }}</td><td>{{ r.yield_ref_pct|pct }}</td><td>{{ r.yield_bid_annualized_pct|pct }}</td>
 <td>{{ s.delta|num }}</td><td>{{ (s.iv * 100)|pct if s.iv is not none else '—' }}</td><td class="cb"{% if s.iv_rank is not none %} style="--p:{{ s.iv_rank|round(0)|int }}%"{% endif %}>{{ s.iv_rank|pct(0) }}</td><td class="cb"{% if s.iv_percentile is not none %} style="--p:{{ s.iv_percentile|round(0)|int }}%"{% endif %}>{{ s.iv_percentile|pct(0) }}</td>
 <td>{{ s.spread_pct|pct }}</td><td>{{ s.bid_size if s.bid_size is not none else '—' }}</td><td>{{ s.open_interest if s.open_interest is not none else '—' }}</td>

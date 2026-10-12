@@ -411,13 +411,13 @@
     </div>
     {% if out and criteria and criteria.mixed %}
     <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results">
-      <tr><th class="tk">Ticker</th><th>Tipo</th><th>Precio</th><th>Strike(s)</th><th>Ancho</th><th>DTE</th><th>Crédito</th>
+      <tr><th class="tk">Ticker</th><th>Tipo</th><th>Precio</th><th>Strike(s)</th><th title="Vencimiento (día/mes)">Venc.</th><th>Ancho</th><th>DTE</th><th>Crédito</th>
         <th class="hl" data-sort-default="desc">Retorno anual s/ capital</th><th>Capital ($)</th><th>Peso NLV si asignado</th>
         <th>Delta vend.</th><th>IV Rank</th><th>Pérd. máx. ($)</th><th>Breakeven</th><th>Por qué spread</th></tr>
       {% for m in out.mixed %}{% set r = m.short %}{% set c = r.snapshot.contract %}{% set sp = m.spread %}
       <tr><td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}">{{ c.ticker }}</a></td>
         <td>{{ 'Spread' if sp else 'Put' }}</td><td>{{ r.info.underlying_price|num if r.info else '—' }}</td>
-        <td>{{ c.strike|num }}{% if sp %} / {{ sp.long.contract.strike|num }}{% endif %}</td><td>{{ sp.width|num if sp else '—' }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+        <td>{{ c.strike|num }}{% if sp %} / {{ sp.long.contract.strike|num }}{% endif %}</td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td><td>{{ sp.width|num if sp else '—' }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
         <td>{{ m.credit|num }}</td><td class="hl">{{ m.return_on_capital_annualized_pct|pct(0) }}</td>
         <td title="{{ 'Pérdida máxima' if sp else 'Margen what-if' }}">{{ m.capital|num(0) if m.capital is not none else '—' }}</td><td>{{ m.weight_pct|pct }}</td>
         <td>{{ r.snapshot.delta|num }}</td><td>{{ r.snapshot.iv_rank|pct(0) }}</td>
@@ -426,14 +426,14 @@
     </table></div>
     {% elif out and criteria and criteria.spread_mode %}
     <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results">
-      <tr><th class="tk">Ticker</th><th>Precio</th><th>Vendida</th><th>Comprada</th><th>Ancho</th><th>DTE</th>
+      <tr><th class="tk">Ticker</th><th>Precio</th><th>Vendida</th><th>Comprada</th><th title="Vencimiento (día/mes)">Venc.</th><th>Ancho</th><th>DTE</th>
         <th>Crédito</th><th>Crédito/ancho</th><th class="hl" data-sort-default="desc">Retorno/riesgo anual</th><th>Retorno/riesgo</th>
         <th>Pérd. máx. ($)</th><th>Breakeven</th><th>Dist. BE</th><th>Delta vend.</th><th>IV Rank</th>
         <th>OI comp.</th><th>Spread comp.</th><th>% cartera si asignado</th></tr>
       {% for sp in out.spreads %}{% set r = sp.short %}{% set c = r.snapshot.contract %}
       <tr><td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}">{{ c.ticker }}</a></td>
         <td>{{ r.info.underlying_price|num if r.info else '—' }}</td>
-        <td>{{ c.strike|num }}</td><td>{{ sp.long.contract.strike|num }}</td><td>{{ sp.width|num }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+        <td>{{ c.strike|num }}</td><td>{{ sp.long.contract.strike|num }}</td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td><td>{{ sp.width|num }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
         <td>{{ sp.credit|num }}</td><td>{{ sp.credit_width_pct|pct }}</td>
         <td class="hl">{{ sp.return_on_risk_annualized_pct|pct(0) }}</td><td>{{ sp.return_on_risk_pct|pct }}</td>
         <td>{{ sp.max_loss|num(0) }}</td><td>{{ sp.breakeven|num }}</td><td>{{ sp.breakeven_distance_pct|pct }}</td>
