@@ -856,7 +856,7 @@ def test_scanner_spread_mode_renders_and_validates(client_and_service):
     assert r.status_code == 200
     assert "Retorno/riesgo anual" in r.text and "Anchos 5, 10 $" in r.text and "spreads" in r.text
     # sin ningún valor de los límites (cambio de instrumento) quedan marcados los de config
-    assert "Crédito/ancho ≥ 25 %" in client.get(BASE + "&mode=spread&w=5").text
+    assert "Crédito/ancho ≥ 10 %" in client.get(BASE + "&mode=spread&w=5").text
     assert "Anchos 5 $" in client.get(BASE + "&mode=spread").text      # cambio de instrumento: anchos por defecto
     for bad in ("&mode=otro", "&mode=spread&cw=25", "&mode=spread&w=7&cw=25", "&mode=spread&w=5&use_cw=on&cw=150", "&mode=spread&w=5&use_mn=on&mn=abc"):
         assert "Parámetro no válido" in client.get(BASE + bad).text, bad

@@ -163,7 +163,7 @@ class SpreadSettings(_Model):
     ofrecidos (en $) y valores que aparecen en las cajas de los filtros del spread."""
     width_options: tuple[float, ...] = (1.0, 2.5, 5.0, 10.0)
     widths: tuple[float, ...] = (5.0,)               # anchos marcados por defecto
-    min_credit_width_pct: float = Field(25, gt=0, lt=100)    # crédito neto / ancho mínimo
+    min_credit_width_pct: float = Field(10, gt=0, lt=100)    # crédito neto / ancho mínimo
     # modo «Ambos»: la put desnuda solo se ofrece si cabe en estos límites; si no, sale el spread
     weight_options: tuple[float, ...] = (5.0, 10.0, 15.0)  # peso máximo (% del NLV) ofrecido en el formulario (TPC: techo del 15 % tras asignación)
     max_naked_weight_pct: float = Field(5, gt=0, le=100)   # peso máximo de la acción si te asignan (acciones + puts vendidas + esta)
