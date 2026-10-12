@@ -62,6 +62,17 @@ def test_several_widths_and_ranking_by_annualized_return_on_risk():
     assert ann == sorted(ann, reverse=True)
 
 
+def test_best_width_keeps_one_spread_per_short_put():
+    legs = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6), snap(80, 0.1, 0.15)]
+    both = scan(legs, spread_widths=(5.0, 10.0))
+    best = scan(legs, spread_widths=(5.0, 10.0), best_width=True)
+    shorts = [s.short.snapshot.contract.strike for s in best.spreads]
+    assert len(shorts) == len(set(shorts)) and len(best.spreads) < len(both.spreads)
+    top = {s.short.snapshot.contract.strike: s.return_on_risk_annualized_pct for s in both.spreads}
+    assert all(abs(s.return_on_risk_annualized_pct - max(x.return_on_risk_annualized_pct for x in both.spreads
+               if x.short.snapshot.contract.strike == s.short.snapshot.contract.strike)) < 1e-9 for s in best.spreads)
+
+
 # ---- modo «Ambos»: put desnuda si cabe en los límites, si no spread ------------------------------------------------
 from types import SimpleNamespace
 

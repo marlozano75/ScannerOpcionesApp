@@ -788,7 +788,7 @@ def create_app(
                     use_ivhv=False, ivhv=_fmt(st.min_iv_hv_ratio), use_ivchg=False, ivchg=_fmt(st.max_iv_change_5d),)
 
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
-        form.update(mode="put", widths=[_fmt(w) for w in sp.widths], width_options=[_fmt(w) for w in sp.width_options],
+        form.update(mode="put", best_width=False, widths=[_fmt(w) for w in sp.widths], width_options=[_fmt(w) for w in sp.width_options],
                     use_cw=True, cw=_fmt(sp.min_credit_width_pct),
                     use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_nw=True, nw=_fmt(sp.max_naked_weight_pct),
                     use_ns=True, ns=_fmt(sp.max_naked_strike), weight_options=[_fmt(w) for w in sp.weight_options])
@@ -802,6 +802,7 @@ def create_app(
                     raise ValueError("modo desconocido")
                 if any(key in qp for key in ("cw", "mn", "nw", "ns")):   # bloque visible: lo enviado manda (puede no haber ninguno)
                     form["widths"] = [w.strip() for w in qp.getlist("w")]
+                    form["best_width"] = "best_width" in qp
                 # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
                 # de instrumento) los límites conservan sus valores marcados por defecto
                 for shown_keys in (("cw", "mn"), ("nw", "ns")):
@@ -933,7 +934,7 @@ def create_app(
                     widths.append(value)
                 if not widths:
                     raise ValueError("marca al menos un ancho para el spread")
-                overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(widths))))
+                overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(widths))), best_width=bool(form["best_width"]))
                 for use, key, field_name, label, upper in (
                         ("use_cw", "cw", "min_credit_width_pct", "Crédito / ancho mín. (%)", 100),
                         ("use_mn", "mn", "max_loss_nlv_pct", "Pérdida máxima (% del NLV)", 100)):

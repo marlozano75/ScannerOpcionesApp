@@ -24,7 +24,7 @@ daily_update:
 
 scanner:
   spreads:                 # modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior)
-    width_options: [1, 2.5, 5, 10]          # anchos ofrecidos (strike vendido − comprado, en $)
+    width_options: [1, 2.5, 5, 10, 15, 20]        # anchos ofrecidos (strike vendido − comprado, en $)
     widths: [5]                             # anchos marcados por defecto
     min_credit_width_pct: 10                # crédito neto / ancho mínimo que propone la caja
     weight_options: [5, 10, 15]             # modo «Ambos»: pesos máximos sobre el NLV ofrecidos (TPC: techo del 15 % tras asignación)
@@ -64,7 +64,7 @@ scanner:
   catalog_margin_pct: 5    # puntos de más por arriba y por abajo que se GUARDAN (el rango cotizado sigue al precio)
   candidates:              # rango visible y cotizado, respecto al precio actual
     strike_below_pct_min: 5    # strikes desde un 5 % ... (la estrategia de venta de puts trabaja con deltas 0,20–0,30, cerca del precio)
-    strike_below_pct_max: 30   # ... hasta un 30 % por debajo del precio
+    strike_below_pct_max: 40   # ... hasta un 40 % por debajo del precio (las patas compradas de los spreads de ancho 15–20 $ caen más abajo)
     dte_min: 1
     dte_max: 45                # vencimientos hasta 45 días (la estrategia usa 30–45)
   price_reference:         # precio de venta con el que se calcula el yield

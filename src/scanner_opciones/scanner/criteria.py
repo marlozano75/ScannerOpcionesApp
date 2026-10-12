@@ -156,6 +156,7 @@ class ScanCriteria:
     # modo spread (ver scanner/spreads.py): put vendida (filtros de arriba) + put comprada `ancho` $ por debajo
     spread_mode: bool = False
     spread_widths: tuple[float, ...] = ()
+    best_width: bool = False                       # una sola fila por put vendida: el ancho con mejor retorno anualizado sobre riesgo
     min_credit_width_pct: Optional[float] = None   # crédito neto / ancho mínimo (%)
     max_spread_loss: Optional[float] = None        # pérdida máxima por spread en $
     min_return_on_risk_pct: Optional[float] = None  # crédito / pérdida máxima mínimo (%)

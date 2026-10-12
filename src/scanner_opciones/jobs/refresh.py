@@ -78,9 +78,10 @@ class RefreshJob:
         return [criteria_from_settings(self.settings), strategy_criteria(self.settings)]
 
     def _leg_scope(self, criteria: Sequence[ScanCriteria]) -> list[ScanCriteria]:
-        """Ventanas ampliadas hacia strikes más bajos (`catalog_margin_pct`) para cotizar las patas compradas de los spreads."""
-        margin = self.settings.scanner.catalog_margin_pct
-        return [c.with_filters(strike_below_pct_max=c.strike_below_pct_max + margin) for c in criteria] if margin else []
+        """Ventanas ampliadas hacia strikes más bajos, hasta el límite de lo guardado (`scanner.catalog`), para cotizar las
+        patas compradas de los spreads (con anchos de 15–20 $ caen mucho más abajo que la vendida)."""
+        limit = self.settings.scanner.catalog.strike_below_pct_max
+        return [c.with_filters(strike_below_pct_max=limit) for c in criteria if c.strike_below_pct_max < limit]
 
     @staticmethod
     def _in_scope(contract: OptionContract, info, criteria: Sequence[ScanCriteria], today) -> bool:

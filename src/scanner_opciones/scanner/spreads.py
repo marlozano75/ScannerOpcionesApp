@@ -134,4 +134,7 @@ def build_spreads(
                 breakeven, (price - breakeven) / price * 100 if price else None, impact.assignment_pct_of_portfolio,
             ))
     out.sort(key=lambda s: s.return_on_risk_annualized_pct, reverse=True)
+    if criteria.best_width:   # ya ordenado: el primero de cada put vendida es el de mayor retorno
+        seen: set[int] = set()
+        out = [s for s in out if not (id(s.short) in seen or seen.add(id(s.short)))]
     return out
