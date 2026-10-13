@@ -163,6 +163,11 @@ class TestSimulator:
         assert sum(r.after.weights_pct.values()) == pytest.approx(100)
         assert r.added_nominal == 8_000
 
+    def test_a_simulated_spread_counts_its_width_as_nominal(self):
+        c = OptionContract("JNJ", date(2026, 10, 30), 80)
+        r = simulate([], [SimulatedTrade(c, 2, "Health", 760.0, long_strike=75)], self.ACC, T, TODAY)
+        assert r.added_nominal == 1_000 and r.added_margin == 760   # ancho 5 × 100 × 2 contratos
+
     def test_margin_and_cushion_approximation(self):
         r = simulate([], [self.trade(margin=2_000), self.trade(strike=70, margin=1_000)], self.ACC, T, TODAY)
         assert r.added_margin == 3_000 and r.margin_complete and r.margin_is_approximate

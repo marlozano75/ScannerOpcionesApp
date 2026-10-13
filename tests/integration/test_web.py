@@ -903,3 +903,36 @@ def test_scanner_both_mode_renders_and_validates(client_and_service):
     assert r.status_code == 200 and "Retorno anual s/ capital" in r.text and "Put si strike ≤ 100" in r.text
     for bad in ("&mode=both&ns=100", "&mode=both&use_ns=on&ns=0", "&mode=both&use_ns=on&ns=abc", "&mode=both&use_ns=on&ns=100&use_mn=on&mn=500"):
         assert "Parámetro no válido" in client.get(BASE + bad).text, bad
+
+
+def _make_spread_possible(svc):
+    """Sube el precio de la put 80 para que 80/75 dé crédito (la comprada 75 queda a 1,0/1,2)."""
+    from dataclasses import replace
+    snap = next(s for s in svc.snapshots.all() if s.contract.strike == 80.0)
+    svc.snapshots.upsert(replace(snap, bid=3.0, ask=3.2, spread_pct=6.5))
+
+
+SPREAD_Q = "&use_rr=on&rr=0.1&use_mc=on&mc=1&min_yield=0.1&discount=1"
+
+
+def test_spread_and_both_tables_have_selection_charts_and_simulation(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    _make_spread_possible(svc)
+    for mode in ("spread", "both"):
+        r = client.get(BASE + f"&mode={mode}" + SPREAD_Q + "&use_ns=on&ns=1")
+        assert 'id="scan-results"' in r.text and 'name="sel" value="AAPL|' in r.text, mode
+        assert 'class="sortable sticky-tk with-sel"' in r.text and "/chart/mini.svg" in r.text and "Simular seleccionados" in r.text, mode
+        for col in ("Delta comp.", "Pérd. máx. ($)", "Pérd. máx. % NLV", "Breakeven", "Dist. BE", "OI comp.", "Delta vend.", "Cap. (B$)"):
+            assert f">{col}</th>" in r.text, (mode, col)
+        assert 'name="ml_AAPL|' in r.text and 'class="muted">C</span>' in r.text, mode
+
+
+def test_simulate_a_spread_adds_its_width_as_nominal_and_its_max_loss_as_margin(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    c = svc.contracts.list()[0]
+    key = f"AAPL|{c.expiry}|80.0|75.0"
+    r = client.post("/simulate", data={"sel": key, f"qty_{key}": "2", f"ml_{key}": "380"})
+    assert r.status_code == 200 and "spread 80.00 V / 75.00 C" in r.text
+    assert "760" in r.text                                                 # margen: pérdida máxima 380 × 2

@@ -5,9 +5,9 @@
 {% if result %}
 <div class="card">
   <h2>Contratos simulados (venta y asignación al strike)</h2>
-  <ul>{% for s in selected %}<li>{{ s.ticker }} {{ s.expiry }} · strike {{ s.strike|num }} · {{ s.quantity }} contrato(s)</li>{% endfor %}</ul>
+  <ul>{% for s in selected %}<li>{{ s.ticker }} {{ s.expiry }} · {% if s.long_strike is not none %}spread {{ s.strike|num }} V / {{ s.long_strike|num }} C{% else %}strike {{ s.strike|num }}{% endif %} · {{ s.quantity }} contrato(s)</li>{% endfor %}</ul>
   <p>Nominal añadido: <strong>{{ result.added_nominal|money }}</strong> ·
-     Margen inicial añadido (<em>aproximado</em>, suma de what-if): <strong>{{ result.added_margin|money }}</strong>
+     Margen inicial añadido (<em>aproximado</em>: suma de what-if; en un spread, su pérdida máxima): <strong>{{ result.added_margin|money }}</strong>
      {% if not result.margin_complete %}<span class="banner err">Falta el margen de algún contrato: el total está incompleto.</span>{% endif %}</p>
 </div>
 <div class="card">

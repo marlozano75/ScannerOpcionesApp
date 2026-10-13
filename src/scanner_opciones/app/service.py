@@ -71,6 +71,8 @@ class SelectedContract:
     expiry: date
     strike: float
     quantity: int = 1
+    long_strike: Optional[float] = None   # spread de puts: strike de la comprada
+    max_loss: Optional[float] = None      # spread: pérdida máxima por spread en $ (hace de margen)
 
 
 @dataclass
@@ -1265,6 +1267,12 @@ class AppService:
             snap = snaps.get((sel.ticker, sel.expiry, sel.strike))
             if snap is None:
                 raise ValueError(f"Contrato desconocido: {sel.ticker} {sel.expiry} {sel.strike}")
+            if sel.long_strike is not None:   # spread: el margen es su pérdida máxima (sin what-if)
+                width = (sel.strike - sel.long_strike) * snap.contract.multiplier
+                loss = sel.max_loss if sel.max_loss is not None and 0 < sel.max_loss <= width else width
+                info = infos.get(sel.ticker)
+                trades.append(SimulatedTrade(snap.contract, sel.quantity, info.sector if info else None, loss * sel.quantity, sel.long_strike))
+                continue
             margin = snap.initial_margin * sel.quantity if snap.initial_margin is not None else None
             if margin is None and self.state.connected:
                 try:

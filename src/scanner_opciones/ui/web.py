@@ -1155,9 +1155,12 @@ def create_app(
         form = await request.form()
         selected: list[SelectedContract] = []
         for raw in form.getlist("sel"):
-            ticker, expiry, strike = str(raw).split("|")
+            ticker, expiry, strike, *long_strike = str(raw).split("|")   # un spread añade el strike de la comprada
             qty = int(str(form.get(f"qty_{raw}", "1")) or 1)
-            selected.append(SelectedContract(ticker, date.fromisoformat(expiry), float(strike), max(1, qty)))
+            loss = str(form.get(f"ml_{raw}", ""))
+            selected.append(SelectedContract(
+                ticker, date.fromisoformat(expiry), float(strike), max(1, qty),
+                float(long_strike[0]) if long_strike else None, float(loss) if long_strike and loss else None))
         if not selected:
             return render(request, "simulation.html", no_autorefresh=True, result=None, selected=[], error="Selecciona al menos un contrato")
         try:

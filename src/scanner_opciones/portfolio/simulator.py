@@ -25,7 +25,8 @@ class SimulatedTrade:
     contract: OptionContract
     quantity: int                      # nº de contratos vendidos (> 0)
     sector: Optional[str] = None
-    initial_margin: Optional[float] = None   # margen what-if para `quantity` contratos
+    initial_margin: Optional[float] = None   # margen what-if para `quantity` contratos (spread: su pérdida máxima)
+    long_strike: Optional[float] = None      # spread: strike de la put comprada (el nominal es el ancho)
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,7 @@ def simulate(
     hypothetical = [
         Position(
             ticker=t.contract.ticker, quantity=-t.quantity, market_value=0.0,
-            sector=t.sector or NO_SECTOR, option=t.contract,
+            sector=t.sector or NO_SECTOR, option=t.contract, hedge_strike=t.long_strike,
         )
         for t in trades
     ]
