@@ -377,9 +377,9 @@ def test_load_rankedstocks_shows_every_column_and_row_with_its_source(client_and
     assert "RankedStocks_2026.10.01.xlsx: 1 fuente, 4 filas" in load_rank(client).text
     r = client.get("/universe?src=RankedStocks")
     for col in ("Ticker", "Fuente", "Empresa", "Sector", "Bolsa", "País", "Capitalización", "Precio", "RS", "Al", "En watchlist"):
-        assert f"<th>{col}</th>" in r.text
+        assert f">{col}</th>" in r.text
     assert "4 acciones" in r.text and "Delek US Holdings" in r.text and "$4.4B" in r.text
-    assert "<td>RankedStocks</td>" in r.text                                       # la fuente va en cada fila
+    assert ">RankedStocks</td>" in r.text                                       # la fuente va en cada fila
     assert 'name="sel" value="DK" checked' in r.text and "🇺🇸" not in r.text     # ticker limpio, sin bandera
     assert 'data-sort="4400000000.0"' in r.text                                   # ordena por valor, muestra el texto
     assert [s.name for s in svc.universe_sources] == ["RankedStocks"]
@@ -392,13 +392,13 @@ def test_hello_stocks_makes_one_source_per_tab_each_with_its_own_columns(client_
     assert [s.name for s in svc.universe_sources] == [LOWER, DEFENSIVE, VALUE]
     lower = client.get(f"/universe?src={LOWER}").text
     assert "<th>ROE</th>" in lower and "<th>Free Cash Flow (TTM)</th>" in lower and "<th>PE Ratio</th>" not in lower
-    assert f"<td>{LOWER}</td>" in lower and 'data-sort="10590000000.0"' in lower      # «$10.59 Billion»
+    assert f">{LOWER}</td>" in lower and 'data-sort="10590000000.0"' in lower      # «$10.59 Billion»
     assert "2026-07-07" in lower                                                      # la fecha de «Criteria»
     defensive = client.get(f"/universe?src={DEFENSIVE}").text
     assert "<th>PE Ratio</th>" in defensive and "<th>Dividend Yield</th>" in defensive and "<th>ROE</th>" not in defensive
     value = client.get(f"/universe?src={VALUE}").text                                  # sin cabecera: columnas deducidas
     for col in ("Revenue Growth (5Y)", "ROE", "Debt to Equity", "PB Ratio", "Dividend Yield"):
-        assert f"<th>{col}</th>" in value
+        assert f">{col}</th>" in value
 
 
 def test_all_view_has_one_row_per_ticker_with_every_source(client_and_service):
@@ -406,7 +406,7 @@ def test_all_view_has_one_row_per_ticker_with_every_source(client_and_service):
     load_rank(client)
     load_hello(client)
     r = client.get("/universe")
-    assert "<th>Fuentes</th>" in r.text and "<th>Nº fuentes</th>" in r.text
+    assert ">Fuentes</th>" in r.text and ">Nº fuentes</th>" in r.text
     ko = [row for row in r.text.split("<tr>") if 'value="KO"' in row]
     assert len(ko) == 1                                                                # KO está en 3 fuentes, una sola fila
     assert "RankedStocks" in ko[0] and LOWER in ko[0] and DEFENSIVE in ko[0] and 'data-sort="3.0"' in ko[0]
@@ -527,7 +527,7 @@ def test_a_newer_file_of_the_same_source_replaces_the_old_one_and_files_can_be_r
     for name in [s.name for s in svc.universe_sources if s.name != "RankedStocks"]:
         client.post("/universe/source/remove", data={"src": name, "scope": "all"})
     assert [s.name for s in svc.universe_sources] == ["RankedStocks"]
-    assert "<th>Fuentes</th>" in client.get("/universe?src=desconocida").text          # fuente desconocida: vista «Todas»
+    assert ">Fuentes</th>" in client.get("/universe?src=desconocida").text          # fuente desconocida: vista «Todas»
 
 
 def test_several_files_in_one_upload_and_bad_files_report_an_error(client_and_service):

@@ -123,7 +123,7 @@
   #viz-tip[hidden] { display:none; } #viz-tip strong { font-size:14px; } #viz-tip .t-l { opacity:.85; } #viz-tip span { opacity:.7; }
   /* explicaciones bajo demanda: la nota se oculta y un botón ⓘ la muestra (sin JS se ven siempre) */
   td.cb { background-image:linear-gradient(90deg, rgba(42,120,214,.20) var(--p,0%), transparent var(--p,0%)); }
-  .help-host { position:relative; }
+  .help-host { position:relative; } .fx-body.help-host { padding-top:30px; }   /* el botón «i» tiene su propia franja: no tapa la primera fila */
   .help-btn { position:absolute; top:6px; right:6px; z-index:2; width:22px; height:22px; padding:0; border-radius:50%; background:transparent;
               color:var(--mute); border:1px solid var(--line-strong); font-size:12px; line-height:1; font-weight:700; }
   .help-btn:hover { color:var(--ink); border-color:var(--accent); filter:none; } .help-btn[aria-expanded=true] { background:var(--accent); color:#fff; border-color:var(--accent); }
@@ -238,6 +238,27 @@
       b.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
     box.insertBefore(b, box.firstChild);
+  });
+})();
+/* Lo que abres no se cierra solo: la página se recarga (refresco automático de la actividad, datos nuevos del Scanner)
+   y los `<details>` sin su propio recuerdo y las explicaciones «i» abiertas se restauran desde sessionStorage. */
+(function () {
+  var KEY = 'ui-open:' + location.pathname;
+  var saved = {};
+  try { saved = JSON.parse(sessionStorage.getItem(KEY) || '{}'); } catch (e) { /* sin almacenamiento */ }
+  function store() { try { sessionStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) { /* idem */ } }
+  var own = 'details.fx:not(#sec-add), details.viz-box, details.qbar, details.source-info';   /* ya guardan su estado por su cuenta */
+  document.querySelectorAll('details').forEach(function (d, i) {
+    if (d.matches(own)) return;
+    var s = d.querySelector('summary'), k = 'd:' + (d.id || (s ? s.textContent.trim().slice(0, 40) : '') + '#' + i);
+    if (k in saved) d.open = saved[k];
+    d.addEventListener('toggle', function () { saved[k] = d.open; store(); });
+  });
+  document.querySelectorAll('.help-host').forEach(function (box, i) {
+    var k = 'h:' + (box.id || i), b = box.querySelector('.help-btn');
+    if (!b) return;
+    if (saved[k]) { box.classList.add('help-open'); b.setAttribute('aria-expanded', 'true'); }
+    b.addEventListener('click', function () { saved[k] = box.classList.contains('help-open'); store(); });
   });
 })();
 /* Tooltips de los gráficos: `data-tip="valor|etiqueta|detalle"`. También con el teclado. Los textos entran con textContent. */
