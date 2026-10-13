@@ -156,3 +156,21 @@ def test_strike_history_monthly_closes_and_last_touch():
     never = ta.strike_history(bars, 50.0, TODAY)
     assert never.touch is None and never.above == len(never.months) and never.history_days > 700
     assert ta.strike_history([], 85.0, TODAY).months == []
+
+
+def test_strike_history_includes_daily_smas_at_monthly_points():
+    bars = series([100] * 650 + [80] + [90] * 38 + [120] * 40)
+    h = ta.strike_history(bars, 85.0, TODAY, months=24)
+    closes = [px for _, px in bars]
+    assert h.sma50[-1] == (h.months[-1][0], ta.sma(closes, 50))
+    assert h.sma200[-1][1] == ta.sma(closes, 200)
+    short = ta.strike_history(bars[-120:], 85.0, TODAY)
+    assert short.sma50 and short.sma200 == []                              # menos de 200 sesiones: sin SMA200
+
+
+def test_strike_chart_draws_mas_and_summary():
+    from scanner_opciones.ui.charts import strike_chart_html
+    bars = series([100] * 650 + [80] + [90] * 38 + [120] * 40)
+    html = strike_chart_html(ta.strike_history(bars, 85.0, TODAY), "XYZ", 85.0, 5)
+    assert 'class="sh-ma ma50"' in html and 'class="sh-ma ma200"' in html and "data-ma=\"ma200\"" in html
+    assert "SMA200:" in html

@@ -109,6 +109,9 @@
   .sh-legend span::before { content:""; display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--c); margin-right:5px; vertical-align:-1px; }
   .sh-legend span.dash::before { width:16px; height:0; border-radius:0; background:none; border-top:2px dashed var(--c); vertical-align:3px; }
   .sh-legend span.ring::before { background:none; border:2px solid var(--c); }
+  .sh-tog { cursor:pointer; color:var(--c); font-weight:700; }
+  .sh-tog input { accent-color:var(--c); vertical-align:-2px; }
+  .sh-svg .sh-ma.off { display:none; }
   .sh-svg { width:100%; height:auto; color:var(--ink); display:block; }
   .fgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
   .fgrid .full { grid-column:1 / -1; }
@@ -530,8 +533,25 @@
       if (!dlg.open) dlg.showModal();
       fetch('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike))
         .then(function (r) { return r.text(); })
-        .then(function (html) { body.innerHTML = html; })
+        .then(function (html) { body.innerHTML = html; applyMa(); })
         .catch(function () { body.innerHTML = '<p class="muted">No se pudo cargar el gráfico.</p>'; });
+    });
+    // Medias del gráfico: casillas de la leyenda; lo elegido se recuerda en la sesión
+    const maOff = function () { try { return JSON.parse(sessionStorage.getItem('strike-ma-off') || '[]'); } catch (e) { return []; } };
+    function applyMa() {
+      const off = maOff();
+      body.querySelectorAll('input[data-ma]').forEach(function (c) {
+        c.checked = off.indexOf(c.dataset.ma) < 0;
+        body.querySelectorAll('.sh-ma.' + c.dataset.ma).forEach(function (g) { g.classList.toggle('off', !c.checked); });
+      });
+    }
+    body.addEventListener('change', function (e) {
+      const c = e.target.closest('input[data-ma]');
+      if (!c) return;
+      const off = maOff().filter(function (k) { return k !== c.dataset.ma; });
+      if (!c.checked) off.push(c.dataset.ma);
+      try { sessionStorage.setItem('strike-ma-off', JSON.stringify(off)); } catch (err) { /* sin almacenamiento */ }
+      applyMa();
     });
     document.getElementById('strike-close').addEventListener('click', function () { dlg.close(); });
     dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });   // clic fuera de la ventana

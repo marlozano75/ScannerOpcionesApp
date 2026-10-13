@@ -5,7 +5,7 @@ Todo son funciones puras sobre `Bars` = [(día, cierre), ...] en orden ascendent
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Optional, Sequence
 
@@ -236,6 +236,23 @@ class StrikeHistory:
     closest: Optional[tuple[date, float]]          # cierre mensual más cercano al strike
     touch: Optional[tuple[date, float, int]]       # último cierre diario en o por debajo del strike: (día, cierre, días)
     history_days: int                              # días de histórico disponibles (para «sin toques en N días»)
+    sma50: list[tuple[date, float]] = field(default_factory=list)    # SMA50 diaria en la fecha de cada punto mensual
+    sma200: list[tuple[date, float]] = field(default_factory=list)   # idem SMA200 (vacía si no hay 200 sesiones)
+
+
+def sma_at(bars: Bars, dates: Sequence[date], n: int) -> list[tuple[date, float]]:
+    """SMA de `n` cierres diarios calculada en cada fecha de `dates` (con los cierres hasta ese día incluido);
+    se omiten las fechas con menos de `n` cierres."""
+    prefix = [0.0]
+    for _, px in bars:
+        prefix.append(prefix[-1] + px)
+    out, j = [], 0
+    for d in dates:
+        while j < len(bars) and bars[j][0] <= d:
+            j += 1
+        if j >= n:
+            out.append((d, (prefix[j] - prefix[j - n]) / n))
+    return out
 
 
 def strike_history(bars: Bars, strike: float, today: date, months: int = 24) -> StrikeHistory:
@@ -249,7 +266,9 @@ def strike_history(bars: Bars, strike: float, today: date, months: int = 24) -> 
             touch = (d, px, (today - d).days)
             break
     span = (bars[-1][0] - bars[0][0]).days if bars else 0
-    return StrikeHistory(monthly, sum(1 for _, px in monthly if px > strike), closest, touch, span)
+    dates = [d for d, _ in monthly]
+    return StrikeHistory(monthly, sum(1 for _, px in monthly if px > strike), closest, touch, span,
+                         sma_at(bars, dates, 50), sma_at(bars, dates, 200))
 
 
 def days_since_touch(bars: Bars, strike: float, today: date) -> Optional[int]:

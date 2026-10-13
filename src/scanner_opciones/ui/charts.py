@@ -14,6 +14,7 @@ W, H = 760, 300
 LEFT, RIGHT, TOP, BOTTOM = 58, 22, 44, 34
 _MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 BLUE, RED, YELLOW, ORANGE = "#2f6fd1", "#d64545", "#d9a400", "#e87a1e"
+MA50, MA200 = "#8a5cd0", "#1f9d8a"
 
 
 def _usd(v: float) -> str:
@@ -74,9 +75,16 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
         touch_line = (f'<div class="sh-touch"><b>Sin toques del strike</b> · ningún cierre en o por debajo de {_usd(strike)} '
                       f'en los {h.history_days} días de histórico</div>')
 
+    mas = [(label, key, colour, series) for label, key, colour, series in
+           (("SMA50", "ma50", MA50, h.sma50), ("SMA200", "ma200", MA200, h.sma200)) if len(series) >= 2]
+    ma_bits = [f'{label}: {_usd(s[-1][1])} (precio {(current - s[-1][1]) / s[-1][1] * 100:+.1f}%)' for label, _, _, s in mas]
+    ma_line = f'<div class="sh-touch"><b>Medias</b> · {" · ".join(ma_bits)}</div>' if ma_bits else ""
+
     # escalas
     lo = min(strike, min(p for _, p in h.months), h.touch[1] if h.touch else strike)
     hi = max(strike, max(p for _, p in h.months))
+    for _, _, _, s in mas:
+        lo, hi = min(lo, min(v for _, v in s)), max(hi, max(v for _, v in s))
     pad = (hi - lo) * 0.1 or hi * 0.05
     lo, hi = lo - pad, hi + pad
     t0, t1 = h.months[0][0].toordinal(), h.months[-1][0].toordinal()
@@ -100,6 +108,11 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     line = _smooth(curve)
     g.append(f'<path d="{line} L{curve[-1][0]:.1f},{base_y} L{curve[0][0]:.1f},{base_y} Z" fill="{BLUE}" opacity=".10"/>')
     g.append(f'<path d="{line}" fill="none" stroke="{BLUE}" stroke-width="2.2"/>')
+    for label, key, colour, s in mas:                                  # medias móviles diarias (activables desde la leyenda)
+        mp = [(px_x(d), px_y(v)) for d, v in s]
+        g.append(f'<g class="sh-ma {key}"><path d="{_smooth(mp)}" fill="none" stroke="{colour}" stroke-width="1.4" opacity=".9"/>'
+                 f'<text x="{mp[-1][0] - 4:.1f}" y="{mp[-1][1] - 6:.1f}" text-anchor="end" font-size="10.5" font-weight="700" '
+                 f'fill="{colour}">{label} {_usd(s[-1][1])}</text></g>')
     g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{sy:.1f}" y2="{sy:.1f}" stroke="{RED}" stroke-width="1.6" stroke-dasharray="6 4"/>')
     g.append(f'<text x="{LEFT - 8}" y="{sy + 4:.1f}" text-anchor="end" font-size="11" font-weight="700" fill="{RED}">${strike:,.0f}</text>')
     for (d, p), (x, y) in zip(h.months, pts):                          # puntos: rojo ≤ strike, amarillo cerca, azul resto
@@ -120,10 +133,12 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
 
     legend = (f'<div class="sh-legend"><span style="--c:{BLUE}">Cierre mensual</span><span style="--c:{RED}" class="dash">Strike {_usd(strike)}</span>'
               f'<span style="--c:{YELLOW}">A menos de {near_pct:g}% del strike</span><span style="--c:{RED}">En o bajo el strike</span>'
-              f'<span style="--c:{ORANGE}" class="ring">Último toque (cierre diario)</span></div>')
+              f'<span style="--c:{ORANGE}" class="ring">Último toque (cierre diario)</span>'
+              + "".join(f'<label class="sh-tog" style="--c:{c}"><input type="checkbox" data-ma="{k}" checked> {lb}</label>' for lb, k, c, _ in mas)
+              + '</div>')
     svg = (f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="Cierres mensuales de {escape(ticker)} frente al strike" '
            f'class="sh-svg">{"".join(g)}</svg>')
-    return f'<div class="sh-wrap">{summary}{touch_line}{legend}{svg}</div>'
+    return f'<div class="sh-wrap">{summary}{touch_line}{ma_line}{legend}{svg}</div>'
 
 
 MW, MH = 110, 30
