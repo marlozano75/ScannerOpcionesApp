@@ -111,8 +111,8 @@ def test_the_identity_columns_come_first_and_are_not_repeated(client_and_service
     page = client.get(f"/universe?src={LOWER}").text
     header = page[page.index('id="universe-table"'):]
     header = header[:header.index("</tr>")]
-    order = [h for h in ("En watchlist", "Fuentes (nº)", "Ticker", "Empresa", "Sector", "EPS 12 m", "ROE") if f"{h}</th>" in header]
-    assert order == ["En watchlist", "Fuentes (nº)", "Ticker", "Empresa", "Sector", "EPS 12 m", "ROE"]
+    order = [h for h in ("Ticker", "En watchlist", "Fuentes (nº)", "Empresa", "Sector", "EPS 12 m", "ROE") if f"{h}</th>" in header]
+    assert order == ["Ticker", "En watchlist", "Fuentes (nº)", "Empresa", "Sector", "EPS 12 m", "ROE"]
     assert [header.index(f"{h}</th>") for h in order] == sorted(header.index(f"{h}</th>") for h in order)
     assert header.count("Sector</th>") == 1 and "Company</th>" not in header and "Ticker</th>" in header
     assert ">Adobe Inc</td>" in page and ">Technology</td>" in page

@@ -1,6 +1,7 @@
 """Interfaz web local (FastAPI + Jinja2). Sin lógica de negocio: solo llama al AppService."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import tempfile
 from urllib.parse import urlencode
@@ -548,6 +549,10 @@ def create_app(
     @app.get("/ideas", response_class=HTMLResponse)
     async def ideas(request: Request, solo: int = 0, venc: int = 0, trader: str = "", strategy: str = ""):
         data = service.community()
+        try:
+            await asyncio.wait_for(service.refresh_community_quotes(), timeout=30)
+        except Exception:
+            log.warning("Ideas: no se pudieron cotizar en directo", exc_info=True)
         everything = service.community_ideas() if data is not None else []
         views = [v for v in everything
                  if (venc or v.status != "expired") and (not solo or v.in_watchlist)

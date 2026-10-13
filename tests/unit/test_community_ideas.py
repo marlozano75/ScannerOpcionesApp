@@ -52,7 +52,7 @@ def test_without_a_stored_quote_the_idea_is_not_valued_and_says_why():
     outside = run(idea(), watch=())
     assert outside.status == NO_DATA and "no está en tu watchlist" in outside.text and not outside.in_watchlist
     inside = run(idea(), [])
-    assert inside.status == NO_DATA and "sin cotización guardada" in inside.text
+    assert inside.status == NO_DATA and "sin cotización de esas patas" in inside.text
     assert run(idea(), [snap("VZ", 42.0, 0.0, 0.2)]).status == NO_DATA                  # bid 0: no se puede vender
     assert run(idea(), [snap("VZ", 42.0, 1.0, 1.1)], price=None).status == VALID        # sin precio de hoy no se puede ver la caída
 

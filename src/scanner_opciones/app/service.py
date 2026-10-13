@@ -15,7 +15,7 @@ from scanner_opciones.config.settings import ScannerPreset, Settings, SpreadSett
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError, VolatilityError, WatchlistError
 from scanner_opciones.domain.models import (
-    AccountSummary, OptionContract, Position, RiskStatus, SectorExposure, VixData,
+    AccountSummary, ContractSnapshot, OptionContract, Position, RiskStatus, SectorExposure, VixData,
 )
 from scanner_opciones.app import portfolio_cache
 from scanner_opciones.jobs.contract_sync import ContractSyncer
@@ -138,6 +138,9 @@ class AppService:
         self._community: Optional[tuple[float, CommunityData]] = None    # (mtime del JSON, datos) de la comunidad de Tortuga
         self._community_error: Optional[str] = None
         self._community_syncing = False
+        # cotizaciones en directo de las ideas fuera de lo guardado: (hora, generated_at del JSON, snapshots, fichas, cierres)
+        self._community_live: Optional[tuple[datetime, str, dict, dict, dict]] = None
+        self._community_live_running = False
         self.manual_sources: dict[str, list[str]] = self._load_manual()   # fuentes con nombre: tickers escritos a mano
         self.source_excluded: dict[str, set[str]] = self._load_excluded()  # tickers quitados a mano de una fuente de fichero
         # aviso de los tickers recién sacados de la watchlist por inservibles (ticker -> motivo); solo en memoria
@@ -903,9 +906,92 @@ class AppService:
         watchlist = set(self.watchlist.list())
         snapshots = {snapshot_key(s.contract.ticker, s.contract.expiry, s.contract.strike): s
                      for t in sorted(tickers & watchlist) for s in self.snapshots.all(t) if s.contract.right is OptionRight.PUT}
+        infos, closes = self.ticker_info.all(), self.bars.all_closes(tickers & watchlist)
+        live = self._community_live
+        if live is not None and live[1] == data.generated_at.isoformat():
+            for key, snap in live[2].items():
+                snapshots.setdefault(key, snap)
+            for t, info in live[3].items():
+                if infos.get(t) is None or infos[t].underlying_price is None:
+                    infos[t] = info
+            for t, bars in live[4].items():
+                closes.setdefault(t, bars)
         ref = self.criteria()
-        return evaluate_ideas(data.ideas, self.now().date(), snapshots, self.ticker_info.all(), self.bars.all_closes(tickers & watchlist),
-                              watchlist, ref.price_reference, ref.price_spread_pct)
+        return evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct)
+
+    async def refresh_community_quotes(self, max_age_seconds: Optional[float] = 600) -> None:
+        """Cotiza en directo (tastytrade) las patas de las ideas que no están guardadas (tickers fuera de la watchlist, strikes o
+        vencimientos fuera del catálogo), más el precio y los cierres recientes de esos tickers, para poder valorarlas. Se guarda solo
+        en memoria. Con `max_age_seconds=None` solo repite si el JSON es otro. Un fallo del proveedor deja las ideas «sin valorar»."""
+        data = self.community()
+        provider = self.volatility
+        if (data is None or self._community_live_running or provider is None
+                or not all(hasattr(provider, m) for m in ("get_put_listing", "get_option_quotes", "get_prices", "get_daily_closes"))):
+            return
+        stamp, now = data.generated_at.isoformat(), self.now()
+        live = self._community_live
+        if live is not None and live[1] == stamp and (max_age_seconds is None or (now - live[0]).total_seconds() < max_age_seconds):
+            return
+        today = now.date()
+        watchlist = set(self.watchlist.list())
+        stored = {snapshot_key(s.contract.ticker, s.contract.expiry, s.contract.strike)
+                  for t in {i.ticker for i in data.ideas} & watchlist for s in self.snapshots.all(t) if s.contract.right is OptionRight.PUT}
+        legs: dict[str, set[tuple[date, float]]] = {}
+        for idea in data.ideas:
+            if idea.expiry < today:
+                continue
+            for strike in (idea.short_strike, idea.long_strike):
+                if strike is not None and snapshot_key(idea.ticker, idea.expiry, strike) not in stored:
+                    legs.setdefault(idea.ticker, set()).add((idea.expiry, round(float(strike), 4)))
+        if not legs:
+            self._community_live = (now, stamp, {}, {}, {})
+            return
+        self._community_live_running = True
+        try:
+            sem = asyncio.Semaphore(4)
+
+            async def listing(ticker: str) -> dict:
+                async with sem:
+                    try:
+                        return await provider.get_put_listing(ticker)
+                    except Exception as exc:
+                        log.info("Ideas: sin cadena de %s (%s)", ticker, exc)
+                        return {}
+
+            listings = dict(zip(legs, await asyncio.gather(*(listing(t) for t in legs))))
+            symbols: dict[str, tuple[str, date, float]] = {}
+            for ticker, wanted in legs.items():
+                for expiry, strike in wanted:
+                    sym = listings[ticker].get((expiry, round(strike, 2)))
+                    if sym:
+                        symbols[sym] = (ticker, expiry, strike)
+            snaps: dict = {}
+            try:
+                quotes = await provider.get_option_quotes(list(symbols)) if symbols else {}
+            except Exception as exc:
+                log.warning("Ideas: no se pudieron cotizar las patas: %s", exc)
+                quotes = {}
+            for sym, q in quotes.items():
+                ticker, expiry, strike = symbols[sym]
+                snaps[snapshot_key(ticker, expiry, strike)] = ContractSnapshot(
+                    OptionContract(ticker, expiry, strike), now, q.bid, q.ask, q.last, q.delta, q.iv, q.open_interest, bid_size=q.bid_size)
+            tickers = [t for t in legs if t not in watchlist]
+            infos: dict[str, TickerInfo] = {}
+            closes: dict = {}
+            if tickers:
+                try:
+                    infos = {t: TickerInfo(t, underlying_price=p, price_at=now) for t, p in (await provider.get_prices(tickers)).items()}
+                except Exception as exc:
+                    log.warning("Ideas: no se pudieron obtener los precios: %s", exc)
+                oldest = min((i.day for i in data.ideas if i.ticker in tickers), default=today)
+                try:
+                    closes = await provider.get_daily_closes(tickers, (today - oldest).days + 7)
+                except Exception as exc:
+                    log.warning("Ideas: no se pudieron obtener los cierres: %s", exc)
+            self._community_live = (now, stamp, snaps, infos, closes)
+            self.state.data_version += 1
+        finally:
+            self._community_live_running = False
 
     def community_stale(self) -> Optional[float]:
         """Horas desde que se generó el JSON si superan `community.stale_hours` (la rutina no ha corrido); None si está al día o no hay."""
@@ -935,6 +1021,10 @@ class AppService:
                 await self.sync_community_source()
             except Exception:
                 log.exception("No se pudo actualizar la fuente de la comunidad")
+            try:
+                await self.refresh_community_quotes(None)
+            except Exception:
+                log.exception("No se pudieron cotizar las ideas de la comunidad")
             finally:
                 self._community_syncing = False
 

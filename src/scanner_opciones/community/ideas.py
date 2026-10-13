@@ -89,7 +89,7 @@ def evaluate_idea(
     if move is not None and move <= -drop_warn_pct:
         return IdeaView(status=DROPPED, text=f"El subyacente ha caído {abs(move):.1f} % desde que se abrió: reevalúa antes de copiarla", **common)
     if premium is None:
-        why = "no está en tu watchlist" if idea.ticker not in watchlist else "sin cotización guardada de esas patas"
+        why = "sin cotización de esas patas" + ("" if idea.ticker in watchlist else " (no está en tu watchlist)")
         return IdeaView(status=NO_DATA, text=f"Sin valorar: {why}", **common)
     ratio = premium / idea.credit if idea.credit > 0 else None
     if ratio is not None and ratio < min_premium_ratio:

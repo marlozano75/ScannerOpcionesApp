@@ -116,9 +116,40 @@ def test_the_ideas_page_values_each_idea_with_todays_quote_and_filters(client_an
     object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
     page = client.get("/ideas").text
     assert '<a href="/ideas" class=active>Ideas</a>' in page.replace('class="active"', "class=active") and "Ideas de la comunidad de Tortuga" in page
-    assert "Vigente" in page and "Sin valorar: no está en tu watchlist" in page and "2 de 2 ideas · 1 vigentes" in page
+    assert "Vigente" in page and "Sin valorar: sin cotización de esas patas (no está en tu watchlist)" in page and "2 de 2 ideas · 1 vigentes" in page
     only = client.get("/ideas?solo=1").text
     assert "Vigente" in only and "ZZZ" not in only and "1 de 2 ideas" in only
     ana = client.get("/ideas?trader=Ana").text
     assert '<td class="txt">Ana</td>' in ana and '<td class="txt">Beto</td>' not in ana
     assert "Ninguna idea cumple los filtros" in client.get("/ideas?strategy=Bull+Put+Spread").text
+
+
+class LiveProvider:
+    """Cadena, cotizaciones, precios y cierres en memoria para un ticker fuera de la watchlist."""
+    async def get_put_listing(self, ticker):
+        from datetime import date
+        return {(date(2026, 11, 20), 30.0): "ZZZ  261120P00030000"} if ticker == "ZZZ" else {}
+
+    async def get_option_quotes(self, symbols):
+        from scanner_opciones.domain.models import OptionQuote
+        return {s: OptionQuote(bid=0.5, ask=0.6, delta=-0.12) for s in symbols}
+
+    async def get_prices(self, tickers):
+        return {t: 40.0 for t in tickers}
+
+    async def get_daily_closes(self, tickers, days):
+        from datetime import date
+        return {t: [(date(2026, 10, 9), 40.0)] for t in tickers}
+
+
+def test_ideas_outside_the_watchlist_are_valued_with_live_quotes(client_and_service, tmp_path):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    path = tmp_path / "tortuga.json"
+    write(path, ideas_payload(svc.contracts.list("AAPL")[0]))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
+    svc.volatility = LiveProvider()
+    page = client.get("/ideas").text
+    assert "Sin valorar: sin cotización de esas patas (no está en tu watchlist)" not in page
+    ideas = {v.idea.ticker: v for v in svc.community_ideas()}
+    assert ideas["ZZZ"].premium_now is not None and ideas["ZZZ"].delta_now == -0.12 and ideas["ZZZ"].price_now == 40.0
