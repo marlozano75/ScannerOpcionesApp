@@ -149,6 +149,7 @@
   .impact-box summary { cursor:pointer; font-weight:600; font-size:13px; }
   table.impact { border-collapse:collapse; font-size:13px; }
   table.impact th, table.impact td { padding:3px 10px 3px 0; text-align:left; white-space:nowrap; }
+  table.impact td:first-child { white-space:normal; max-width:440px; }   /* la configuración actual de un filtro largo salta de línea */
   table.impact .bar { display:inline-block; width:110px; height:8px; background:var(--line); border-radius:4px; vertical-align:middle; margin-right:6px; }
   table.impact .bar > span { display:block; height:100%; background:var(--accent); border-radius:4px; }
   .tag { font-size:11px; font-weight:600; padding:1px 7px; border-radius:999px; border:1px solid var(--line-strong); margin-right:4px; }

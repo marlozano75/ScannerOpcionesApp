@@ -62,6 +62,7 @@ class FilterImpact:
     label: str
     alone: int          # contratos de la ventana que pasan con solo este filtro
     exclusive: int      # contratos que descarta únicamente este filtro
+    config: str = ""    # su configuración actual en palabras («≥ 50», «entre 0,2 y 0,3»…)
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,68 @@ class ImpactReport:
 
 
 _SIGNAL_GROUPS = {"iv_hv", "iv_change", "rsi", "bollinger", "near_level"}   # con «al menos N señales» cuentan como un único grupo
+
+
+def _g(v: float) -> str:
+    return f"{v:g}".replace(".", ",")
+
+
+def _range(lo, hi, unit: str = "") -> str:
+    if lo is not None and hi is not None:
+        return f"entre {_g(lo)}{unit} y {_g(hi)}{unit}"
+    return f"≥ {_g(lo)}{unit}" if lo is not None else f"≤ {_g(hi)}{unit}"
+
+
+_SOLVENCY = {field: (op, label) for field, _, op, label in SOLVENCY_RULES}
+_MA_SIDE = {"above": "precio sobre", "below": "precio bajo", "gte": "≥", "lte": "≤", "up": "sube", "down": "baja"}
+_TREND = {"up": "alcista", "down": "bajista"}
+
+
+def describe_group(key: str, c: ScanCriteria) -> str:
+    """La configuración actual de un grupo de filtros, para mostrarla junto a su nombre."""
+    if key in _SOLVENCY:
+        op, label = _SOLVENCY[key]
+        return f"{label} {'≤' if op == 'max' else '≥'} {_g(getattr(c, key))}"
+    text = {
+        "yield": lambda: f"≥ {_g(c.min_yield_pct)} %",
+        "price": lambda: _range(c.min_price, c.max_price, " $"),
+        "bid": lambda: f"≥ {_g(c.min_bid)}",
+        "oi": lambda: f"≥ {c.min_oi}",
+        "bid_size": lambda: f"≥ {c.min_bid_size}",
+        "spread": lambda: f"≤ {_g(c.max_spread_pct)} %",
+        "iv_rank": lambda: f"≥ {_g(c.min_iv_rank)}",
+        "iv_pct": lambda: f"≥ {_g(c.min_iv_percentile)}",
+        "iv_hv": lambda: f"≥ {_g(c.min_iv_hv_ratio)}",
+        "iv_change": lambda: f"≤ {_g(c.max_iv_change_5d)} puntos",
+        "atr": lambda: f"strike a ≥ {_g(c.min_atr_multiple)} ATR",
+        "delta": lambda: "|Δ| " + _range(c.min_abs_delta, c.max_abs_delta),
+        "near_level": lambda: f"a ≤ {_g(c.near_level_pct)} % de la MA50 o del soporte",
+        "rsi": lambda: f"tocó ≤ {_g(c.rsi_rebound_max)} y sube",
+        "bollinger": lambda: f"%B ≤ {_g(c.max_bollinger_pctb)}",
+        "bollinger_width": lambda: f"ancho ≥ {_g(c.min_bollinger_width_pct)} %",
+        "profit": lambda: "EPS 12 meses > 0",
+        "quarters": lambda: f"≥ {c.min_positive_quarters} de 4",
+        "liquidity": lambda: f"≥ {c.min_option_liquidity}",
+        "earnings": lambda: "sin resultados entre hoy y el vencimiento",
+        "leverage": lambda: f"≤ {_g(c.max_liabilities_to_equity)}",
+        "fcf": lambda: "FCF 12 meses > 0",
+        "manageable": lambda: f"deuda/patrimonio ≤ {_g(c.manageable_max_de)} o cobertura ≥ {_g(c.manageable_min_cover)}×",
+        "trend": lambda: f"{_TREND.get(c.trend_direction, c.trend_direction)}, últimos {c.trend_window_months} meses",
+        "support": lambda: "con zona de soporte",
+        "touch": lambda: f"≥ {c.min_days_since_touch} días",
+    }.get(key)
+    if text is not None:
+        return text()
+    if key == "signals":
+        parts = [f"{label} {describe_group(k, c)}" for k, label, fields in _GROUPS if k in _SIGNAL_GROUPS
+                 and any(getattr(c, f) is not None for f in fields)]
+        return f"al menos {c.signals_required} de: " + "; ".join(parts)
+    if key == "averages":
+        names = {**{f: f.upper() for f in MA_LINES}, **{f: f"{a.upper()}/{b.upper()}" for f, (a, b) in MA_CROSSES.items()},
+                 **{f: f"pendiente {k.upper()}" for f, k in MA_SLOPES.items()}}
+        parts = [f"{names[f]} {_MA_SIDE.get(getattr(c, f), getattr(c, f))}" for f in names if getattr(c, f) != "any"]
+        return "; ".join(parts) + f" (velas {c.ma_frame})"
+    return ""
 
 
 def active_groups(criteria: ScanCriteria) -> list[tuple[str, str, dict]]:
@@ -132,7 +195,7 @@ def impact_report(
         alone = _passes(window, infos, neutral.with_filters(**{f: getattr(criteria, f) for f in fields}),
                         today, bars, technical, exempt_sectors, atr)
         without = _passes(window, infos, criteria.with_filters(**fields), today, bars, technical, exempt_sectors, atr)
-        rows.append(FilterImpact(key, label, len(alone), len(without) - len(final)))
+        rows.append(FilterImpact(key, label, len(alone), len(without) - len(final), describe_group(key, criteria)))
         alone_sets[key] = {(s.contract.ticker, s.contract.expiry, s.contract.strike) for s in alone}
     rows.sort(key=lambda r: (r.alone, -r.exclusive))
     conflicts: tuple[tuple[str, str], ...] = ()

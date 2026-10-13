@@ -13,7 +13,7 @@
   {% for f in report.filters %}
   {% set pct = (100 * f.alone / report.window) if report.window else 0 %}
   <tr data-key="{{ f.key }}" data-drop="{{ report.window - f.alone }}">
-    <td>{{ f.label }}</td>
+    <td>{{ f.label }}{% if f.config %} <span class="muted">· {{ f.config }}</span>{% endif %}</td>
     <td><span class="bar"><span style="width:{{ pct|round(0) }}%"></span></span> {{ f.alone }} <span class="muted">({{ pct|round(0)|int }} %)</span></td>
     <td>{{ f.exclusive }}</td>
     <td>{% if pct < 25 %}<span class="tag hard">muy restrictivo</span>{% elif pct < 60 %}<span class="tag mid">restrictivo</span>{% else %}<span class="tag soft">suave</span>{% endif %}

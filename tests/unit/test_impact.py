@@ -62,3 +62,16 @@ def test_nothing_passing_is_reported_with_zero_exclusive_for_every_filter():
     snaps = [snap(80, 50, 50)]
     r = report(snaps, min_oi=100, max_spread_pct=35)
     assert r.final == 0 and all(f.exclusive == 0 for f in r.filters)
+
+
+def test_each_filter_shows_its_current_configuration():
+    from scanner_opciones.scanner.impact import describe_group
+    c = criteria_from_settings(Settings()).with_filters(
+        min_iv_rank=50.0, min_abs_delta=None, max_abs_delta=0.3, min_oi=10, ma200="above", cmp_ema9_ema20="gte",
+        max_debt_to_equity=1.0, signals_required=2, rsi_rebound_max=35.0, min_iv_hv_ratio=1.2)
+    assert describe_group("iv_rank", c) == "≥ 50"
+    assert describe_group("delta", c) == "|Δ| ≤ 0,3"
+    assert describe_group("oi", c) == "≥ 10"
+    assert describe_group("averages", c) == "MA200 precio sobre; EMA9/EMA20 ≥ (velas daily)"
+    assert describe_group("max_debt_to_equity", c) == "deuda/patrimonio ≤ 1"
+    assert describe_group("signals", c) == "al menos 2 de: IV / HV30 mínimo ≥ 1,2; RSI rebotando desde el nivel de sobreventa tocó ≤ 35 y sube"
