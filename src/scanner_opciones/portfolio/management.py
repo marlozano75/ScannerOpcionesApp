@@ -99,12 +99,12 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         alerts.append(Alert("info", "En pérdida: recomprarla cuesta más que la prima cobrada."))
     if underlying is not None:
         if p.hedge_strike is not None and underlying <= p.hedge_strike:
-            alerts.append(Alert("warn", f"Pérdida máxima: el precio ({underlying:g}) está por debajo de la put comprada ({p.hedge_strike:g}); "
+            alerts.append(Alert("warn", f"Pérdida máxima: el precio ({underlying:.2f}) está por debajo de la put comprada ({p.hedge_strike:g}); "
                                         f"el spread ya vale su ancho ({o.strike - p.hedge_strike:g})."))
         elif underlying <= o.strike:
             todo = ("Método TPC: no se rola; si te asignan, reevalúa la tesis y valora vender calls." if tpc
                     else "Valora cerrar antes que esperar la asignación.")
-            alerts.append(Alert("warn", f"En el dinero: el precio ({underlying:g}) está por debajo del strike. {todo}"))
+            alerts.append(Alert("warn", f"En el dinero: el precio ({underlying:.2f}) está por debajo del strike. {todo}"))
         elif (underlying - o.strike) / underlying * 100 < cfg.near_strike_pct:
             alerts.append(Alert("info", f"El precio ({underlying:g}) está a menos de {cfg.near_strike_pct:g} % del strike."))
     return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts), p.hedge_strike,

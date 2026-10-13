@@ -85,7 +85,7 @@ def evaluate_idea(
     if premium is not None:
         common.update(premium_now=premium, yield_now_pct=premium / base * 100 if base > 0 else None, delta_now=short.delta)
     if price_now is not None and price_now <= idea.short_strike:
-        return IdeaView(status=ITM, text=f"En el dinero: el precio ({price_now:g}) ya está por debajo del strike vendido", **common)
+        return IdeaView(status=ITM, text=f"En el dinero: el precio ({price_now:.2f}) ya está por debajo del strike vendido", **common)
     if move is not None and move <= -drop_warn_pct:
         return IdeaView(status=DROPPED, text=f"El subyacente ha caído {abs(move):.1f} % desde que se abrió: reevalúa antes de copiarla", **common)
     if premium is None:
