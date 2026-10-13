@@ -919,7 +919,7 @@ class AppService:
         ref = self.criteria()
         return evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct)
 
-    async def refresh_community_quotes(self, max_age_seconds: Optional[float] = 600) -> None:
+    async def refresh_community_quotes(self, max_age_seconds: Optional[float] = 300) -> None:
         """Cotiza en directo (tastytrade) las patas de las ideas que no están guardadas (tickers fuera de la watchlist, strikes o
         vencimientos fuera del catálogo), más el precio y los cierres recientes de esos tickers, para poder valorarlas. Se guarda solo
         en memoria. Con `max_age_seconds=None` solo repite si el JSON es otro. Un fallo del proveedor deja las ideas «sin valorar»."""
