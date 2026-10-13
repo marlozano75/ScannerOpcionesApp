@@ -17,11 +17,30 @@ STRATEGY_NAME = "Tastytrade"
 
 
 @dataclass(frozen=True)
+class Criterion:
+    label: str                   # «Descuento», «DTE», «Yield»…
+    ok: Optional[bool]           # True cumple, False no cumple, None sin dato o no comparable
+    text: str                    # valor frente al límite, p. ej. «16,0 % (mín. 20 %)»
+
+
+@dataclass(frozen=True)
 class Fit:
     name: str
-    fits: bool                   # cumple todo lo que se pudo medir (y al menos descuento y DTE)
-    failed: tuple[str, ...]      # criterios medidos que no cumple
-    unknown: tuple[str, ...]     # criterios sin dato o no comparables
+    criteria: tuple[Criterion, ...]
+    core_known: bool = True      # se pudo medir al menos la distancia del strike
+
+    @property
+    def failed(self) -> tuple[str, ...]:
+        return tuple(f"{c.label} {c.text}" for c in self.criteria if c.ok is False)
+
+    @property
+    def unknown(self) -> tuple[str, ...]:
+        return tuple(c.label for c in self.criteria if c.ok is None)
+
+    @property
+    def fits(self) -> bool:
+        """Cumple todo lo que se pudo medir (y al menos el descuento)."""
+        return self.core_known and not self.failed
 
     @property
     def detail(self) -> str:
@@ -33,35 +52,32 @@ class Fit:
         return ". ".join(parts)
 
 
-def _check(failed: list[str], unknown: list[str], label: str, value: Optional[float], ok, shown: str) -> None:
-    if value is None:
-        unknown.append(label)
-    elif not ok(value):
-        failed.append(f"{label} {shown}")
+def _crit(label: str, value: Optional[float], ok, shown: str) -> Criterion:
+    return Criterion(label, None, "sin dato") if value is None else Criterion(label, bool(ok(value)), shown)
 
 
 def _fit(name: str, view, *, discount_min: float, dte_min: int, dte_max: Optional[int], yield_min: float,
          delta_min: Optional[float] = None, delta_max: Optional[float] = None,
          iv_rank_min: Optional[float] = None, iv_pct_min: Optional[float] = None) -> Fit:
-    failed: list[str] = []
-    unknown: list[str] = []
-    _check(failed, unknown, "descuento", view.otm_now_pct, lambda v: v >= discount_min, f"{view.otm_now_pct or 0:.1f} % (mín. {discount_min:g} %)")
+    out: list[Criterion] = []
+    d = view.otm_now_pct
+    out.append(_crit("Descuento", d, lambda v: v >= discount_min, f"{d or 0:.1f} % (mín. {discount_min:g} %)"))
     top = "" if dte_max is None else f"–{dte_max}"
-    if not (view.dte >= dte_min and (dte_max is None or view.dte <= dte_max)):
-        failed.append(f"DTE {view.dte} (rango {dte_min}{top})")
+    out.append(Criterion("DTE", dte_min <= view.dte and (dte_max is None or view.dte <= dte_max), f"{view.dte} (rango {dte_min}{top})"))
     if view.idea.long_strike is not None:
-        unknown.append("yield (en un spread es sobre el ancho)")
+        out.append(Criterion("Yield", None, "en un spread es sobre el ancho: no comparable"))
     else:
-        _check(failed, unknown, "yield", view.yield_now_pct, lambda v: v >= yield_min, f"{view.yield_now_pct or 0:.2f} % (mín. {yield_min:g} %)")
+        y = view.yield_now_pct
+        out.append(_crit("Yield", y, lambda v: v >= yield_min, f"{y or 0:.2f} % (mín. {yield_min:g} %)"))
     if delta_max is not None:
-        d = None if view.delta_now is None else abs(view.delta_now)
-        _check(failed, unknown, "delta", d, lambda v: v <= delta_max and (delta_min is None or v >= delta_min), f"{d or 0:.2f} (máx. {delta_max:g})")
+        dl = None if view.delta_now is None else abs(view.delta_now)
+        rng = f"máx. {delta_max:g}" if delta_min is None else f"{delta_min:g}–{delta_max:g}"
+        out.append(_crit("Delta", dl, lambda v: v <= delta_max and (delta_min is None or v >= delta_min), f"{dl or 0:.2f} ({rng})"))
     if iv_rank_min is not None:
-        _check(failed, unknown, "IV Rank", view.iv_rank, lambda v: v >= iv_rank_min, f"{view.iv_rank or 0:.0f} (mín. {iv_rank_min:g})")
+        out.append(_crit("IV Rank", view.iv_rank, lambda v: v >= iv_rank_min, f"{view.iv_rank or 0:.0f} (mín. {iv_rank_min:g})"))
     if iv_pct_min is not None:
-        _check(failed, unknown, "IV Percentile", view.iv_percentile, lambda v: v >= iv_pct_min, f"{view.iv_percentile or 0:.0f} (mín. {iv_pct_min:g})")
-    core_known = view.otm_now_pct is not None
-    return Fit(name, not failed and core_known, tuple(failed), tuple(unknown))
+        out.append(_crit("IV Percentile", view.iv_percentile, lambda v: v >= iv_pct_min, f"{view.iv_percentile or 0:.0f} (mín. {iv_pct_min:g})"))
+    return Fit(name, tuple(out), d is not None)
 
 
 def strategy_fits(view, presets: Sequence[ScannerPreset], strategy: StrategySettings) -> tuple[Fit, ...]:
