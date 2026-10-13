@@ -31,8 +31,9 @@
 <div class="card" id="gestion">
   <h2>Gestión de puts vendidas{% if mgmt.attention %} <span class="muted" style="font-weight:400">· {{ mgmt.attention }} aviso{{ '' if mgmt.attention == 1 else 's' }} importante{{ '' if mgmt.attention == 1 else 's' }}</span>{% endif %}</h2>
   {% if mgmt.puts %}
+  <div class="tscroll">
   <table class="sortable">
-    <tr><th>Ticker</th><th>Vencimiento</th><th>DTE</th><th>Strike</th><th>Contratos</th><th>Prima cobrada</th><th>Recomprar a</th><th>Capturado</th><th>Precio</th><th title="Cómo se gestiona esta put: Tastytrade (recoger al 50 %, revisar a 21 DTE) o TPC (mantener hasta el vencimiento, sin rolar)">Gestión</th><th>Avisos</th></tr>
+    <tr><th>Ticker</th><th>Vencimiento</th><th>DTE</th><th>Strike</th><th>Contratos</th><th>Prima cobrada</th><th>Recomprar a</th><th>Capturado</th><th>Precio</th><th title="Cómo se gestiona esta put: Tastytrade (recoger al 50 %, revisar a 21 DTE) o TPC (mantener hasta el vencimiento, sin rolar)">Gestión</th><th class="wrap">Avisos</th></tr>
     {% for s in mgmt.puts %}
     <tr><td><b>{{ s.ticker }}</b></td><td data-sort="{{ s.expiry.isoformat() }}">{{ s.expiry.strftime('%d/%m/%Y') }}</td><td>{{ s.dte }}</td><td{% if s.long_strike is not none %} data-sort="{{ s.strike }}" title="Spread: vendida {{ s.strike|num }} / comprada {{ s.long_strike|num }}"{% endif %}>{{ s.strike|num }}{% if s.long_strike is not none %}/{{ s.long_strike|num }} <span class="muted">spread</span>{% endif %}</td><td>{{ s.contracts }}</td>
       <td>{{ s.entry_credit|num if s.entry_credit is not none else '—' }}</td><td>{{ s.current_price|num if s.current_price is not none else '—' }}</td>
@@ -40,9 +41,10 @@
       <td>{{ s.underlying_price|num if s.underlying_price is not none else '—' }}</td>
       <td data-sort="{{ s.profile }}"><form method="post" action="/management/profile" style="margin:0"><input type="hidden" name="key" value="{{ s.key }}">
         <select name="profile" onchange="this.form.submit()" style="font-size:12px"><option value="tastytrade" {{ 'selected' if s.profile == 'tastytrade' }}>Tastytrade</option><option value="tpc" {{ 'selected' if s.profile == 'tpc' }}>TPC</option></select></form></td>
-      <td>{% for a in s.alerts %}<span class="mg {{ a.level }}">{{ a.text }}</span>{% else %}<span class="muted">—</span>{% endfor %}</td></tr>
+      <td class="wrap">{% for a in s.alerts %}<span class="mg {{ a.level }}">{{ a.text }}</span>{% else %}<span class="muted">—</span>{% endfor %}</td></tr>
     {% endfor %}
   </table>
+  </div>
   <h3 style="margin:14px 0 6px;font-size:14px">Peso por acción si te asignan</h3>
   <table class="sortable">
     <tr><th>Ticker</th><th>Contratos</th><th>Acciones que tienes</th><th>Compra si te asignan</th><th>Total</th><th>% del NLV</th></tr>

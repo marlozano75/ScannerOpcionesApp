@@ -26,12 +26,13 @@
     <span class="muted">{{ views|length }} de {{ total }} ideas · {{ valid }} vigentes</span>
   </form>
   {% if views %}
+  <div class="tscroll">
   <table class="sortable">
     <tr><th>Fecha</th><th class="txt">Trader</th><th>Ticker</th><th class="txt">Estrategia</th><th>Strike</th><th>Vence</th><th>DTE</th>
       <th title="Cierre del día de la apertura">Precio al abrir</th><th>Precio hoy</th><th title="Variación del subyacente desde la apertura">Var.</th>
       <th title="Distancia del strike vendido por debajo del precio">Desc. al abrir</th><th>Desc. hoy</th>
       <th title="Prima neta por acción que cobró">Prima al abrir</th><th title="Prima neta que se cobraría hoy con el precio de venta de referencia (en un spread, vendida − ask de la comprada)">Prima hoy</th>
-      <th title="Prima / strike (put) o / ancho (spread), sin anualizar">Yield hoy</th><th>Delta hoy</th><th class="txt">Estado</th></tr>
+      <th title="Prima / strike (put) o / ancho (spread), sin anualizar">Yield hoy</th><th>Delta hoy</th><th class="wrap">Estado</th></tr>
     {% for v in views %}{% set i = v.idea %}
     <tr><td data-sort="{{ i.day.isoformat() }}">{{ i.day.strftime('%d/%m') }}</td><td class="txt">{{ i.trader }}</td><td><b>{{ i.ticker }}</b>{% if not v.in_watchlist %} <span class="muted" title="No está en tu watchlist">·</span>{% endif %}</td>
       <td class="txt">{{ 'Put' if i.long_strike is none else 'Spread' }}</td>
@@ -42,9 +43,10 @@
       <td>{{ v.otm_open_pct|pct if v.otm_open_pct is not none else '—' }}</td><td>{{ v.otm_now_pct|pct if v.otm_now_pct is not none else '—' }}</td>
       <td>{{ i.credit|num }}</td><td>{{ v.premium_now|num if v.premium_now is not none else '—' }}</td>
       <td>{{ v.yield_now_pct|pct if v.yield_now_pct is not none else '—' }}</td><td>{{ v.delta_now|num if v.delta_now is not none else '—' }}</td>
-      <td class="txt idea-{{ v.status }}">{{ v.text }}</td></tr>
+      <td class="wrap idea-{{ v.status }}">{{ v.text }}</td></tr>
     {% endfor %}
   </table>
+  </div>
   {% else %}<p class="muted">Ninguna idea cumple los filtros.</p>{% endif %}
   {% endif %}
 </div>

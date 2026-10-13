@@ -35,6 +35,8 @@
   th:first-child, td:first-child { text-align:left; }
   th { color:var(--mute); font-weight:600; font-size:12px; }
   th.txt, td.txt { text-align:left; }   /* columnas de texto (las cifras van a la derecha) */
+  th.wrap, td.wrap { white-space:normal; text-align:left; min-width:230px; max-width:340px; vertical-align:top; line-height:1.35; }   /* texto largo (avisos, estado): salta de línea en vez de salirse de la tarjeta */
+  .tscroll { overflow-x:auto; }   /* tablas más anchas que la tarjeta: se desplazan dentro de ella */
   .scroll { overflow-x:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
   /* columna Ticker (y la casilla de selección) fijas al desplazar la tabla a la derecha */
   table.sticky-tk th.tk, table.sticky-tk td.tk, table.sticky-tk th.sel, table.sticky-tk td.sel
