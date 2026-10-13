@@ -3,6 +3,10 @@
 <style>
   .idea-valid { color:#1d6b3f; font-weight:600; } .idea-lower { color:#8a6d00; font-weight:600; }
   .idea-dropped, .idea-itm { color:#b3361b; font-weight:600; } .idea-no_data, .idea-expired { color:var(--mute); }
+  /* Ticker, Strike y Vence fijos al desplazar la tabla a la derecha (anchos fijos para calcular el desplazamiento de cada una) */
+  .tscroll table th.stk, .tscroll table td.stk { position:sticky; background:var(--panel); z-index:1; box-sizing:border-box; white-space:nowrap; }
+  .s1 { left:0; width:76px; min-width:76px; max-width:76px; } .s2 { left:76px; width:112px; min-width:112px; max-width:112px; }
+  .s3 { left:188px; width:98px; min-width:98px; max-width:98px; box-shadow:inset -1px 0 0 var(--line); }
   .fitcell { min-width:130px; line-height:1.7; } .fn { font-weight:700; margin-right:2px; } .fn-ok { color:#1d6b3f; }
   .fc { display:inline-block; padding:0 6px; border-radius:9px; font-size:11.5px; font-weight:600; white-space:nowrap; }
   .fc-ok { background:#dff3e6; color:#1d6b3f; } .fc-ko { background:#fbe3dd; color:#b3361b; } .fc-na { background:#eceff1; color:var(--mute); }
@@ -31,21 +35,20 @@
   {% if views %}
   <div class="tscroll">
   <table class="sortable">
-    <tr><th>Fecha</th><th class="txt">Trader</th><th>Ticker</th><th class="txt">Estrategia</th><th class="wrap">Estado</th>{% for n in fit_names %}<th class="wrap" title="Filtros de «{{ n }}» (con sus valores por defecto) que cumple hoy la idea sobre el total: en verde los que cumple, en rojo los que no y en gris los que no se pudo comprobar. No se evalúan los técnicos ni la calidad de la empresa.">{{ n }}<br><span class="muted" style="font-weight:400">filtros</span></th>{% endfor %}<th>Strike</th><th>Vence</th><th>DTE</th>
+    <tr><th class="stk s1">Ticker</th><th class="stk s2">Strike</th><th class="stk s3">Vence</th><th class="txt">Estrategia</th><th class="wrap">Estado</th>{% for n in fit_names %}<th class="wrap" title="Filtros de «{{ n }}» (con sus valores por defecto) que cumple hoy la idea sobre el total: en verde los que cumple, en rojo los que no y en gris los que no se pudo comprobar. No se evalúan los técnicos ni la calidad de la empresa.">{{ n }}<br><span class="muted" style="font-weight:400">filtros</span></th>{% endfor %}<th>Fecha</th><th class="txt">Trader</th><th>DTE</th>
       <th title="Cierre del día de la apertura">Precio al abrir</th><th>Precio hoy</th><th title="Variación del subyacente desde la apertura">Var.</th>
       <th title="Distancia del strike vendido por debajo del precio">Desc. al abrir</th><th>Desc. hoy</th>
       <th title="Prima neta por acción que cobró">Prima al abrir</th><th title="Prima neta que se cobraría hoy con el precio de venta de referencia (en un spread, vendida − ask de la comprada)">Prima hoy</th>
       <th title="Prima / strike (put) o / ancho (spread), sin anualizar">Yield hoy</th><th>Delta hoy</th></tr>
     {% for v in views %}{% set i = v.idea %}
-    <tr><td data-sort="{{ i.day.isoformat() }}">{{ i.day.strftime('%d/%m') }}</td><td class="txt">{{ i.trader }}</td><td><b>{{ i.ticker }}</b>{% if not v.in_watchlist %} <span class="muted" title="No está en tu watchlist">·</span>{% endif %}</td>
+    <tr><td class="stk s1"><b>{{ i.ticker }}</b>{% if not v.in_watchlist %} <span class="muted" title="No está en tu watchlist">·</span>{% endif %}</td><td class="stk s2" data-sort="{{ i.short_strike }}">{{ i.short_strike|num }}{% if i.long_strike is not none %}/{{ i.long_strike|num }}{% endif %}{% if i.contracts > 1 %} <span class="muted">×{{ i.contracts }}</span>{% endif %}</td><td class="stk s3" data-sort="{{ i.expiry.isoformat() }}">{{ i.expiry.strftime('%d/%m/%Y') }}</td>
       <td class="txt">{{ 'Put' if i.long_strike is none else 'Spread' }}</td><td class="wrap idea-{{ v.status }}">{{ v.text }}</td>
       {%- for n in fit_names %}{% set f = v.fits[loop.index0] if v.fits else none %}
       <td class="wrap fitcell"{% if f %} data-sort="{{ f.passed / f.total }}" title="{{ f.detail or 'Cumple todo lo medible' }}"{% endif %}>
         {%- if f %}<span class="fn{{ ' fn-ok' if f.fits }}">{{ f.passed }}/{{ f.total }}</span>
           {%- for c in f.criteria %} <span class="fc fc-{{ 'ok' if c.ok else 'ko' if c.ok is false else 'na' }}" title="{{ c.label }}: {{ c.text }}">{{ c.short }}</span>{% endfor %}
         {%- else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
-      <td data-sort="{{ i.short_strike }}">{{ i.short_strike|num }}{% if i.long_strike is not none %}/{{ i.long_strike|num }}{% endif %}{% if i.contracts > 1 %} <span class="muted">×{{ i.contracts }}</span>{% endif %}</td>
-      <td data-sort="{{ i.expiry.isoformat() }}">{{ i.expiry.strftime('%d/%m/%Y') }}</td><td>{{ v.dte }}</td>
+      <td data-sort="{{ i.day.isoformat() }}">{{ i.day.strftime('%d/%m') }}</td><td class="txt">{{ i.trader }}</td><td>{{ v.dte }}</td>
       <td>{{ v.price_open|num if v.price_open is not none else '—' }}</td><td>{{ v.price_now|num if v.price_now is not none else '—' }}</td>
       <td{% if v.move_pct is not none %} data-sort="{{ v.move_pct }}"{% endif %}>{{ v.move_pct|pct if v.move_pct is not none else '—' }}</td>
       <td>{{ v.otm_open_pct|pct if v.otm_open_pct is not none else '—' }}</td><td>{{ v.otm_now_pct|pct if v.otm_now_pct is not none else '—' }}</td>
