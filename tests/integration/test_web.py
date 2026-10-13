@@ -71,7 +71,7 @@ def test_scanner_defaults_from_config(client_and_service):
     for name, value in (("discount", "10"), ("dte_min", "1"), ("dte_max", "35"), ("min_yield", "1")):
         assert f'name="{name}"' in r.text and f'name="{name}" id="{name}" size="{6 if "d" in name[:1] and "dte" not in name else 5}" value="{value}"' in r.text.replace(
             'size="6" value', 'size="6" value').replace('size="5" value', 'size="5" value') or f'value="{value}"' in r.text
-    assert 'name="discount_max"' not in r.text and "30.0%" in r.text   # descuento máx. fijo = máx. del rango guardado
+    assert 'name="discount_max"' not in r.text and "–30.0 % por debajo" in r.text   # descuento máx. fijo = máx. del rango guardado
     opt = _optional_block(r.text)
     assert opt.count("checked") == 1 and 'name="use_bid" checked' in opt   # solo «Bid mínimo» empieza marcado
 
@@ -110,7 +110,7 @@ def test_discount_dte_and_yield_are_editable(client_and_service):
     assert "Ningún contrato cumple" in client.get(
         "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=50").text
     wide = client.get("/scanner?submitted=1&discount=15&dte_min=1&dte_max=60&min_yield=0.1")
-    assert "contratos cumplen" in wide.text and "yield del periodo ≥ 0.1%" in wide.text and "DTE 1–60" in wide.text
+    assert "contratos cumplen" in wide.text and "Yield periodo ≥ 0.1 %" in wide.text and "DTE 1–60" in wide.text
 
 
 def test_warning_when_outside_stored_range(client_and_service):
@@ -206,7 +206,7 @@ def test_price_reference_selector_defaults_and_columns(client_and_service):
     r = client.get("/scanner")
     assert 'name="ref"' in r.text and 'name="ref_x"' in r.text
     assert 'value="bid_plus_spread" selected' in r.text and 'name="ref_x" id="ref_x" size="5" value="25"' in r.text
-    assert "precio de venta: bid + 25% del spread" in r.text
+    assert "Precio de venta: bid + 25% del spread" in r.text
     # columnas agrupadas: ticker, sector y precio juntos; yields juntos (el anual destacado y orden por defecto); delta con la IV
     assert '<th class="tk">Ticker</th><th class="txt">Sector</th><th>Precio</th><th>Strike</th>' in r.text
     assert '<th class="hl" data-sort-default="desc">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th>Yield bid anual</th>' in r.text
@@ -216,9 +216,9 @@ def test_price_reference_selector_defaults_and_columns(client_and_service):
         assert f"<th>{gone}</th>" not in r.text
     assert 'id="ref_x_label" hidden' not in r.text                    # X visible con «Bid + X % del spread»
     mid = client.get(BASE + "&ref=mid&ref_x=25")
-    assert "precio de venta: mid (media bid/ask)" in mid.text and 'id="ref_x_label" hidden' in mid.text
+    assert "Precio de venta: mid (media bid/ask)" in mid.text and 'id="ref_x_label" hidden' in mid.text
     bid = client.get(BASE + "&ref=bid&ref_x=25")
-    assert "precio de venta: bid" in bid.text
+    assert "Precio de venta: bid" in bid.text
 
 
 def test_price_reference_changes_which_contracts_pass(client_and_service):
@@ -706,7 +706,7 @@ def test_last_price_filter_form(client_and_service):
     assert 'name="price_min"' in r.text and 'name="price_max"' in r.text
     out = client.get(base + "&price_min=20&price_max=150.5").text
     assert 'name="price_min" placeholder="Mín." value="20"' in out and 'value="150.5"' in out
-    assert "Aplicado" in out
+    assert "Base (" in out
     assert "Parámetro no válido" in client.get(base + "&price_min=200&price_max=100").text
     assert "Parámetro no válido" in client.get(base + "&price_min=abc").text
     assert "Parámetro no válido" in client.get(base + "&price_min=-5").text

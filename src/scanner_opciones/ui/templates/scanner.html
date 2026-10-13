@@ -147,6 +147,7 @@
   .chips { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; } .chips + .chips { margin-top:6px; }
   .chips .chips-lbl { font-size:12px; font-weight:600; color:var(--mute); min-width:98px; }
   .chips button.chip { font-size:12px; padding:3px 10px; font-weight:600; background:var(--field); color:var(--ink); }
+  .chips.base button.chip { background:color-mix(in srgb, var(--accent) 14%, var(--field)); border-color:var(--accent); color:var(--ink); }   /* el rango y el yield: la base de todo escaneo */
   .chips button.chip:hover { filter:none; border-color:var(--accent); }
   table.sc-check td.sc-ok, table.sc-check td.sc-bad { font-weight:600; }
   .sc-ok { color:#1a7f37; } .sc-bad { color:#b3361b; } .sc-na { color:#8a8f98; }
@@ -401,9 +402,13 @@
         <span>{{ 'filas (puts y spreads)' if criteria and criteria.mixed else 'spreads' if criteria and criteria.spread_mode else 'contratos' }} cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></span></div>
       {% endif %}
       {% if criteria %}
-      <p class="applied">Aplicado: strike entre {{ criteria.strike_below_pct_min|num(1) }}% y {{ criteria.strike_below_pct_max|num(1) }}% por debajo ·
-        yield del periodo ≥ {{ criteria.min_yield_pct|num(1) }}% (precio de venta: {{ ref_label }}) · DTE {{ criteria.dte_min }}–{{ criteria.dte_max }}
-        {% if report %}· última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados){% endif %}.</p>
+      {% set base = [('sec-contract', 'Strike ' ~ criteria.strike_below_pct_min|num(1) ~ '–' ~ criteria.strike_below_pct_max|num(1) ~ ' % por debajo'), ('sec-contract', 'DTE ' ~ criteria.dte_min ~ '–' ~ criteria.dte_max)] %}
+      {% if not criteria.spread_mode %}{% set _ = base.append(('sec-yield', 'Yield periodo ≥ ' ~ criteria.min_yield_pct|num(1) ~ ' %')) %}{% endif %}
+      {% set _ = base.append(('sec-yield', 'Precio de venta: ' ~ ref_label)) %}
+      <div class="chips base"><span class="chips-lbl">Base ({{ base|length }})</span>
+        {% for sec, text in base %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}
+        {% if report %}<span class="muted" style="font-size:12px">última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados)</span>{% endif %}</div>
+
       {% endif %}
       <div class="chips"><span class="chips-lbl">Activados ({{ chips|length }})</span>
         {% for sec, text in chips %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% else %}<span class="muted">ninguno</span>{% endfor %}</div>
