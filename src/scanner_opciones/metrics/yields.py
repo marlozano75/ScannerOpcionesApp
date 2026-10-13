@@ -19,7 +19,7 @@ def reference_price(
     bid: Optional[float], ask: Optional[float], mode: PriceReference, spread_pct: float = 25.0
 ) -> Optional[float]:
     """Precio de venta de referencia: bid, mid, o bid + X % del spread (X entre 0 y 100)."""
-    if mid_price(bid, ask) is None:   # cotización no válida
+    if mid_price(bid, ask) is None or bid <= 0:   # cotización no válida, o sin bid: no se puede vender y el ask no es un precio real
         return None
     if mode is PriceReference.BID:
         return bid

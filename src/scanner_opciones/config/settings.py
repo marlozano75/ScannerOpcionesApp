@@ -139,7 +139,6 @@ DEFAULT_PRESETS = (
 
 
 class FilterSettings(_Model):
-    min_bid: Optional[float] = Field(0.01, ge=0)   # bid mínimo en $: un bid de 0 no se puede vender (null = desactivado)
     min_oi: Optional[int] = Field(None, ge=0)
     min_bid_size: Optional[int] = Field(None, ge=0)
     max_spread_pct: Optional[float] = Field(None, ge=0)
@@ -150,7 +149,6 @@ class FilterSettings(_Model):
 class FilterValues(_Model):
     """Valores que aparecen en las cajas de los filtros opcionales aunque estén desmarcados
     (marcar el filtro los aplica). `scanner.filters` decide cuáles empiezan marcados."""
-    min_bid: float = Field(0.01, ge=0)
     min_oi: int = Field(100, ge=0)
     min_bid_size: int = Field(20, ge=0)
     max_spread_pct: float = Field(35, ge=0)
@@ -343,6 +341,9 @@ class StrategySettings(_Model):
 
 class ScannerSettings(_Model):
     price_reference: PriceReferenceSettings = PriceReferenceSettings()
+    # bid mínimo en $ que SIEMPRE se exige (no es un filtro opcional): con bid 0 nadie compra la put y el ask, a menudo irreal,
+    # inflaba el yield con el precio de referencia
+    min_bid: float = Field(0.01, gt=0)
     candidates: CandidateRange = CandidateRange()
     # puntos porcentuales que se guardan de más por encima y por debajo de `candidates` (en strikes): así el
     # rango cotizado puede seguir al precio del subyacente sin pedir contratos nuevos a cada oscilación

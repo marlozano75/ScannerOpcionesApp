@@ -73,7 +73,7 @@ def test_scanner_defaults_from_config(client_and_service):
             'size="6" value', 'size="6" value').replace('size="5" value', 'size="5" value') or f'value="{value}"' in r.text
     assert 'name="discount_max"' not in r.text and "–30.0 % por debajo" in r.text   # descuento máx. fijo = máx. del rango guardado
     opt = _optional_block(r.text)
-    assert opt.count("checked") == 1 and 'name="use_bid" checked' in opt   # solo «Bid mínimo» empieza marcado
+    assert opt.count("checked") == 0 and "name=\"use_bid\"" not in r.text   # ningún filtro opcional empieza marcado; el bid mínimo ya no es opcional
 
 
 def test_scanner_has_no_operation_selector(client_and_service):
@@ -613,9 +613,9 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
         box = form.split(f'name="{name}" id="{name}"')[1].split("</span>")[0]
         assert 'data-d="-1"' in box and 'data-d="1"' in box
     opt = _optional_block(html)
-    assert 'data-d=' not in opt and opt.count("checked") == 1 and 'name="use_bid" checked' in opt
+    assert 'data-d=' not in opt and opt.count("checked") == 0 and "name=\"use_bid\"" not in html
     # las cajas opcionales traen su valor por defecto aunque estén desmarcadas
-    for name, value in (("bid", "0.01"), ("oi", "100"), ("bidsize", "20"), ("spread", "35")):
+    for name, value in (("oi", "100"), ("bidsize", "20"), ("spread", "35")):
         assert f'<input name="{name}" value="{value}"' in opt
     iv = html.split('id="sec-iv"')[1].split("</details>")[0]          # IV Rank y Percentile viven en el grupo de volatilidad
     for name, value in (("ivr", "30"), ("ivp", "50"), ("delta_min", ""), ("delta_max", "0.3")):

@@ -26,7 +26,6 @@ from scanner_opciones.scanner.technical import TechnicalFilter
 _GROUPS: tuple[tuple[str, str, dict], ...] = (
     ("yield", "Yield mínimo del periodo", {"min_yield_pct": 0.0}),
     ("price", "Precio del subyacente", {"min_price": None, "max_price": None}),
-    ("bid", "Bid mínimo", {"min_bid": None}),
     ("oi", "OI mínimo", {"min_oi": None}),
     ("bid_size", "Bid size mínimo", {"min_bid_size": None}),
     ("spread", "Spread máximo", {"max_spread_pct": None}),
@@ -99,7 +98,6 @@ def describe_group(key: str, c: ScanCriteria) -> str:
     text = {
         "yield": lambda: f"≥ {_g(c.min_yield_pct)} %",
         "price": lambda: _range(c.min_price, c.max_price, " $"),
-        "bid": lambda: f"≥ {_g(c.min_bid)}",
         "oi": lambda: f"≥ {c.min_oi}",
         "bid_size": lambda: f"≥ {c.min_bid_size}",
         "spread": lambda: f"≤ {_g(c.max_spread_pct)} %",

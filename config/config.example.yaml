@@ -68,6 +68,7 @@ scanner:
     strike_below_pct_max: 40   # ... hasta un 40 % por debajo del precio (las patas compradas de los spreads de ancho 15–20 $ caen más abajo)
     dte_min: 1
     dte_max: 45                # vencimientos hasta 45 días (la estrategia usa 30–45)
+  min_bid: 0.01            # bid mínimo en $ que SIEMPRE se exige (no es un filtro opcional): con bid 0 la put no se puede vender y su ask infla el yield
   price_reference:         # precio de venta con el que se calcula el yield
     mode: bid_plus_spread      # bid | mid | bid_plus_spread
     spread_pct: 25             # X: % del spread sumado al bid (0 = bid, 50 = mid)
@@ -82,7 +83,6 @@ scanner:
     - { name: "Mensual (TPC)", strike_below_pct_min: 20, dte_min: 25, dte_max: 35, min_yield_pct: 1 }
     - { name: "Táctico (TPC)", strike_below_pct_min: 10, dte_min: 10, dte_max: 14, min_yield_pct: 1 }
   filters:                       # null = filtro desactivado
-    min_bid: 0.01                  # bid mínimo en $: un bid de 0 no se puede vender (y infla el yield con el precio mid)
     min_oi: null
     min_bid_size: null
     max_spread_pct: null
@@ -105,7 +105,6 @@ scanner:
     chart_near_pct: 5              # y % por encima del strike que se marca en amarillo (cerca del strike)
     touch_min_days_options: [10, 20, 30, 45, 60, 90, 120, 180, 252, 365]
   filter_values:                 # valores de las cajas de los filtros opcionales cuando están desmarcados
-    min_bid: 0.01
     min_oi: 100
     min_bid_size: 20
     max_spread_pct: 35

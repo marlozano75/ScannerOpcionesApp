@@ -254,7 +254,7 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
 # parámetros del formulario que controla la estrategia: el botón los sustituye y respeta todos los demás filtros
 STRATEGY_KEYS = frozenset((
     "discount", "dte_min", "dte_max", "min_yield", "use_delta", "delta_min", "delta_max", "use_near", "near_pct",
-    "use_ivr", "ivr", "use_ivp", "ivp", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_bid", "bid", "use_atr", "atr_mult", "use_rsi", "signals",
+    "use_ivr", "ivr", "use_ivp", "ivp", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_atr", "atr_mult", "use_rsi", "signals",
     "rsi_max", "use_boll", "boll_pctb", "use_bw", "boll_width", "ma200", "q_earn", "q_liq", "reset", "debug"))
 
 
@@ -362,7 +362,7 @@ def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
         "min_yield": _fmt(st.min_yield_pct), "use_delta": "on", "delta_max": _fmt(st.max_abs_delta),
         "use_near": "on", "near_pct": _fmt(st.near_level_pct),
         "use_ivr": "on", "ivr": _fmt(st.min_iv_rank), "use_ivp": "on", "ivp": _fmt(st.min_iv_percentile),
-        "use_bid": "on", "bid": _fmt(fv.min_bid), "signals": str(st.min_signals),
+        "signals": str(st.min_signals),
     }
     if st.min_abs_delta is not None:       # por defecto solo máximo: el mínimo de prima lo pone el yield
         params["delta_min"] = _fmt(st.min_abs_delta)
@@ -399,7 +399,7 @@ def preset_link(settings, preset, form: dict, current=None) -> tuple[str, bool]:
     params = {
         "submitted": "1", "discount": _fmt(preset.strike_below_pct_min), "dte_min": str(preset.dte_min),
         "dte_max": str(preset.dte_max if preset.dte_max is not None else cand.dte_max),
-        "min_yield": _fmt(preset.min_yield_pct), "use_bid": "on", "bid": _fmt(fv.min_bid),
+        "min_yield": _fmt(preset.min_yield_pct),
     }
     on = all(form.get(k) == params[k] for k in ("discount", "dte_min", "dte_max", "min_yield"))
     kept = {k: v for k, v in (current.items() if current is not None else ()) if k not in STRATEGY_KEYS} if current is not None and "submitted" in current else {}
@@ -841,7 +841,6 @@ def create_app(
         }
         tcfg = service.settings.scanner.technical
         optional = {
-            "bid": ("min_bid", float, base.min_bid),
             "oi": ("min_oi", int, base.min_oi),
             "bidsize": ("min_bid_size", int, base.min_bid_size),
             "spread": ("max_spread_pct", float, base.max_spread_pct),
@@ -849,7 +848,7 @@ def create_app(
             "ivp": ("min_iv_percentile", float, base.min_iv_percentile),
         }
         fv = service.settings.scanner.filter_values
-        shown = {"bid": fv.min_bid, "oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
+        shown = {"oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
                  "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile}
         for key, (_, _, cfg_value) in optional.items():   # estado inicial desde la configuración
             form[f"use_{key}"] = cfg_value is not None
