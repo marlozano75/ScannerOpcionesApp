@@ -197,6 +197,14 @@ class AppService:
             sources.append(Source(name, name, build_table(name, raw)))
         return sources
 
+    def ticker_lists(self) -> dict[str, list[str]]:
+        """{ticker: nombres de las fuentes del Universo (ficheros y manuales) en las que está}."""
+        out: dict[str, list[str]] = {}
+        for src in self.universe_sources:
+            for row in src.table.rows:
+                out.setdefault(row.ticker, []).append(src.name)
+        return out
+
     def _rename_legacy_community_source(self) -> None:
         """La fuente de los tickers diarios de la comunidad se llamaba «Tortuga»; ahora `community.source_name`."""
         cfg = self.settings.community

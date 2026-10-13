@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import tempfile
 from urllib.parse import urlencode
 from dataclasses import replace
@@ -64,6 +65,12 @@ def _x(v: Optional[float]) -> str:
 
 def _num(v: Optional[float], digits: int = 2) -> str:
     return "—" if v is None else f"{v:.{digits}f}"
+
+
+def source_initials(name: str) -> str:
+    """Iniciales de una fuente del Universo para las etiquetas de Ideas: «TortugaTrades_Dia» → TTD, «Quality Growth» → QG."""
+    words = re.findall(r"[A-Z][a-z0-9]*|[a-z0-9]+|[A-Z]+(?![a-z])", name.replace("_", " "))
+    return "".join(w[0] for w in words).upper()[:4] or name[:2].upper()
 
 
 def _grp(kind: str, title: str, items=(), note: str = "") -> str:
@@ -566,7 +573,7 @@ def create_app(
                       traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale(),
                       auto_reload=service.market.is_open(service.now()), message=message, groups=message_groups(message),
                       keys=[idea_key(v.idea) for v in views], perm_name=service.settings.community.perm_source_name,
-                      perm_tickers={clean_ticker(t) for t in service.manual_sources.get(service.settings.community.perm_source_name, [])})
+                      lists={t: [(source_initials(n), n) for n in names] for t, names in service.ticker_lists().items()})
 
     @app.post("/ideas/perm")
     async def ideas_perm(request: Request):

@@ -180,7 +180,7 @@ def test_ideas_marked_in_the_page_feed_the_permanent_source_with_trader_and_best
     key = idea_key(views["AAPL"].idea)
     assert f'value="{key}"' in client.get("/ideas").text
     page = client.post("/ideas/perm", data={"idea": [key]}, follow_redirects=True).text
-    assert "Añadidos a TortugaTrades_Perm" in page and "★" in page
+    assert "Añadidos a TortugaTrades_Perm" in page and ">TTP<" in page and ">W<" in page
     assert svc.manual_sources["TortugaTrades_Perm"] == ["AAPL"]
     best = max(views["AAPL"].fits, key=lambda f: (f.passed, f.passed / f.total))
     perm = svc.community_perm()["AAPL"]
