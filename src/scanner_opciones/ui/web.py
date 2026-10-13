@@ -561,7 +561,8 @@ def create_app(
         return render(request, "ideas.html", data=data, file_path=service.settings.community.path, views=views, total=len(everything),
                       fit_names=[p.name for p in service.settings.scanner.presets] + [STRATEGY_NAME],
                       valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, strategy=strategy,
-                      traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale())
+                      traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale(),
+                      auto_reload=service.market.is_open(service.now()))
 
     @app.post("/excluded/dismiss")
     async def excluded_dismiss():
