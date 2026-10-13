@@ -16,11 +16,18 @@ from scanner_opciones.config.settings import ScannerPreset, StrategySettings
 STRATEGY_NAME = "Tastytrade"
 
 
+SHORT = {"Descuento": "DES", "DTE": "DTE", "Yield": "YLD", "Delta": "DEL", "IV Rank": "IVR", "IV Percentile": "IVP"}
+
+
 @dataclass(frozen=True)
 class Criterion:
     label: str                   # «Descuento», «DTE», «Yield»…
     ok: Optional[bool]           # True cumple, False no cumple, None sin dato o no comparable
     text: str                    # valor frente al límite, p. ej. «16,0 % (mín. 20 %)»
+
+    @property
+    def short(self) -> str:
+        return SHORT.get(self.label, self.label[:3].upper())
 
 
 @dataclass(frozen=True)
@@ -28,6 +35,14 @@ class Fit:
     name: str
     criteria: tuple[Criterion, ...]
     core_known: bool = True      # se pudo medir al menos la distancia del strike
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for c in self.criteria if c.ok)
+
+    @property
+    def total(self) -> int:
+        return len(self.criteria)
 
     @property
     def failed(self) -> tuple[str, ...]:

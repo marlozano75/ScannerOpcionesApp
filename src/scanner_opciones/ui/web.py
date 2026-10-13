@@ -20,6 +20,7 @@ from scanner_opciones.app.service import SCANNER_USER_CONFIG, AppService, Select
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
+from scanner_opciones.community.fit import STRATEGY_NAME
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
@@ -558,6 +559,7 @@ def create_app(
                  if (venc or v.status != "expired") and (not solo or v.in_watchlist)
                  and (not trader or v.idea.trader == trader) and (not strategy or v.idea.strategy == strategy)]
         return render(request, "ideas.html", data=data, file_path=service.settings.community.path, views=views, total=len(everything),
+                      fit_names=[p.name for p in service.settings.scanner.presets] + [STRATEGY_NAME],
                       valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, strategy=strategy,
                       traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale())
 

@@ -3,8 +3,7 @@
 <style>
   .idea-valid { color:#1d6b3f; font-weight:600; } .idea-lower { color:#8a6d00; font-weight:600; }
   .idea-dropped, .idea-itm { color:#b3361b; font-weight:600; } .idea-no_data, .idea-expired { color:var(--mute); }
-  .fitcell { min-width:300px; }
-  .fit { margin:2px 0; line-height:1.7; } .fit b { margin-right:4px; }
+  .fitcell { min-width:130px; line-height:1.7; } .fn { font-weight:700; margin-right:2px; } .fn-ok { color:#1d6b3f; }
   .fc { display:inline-block; padding:0 6px; border-radius:9px; font-size:11.5px; font-weight:600; white-space:nowrap; }
   .fc-ok { background:#dff3e6; color:#1d6b3f; } .fc-ko { background:#fbe3dd; color:#b3361b; } .fc-na { background:#eceff1; color:var(--mute); }
   .ideas-bar { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin:0 0 10px; }
@@ -18,7 +17,7 @@
   <p class="muted" style="margin-top:0">Aperturas de <b>Short Put</b> y <b>Bull Put Spread</b> de los últimos días, generadas el
     {{ data.generated_at.strftime('%d/%m/%Y %H:%M') }}. Tortuga las publica <b>un día después</b> (IBKR Flex): cada idea se compara con el precio y
     las cotizaciones de hoy. El «precio al abrir» es el cierre del día de la apertura (aproximado). Son ideas de otros traders, no recomendaciones:
-    muchas son valores especulativos que no pasarían tus filtros de calidad. «Encaja en» indica qué perfiles del Scanner cumple hoy la idea (descuento, DTE, yield, delta e IV Rank con los valores por defecto de cada perfil); en verde lo que cumple, en rojo lo que no y en gris lo que no se pudo comprobar (pasa el ratón para ver el valor); los técnicos y la calidad no se evalúan.</p>
+    muchas son valores especulativos que no pasarían tus filtros de calidad. Las tres columnas de estrategia dicen cuántos filtros de cada perfil del Scanner cumple hoy la idea (con sus valores por defecto), con las iniciales de cada filtro: en verde los que cumple, en rojo los que no y en gris los que no se pudo comprobar (pasa el ratón para ver el valor). Los técnicos y la calidad de la empresa no se evalúan.</p>
   {% if stale %}<div class="banner err">Los datos tienen {{ (stale / 24)|round|int }} días: la rutina diaria no se ha ejecutado.</div>{% endif %}
   <form method="get" action="/ideas" class="ideas-bar">
     <label class="check"><input type="checkbox" name="solo" value="1" {{ 'checked' if solo }} onchange="this.form.submit()"> Solo tickers de mi watchlist</label>
@@ -32,7 +31,7 @@
   {% if views %}
   <div class="tscroll">
   <table class="sortable">
-    <tr><th>Fecha</th><th class="txt">Trader</th><th>Ticker</th><th class="txt">Estrategia</th><th class="wrap">Estado</th><th class="wrap" title="Los tres perfiles del Scanner con sus valores por defecto: en verde cada filtro que cumple hoy la idea, en rojo el que no y en gris el que no se pudo comprobar. No se evalúan los técnicos ni la calidad de la empresa.">Encaja en</th><th>Strike</th><th>Vence</th><th>DTE</th>
+    <tr><th>Fecha</th><th class="txt">Trader</th><th>Ticker</th><th class="txt">Estrategia</th><th class="wrap">Estado</th>{% for n in fit_names %}<th class="wrap" title="Filtros de «{{ n }}» (con sus valores por defecto) que cumple hoy la idea sobre el total: en verde los que cumple, en rojo los que no y en gris los que no se pudo comprobar. No se evalúan los técnicos ni la calidad de la empresa.">{{ n }}<br><span class="muted" style="font-weight:400">filtros</span></th>{% endfor %}<th>Strike</th><th>Vence</th><th>DTE</th>
       <th title="Cierre del día de la apertura">Precio al abrir</th><th>Precio hoy</th><th title="Variación del subyacente desde la apertura">Var.</th>
       <th title="Distancia del strike vendido por debajo del precio">Desc. al abrir</th><th>Desc. hoy</th>
       <th title="Prima neta por acción que cobró">Prima al abrir</th><th title="Prima neta que se cobraría hoy con el precio de venta de referencia (en un spread, vendida − ask de la comprada)">Prima hoy</th>
@@ -40,9 +39,11 @@
     {% for v in views %}{% set i = v.idea %}
     <tr><td data-sort="{{ i.day.isoformat() }}">{{ i.day.strftime('%d/%m') }}</td><td class="txt">{{ i.trader }}</td><td><b>{{ i.ticker }}</b>{% if not v.in_watchlist %} <span class="muted" title="No está en tu watchlist">·</span>{% endif %}</td>
       <td class="txt">{{ 'Put' if i.long_strike is none else 'Spread' }}</td><td class="wrap idea-{{ v.status }}">{{ v.text }}</td>
-      <td class="wrap fitcell">{% if not v.fits %}<span class="muted">—</span>{% endif %}
-        {%- for f in v.fits %}<div class="fit{{ ' fit-ok' if f.fits }}"><b>{{ '✓ ' if f.fits }}{{ f.name }}</b>
-          {%- for c in f.criteria %} <span class="fc fc-{{ 'ok' if c.ok else 'ko' if c.ok is false else 'na' }}" title="{{ c.label }}: {{ c.text }}">{{ c.label }}</span>{% endfor %}</div>{% endfor %}</td>
+      {%- for n in fit_names %}{% set f = v.fits[loop.index0] if v.fits else none %}
+      <td class="wrap fitcell"{% if f %} data-sort="{{ f.passed / f.total }}" title="{{ f.detail or 'Cumple todo lo medible' }}"{% endif %}>
+        {%- if f %}<span class="fn{{ ' fn-ok' if f.fits }}">{{ f.passed }}/{{ f.total }}</span>
+          {%- for c in f.criteria %} <span class="fc fc-{{ 'ok' if c.ok else 'ko' if c.ok is false else 'na' }}" title="{{ c.label }}: {{ c.text }}">{{ c.short }}</span>{% endfor %}
+        {%- else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
       <td data-sort="{{ i.short_strike }}">{{ i.short_strike|num }}{% if i.long_strike is not none %}/{{ i.long_strike|num }}{% endif %}{% if i.contracts > 1 %} <span class="muted">×{{ i.contracts }}</span>{% endif %}</td>
       <td data-sort="{{ i.expiry.isoformat() }}">{{ i.expiry.strftime('%d/%m/%Y') }}</td><td>{{ v.dte }}</td>
       <td>{{ v.price_open|num if v.price_open is not none else '—' }}</td><td>{{ v.price_now|num if v.price_now is not none else '—' }}</td>
