@@ -434,8 +434,8 @@
     <form method="post" action="/simulate" class="table-form">
       <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
         <tr><th class="sel"></th>{{ cols.lead_head() }}<th>Tipo</th><th>Vendida</th><th>Comprada</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort>Historial</th><th>Desc.</th><th>DTE</th>
-          <th>Ancho</th><th>Crédito</th><th class="hl" data-sort-default="desc">Retorno anual s/ capital</th><th>Capital ($)</th><th>Peso NLV si asignado</th>
-          <th>Pérd. máx. ($)</th><th title="Pérdida máxima como % del NLV">Pérd. máx. % NLV</th><th>Breakeven</th><th>Dist. BE</th>{{ cols.vol_head(true) }}<th>Delta comp.</th><th>OI comp.</th><th>Spread comp.</th><th>Por qué spread</th><th data-nosort>Cant.</th></tr>
+          <th>Ancho</th><th>Crédito</th><th class="hl" data-sort-default="desc">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th>Capital ($)</th><th>Peso NLV si asignado</th>
+          <th>Pérd. máx. ($)</th><th title="Pérdida máxima como % del NLV">Pérd. máx. % NLV</th><th>Breakeven</th><th>Dist. BE</th>{{ cols.extra_head() }}<th>Por qué spread</th><th data-nosort>Cant.</th></tr>
         {% for m in out.mixed %}{% set r = m.short %}{% set c = r.snapshot.contract %}{% set sp = m.spread %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ ('|' ~ sp.long.contract.strike if sp else '') %}
           {% set be = sp.breakeven if sp else c.strike - m.credit %}{% set px = r.info.underlying_price if r.info else none %}
@@ -447,10 +447,10 @@
             <td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ cols.mini_cell(r) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
             <td>{{ sp.width|num if sp else '—' }}</td><td>{{ m.credit|num }}</td>
             <td class="hl cb"{% if rmax and m.return_on_capital_annualized_pct is not none %} style="--p:{{ (100 * m.return_on_capital_annualized_pct / rmax)|round(0)|int }}%"{% endif %}>{{ m.return_on_capital_annualized_pct|pct(0) }}</td>
+            {{ cols.mkt_cells(r, sp.long if sp else none) }}
             <td title="{{ 'Pérdida máxima' if sp else 'Margen what-if' }}">{{ m.capital|num(0) if m.capital is not none else '—' }}</td><td>{{ m.weight_pct|pct }}</td>
             <td>{{ sp.max_loss|num(0) if sp else '—' }}</td><td>{{ (sp.max_loss / nlv_usd * 100)|pct if sp and nlv_usd else '—' }}</td><td>{{ be|num }}</td><td>{{ ((px - be) / px * 100)|pct if px else '—' }}</td>
-            {{ cols.vol_cells(r, community) }}
-            {% if sp %}{{ cols.spread_long_cells(sp) }}{% else %}<td>—</td><td>—</td><td>—</td>{% endif %}
+            {{ cols.extra_cells(r, community) }}
             <td class="txt muted">{{ m.why_spread }}</td>
             <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px">{% if sp %}<input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}">{% endif %}</td></tr>
         {% else %}<tr><td colspan="60" class="muted empty">Nada cumple los criterios.</td></tr>{% endfor %}

@@ -925,6 +925,10 @@ def test_spread_and_both_tables_have_selection_charts_and_simulation(client_and_
         assert 'class="sortable sticky-tk with-sel"' in r.text and "/chart/mini.svg" in r.text and "Simular seleccionados" in r.text, mode
         for col in ("Delta comp.", "Pérd. máx. ($)", "Pérd. máx. % NLV", "Breakeven", "Dist. BE", "OI comp.", "Delta vend.", "Cap. (B$)"):
             assert f">{col}</th>" in r.text, (mode, col)
+        head = r.text[r.text.index('id="scan-results"'):]
+        head = head[:head.index("</tr>")]
+        order = [head.index(f">{h}</th>") for h in ("Delta vend.", "Delta comp.", "IV", "IV Rank", "Spread vend.", "OI vend.", "OI comp.", "Liq. opc.")]
+        assert order == sorted(order) and head.index("Retorno anual s/ capital" if mode == "both" else "Retorno/riesgo anual") < order[0] < head.index("Breakeven"), mode   # mercado junto al retorno
         assert 'name="ml_AAPL|' in r.text and 'class="muted">C</span>' in r.text, mode
 
 
