@@ -20,6 +20,12 @@ EXPIRED, NO_DATA, ITM, DROPPED, LOWER, VALID = "expired", "no_data", "itm", "dro
 SNAPSHOT_KEY = tuple[str, date, float]
 
 
+def idea_key(idea: CommunityIdea) -> str:
+    """Identificador estable de una idea (para marcarla en la tabla y volver a encontrarla al enviar el formulario)."""
+    long = "" if idea.long_strike is None else f"{idea.long_strike:g}"
+    return f"{idea.ticker}|{idea.trader}|{idea.day.isoformat()}|{idea.expiry.isoformat()}|{idea.short_strike:g}|{long}"
+
+
 def snapshot_key(ticker: str, expiry: date, strike: float) -> SNAPSHOT_KEY:
     return ticker, expiry, round(float(strike), 4)
 

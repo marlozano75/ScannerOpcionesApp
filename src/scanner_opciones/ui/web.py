@@ -20,7 +20,9 @@ from scanner_opciones.app.service import SCANNER_USER_CONFIG, AppService, Select
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
+from scanner_opciones.rankedstocks.loader import clean_ticker
 from scanner_opciones.community.fit import STRATEGY_NAME
+from scanner_opciones.community.ideas import idea_key
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
@@ -548,7 +550,7 @@ def create_app(
 
     # ---- ideas de la comunidad ---------------------------------------------------------------
     @app.get("/ideas", response_class=HTMLResponse)
-    async def ideas(request: Request, solo: int = 0, venc: int = 0, trader: str = "", strategy: str = ""):
+    async def ideas(request: Request, solo: int = 0, venc: int = 0, trader: str = "", strategy: str = "", message: str = ""):
         data = service.community()
         try:
             await asyncio.wait_for(service.refresh_community_quotes(), timeout=30)
@@ -562,7 +564,33 @@ def create_app(
                       fit_names=[p.name for p in service.settings.scanner.presets] + [STRATEGY_NAME],
                       valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, strategy=strategy,
                       traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale(),
-                      auto_reload=service.market.is_open(service.now()))
+                      auto_reload=service.market.is_open(service.now()), message=message, groups=message_groups(message),
+                      keys=[idea_key(v.idea) for v in views], perm_name=service.settings.community.perm_source_name,
+                      perm_tickers={clean_ticker(t) for t in service.manual_sources.get(service.settings.community.perm_source_name, [])})
+
+    @app.post("/ideas/perm")
+    async def ideas_perm(request: Request):
+        """Añade a la fuente permanente del Universo los tickers de las ideas marcadas (con su trader y su mejor estrategia)."""
+        form = await request.form()
+        back = {k: str(form.get(k)) for k in ("solo", "venc", "trader", "strategy") if form.get(k)}
+        try:
+            res = await service.add_community_perm([str(k) for k in form.getlist("idea")])
+        except WatchlistError as exc:
+            msg = _grp("err", "Error", [], str(exc))
+        else:
+            name, parts = res["source"], []
+            if res["added"]:
+                parts.append(_grp("ok", f"Añadidos a {name}", [f"{t} · {res['perm'][t]['strategy']} {res['perm'][t]['passed']}/{res['perm'][t]['total']}"
+                                                             if res["perm"].get(t, {}).get("strategy") else t for t in res["added"]]))
+            if res["already"]:
+                parts.append(_grp("skip", "Ya estaban (trader y estrategia actualizados)", list(res["already"])))
+            if res["no_options"]:
+                parts.append(_grp("warn", "Sin opciones (no añadidos)", res["no_options"]))
+            if not res["checked"] and res["added"]:
+                parts.append(_grp("warn", "Aviso", [], "no se pudo comprobar si tienen opciones"))
+            msg = "\n".join(parts) or _grp("skip", "Nada que añadir", [], "")
+            remembered.pop("universe", None)
+        return RedirectResponse(f"/ideas?{urlencode({**back, 'message': msg})}", status_code=303)
 
     @app.post("/excluded/dismiss")
     async def excluded_dismiss():

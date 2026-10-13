@@ -27,7 +27,7 @@ from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_e
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.community.data import CommunityData, CommunityError, load_community
 from scanner_opciones.community.fit import strategy_fits
-from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, snapshot_key
+from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, snapshot_key
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES
 from scanner_opciones.portfolio.spreads import with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
@@ -58,6 +58,7 @@ LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco 
 EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos): ya no se usa, se vacía al arrancar
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
+COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
 KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
@@ -143,6 +144,7 @@ class AppService:
         self._community_live: Optional[tuple[datetime, str, dict, dict, dict]] = None
         self._community_live_running = False
         self.manual_sources: dict[str, list[str]] = self._load_manual()   # fuentes con nombre: tickers escritos a mano
+        self._rename_legacy_community_source()
         self.source_excluded: dict[str, set[str]] = self._load_excluded()  # tickers quitados a mano de una fuente de fichero
         # aviso de los tickers recién sacados de la watchlist por inservibles (ticker -> motivo); solo en memoria
         self.excluded_notice: dict[str, str] = {}
@@ -180,11 +182,60 @@ class AppService:
                         continue
                     src = replace(src, table=replace(src.table, rows=rows))
                 sources.append(src)
+        perm_name, perm = self.settings.community.perm_source_name, self.community_perm()
         for name, tickers in self.manual_sources.items():
-            if tickers:
+            if not tickers:
+                continue
+            if name == perm_name:      # la fuente permanente lleva además el trader y la estrategia que más filtros cumplía
+                raw = [["Ticker", SOURCE_COLUMN, "Trader", "Estrategia", "Filtros"]]
+                for t in tickers:
+                    p = perm.get(t, {})
+                    raw.append([t, name, ", ".join(p.get("traders", [])), p.get("strategy", ""),
+                                f"{p['passed']}/{p['total']}" if "passed" in p else ""])
+            else:
                 raw = [["Ticker", SOURCE_COLUMN]] + [[t, name] for t in tickers]
-                sources.append(Source(name, name, build_table(name, raw)))
+            sources.append(Source(name, name, build_table(name, raw)))
         return sources
+
+    def _rename_legacy_community_source(self) -> None:
+        """La fuente de los tickers diarios de la comunidad se llamaba «Tortuga»; ahora `community.source_name`."""
+        cfg = self.settings.community
+        old = cfg.legacy_source_name
+        if old != cfg.source_name and old in self.manual_sources and cfg.source_name not in self.manual_sources:
+            self.manual_sources[cfg.source_name] = self.manual_sources.pop(old)
+            self._save_manual()
+            log.info("Fuente del Universo «%s» renombrada a «%s»", old, cfg.source_name)
+
+    def community_perm(self) -> dict[str, dict]:
+        """{ticker: {traders, strategy, passed, total}} de la fuente permanente de la comunidad."""
+        try:
+            data = json.loads(self.meta.get(COMMUNITY_PERM) or "{}")
+        except (ValueError, TypeError):
+            return {}
+        return {str(t): d for t, d in data.items() if isinstance(d, dict)} if isinstance(data, dict) else {}
+
+    async def add_community_perm(self, keys) -> dict:
+        """Añade a la fuente permanente los tickers de las ideas marcadas (`idea_key`). De cada ticker guarda el trader (si hay
+        varias ideas, todos) y la estrategia del Scanner que más filtros cumple hoy (a igualdad, la de mayor proporción; si el
+        ticker ya estaba, se conserva la mejor de las dos). Devuelve el resultado de `add_manual_tickers` más `selected`."""
+        wanted = set(keys)
+        views = [v for v in self.community_ideas() if idea_key(v.idea) in wanted]
+        if not views:
+            raise WatchlistError("No hay ninguna idea marcada (o ya no está en los datos de la comunidad)")
+        perm = self.community_perm()
+        for v in views:
+            entry = perm.setdefault(v.idea.ticker, {"traders": []})
+            if v.idea.trader not in entry["traders"]:
+                entry["traders"] = sorted([*entry["traders"], v.idea.trader], key=str.casefold)
+            for f in v.fits:
+                if f.total and (f.passed, f.passed / f.total) > (entry.get("passed", -1), entry["passed"] / entry["total"] if "passed" in entry else -1):
+                    entry.update(strategy=f.name, passed=f.passed, total=f.total)
+        tickers = sorted({v.idea.ticker for v in views})
+        res = await self.add_manual_tickers(parse_tokens(tickers), self.settings.community.perm_source_name)
+        in_source = {clean_ticker(t) for t in self.manual_sources.get(res["source"], [])}
+        self.meta.set(COMMUNITY_PERM, json.dumps({t: d for t, d in perm.items() if clean_ticker(t) in in_source}))
+        self.state.data_version += 1
+        return {**res, "selected": tickers, "perm": {t: perm[t] for t in tickers if t in perm}}
 
     def _load_manual(self) -> dict[str, list[str]]:
         """{fuente: tickers}. Antes había una única fuente «Manual» guardada como lista."""

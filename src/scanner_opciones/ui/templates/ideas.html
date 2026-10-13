@@ -1,15 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
+{% include "_msgs.html" %}
 <style>
   .idea-valid { color:#1d6b3f; font-weight:600; } .idea-lower { color:#8a6d00; font-weight:600; }
   .idea-dropped, .idea-itm { color:#b3361b; font-weight:600; } .idea-no_data, .idea-expired { color:var(--mute); }
   /* Ticker, Strike y Vence fijos al desplazar la tabla a la derecha (anchos fijos para calcular el desplazamiento de cada una) */
   .tscroll table th.stk, .tscroll table td.stk { position:sticky; background:var(--panel); z-index:1; box-sizing:border-box; white-space:nowrap; }
-  .s1 { left:0; width:76px; min-width:76px; max-width:76px; } .s2 { left:76px; width:112px; min-width:112px; max-width:112px; }
-  .s3 { left:188px; width:98px; min-width:98px; max-width:98px; box-shadow:inset -1px 0 0 var(--line); }
+  .s1 { left:0; width:104px; min-width:104px; max-width:104px; } .s2 { left:104px; width:112px; min-width:112px; max-width:112px; }
+  .s3 { left:216px; width:98px; min-width:98px; max-width:98px; box-shadow:inset -1px 0 0 var(--line); }
   .fitcell { min-width:130px; line-height:1.7; } .fn { font-weight:700; margin-right:2px; } .fn-ok { color:#1d6b3f; }
   .fc { display:inline-block; padding:0 6px; border-radius:9px; font-size:11.5px; font-weight:600; white-space:nowrap; }
   .fc-ok { background:#dff3e6; color:#1d6b3f; } .fc-ko { background:#fbe3dd; color:#b3361b; } .fc-na { background:#eceff1; color:var(--mute); }
+  .pick { margin-right:5px; vertical-align:-2px; } .inperm { color:#1d6b3f; font-weight:700; }
   .ideas-bar { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin:0 0 10px; }
 </style>
 <div class="card">
@@ -33,6 +35,10 @@
     <span class="muted">{{ views|length }} de {{ total }} ideas · {{ valid }} vigentes</span>
   </form>
   {% if views %}
+  <form method="post" action="/ideas/perm">
+  {% for k, v in (('solo', solo), ('venc', venc), ('trader', trader), ('strategy', strategy)) %}{% if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}{% endfor %}
+  <p class="ideas-bar" style="margin-top:0"><button type="submit" id="perm-add" disabled>Añadir a {{ perm_name }}</button>
+    <span class="muted" id="perm-count">Marca contratos: de cada uno se guarda el ticker, el trader y la estrategia del Scanner que más filtros cumple hoy.</span></p>
   <div class="tscroll">
   <table class="sortable">
     <tr><th class="stk s1">Ticker</th><th class="stk s2">Strike</th><th class="stk s3">Vence</th><th class="txt">Estrategia</th><th class="wrap">Estado</th>{% for n in fit_names %}<th class="wrap" title="Filtros de «{{ n }}» (con sus valores por defecto) que cumple hoy la idea sobre el total: en verde los que cumple, en rojo los que no y en gris los que no se pudo comprobar. No se evalúan los técnicos ni la calidad de la empresa.">{{ n }}<br><span class="muted" style="font-weight:400">filtros</span></th>{% endfor %}<th>Fecha</th><th class="txt">Trader</th><th>DTE</th>
@@ -41,7 +47,7 @@
       <th title="Prima neta por acción que cobró">Prima al abrir</th><th title="Prima neta que se cobraría hoy con el precio de venta de referencia (en un spread, vendida − ask de la comprada)">Prima hoy</th>
       <th title="Prima / strike (put) o / ancho (spread), sin anualizar">Yield hoy</th><th>Delta hoy</th></tr>
     {% for v in views %}{% set i = v.idea %}
-    <tr><td class="stk s1"><b>{{ i.ticker }}</b>{% if not v.in_watchlist %} <span class="muted" title="No está en tu watchlist">·</span>{% endif %}</td><td class="stk s2" data-sort="{{ i.short_strike }}">{{ i.short_strike|num }}{% if i.long_strike is not none %}/{{ i.long_strike|num }}{% endif %}{% if i.contracts > 1 %} <span class="muted">×{{ i.contracts }}</span>{% endif %}</td><td class="stk s3" data-sort="{{ i.expiry.isoformat() }}">{{ i.expiry.strftime('%d/%m/%Y') }}</td>
+    <tr><td class="stk s1"><input type="checkbox" class="pick" name="idea" value="{{ keys[loop.index0] }}" title="Marcar para añadir su ticker a {{ perm_name }}"><b>{{ i.ticker }}</b>{% if i.ticker in perm_tickers %} <span class="inperm" title="Ya está en {{ perm_name }}">★</span>{% endif %}{% if not v.in_watchlist %} <span class="muted" title="No está en tu watchlist">·</span>{% endif %}</td><td class="stk s2" data-sort="{{ i.short_strike }}">{{ i.short_strike|num }}{% if i.long_strike is not none %}/{{ i.long_strike|num }}{% endif %}{% if i.contracts > 1 %} <span class="muted">×{{ i.contracts }}</span>{% endif %}</td><td class="stk s3" data-sort="{{ i.expiry.isoformat() }}">{{ i.expiry.strftime('%d/%m/%Y') }}</td>
       <td class="txt">{{ 'Put' if i.long_strike is none else 'Spread' }}</td><td class="wrap idea-{{ v.status }}">{{ v.text }}</td>
       {%- for n in fit_names %}{% set f = v.fits[loop.index0] if v.fits else none %}
       <td class="wrap fitcell"{% if f %} data-sort="{{ f.passed / f.total }}" title="{{ f.detail or 'Cumple todo lo medible' }}"{% endif %}>
@@ -58,6 +64,17 @@
     {% endfor %}
   </table>
   </div>
+  </form>
+  <script>
+  (function () {
+    var form = document.querySelector('form[action="/ideas/perm"]'); if (!form) return;
+    var btn = document.getElementById('perm-add'), out = document.getElementById('perm-count'), hint = out.textContent;
+    form.addEventListener('change', function () {
+      var n = form.querySelectorAll('input.pick:checked').length;
+      btn.disabled = !n; out.textContent = n ? n + ' contrato' + (n > 1 ? 's' : '') + ' marcado' + (n > 1 ? 's' : '') : hint;
+    });
+  })();
+  </script>
   {% else %}<p class="muted">Ninguna idea cumple los filtros.</p>{% endif %}
   {% endif %}
 </div>
@@ -68,7 +85,7 @@
   var started = Date.now(), EVERY = 300000;
   setInterval(function () {
     var a = document.activeElement;
-    if (document.hidden || Date.now() - started < EVERY || (a && a.tagName === 'SELECT')) return;
+    if (document.hidden || Date.now() - started < EVERY || (a && a.tagName === 'SELECT') || document.querySelector('input.pick:checked')) return;
     location.reload();
   }, 15000);
 })();

@@ -42,18 +42,18 @@ def make(tmp_path, **community):
 async def test_without_a_file_there_is_no_community_and_nothing_breaks(tmp_path):
     svc = make(tmp_path)
     assert svc.community() is None and svc.community_counts() == {} and svc.community_stale() is None
-    assert await svc.sync_community_source() is None and "Tortuga" not in svc.manual_sources
+    assert await svc.sync_community_source() is None and "TortugaTrades_Dia" not in svc.manual_sources
 
 
 async def test_the_top_tickers_become_a_universe_source_only_when_the_file_changes(tmp_path):
     svc = make(tmp_path, universe_top=2)
     write(tmp_path / "tortuga.json", payload())
     res = await svc.sync_community_source()
-    assert svc.manual_sources["Tortuga"] == ["ASTS", "PEP"] and res["added"] == ["ASTS", "PEP"]        # por traders; RARE no llega a 3
+    assert svc.manual_sources["TortugaTrades_Dia"] == ["ASTS", "PEP"] and res["added"] == ["ASTS", "PEP"]        # por traders; RARE no llega a 3
     assert await svc.sync_community_source() is None                                                    # mismo JSON: no se repite
     write(tmp_path / "tortuga.json", payload("2026-10-13T13:00:00", [{"ticker": "MCD", "month_traders": 14, "month_operations": 38}]), bump=60)
     again = await svc.sync_community_source()
-    assert svc.manual_sources["Tortuga"] == ["MCD"] and again["removed"] == ["ASTS", "PEP"]            # la fuente se sustituye entera
+    assert svc.manual_sources["TortugaTrades_Dia"] == ["MCD"] and again["removed"] == ["ASTS", "PEP"]            # la fuente se sustituye entera
 
 
 async def test_a_broken_file_keeps_the_last_good_data(tmp_path):
@@ -158,3 +158,35 @@ def test_ideas_outside_the_watchlist_are_valued_with_live_quotes(client_and_serv
     ideas = {v.idea.ticker: v for v in svc.community_ideas()}
     assert ideas["ZZZ"].premium_now is not None and ideas["ZZZ"].delta_now == -0.12 and ideas["ZZZ"].price_now == 40.0
     assert ideas["ZZZ"].iv_rank == 62.0 and ideas["ZZZ"].iv_percentile == 70.0
+
+
+def test_the_old_daily_source_is_renamed_on_startup(tmp_path):
+    svc = make(tmp_path)
+    svc.manual_sources["Tortuga"] = ["PEP"]
+    svc._save_manual()
+    again = AppService(FakeGateway(), Database(tmp_path / "app.db"), svc.settings, lambda: NOW)
+    assert again.manual_sources == {"TortugaTrades_Dia": ["PEP"]}
+
+
+def test_ideas_marked_in_the_page_feed_the_permanent_source_with_trader_and_best_strategy(client_and_service, tmp_path):
+    from scanner_opciones.community.ideas import idea_key
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    contract = svc.contracts.list("AAPL")[0]
+    path = tmp_path / "tortuga.json"
+    write(path, ideas_payload(contract))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
+    views = {v.idea.ticker: v for v in svc.community_ideas()}
+    key = idea_key(views["AAPL"].idea)
+    assert f'value="{key}"' in client.get("/ideas").text
+    page = client.post("/ideas/perm", data={"idea": [key]}, follow_redirects=True).text
+    assert "Añadidos a TortugaTrades_Perm" in page and "★" in page
+    assert svc.manual_sources["TortugaTrades_Perm"] == ["AAPL"]
+    best = max(views["AAPL"].fits, key=lambda f: (f.passed, f.passed / f.total))
+    perm = svc.community_perm()["AAPL"]
+    assert perm["traders"] == ["Ana"] and perm["strategy"] == best.name and (perm["passed"], perm["total"]) == (best.passed, best.total)
+    src = next(s for s in svc.universe_sources if s.name == "TortugaTrades_Perm")
+    assert [c.name for c in src.table.columns][-3:] == ["Trader", "Estrategia", "Filtros"]
+    again = client.post("/ideas/perm", data={"idea": [key]}, follow_redirects=True).text      # repetir no duplica
+    assert "Ya estaban" in again and svc.manual_sources["TortugaTrades_Perm"] == ["AAPL"]
+    assert "No hay ninguna idea marcada" in client.post("/ideas/perm", data={}, follow_redirects=True).text
