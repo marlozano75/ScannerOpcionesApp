@@ -437,7 +437,7 @@
       {% for m in out.mixed %}{% set r = m.short %}{% set c = r.snapshot.contract %}{% set sp = m.spread %}
       <tr><td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}">{{ c.ticker }}</a></td>
         <td>{{ 'Spread' if sp else 'Put' }}</td><td>{{ r.info.underlying_price|num if r.info else '—' }}</td>
-        <td>{{ c.strike|num }}{% if sp %} / {{ sp.long.contract.strike|num }}{% endif %}</td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td><td>{{ sp.width|num if sp else '—' }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+        <td data-sort="{{ c.strike }}">{{ c.strike|num }} <span class="muted">V</span>{% if sp %} / {{ sp.long.contract.strike|num }} <span class="muted">C</span>{% endif %}</td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td><td>{{ sp.width|num if sp else '—' }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
         <td>{{ m.credit|num }}</td><td class="hl">{{ m.return_on_capital_annualized_pct|pct(0) }}</td>
         <td title="{{ 'Pérdida máxima' if sp else 'Margen what-if' }}">{{ m.capital|num(0) if m.capital is not none else '—' }}</td><td>{{ m.weight_pct|pct }}</td>
         <td>{{ r.snapshot.delta|num }}</td><td>{{ r.snapshot.iv_rank|pct(0) }}</td>
@@ -453,7 +453,7 @@
       {% for sp in out.spreads %}{% set r = sp.short %}{% set c = r.snapshot.contract %}
       <tr><td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}">{{ c.ticker }}</a></td>
         <td>{{ r.info.underlying_price|num if r.info else '—' }}</td>
-        <td>{{ c.strike|num }}</td><td>{{ sp.long.contract.strike|num }}</td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td><td>{{ sp.width|num }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+        <td data-sort="{{ c.strike }}">{{ c.strike|num }} <span class="muted">V</span></td><td data-sort="{{ sp.long.contract.strike }}">{{ sp.long.contract.strike|num }} <span class="muted">C</span></td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td><td>{{ sp.width|num }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
         <td>{{ sp.credit|num }}</td><td>{{ sp.credit_width_pct|pct }}</td>
         <td class="hl">{{ sp.return_on_risk_annualized_pct|pct(0) }}</td><td>{{ sp.return_on_risk_pct|pct }}</td>
         <td>{{ sp.max_loss|num(0) }}</td><td>{{ sp.breakeven|num }}</td><td>{{ sp.breakeven_distance_pct|pct }}</td>

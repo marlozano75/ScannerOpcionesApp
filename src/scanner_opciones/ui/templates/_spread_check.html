@@ -13,7 +13,7 @@
   <tr>
     <td class="tk" data-sort="{{ row.ticker }}">{{ row.ticker }}</td>
     <td data-sort="{{ row.expiry.toordinal() }}">{{ row.expiry.strftime('%d/%m') }}</td>
-    <td>{{ row.strike|num }}</td><td>{{ row.width|num if row.width is not none else '—' }}</td>
+    <td>{{ row.strike|num }} <span class="muted">V</span></td><td>{{ row.width|num if row.width is not none else '—' }}</td>
     {% for key, head in columns %}{% set c = row.checks[key] %}
     <td class="{{ 'sc-ok' if c.ok is true else ('sc-bad' if c.ok is false else 'sc-na') }}">{{ c.text }}</td>
     {% endfor %}
