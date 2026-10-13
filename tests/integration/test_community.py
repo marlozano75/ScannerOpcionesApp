@@ -141,6 +141,10 @@ class LiveProvider:
         from datetime import date
         return {t: [(date(2026, 10, 9), 40.0)] for t in tickers}
 
+    async def get_iv_metrics(self, tickers):
+        from scanner_opciones.marketdata.volatility import IVMetrics
+        return {t: IVMetrics(iv_rank=62.0, iv_percentile=70.0) for t in tickers}
+
 
 def test_ideas_outside_the_watchlist_are_valued_with_live_quotes(client_and_service, tmp_path):
     client, svc, gw, _ = client_and_service
@@ -153,3 +157,4 @@ def test_ideas_outside_the_watchlist_are_valued_with_live_quotes(client_and_serv
     assert "Sin valorar: sin cotización de esas patas (no está en tu watchlist)" not in page
     ideas = {v.idea.ticker: v for v in svc.community_ideas()}
     assert ideas["ZZZ"].premium_now is not None and ideas["ZZZ"].delta_now == -0.12 and ideas["ZZZ"].price_now == 40.0
+    assert ideas["ZZZ"].iv_rank == 62.0 and ideas["ZZZ"].iv_percentile == 70.0

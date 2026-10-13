@@ -26,6 +26,7 @@ from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.community.data import CommunityData, CommunityError, load_community
+from scanner_opciones.community.fit import strategy_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, snapshot_key
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES
 from scanner_opciones.portfolio.spreads import with_spreads
@@ -917,7 +918,9 @@ class AppService:
             for t, bars in live[4].items():
                 closes.setdefault(t, bars)
         ref = self.criteria()
-        return evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct)
+        views = evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct)
+        sc = self.settings.scanner
+        return [replace(v, fits=strategy_fits(v, sc.presets, sc.strategy)) for v in views]
 
     async def refresh_community_quotes(self, max_age_seconds: Optional[float] = 300) -> None:
         """Cotiza en directo (tastytrade) las patas de las ideas que no están guardadas (tickers fuera de la watchlist, strikes o
@@ -926,7 +929,7 @@ class AppService:
         data = self.community()
         provider = self.volatility
         if (data is None or self._community_live_running or provider is None
-                or not all(hasattr(provider, m) for m in ("get_put_listing", "get_option_quotes", "get_prices", "get_daily_closes"))):
+                or not all(hasattr(provider, m) for m in ("get_put_listing", "get_option_quotes", "get_prices", "get_daily_closes", "get_iv_metrics"))):
             return
         stamp, now = data.generated_at.isoformat(), self.now()
         live = self._community_live
@@ -983,6 +986,11 @@ class AppService:
                     infos = {t: TickerInfo(t, underlying_price=p, price_at=now) for t, p in (await provider.get_prices(tickers)).items()}
                 except Exception as exc:
                     log.warning("Ideas: no se pudieron obtener los precios: %s", exc)
+                try:
+                    for t, m in (await provider.get_iv_metrics(tickers)).items():
+                        infos[t] = replace(infos.get(t) or TickerInfo(t), iv_rank=m.iv_rank, iv_percentile=m.iv_percentile)
+                except Exception as exc:
+                    log.warning("Ideas: no se pudo obtener el IV Rank: %s", exc)
                 oldest = min((i.day for i in data.ideas if i.ticker in tickers), default=today)
                 try:
                     closes = await provider.get_daily_closes(tickers, (today - oldest).days + 7)

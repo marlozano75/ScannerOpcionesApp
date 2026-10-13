@@ -81,3 +81,25 @@ def test_ideas_are_sorted_newest_first_and_valid_before_the_rest():
     infos = {"VZ": TickerInfo("VZ", underlying_price=50.0)}
     views = evaluate_ideas([c, b, a], TODAY, snaps, infos, {}, {"VZ"}, PriceReference.BID, 25.0)
     assert [(v.idea.day, v.idea.short_strike, v.status) for v in views] == [(OPEN, 42.0, VALID), (OPEN, 40.0, NO_DATA), (date(2026, 10, 8), 42.0, VALID)]
+
+
+def test_the_idea_is_checked_against_each_profile_with_its_default_values():
+    from scanner_opciones.community.fit import strategy_fits
+    from scanner_opciones.config.settings import DEFAULT_PRESETS, StrategySettings
+    v = run(idea(), [snap("VZ", 42.0, 0.95, 1.10)])          # 39 DTE, strike 16 % por debajo, yield 2,26 %, delta 0,2
+    fits = {f.name: f for f in strategy_fits(v, DEFAULT_PRESETS, StrategySettings())}
+    assert not fits["Mensual (TPC)"].fits and "descuento" in fits["Mensual (TPC)"].failed[0] and any("DTE 39" in x for x in fits["Mensual (TPC)"].failed)
+    assert not fits["Táctico (TPC)"].fits
+    assert fits["Tastytrade"].fits and fits["Tastytrade"].unknown == ("IV Rank", "IV Percentile")      # sin ficha de IV no se puede medir
+    close = strategy_fits(run(idea(expiry=date(2026, 11, 9)), [snap("VZ", 42.0, 0.95, 1.10, expiry=date(2026, 11, 9))], price=55.0),
+                          DEFAULT_PRESETS, StrategySettings())
+    assert close[0].fits and close[0].name == "Mensual (TPC)"                                  # 28 DTE, strike 24 % por debajo, yield 2,26 %
+
+
+def test_a_spread_does_not_use_the_yield_and_an_expired_idea_has_no_fit():
+    from scanner_opciones.community.fit import strategy_fits
+    from scanner_opciones.config.settings import DEFAULT_PRESETS, StrategySettings
+    spread = run(idea(strike=42.0, long_strike=40.0), [snap("VZ", 42.0, 0.95, 1.10), snap("VZ", 40.0, 0.20, 0.30)])
+    f = strategy_fits(spread, DEFAULT_PRESETS, StrategySettings())[2]
+    assert f.fits and any("spread" in u for u in f.unknown)
+    assert strategy_fits(run(idea(expiry=date(2026, 10, 1))), DEFAULT_PRESETS, StrategySettings()) == ()

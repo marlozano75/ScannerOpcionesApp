@@ -40,6 +40,9 @@ class IdeaView:
     premium_now: Optional[float] = None     # prima neta por acción que se cobraría hoy (en un spread, vendida − ask de la comprada)
     yield_now_pct: Optional[float] = None
     delta_now: Optional[float] = None
+    iv_rank: Optional[float] = None
+    iv_percentile: Optional[float] = None
+    fits: tuple = ()                        # `fit.Fit` de cada perfil del Scanner (los pone el servicio)
 
     @property
     def risk_base(self) -> float:
@@ -72,7 +75,8 @@ def evaluate_idea(
     price_open = _close_on_or_before(closes.get(idea.ticker, ()), idea.day)
     move = (price_now / price_open - 1) * 100 if price_now and price_open else None
     common = dict(idea=idea, dte=dte, in_watchlist=idea.ticker in watchlist, price_open=price_open, price_now=price_now, move_pct=move,
-                  otm_open_pct=_otm(price_open, idea.short_strike), otm_now_pct=_otm(price_now, idea.short_strike), yield_open_pct=yield_open)
+                  otm_open_pct=_otm(price_open, idea.short_strike), otm_now_pct=_otm(price_now, idea.short_strike), yield_open_pct=yield_open,
+                  iv_rank=info.iv_rank if info else None, iv_percentile=info.iv_percentile if info else None)
     if dte < 0:
         return IdeaView(status=EXPIRED, text="Vencida", **common)
     short = snapshots.get(snapshot_key(idea.ticker, idea.expiry, idea.short_strike))
