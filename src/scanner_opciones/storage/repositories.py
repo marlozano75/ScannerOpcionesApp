@@ -493,7 +493,7 @@ class SnapshotRepo:
     _UPSERT = (
         "INSERT OR REPLACE INTO snapshots (contract_id, updated_at, bid, ask, last, delta, iv, "
         "open_interest, spread_pct, yield_pct, yield_annualized_pct, iv_rank, iv_percentile, "
-        "initial_margin, bid_size, margin_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        "initial_margin, bid_size, margin_at, bid_size_tws_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
     )
 
     @staticmethod
@@ -503,6 +503,7 @@ class SnapshotRepo:
             snap.iv, snap.open_interest, snap.spread_pct, snap.yield_pct,
             snap.yield_annualized_pct, snap.iv_rank, snap.iv_percentile, snap.initial_margin, snap.bid_size,
             snap.margin_at.isoformat() if snap.margin_at else None,
+            snap.bid_size_tws_at.isoformat() if snap.bid_size_tws_at else None,
         )
 
     def upsert(self, snap: ContractSnapshot) -> bool:
@@ -551,7 +552,7 @@ class SnapshotRepo:
                 open_interest=r["open_interest"], spread_pct=r["spread_pct"], yield_pct=r["yield_pct"],
                 yield_annualized_pct=r["yield_annualized_pct"], iv_rank=r["iv_rank"],
                 iv_percentile=r["iv_percentile"], initial_margin=r["initial_margin"], bid_size=r["bid_size"],
-                margin_at=_dt(r["margin_at"]),
+                margin_at=_dt(r["margin_at"]), bid_size_tws_at=_dt(r["bid_size_tws_at"]),
             )
             for r in rows
         ]

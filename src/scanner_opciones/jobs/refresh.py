@@ -41,6 +41,8 @@ class RefreshReport:
     margins_requested: int = 0
     quotes_kept: int = 0      # contratos sin precio nuevo (mercado cerrado): se conserva la última cotización
     margins_reused: int = 0   # márgenes recientes reutilizados sin pedir un what-if nuevo
+    bid_sizes_checked: int = 0   # contratos cuyo bid size se pidió a TWS
+    bid_sizes_changed: int = 0   # de ellos, los que tenían un tamaño distinto al del proveedor
     margin_streak: int = 0    # what-if fallidos seguidos; al llegar a MARGIN_MAX_FAILURES no se piden más en el ciclo
     errors: dict[str, str] = field(default_factory=dict)  # ticker -> motivo
 
@@ -135,6 +137,7 @@ class RefreshJob:
 
         # El siguiente lote se pide mientras se guardan los snapshots y se piden los márgenes (IBKR) del actual.
         pending = asyncio.ensure_future(fetch(batches[0])) if batches else None
+        saved: list[ContractSnapshot] = []
         try:
             for index, batch in enumerate(batches):
                 quotes = await pending
@@ -161,18 +164,64 @@ class RefreshJob:
                             snap, infos.get(contract.ticker), criteria, report, previous))
                 finally:   # una sola transacción por lote; si se pierde la conexión a mitad, se guarda lo ya hecho
                     report.refreshed += self.snapshots.upsert_many(ready)
+                    saved.extend(ready)
         finally:
             if pending is not None and not pending.done():
                 pending.cancel()
+        await self._refresh_bid_sizes(saved, infos, criteria, today, report)
         log.info(
             "Refresco: %d contratos cotizados (de %d guardados) en %.1f s (subyacentes %.1f s); "
             "márgenes pedidos %d, reutilizados %d; sin precio nuevo (se conserva el anterior): %d; "
-            "catálogo: +%d / -%d contratos",
+            "catálogo: +%d / -%d contratos; bid size de TWS: %d pedidos, %d distintos",
             report.in_scope, report.stored, time.monotonic() - started, t_underlyings,
             report.margins_requested, report.margins_reused, report.quotes_kept,
-            report.contracts_added, report.contracts_removed,
+            report.contracts_added, report.contracts_removed, report.bid_sizes_checked, report.bid_sizes_changed,
         )
         return report
+
+    def _tws_size_fresh(self, snap: ContractSnapshot) -> bool:
+        age = self.settings.refresh.tws_bid_size_max_age_minutes
+        return snap.bid_size_tws_at is not None and self.now() - snap.bid_size_tws_at < timedelta(minutes=age)
+
+    async def _refresh_bid_sizes(self, snaps: Sequence[ContractSnapshot], infos: dict, criteria: Sequence[ScanCriteria],
+                                 today, report: RefreshReport) -> None:
+        """El bid size de tastytrade es entre 5 y 10 veces menor que el de TWS, así que con él el filtro «Bid size mínimo» descarta contratos
+        que en TWS lo cumplen. Aquí se pide a TWS el de los contratos que PASAN los demás filtros (con OI y spread de `scanner.filter_values`)
+        y tienen un tamaño menor que `filter_values.min_bid_size`; solo con el mercado abierto y TWS conectado, y como mucho
+        `tws_bid_size_max_contracts` por ciclo (primero los de mayor yield anualizado). Un tamaño de TWS se reutiliza
+        `tws_bid_size_max_age_minutes` (ver `_build_snapshot`). Un fallo no interrumpe el refresco."""
+        cfg = self.settings.refresh
+        if not (cfg.tws_bid_size and getattr(self.gateway, "tws_bid_sizes", False) and self.gateway.is_connected() and snaps):
+            return
+        if self.market is not None and not self.market.is_open(self.now()):
+            return
+        fv = self.settings.scanner.filter_values
+        relaxed = [c.with_filters(min_bid_size=None, min_oi=fv.min_oi, max_spread_pct=fv.max_spread_pct) for c in criteria]
+        wanted = []
+        for snap in snaps:
+            if snap.bid_size is None or snap.bid_size >= fv.min_bid_size or self._tws_size_fresh(snap):
+                continue
+            info = infos.get(snap.contract.ticker)
+            price = info.underlying_price if info else None
+            if any(reject_reason(snap, price, today, c, snap.iv_rank, snap.iv_percentile) is None for c in relaxed):
+                wanted.append(snap)
+        wanted.sort(key=lambda s: s.yield_annualized_pct or 0.0, reverse=True)
+        wanted = wanted[:cfg.tws_bid_size_max_contracts]
+        step = cfg.batch_size
+        for i in range(0, len(wanted), step):
+            batch = wanted[i:i + step]
+            try:
+                sizes = await self.gateway.get_bid_sizes([s.contract for s in batch])
+            except BrokerDisconnectedError:
+                raise
+            except BrokerError as exc:
+                log.warning("Bid size de TWS no disponible, se conserva el del proveedor: %s", exc)
+                return
+            now = self.now()
+            updated = [replace(s, bid_size=sizes[s.contract], bid_size_tws_at=now) for s in batch if s.contract in sizes]
+            report.bid_sizes_checked += len(updated)
+            report.bid_sizes_changed += sum(1 for s, n in zip((b for b in batch if b.contract in sizes), updated) if s.bid_size != n.bid_size)
+            self.snapshots.upsert_many(updated)
 
     def _offline(self) -> bool:
         """Sin TWS pero con los datos de mercado de tastytrade: se cotiza igual y los márgenes se quedan como estaban."""
@@ -286,15 +335,20 @@ class RefreshJob:
         updated_at = self.now()
         bid, ask, last, bid_size = q.bid, q.ask, q.last, q.bid_size
         delta, iv, oi = q.delta, q.iv, q.open_interest
+        tws_at, kept = None, False
         if previous is not None:
             if bid is None and ask is None and (previous.bid is not None or previous.ask is not None):
                 bid, ask, last, bid_size = previous.bid, previous.ask, previous.last, previous.bid_size
                 updated_at = previous.updated_at or updated_at
+                kept = True
             elif (bid == 0 and ask is not None and ask > 0 and previous.bid is not None and previous.bid > 0
                   and self.market is not None and not self.market.is_open(self.now())):
                 # fuera de horario tastytrade devuelve bid 0 con un ask inflado: no pisa la cotización de la sesión
                 bid, ask, last, bid_size = previous.bid, previous.ask, previous.last, previous.bid_size
                 updated_at = previous.updated_at or updated_at
+                kept = True
+            if previous.bid_size_tws_at is not None and previous.bid_size is not None and (kept or self._tws_size_fresh(previous)):
+                bid_size, tws_at = previous.bid_size, previous.bid_size_tws_at     # el tamaño de TWS aún vale: no se pisa con el del proveedor
             if delta is None and iv is None:
                 delta, iv = previous.delta, previous.iv
             if oi is None:
@@ -304,7 +358,7 @@ class RefreshJob:
         return ContractSnapshot(
             contract=contract, updated_at=updated_at,
             bid=bid, ask=ask, last=last, delta=delta, iv=iv, open_interest=oi,
-            bid_size=bid_size,
+            bid_size=bid_size, bid_size_tws_at=tws_at,
             spread_pct=spread_pct(bid, ask), yield_pct=y,
             yield_annualized_pct=annualized_yield_pct(y, dte),
             iv_rank=info.iv_rank if info else None,

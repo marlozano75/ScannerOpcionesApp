@@ -33,6 +33,8 @@ MULTIPLIER = 100   # el proveedor solo lista opciones estándar de 100 acciones
 class HybridGateway:
     # Lo que sale del proveedor funciona sin TWS: el servicio sigue actualizando y TWS solo aporta cuenta, márgenes y sector.
     market_offline_capable = True
+    # los tamaños del bid de tastytrade son mucho menores que los de TWS: el refresco puede pedir los de TWS (`get_bid_sizes`)
+    tws_bid_sizes = True
 
     def __init__(
         self, inner: BrokerGateway, provider: OptionDataProvider, settings: MarketDataSettings,
@@ -72,6 +74,11 @@ class HybridGateway:
         if not self.inner.is_connected():
             return None, None   # sin TWS no hay sector: se completa al reconectar
         return await self.inner.get_sector_info(ticker)
+
+    async def get_bid_sizes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, int]:
+        if not self.inner.is_connected():
+            return {}      # sin TWS se queda el tamaño del proveedor
+        return await self.inner.get_bid_sizes(contracts)
 
     async def what_if_margin(self, contract: OptionContract, quantity: int = 1) -> Optional[float]:
         return await self.inner.what_if_margin(contract, quantity)   # los contratos sin con_id los cualifica IBKR

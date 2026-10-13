@@ -45,6 +45,9 @@ class BrokerGateway(Protocol):
     async def get_quotes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, OptionQuote]:
         """Cotizaciones por lotes; los contratos sin datos no aparecen o traen campos None."""
 
+    async def get_bid_sizes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, int]:
+        """Tamaño del bid según TWS (el de tastytrade es entre 5 y 10 veces menor). Los contratos sin dato no aparecen."""
+
     async def what_if_margin(self, contract: OptionContract, quantity: int = 1) -> Optional[float]:
         """Cambio de margen inicial al vender `quantity` contratos (what-if; nunca envía orden)."""
 

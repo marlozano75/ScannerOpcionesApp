@@ -167,6 +167,10 @@ MIGRATIONS: list[str] = [
     ALTER TABLE daily_bars ADD COLUMN high REAL;
     ALTER TABLE daily_bars ADD COLUMN low REAL;
     """,
+    # v21: cuándo se corrigió el bid size con el de TWS (el de tastytrade es entre 5 y 10 veces menor)
+    """
+    ALTER TABLE snapshots ADD COLUMN bid_size_tws_at TEXT;
+    """,
 ]
 
 

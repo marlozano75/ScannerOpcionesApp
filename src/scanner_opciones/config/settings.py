@@ -74,6 +74,11 @@ class RefreshSettings(_Model):
     batch_size: int = Field(50, ge=1)  # contratos por petición de cotizaciones a IBKR (con tastytrade manda market_data.quote_batch_size)
     account_interval_minutes: float = Field(1, gt=0)  # cada cuánto se refrescan cuenta, posiciones y VIX (independiente del mercado)
     margin_max_age_minutes: float = Field(60, ge=0)  # reutiliza el margen (what-if) guardado hasta esta edad
+    # El bid size de tastytrade es entre 5 y 10 veces menor que el de TWS. Con el mercado abierto y TWS conectado, el refresco pide a TWS
+    # el de los contratos que pasan los demás filtros pero tienen un tamaño menor que `scanner.filter_values.min_bid_size`.
+    tws_bid_size: bool = True
+    tws_bid_size_max_age_minutes: float = Field(15, ge=0)   # un tamaño de TWS se reutiliza hasta esta edad antes de pedirlo otra vez
+    tws_bid_size_max_contracts: int = Field(600, ge=1)      # tope por ciclo (los de mayor yield anualizado primero): ~4 s por cada 50
 
 
 class DailyUpdateSettings(_Model):

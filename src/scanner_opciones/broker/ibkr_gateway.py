@@ -444,6 +444,35 @@ class IBKRGateway:
             )
         return out
 
+    async def get_bid_sizes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, int]:
+        """Tamaño del bid de TWS (solo lectura, `reqMktData`): espera hasta `quote_wait_seconds`, pero sale en cuanto todos tienen
+        bid y tamaño. Los contratos que no existen o no responden no aparecen."""
+        self._require()
+        pairs = [(c, self._ib_option(c)) for c in contracts]
+        todo = [o for _, o in pairs if not o.conId]
+        if todo:
+            with _quiet_unknown_contracts():
+                await self.ib.qualifyContractsAsync(*todo)
+        valid = [(c, o) for c, o in pairs if o.conId]
+        out: dict[OptionContract, int] = {}
+        with _quiet(_COMPETING_FILTER):
+            tickers = {c: self.ib.reqMktData(o, "", False, False) for c, o in valid}
+            try:
+                waited, step = 0.0, 0.25
+                while waited < self.s.quote_wait_seconds and not all(
+                    m.num(t.bid) is not None and m.num(t.bidSize) is not None for t in tickers.values()
+                ):
+                    await asyncio.sleep(step)
+                    waited += step
+            finally:
+                for _, o in valid:
+                    self.ib.cancelMktData(o)
+        for c, t in tickers.items():
+            size = m.num(t.bidSize)
+            if size is not None:
+                out[c] = int(size)
+        return out
+
     async def what_if_margin(self, contract: OptionContract, quantity: int = 1) -> Optional[float]:
         self._require()
         opt = self._ib_option(contract)

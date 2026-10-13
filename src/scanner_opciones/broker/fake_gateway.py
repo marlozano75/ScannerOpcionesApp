@@ -22,6 +22,9 @@ class FakeGateway:
     ex_dividend_days: dict[str, Optional[int]] = field(default_factory=dict)
     quotes: dict[OptionContract, OptionQuote] = field(default_factory=dict)
     margins: dict[OptionContract, float] = field(default_factory=dict)
+    bid_sizes: dict[OptionContract, int] = field(default_factory=dict)   # tamaño del bid «de TWS»
+    bid_size_requests: list[list] = field(default_factory=list)
+    tws_bid_sizes: bool = False      # como HybridGateway: el refresco pide los tamaños del bid a TWS
     vix: VixData = field(default_factory=VixData)
     failing_tickers: set[str] = field(default_factory=set)
     unsupported_tickers: set[str] = field(default_factory=set)   # fallo permanente (no reconocido / sin opciones)
@@ -103,6 +106,11 @@ class FakeGateway:
             if c.ticker in self.failing_tickers:
                 raise DataUnavailableError(f"Sin datos para {c.ticker}")
         return {c: self.quotes[c] for c in contracts if c in self.quotes}
+
+    async def get_bid_sizes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, int]:
+        self._check()
+        self.bid_size_requests.append(list(contracts))
+        return {c: self.bid_sizes[c] for c in contracts if c in self.bid_sizes}
 
     async def what_if_margin(self, contract: OptionContract, quantity: int = 1) -> Optional[float]:
         self._check(contract.ticker)

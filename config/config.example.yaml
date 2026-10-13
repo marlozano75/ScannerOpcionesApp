@@ -17,6 +17,11 @@ refresh:
   batch_size: 50             # contratos por petición de cotizaciones a IBKR (también en el respaldo; con tastytrade manda market_data.quote_batch_size)
   account_interval_minutes: 1   # cada cuánto se refrescan cuenta, posiciones y VIX, aparte del ciclo de mercado
   margin_max_age_minutes: 60   # reutiliza el margen (what-if) guardado hasta esta edad
+  # El bid size de tastytrade es 5-10 veces menor que el de TWS: con el mercado abierto y TWS conectado se piden a TWS los de los contratos
+  # que pasan los demás filtros pero tienen menos de scanner.filter_values.min_bid_size
+  tws_bid_size: true
+  tws_bid_size_max_age_minutes: 15   # un tamaño de TWS se reutiliza hasta esta edad
+  tws_bid_size_max_contracts: 600    # tope por ciclo (primero los de mayor yield anualizado); ~4 s por cada 50
 
 daily_update:
   run_on_startup: true   # sin hora fija (Q-09); se ejecuta en segundo plano tras el primer refresco
