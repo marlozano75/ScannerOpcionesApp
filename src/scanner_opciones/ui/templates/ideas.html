@@ -8,8 +8,9 @@
   .tscroll table th.stk, .tscroll table td.stk { position:sticky; background:var(--panel); z-index:1; box-sizing:border-box; white-space:nowrap; }
   .s1 { left:0; width:150px; min-width:150px; max-width:150px; white-space:normal !important; } .s2 { left:150px; width:112px; min-width:112px; max-width:112px; }
   .s3 { left:262px; width:98px; min-width:98px; max-width:98px; box-shadow:inset -1px 0 0 var(--line); }
-  .fitcell { min-width:130px; line-height:1.7; } .fn { font-weight:700; margin-right:2px; } .fn-ok { color:#1d6b3f; }
-  .fc { display:inline-block; padding:0 6px; border-radius:9px; font-size:11.5px; font-weight:600; white-space:nowrap; }
+  .fitcell { white-space:nowrap; text-align:left; line-height:1.5; padding-left:5px; padding-right:5px; } th.fitcol { text-align:left; padding-left:5px; padding-right:5px; }
+  .fn { font-weight:700; margin-right:1px; } .fn-ok { color:#1d6b3f; }
+  .fc { display:inline-block; padding:0 4px; margin-left:1px; border-radius:9px; font-size:11.5px; font-weight:600; white-space:nowrap; }
   .fc-ok { background:#dff3e6; color:#1d6b3f; } .fc-ko { background:#fbe3dd; color:#b3361b; } .fc-na { background:#eceff1; color:var(--mute); }
   .pick { margin-right:5px; vertical-align:-2px; } .tl { display:inline-block; padding:0 4px; margin-left:2px; border-radius:7px; font-size:10px; font-weight:700; line-height:15px; vertical-align:1px; background:#e8eaf3; color:#3b4a8a; cursor:help; }
   .tl-w { background:#dff3e6; color:#1d6b3f; } .tl-p { background:#fcf3dc; color:#9a6700; }
@@ -42,7 +43,7 @@
     <span class="muted" id="perm-count">Marca contratos: de cada uno se guarda el ticker, el trader y la estrategia del Scanner que más filtros cumple hoy.</span></p>
   <div class="tscroll">
   <table class="sortable">
-    <tr><th class="stk s1">Ticker</th><th class="stk s2">Strike</th><th class="stk s3">Vence</th><th class="txt">Estrategia</th><th class="wrap">Estado</th>{% for n in fit_names %}<th class="wrap" title="Filtros de «{{ n }}» (con sus valores por defecto) que cumple hoy la idea sobre el total: en verde los que cumple, en rojo los que no y en gris los que no se pudo comprobar. No se evalúan los técnicos ni la calidad de la empresa.">{{ n }}<br><span class="muted" style="font-weight:400">filtros</span></th>{% endfor %}<th>Fecha</th><th class="txt">Trader</th><th>DTE</th>
+    <tr><th class="stk s1">Ticker</th><th class="stk s2">Strike</th><th class="stk s3">Vence</th><th class="txt">Estrategia</th><th class="wrap">Estado</th>{% for n in fit_names %}<th class="fitcol" title="Filtros de «{{ n }}» (con sus valores por defecto) que cumple hoy la idea sobre el total: en verde los que cumple, en rojo los que no y en gris los que no se pudo comprobar. No se evalúan los técnicos ni la calidad de la empresa.">{{ n }}<br><span class="muted" style="font-weight:400">filtros</span></th>{% endfor %}<th>Fecha</th><th class="txt">Trader</th><th>DTE</th>
       <th title="Cierre del día de la apertura">Precio al abrir</th><th>Precio hoy</th><th title="Variación del subyacente desde la apertura">Var.</th>
       <th title="Distancia del strike vendido por debajo del precio">Desc. al abrir</th><th>Desc. hoy</th>
       <th title="Prima neta por acción que cobró">Prima al abrir</th><th title="Prima neta que se cobraría hoy con el precio de venta de referencia (en un spread, vendida − ask de la comprada)">Prima hoy</th>
@@ -51,7 +52,7 @@
     <tr><td class="stk s1"><input type="checkbox" class="pick" name="idea" value="{{ keys[loop.index0] }}" title="Marcar para añadir su ticker a {{ perm_name }}"><b>{{ i.ticker }}</b>{% if v.in_watchlist %} <span class="tl tl-w" title="Está en tu watchlist">W</span>{% endif %}{% for ini, name in lists.get(i.ticker, []) %}<span class="tl{{ ' tl-p' if name == perm_name }}" title="Está en la fuente «{{ name }}»">{{ ini }}</span>{% endfor %}</td><td class="stk s2" data-sort="{{ i.short_strike }}">{{ i.short_strike|num }}{% if i.long_strike is not none %}/{{ i.long_strike|num }}{% endif %}{% if i.contracts > 1 %} <span class="muted">×{{ i.contracts }}</span>{% endif %}</td><td class="stk s3" data-sort="{{ i.expiry.isoformat() }}">{{ i.expiry.strftime('%d/%m/%Y') }}</td>
       <td class="txt">{{ 'Put' if i.long_strike is none else 'Spread' }}</td><td class="wrap idea-{{ v.status }}">{{ v.text }}</td>
       {%- for n in fit_names %}{% set f = v.fits[loop.index0] if v.fits else none %}
-      <td class="wrap fitcell"{% if f %} data-sort="{{ f.passed / f.total }}" title="{{ f.detail or 'Cumple todo lo medible' }}"{% endif %}>
+      <td class="fitcell"{% if f %} data-sort="{{ f.passed / f.total }}" title="{{ f.detail or 'Cumple todo lo medible' }}"{% endif %}>
         {%- if f %}<span class="fn{{ ' fn-ok' if f.fits }}">{{ f.passed }}/{{ f.total }}</span>
           {%- for c in f.criteria %} <span class="fc fc-{{ 'ok' if c.ok else 'ko' if c.ok is false else 'na' }}" title="{{ c.label }}: {{ c.text }}">{{ c.short }}</span>{% endfor %}
         {%- else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
