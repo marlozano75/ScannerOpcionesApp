@@ -940,3 +940,17 @@ def test_simulate_a_spread_adds_its_width_as_nominal_and_its_max_loss_as_margin(
     r = client.post("/simulate", data={"sel": key, f"qty_{key}": "2", f"ml_{key}": "380"})
     assert r.status_code == 200 and "spread 80.00 V / 75.00 C" in r.text
     assert "760" in r.text                                                 # margen: pérdida máxima 380 × 2
+
+
+def test_no_entry_signals_option_ignores_the_marked_signals(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    marked = "&use_rsi=on&rsi_max=35&use_near=on&near_pct=3&use_ivhv=on&ivhv=1.2"
+    two = client.get(BASE + marked + "&signals=2").text
+    assert "RSI rebota desde ≤ 35" in two and "IV/HV ≥ 1.2" in two
+    none = client.get(BASE + marked + "&signals=none").text
+    assert 'value="none" selected' in none and "Ninguna (no usar señales de entrada)" in none
+    chips = none.split("Activados (")[1].split("Desactivados (")[0]
+    assert "RSI rebota" not in chips and "IV/HV" not in chips and "MA50 o soporte" not in chips
+    assert "Señales de entrada" in none.split("Desactivados (")[1].split("</div>")[0]
+    assert "Parámetro no válido" not in none
