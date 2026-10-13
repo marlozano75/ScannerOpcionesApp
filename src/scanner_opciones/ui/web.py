@@ -23,7 +23,6 @@ from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.portfolio.management import manage_puts
-from scanner_opciones.scanner.signals import SIGNAL_FIELDS
 from scanner_opciones.scanner.impact import explain_empty
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
@@ -931,9 +930,9 @@ def create_app(
                 if not all(0 <= v <= 1 for v in (lo, hi) if v is not None) or (lo is not None and hi is not None and lo > hi):
                     raise ValueError("la delta debe cumplir 0 ≤ mín. ≤ máx. ≤ 1 (en valor absoluto)")
                 overrides["min_abs_delta"], overrides["max_abs_delta"] = lo, hi
-            if form["signals"] not in ("", "0", "none", "1", "2", "3", "4", "5"):
+            if form["signals"] not in ("", "0", "1", "2", "3", "4", "5"):
                 raise ValueError("número de señales de entrada no permitido")
-            overrides["signals_required"] = 0 if form["signals"] == "none" else int(form["signals"] or 0)
+            overrides["signals_required"] = int(form["signals"] or 0)
             if form["use_near"]:
                 overrides["near_level_pct"] = _required(form["near_pct"], float, "Distancia a la media de 50 o al soporte (%)")
                 if not (0 < overrides["near_level_pct"] <= 50):
@@ -980,8 +979,6 @@ def create_app(
                     if overrides["max_naked_strike"] <= 0:
                         raise ValueError("Strike máximo de la put desnuda ($) fuera de rango")
                     overrides["mixed"] = True
-            if form["signals"] == "none":   # «Ninguna»: las señales no se aplican aunque sus casillas estén marcadas
-                overrides.update({f: None for f in SIGNAL_FIELDS})
             criteria = base.with_filters(**overrides)
             if criteria.strike_below_pct_min < cand.strike_below_pct_min:
                 warnings.append(f"Descuento mín. por debajo del rango guardado ({cand.strike_below_pct_min:g}%): "

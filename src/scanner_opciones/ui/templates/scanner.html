@@ -38,15 +38,14 @@
 {% if form.use_ivr %}{% set _ = ivgroup.append('IV Rank ≥ ' ~ form.ivr) %}{% endif %}
 {% if form.use_ivp %}{% set _ = ivgroup.append('IV Pctl ≥ ' ~ form.ivp) %}{% endif %}
 {% if form.use_delta %}{% set _ = ivgroup.append('|Δ| ' ~ ((form.delta_min ~ '–' ~ form.delta_max) if form.delta_min and form.delta_max else (('≤ ' ~ form.delta_max) if form.delta_max else ('≥ ' ~ form.delta_min)))) %}{% endif %}
-{% set sig_none = form.signals == 'none' %}{# «Ninguna»: las señales de entrada no se aplican aunque sus casillas estén marcadas #}
-{% if form.use_ivhv and not sig_none %}{% set _ = ivgroup.append('IV/HV ≥ ' ~ form.ivhv) %}{% endif %}
-{% if form.use_ivchg and not sig_none %}{% set _ = ivgroup.append('ΔIV 5d ≤ ' ~ form.ivchg) %}{% endif %}
+{% if form.use_ivhv %}{% set _ = ivgroup.append('IV/HV ≥ ' ~ form.ivhv) %}{% endif %}
+{% if form.use_ivchg %}{% set _ = ivgroup.append('ΔIV 5d ≤ ' ~ form.ivchg) %}{% endif %}
 {% set entry = [] %}
 {% if form.signals and form.signals != '0' %}{% set _ = entry.append('≥ ' ~ form.signals ~ ' señales de entrada') %}{% endif %}
-{% if form.use_near and not sig_none %}{% set _ = entry.append('A ≤ ' ~ form.near_pct ~ ' % de MA50 o soporte') %}{% endif %}
+{% if form.use_near %}{% set _ = entry.append('A ≤ ' ~ form.near_pct ~ ' % de MA50 o soporte') %}{% endif %}
 {% if form.use_atr %}{% set _ = entry.append('Strike a ≥ ' ~ form.atr_mult ~ ' ATR') %}{% endif %}
-{% if form.use_rsi and not sig_none %}{% set _ = entry.append('RSI rebota desde ≤ ' ~ form.rsi_max) %}{% endif %}
-{% if form.use_boll and not sig_none %}{% set _ = entry.append('Bollinger %B ≤ ' ~ form.boll_pctb) %}{% endif %}
+{% if form.use_rsi %}{% set _ = entry.append('RSI rebota desde ≤ ' ~ form.rsi_max) %}{% endif %}
+{% if form.use_boll %}{% set _ = entry.append('Bollinger %B ≤ ' ~ form.boll_pctb) %}{% endif %}
 {% if form.use_bw %}{% set _ = entry.append('Bandas ≥ ' ~ form.boll_width ~ ' %') %}{% endif %}
 {% set spreadf = [] %}
 {% if form.mode != 'put' %}
@@ -83,7 +82,7 @@
     ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-entry'), ('use_rsi', 'RSI', 'sec-entry'),
     ('use_boll', 'Bollinger %B', 'sec-entry'), ('use_bw', 'Ancho de bandas', 'sec-entry'), ('use_bid', 'Bid mín.', 'sec-optional'), ('use_oi', 'OI', 'sec-optional'),
     ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
-  {% if not form[use] or (sig_none and use in ('use_ivhv', 'use_ivchg', 'use_near', 'use_rsi', 'use_boll')) %}{% set _ = offs.append((sec, label)) %}{% endif %}
+  {% if not form[use] %}{% set _ = offs.append((sec, label)) %}{% endif %}
 {% endfor %}
 {% if not form.q_liq %}{% set _ = offs.append(('sec-quality', 'Liquidez')) %}{% endif %}
 {% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia')) %}{% endif %}
@@ -91,7 +90,7 @@
 {% if not form.touch %}{% set _ = offs.append(('sec-levels', 'Último toque')) %}{% endif %}
 {% if not price_on %}{% set _ = offs.append(('sec-price', 'Precio')) %}{% endif %}
 {% if not ma_count %}{% set _ = offs.append(('sec-ma', 'Medias')) %}{% endif %}
-{% if sig_none %}{% set _ = offs.append(('sec-entry', 'Señales de entrada')) %}{% elif not form.signals or form.signals == '0' %}{% set _ = offs.append(('sec-entry', 'Mín. de señales')) %}{% endif %}
+{% if not form.signals or form.signals == '0' %}{% set _ = offs.append(('sec-entry', 'Mín. de señales')) %}{% endif %}
 
 <style>
   td.mini { padding-top:2px; padding-bottom:2px; } td.mini a.chart-link { border:0; display:block; line-height:0; } td.mini img { display:block; }
@@ -268,7 +267,6 @@
       {% call section('sec-entry', 'Técnicos de entrada', (entry | join(' · ')) or 'Sin filtros', entry|length > 0) %}
         <label class="field">Señales de entrada: cumplir al menos
           <select name="signals" id="signals"><option value="0" {{ 'selected' if form.signals in ('', '0') }}>Todas las marcadas</option>
-            <option value="none" {{ 'selected' if form.signals == 'none' }}>Ninguna (no usar señales de entrada)</option>
             {% for n in (1, 2, 3, 4, 5) %}<option value="{{ n }}" {{ 'selected' if form.signals == n|string }}>{{ n }} de las marcadas</option>{% endfor %}</select></label>
         <p class="note">Cuentan como <b>señales</b>: IV/HV, IV que no sube, cerca de MA50/soporte, RSI y Bollinger %B. Con «al menos N» basta con que se cumplan N de las marcadas
           (con menos marcadas, todas); los demás filtros (delta, DTE, yield, IV Rank, ATR, resultados…) siguen siendo obligatorios. Es lo que pide la estrategia: no hace falta que se cumplan todas las señales de timing.</p>
