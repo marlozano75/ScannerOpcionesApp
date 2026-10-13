@@ -2,7 +2,7 @@
 
 Solo avisos sobre las posiciones abiertas (la aplicación no envía órdenes). Funciones puras. Cada put se gestiona con un perfil
 (`TASTYTRADE` por defecto, `TPC` si se elige): reglas orientativas.
-  · Tastytrade: recoger beneficios al capturar el 50 % de la prima; a 21 DTE, si no se ha llegado al 50 %, cerrar o rolar a un
+  · Tastytrade: recoger beneficios al capturar el 50–65 % de la prima; a 21 DTE, si no se ha llegado al 50 %, cerrar o rolar a un
     vencimiento posterior cobrando crédito; una asignación no debería superar un 5–10 % de la cartera por acción.
   · TPC (The Premium Collector): mantener hasta el vencimiento, sin recoger al 50 % ni rolar (si te asignan, reevaluar la tesis y
     valorar vender calls); solo se avisa de que casi toda la prima está ganada, y el peso por acción puede llegar al 15 %.
@@ -90,7 +90,9 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         if captured is not None and captured >= cfg.tpc_close_capture_pct:
             alerts.append(Alert("info", f"Casi toda la prima ganada ({captured:.0f} %): puedes cerrarla y liberar la obligación o mantenerla hasta el vencimiento."))
     elif captured is not None and captured >= cfg.take_profit_pct:
-        alerts.append(Alert("ok", f"Recoger beneficios: {captured:.0f} % de la prima ganada (objetivo {cfg.take_profit_pct:g} %)."))
+        rango = f"{cfg.take_profit_pct:g}–{cfg.take_profit_max_pct:g} %"
+        extra = " Ya supera el rango: no esperes más." if captured > cfg.take_profit_max_pct else ""
+        alerts.append(Alert("ok", f"Recoger beneficios: {captured:.0f} % de la prima ganada (objetivo {rango}).{extra}"))
     elif 0 <= dte <= cfg.review_dte:
         got = "sin dato de la prima" if captured is None else f"{captured:.0f} % de la prima ganada"
         alerts.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {cfg.review_dte}) y no se ha llegado al {cfg.take_profit_pct:g} % "

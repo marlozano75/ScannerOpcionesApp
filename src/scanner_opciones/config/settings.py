@@ -458,6 +458,7 @@ class MarketSettings(_Model):
 class ManagementSettings(_Model):
     """Gestión de las puts vendidas (tarjeta del Panel): avisos, no órdenes. Orientativos, no reglas exactas."""
     take_profit_pct: float = Field(50, gt=0, le=100)    # recoger beneficios al capturar este % de la prima cobrada
+    take_profit_max_pct: float = Field(65, gt=0, le=100)  # techo del rango de tastytrade (50–65 %): por encima, no esperar más
     review_dte: int = Field(21, ge=0)                   # a este DTE, si no se ha llegado al objetivo: cerrar o rolar
     near_strike_pct: float = Field(2.0, ge=0)           # aviso cuando el precio está a menos de este % por encima del strike
     warn_position_pct: float = Field(5, gt=0)           # peso de una acción (acciones + puts vendidas asignadas) sobre el NLV: aviso
@@ -471,6 +472,8 @@ class ManagementSettings(_Model):
 
     @model_validator(mode="after")
     def _check(self) -> "ManagementSettings":
+        if self.take_profit_max_pct < self.take_profit_pct:
+            raise ValueError("take_profit_max_pct no puede ser menor que take_profit_pct")
         if self.warn_position_pct > self.max_position_pct:
             raise ValueError("warn_position_pct no puede superar max_position_pct")
         if self.tpc_warn_position_pct > self.tpc_max_position_pct:

@@ -121,7 +121,8 @@ diversification:
   weeks_ahead: 5
 
 management:                # tarjeta «Gestión de puts vendidas» del Panel (avisos, nunca órdenes)
-  take_profit_pct: 50        # Tastytrade: recoger beneficios al capturar este % de la prima
+  take_profit_pct: 50        # Tastytrade: recoger beneficios al capturar este % de la prima (inicio del rango 50–65 %)
+  take_profit_max_pct: 65    # Tastytrade: fin del rango; por encima se avisa de que ya no hay que esperar
   review_dte: 21             # Tastytrade: a este DTE sin llegar al objetivo, cerrar o rolar
   near_strike_pct: 2         # aviso cuando el precio está a menos de este % por encima del strike
   warn_position_pct: 5       # Tastytrade: peso por acción tras asignación (aviso) ...
