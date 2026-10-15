@@ -200,7 +200,7 @@
       {% for k, v in other_params.items() %}<input type="hidden" name="o_{{ k }}" value="{{ v }}">{% endfor %}
       <div class="presets"><span class="lbl">Perfiles</span>
         {% for p in profile_buttons %}
-        <a class="preset{{ ' strategy' if p.strategy }}{{ ' active' if p.on }}" href="/scanner?{{ p.qs }}" style="text-decoration:none"
+        <a class="preset{{ ' strategy' if p.strategy }}{{ ' active' if p.on }}" href="/scanner?{{ p.qs }}" style="text-decoration:none{{ ';--pc:' ~ p.color if p.color }}"
           title="Carga el perfil «{{ p.name }}» ({{ p.instruments | join(' + ') | replace('put', 'put vendida') | replace('spread', 'spread') }}): reemplaza todos los filtros del formulario por los guardados en el perfil">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
         <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Perfiles: nombre, instrumentos activos y perfil inicial">✎ Editar</a>
         <button type="button" class="secondary" id="save-profile" style="font-size:12px;padding:2px 8px"

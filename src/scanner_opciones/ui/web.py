@@ -426,15 +426,18 @@ def preset_link(settings, preset, form: dict, current=None) -> tuple[str, bool]:
     return urlencode({**kept, **params}), on
 
 
+SEED_COLORS = {"Mensual (TPC)": "#2e7d32", "Táctico (TPC)": "#e08a00", "Tastytrade": "#1f6feb", FALLBACK_PROFILE: "#7b5ea7"}
+
+
 def seed_profiles(settings) -> tuple[list[Profile], str]:
     """Perfiles que salen de los presets TPC y de la estrategia Tastytrade (config.yaml o editados en /scanner/config) mientras no se
     guarden perfiles propios. TPC solo con put vendida; Tastytrade con put y spread. El inicial es Tastytrade."""
     out = []
     for p in settings.scanner.presets:
         params = dict(parse_qsl(preset_link(settings, p, {})[0]))
-        out.append(Profile(p.name, ("put",), management="tpc").with_filters("put", params).with_filters("spread", params))
+        out.append(Profile(p.name, ("put",), management="tpc", color=SEED_COLORS.get(p.name, "")).with_filters("put", params).with_filters("spread", params))
     params = dict(parse_qsl(strategy_link(settings, {}, None)[0]))
-    out.append(Profile("Tastytrade", ("put", "spread")).with_filters("put", params).with_filters("spread", params))
+    out.append(Profile("Tastytrade", ("put", "spread"), color=SEED_COLORS["Tastytrade"]).with_filters("put", params).with_filters("spread", params))
     out.append(seed_fallback(settings))
     return out, "Tastytrade"
 
@@ -443,7 +446,7 @@ def seed_fallback(settings) -> Profile:
     """Perfil «Tortuga»: recoge las puts que no encajan por DTE en ningún otro; filtros básicos (los valores iniciales) y gestión Tastytrade."""
     ini = settings.scanner.initial
     params = {"discount": _fmt(ini.strike_below_pct_min), "dte_min": str(ini.dte_min), "dte_max": str(ini.dte_max), "min_yield": _fmt(ini.min_yield_pct)}
-    return Profile(FALLBACK_PROFILE, ("put", "spread")).with_filters("put", params).with_filters("spread", params)
+    return Profile(FALLBACK_PROFILE, ("put", "spread"), color=SEED_COLORS[FALLBACK_PROFILE]).with_filters("put", params).with_filters("spread", params)
 
 
 def profile_link(p: Profile, mode: Optional[str] = None) -> str:
@@ -578,7 +581,7 @@ def create_app(
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", profile_names=[p.name for p in get_profiles()[0]], sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 
@@ -1147,11 +1150,11 @@ def create_app(
 
     @app.post("/scanner/profiles")
     async def scanner_profiles_save(request: Request):
-        """Nombre, instrumentos activos, borrado y perfil inicial de los perfiles (los filtros se guardan desde el Scanner)."""
+        """Nombre, color, orden, instrumentos activos, gestión, duplicado, borrado y perfil inicial de los perfiles (los filtros se guardan desde el Scanner)."""
         form = await request.form()
         profiles, default = get_profiles()
         by_name = {p.name: p for p in profiles}
-        out: list[Profile] = []
+        rows: list[tuple[float, int, Profile]] = []      # (orden elegido, posición, perfil)
         chosen = str(form.get("default", ""))
         new_default = default
         for i in range(int(form.get("n_profiles", 0) or 0)):
@@ -1160,9 +1163,22 @@ def create_app(
                 continue
             instruments = tuple(k for k in ("put", "spread") if form.get(f"pf{i}_{k}"))
             name = orig.name if orig.name == FALLBACK_PROFILE else str(form.get(f"pf{i}_name", ""))     # «Tortuga» no se renombra ni se borra
-            out.append(Profile(name, instruments, orig.put, orig.spread, str(form.get(f"pf{i}_mgmt", orig.management))))
+            color = str(form.get(f"pf{i}_color", orig.color)) if form.get(f"pf{i}_usecolor") else ""
+            kept = Profile(name, instruments, orig.put, orig.spread, str(form.get(f"pf{i}_mgmt", orig.management)), color)
+            try:
+                order = float(str(form.get(f"pf{i}_order", "")).replace(",", "."))
+            except ValueError:
+                order = float(i + 1)
+            rows.append((order, 2 * i, kept))
             if chosen == str(i):
-                new_default = out[-1].name
+                new_default = kept.name
+            if form.get(f"pf{i}_dup"):     # copia justo detrás de la original, con los mismos filtros
+                taken = {r[2].name.casefold() for r in rows} | {str(form.get(f"pf{j}_name", "")).casefold() for j in range(int(form.get("n_profiles", 0) or 0))}
+                copy_name, n = f"{kept.name} (copia)", 2
+                while copy_name.casefold() in taken:
+                    copy_name, n = f"{kept.name} (copia {n})", n + 1
+                rows.append((order, 2 * i + 1, replace(kept, name=copy_name)))
+        out = [r[2] for r in sorted(rows, key=lambda r: (r[0], r[1]))]
         try:
             service.save_profiles(out, new_default)
         except ValueError as exc:
@@ -1295,7 +1311,7 @@ def create_app(
                                 min_yield=_fmt(p.min_yield_pct), qs=qs, on=on))
         active_name = request.query_params.get("profile", "")
         default_qs = profile_link(next((p for p in profiles if p.name == default_profile), profiles[0]))
-        profile_buttons = [dict(name=p.name, qs=profile_link(p), on=p.name == active_name, instruments=p.instruments,
+        profile_buttons = [dict(name=p.name, qs=profile_link(p), on=p.name == active_name, instruments=p.instruments, color=p.color,
                                 strategy=p.put.get("use_delta") == "on") for p in profiles]
         active_profile = next((p for p in profiles if p.name == active_name), None)
         qcfg = service.settings.scanner.quality

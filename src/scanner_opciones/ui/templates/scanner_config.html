@@ -24,20 +24,23 @@
   {% for g in gap %}<div class="banner info">Aviso: {{ g }}: solo se escanean los contratos guardados, amplía <code>scanner.candidates</code> en config.yaml.</div>{% endfor %}
   <form method="post" action="/scanner/profiles">
     <details class="cfg-sec" open><summary>Perfiles (instrumentos, gestión y perfil inicial)</summary>
-    <p class="note">Cargar un perfil reemplaza el formulario entero. Con put y spread marcados el perfil arranca en «Ambos». El <b>perfil inicial</b> es el que se carga al abrir el Scanner.
+    <p class="note">Cargar un perfil reemplaza el formulario entero. Con put y spread marcados el perfil arranca en «Ambos». El <b>orden</b> (número menor, antes) es el de los botones del Scanner y el del desplegable del Panel; el <b>color</b> tiñe su botón y su etiqueta en el Panel; <b>Duplicar</b> crea una copia con los mismos filtros. El <b>perfil inicial</b> es el que se carga al abrir el Scanner.
       En el <b>Panel</b>, cada put vendida se asigna sola al perfil cuyo <b>rango de DTE</b> (mínimo y máximo de sus filtros) contiene el DTE con el que se abrió (la fecha es la primera vez que la app la vio);
       si hay varios, el rango más estrecho, y lo que no encaja en ninguno va a <b>{{ fallback }}</b>. Se puede corregir a mano en el Panel. La <b>gestión</b> del perfil decide los avisos de esas puts
       (Tastytrade: recoger al 50 %, revisar a 21 DTE; TPC: mantener hasta el vencimiento).
       {{ 'Estos perfiles se han guardado desde la aplicación.' if profiles_saved else 'Todavía se generan a partir de config.yaml (presets TPC y estrategia Tastytrade); al guardar aquí pasan a ser propios.' }}</p>
     <table class="cfg-pre">
-      <tr><th>Nombre</th><th>Put vendida</th><th>Spread</th><th>Gestión</th><th>DTE (Panel)</th><th>Inicial</th><th>Borrar</th></tr>
+      <tr><th>Orden</th><th>Nombre</th><th>Color</th><th>Put vendida</th><th>Spread</th><th>Gestión</th><th>DTE (Panel)</th><th>Inicial</th><th>Duplicar</th><th>Borrar</th></tr>
       {% for p in profiles %}{% set i = loop.index0 %}
-      <tr><td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}" {{ 'readonly' if p.name == fallback }}><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
+      <tr><td><input type="number" name="pf{{ i }}_order" value="{{ i + 1 }}" step="1" style="width:56px"></td>
+        <td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}" {{ 'readonly' if p.name == fallback }}><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
+        <td style="white-space:nowrap"><input type="checkbox" name="pf{{ i }}_usecolor" {{ 'checked' if p.color }} title="Con color"><input type="color" name="pf{{ i }}_color" value="{{ p.color or '#1f6feb' }}"></td>
         <td><input type="checkbox" name="pf{{ i }}_put" {{ 'checked' if 'put' in p.instruments }}></td>
         <td><input type="checkbox" name="pf{{ i }}_spread" {{ 'checked' if 'spread' in p.instruments }}></td>
         <td><select name="pf{{ i }}_mgmt"><option value="tastytrade" {{ 'selected' if p.management == 'tastytrade' }}>Tastytrade</option><option value="tpc" {{ 'selected' if p.management == 'tpc' }}>TPC</option></select></td>
         <td class="muted">{% if p.name == fallback %}el resto{% elif ranges[p.name] %}{{ ranges[p.name][0] }}–{{ ranges[p.name][1] }}{% else %}—{% endif %}</td>
         <td><input type="radio" name="default" value="{{ i }}" {{ 'checked' if p.name == default_profile }}></td>
+        <td><input type="checkbox" name="pf{{ i }}_dup"></td>
         <td>{% if p.name != fallback %}<input type="checkbox" name="pf{{ i }}_del">{% else %}<span class="muted">—</span>{% endif %}</td></tr>
       {% endfor %}
     </table>

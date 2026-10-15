@@ -205,3 +205,24 @@ def test_the_two_filter_sets_travel_in_the_url_swap_with_the_tabs_and_are_saved_
     # y al cargarlo (modo Ambos) se ve el juego de put y el de spread viaja oculto
     loaded = client.get(r.headers["location"]).text
     assert 'name="o_use_ns" value="on"' in loaded and 'name="use_oi"' in loaded and "Parámetro no válido" not in loaded
+
+
+def test_profiles_can_be_reordered_coloured_and_duplicated(client_and_service):
+    client, svc, gw, _ = client_and_service
+    client.get("/scanner?reset=1")
+    names = ["Mensual (TPC)", "Táctico (TPC)", "Tastytrade", "Tortuga"]
+    form = {"n_profiles": "4", "default": "2"}
+    for i, n in enumerate(names):
+        form.update({f"pf{i}_name": n, f"pf{i}_orig": n, f"pf{i}_put": "on", f"pf{i}_order": str(10 - i)})     # orden inverso
+    form.update({"pf2_usecolor": "on", "pf2_color": "#112233", "pf2_dup": "on", "pf2_spread": "on", "pf0_usecolor": "on", "pf0_color": "rojo"})
+    bad = client.post("/scanner/profiles", data=form, follow_redirects=False)
+    assert "error=" in bad.headers["location"] and svc.stored_profiles() is None                       # color no válido: no se guarda nada
+    form["pf0_color"] = "#aa0000"
+    assert "ok=" in client.post("/scanner/profiles", data=form, follow_redirects=False).headers["location"]
+    saved, default = svc.stored_profiles()
+    assert [p.name for p in saved] == ["Tortuga", "Tastytrade", "Tastytrade (copia)", "Táctico (TPC)", "Mensual (TPC)"]
+    by = {p.name: p for p in saved}
+    assert by["Tastytrade"].color == "#112233" and by["Tastytrade (copia)"].color == "#112233" and by["Táctico (TPC)"].color == ""
+    assert by["Tastytrade (copia)"].put == by["Tastytrade"].put and default == "Tastytrade"
+    page = client.get("/scanner?reset=1").text
+    assert page.index(">Tortuga</a>") < page.index(">Tastytrade</a>") < page.index(">Mensual (TPC)</a>") and "--pc:#112233" in page

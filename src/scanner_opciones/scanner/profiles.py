@@ -7,6 +7,7 @@ Funciones puras; el almacenamiento (JSON en `meta`) lo hace `AppService`."""
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field, replace
 from typing import Optional
 
@@ -22,6 +23,7 @@ class Profile:
     put: dict = field(default_factory=dict)       # parámetros de la URL del juego de filtros de put
     spread: dict = field(default_factory=dict)    # ... y del de spread
     management: str = "tastytrade"                # reglas con las que se gestionan en el Panel las puts de este perfil: tastytrade | tpc
+    color: str = ""                               # color del botón del perfil y de su etiqueta en el Panel (#rrggbb; vacío = sin color)
 
     @property
     def mode(self) -> str:
@@ -49,7 +51,8 @@ class Profile:
         return replace(self, spread=clean) if mode in ("spread", "both") else replace(self, put=clean)
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "instruments": list(self.instruments), "put": self.put, "spread": self.spread, "management": self.management}
+        return {"name": self.name, "instruments": list(self.instruments), "put": self.put, "spread": self.spread, "management": self.management,
+                "color": self.color}
 
 
 def validate_profile(p: Profile) -> Profile:
@@ -59,6 +62,8 @@ def validate_profile(p: Profile) -> Profile:
     instruments = tuple(i for i in INSTRUMENTS if i in p.instruments)
     if not instruments:
         raise ValueError(f"«{name}»: activa al menos un instrumento (put o spread)")
+    if p.color and not re.fullmatch(r"#[0-9a-fA-F]{6}", p.color):
+        raise ValueError(f"«{name}»: color no válido")
     if p.management not in ("tastytrade", "tpc"):
         raise ValueError(f"«{name}»: gestión no válida")
     return replace(p, name=name, instruments=instruments)
@@ -85,7 +90,7 @@ def load(raw: str) -> Optional[tuple[list[Profile], str]]:
     try:
         data = json.loads(raw)
         profiles = [Profile(d["name"], tuple(d["instruments"]), {str(k): str(v) for k, v in d["put"].items()},
-                            {str(k): str(v) for k, v in d["spread"].items()}, d.get("management", "tastytrade")) for d in data["profiles"]]
+                            {str(k): str(v) for k, v in d["spread"].items()}, d.get("management", "tastytrade"), d.get("color", "")) for d in data["profiles"]]
         return validate_profiles(profiles, data.get("default"))
     except Exception:
         return None
