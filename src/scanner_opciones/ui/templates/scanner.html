@@ -106,6 +106,10 @@
   .chart-link:hover { border-bottom-style:solid; color:var(--accent); }
   .sh-dialog { border:1px solid var(--line-strong); border-radius:14px; background:var(--panel); color:var(--ink); padding:16px 20px 20px; width:min(820px, 94vw); }
   .sh-dialog::backdrop { background:rgba(31,45,74,.45); }
+  .pf-dialog { width:min(420px, 94vw); }
+  .pf-dialog h2 { margin:0 0 4px; font-size:16px; }
+  .pf-dialog input[type=text] { width:100%; box-sizing:border-box; margin:8px 0 4px; }
+  .pf-dialog .pf-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
   .sh-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
   .sh-head h2 { margin:0; }
   .sh-head button { font-size:22px; line-height:1; padding:2px 10px; background:transparent; color:var(--mute); border:0; cursor:pointer; }
@@ -520,6 +524,17 @@
   </section>
 </div>
 
+<dialog id="profile-dialog" class="sh-dialog pf-dialog">
+  <form method="post" action="/scanner/profile/save" id="profile-form">
+    <h2>Guardar filtros en un perfil</h2>
+    <p class="muted" style="margin:0;font-size:12.5px">Elige un perfil existente para actualizarlo o escribe un nombre nuevo para crear otro.</p>
+    <input type="text" name="name" id="profile-name" list="profile-names" autocomplete="off" required maxlength="60" placeholder="Nombre del perfil">
+    <datalist id="profile-names">{% for p in profile_buttons %}<option value="{{ p.name }}">{% endfor %}</datalist>
+    <input type="hidden" name="query" id="profile-query">
+    <div class="pf-actions"><button type="button" class="secondary" id="profile-cancel">Cancelar</button><button type="submit">Guardar</button></div>
+  </form>
+</dialog>
+
 <dialog id="strike-dialog" class="sh-dialog">
   <div class="sh-head"><h2 id="strike-title">Historial de cierres</h2><button type="button" id="strike-close" aria-label="Cerrar">×</button></div>
   <div id="strike-body"></div>
@@ -795,15 +810,19 @@
     if (!btn) return;
     btn.addEventListener('click', function () {
       const current = form.elements['profile'] ? form.elements['profile'].value : '';
-      const name = window.prompt('Guardar los filtros actuales en el perfil (escribe un nombre nuevo para crear otro):', current);
-      if (!name || !name.trim()) return;
-      const f = document.createElement('form');
-      f.method = 'post'; f.action = '/scanner/profile/save';
-      [['name', name.trim()], ['query', new URLSearchParams(new FormData(form)).toString()]].forEach(function (kv) {
-        const i = document.createElement('input'); i.type = 'hidden'; i.name = kv[0]; i.value = kv[1]; f.appendChild(i);
-      });
-      document.body.appendChild(f);
-      f.submit();
+      const dlg = document.getElementById('profile-dialog'), name = document.getElementById('profile-name');
+      if (!dlg || typeof dlg.showModal !== 'function') return;
+      name.value = current;
+      document.getElementById('profile-query').value = new URLSearchParams(new FormData(form)).toString();
+      dlg.showModal();
+      name.focus(); name.select();
+    });
+    const cancel = document.getElementById('profile-cancel');
+    if (cancel) cancel.addEventListener('click', function () { document.getElementById('profile-dialog').close(); });
+    document.getElementById('profile-form').addEventListener('submit', function (e) {
+      const n = document.getElementById('profile-name');
+      n.value = n.value.trim();
+      if (!n.value) { e.preventDefault(); n.focus(); }
     });
   })();
   // Cualquier selector o casilla escanea al cambiar
