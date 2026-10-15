@@ -353,5 +353,41 @@
   setInterval(poll, 10000);
 })();
 </script>{% endif %}
+<style>
+  dialog.cf-dialog { border:1px solid var(--line-strong, #c9c2ad); border-radius:14px; background:var(--panel, #fff); color:var(--ink, #222); padding:18px 22px 16px; width:min(440px, 94vw); }
+  dialog.cf-dialog::backdrop { background:rgba(31,45,74,.45); }
+  dialog.cf-dialog p { margin:0; line-height:1.45; }
+  dialog.cf-dialog .cf-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+</style>
+<script>
+  // Confirmación propia en vez del confirm() del navegador: `onclick="return confirmClick(this, 'mensaje')"` en un botón.
+  // Si el usuario acepta, el botón se vuelve a pulsar (con todo su formaction/name/value) y esta vez pasa.
+  (function () {
+    var dlg = null, pending = null;
+    function build() {
+      dlg = document.createElement('dialog');
+      dlg.className = 'cf-dialog';
+      dlg.innerHTML = '<p id="cf-msg"></p><div class="cf-actions"><button type="button" class="secondary" id="cf-no">Cancelar</button>' +
+                      '<button type="button" id="cf-yes">Aceptar</button></div>';
+      document.body.appendChild(dlg);
+      dlg.querySelector('#cf-no').addEventListener('click', function () { pending = null; dlg.close(); });
+      dlg.addEventListener('cancel', function () { pending = null; });
+      dlg.querySelector('#cf-yes').addEventListener('click', function () {
+        var btn = pending; pending = null; dlg.close();
+        if (btn) { btn.dataset.confirmed = '1'; btn.click(); }
+      });
+    }
+    window.confirmClick = function (btn, message) {
+      if (btn.dataset.confirmed) { delete btn.dataset.confirmed; return true; }
+      if (typeof HTMLDialogElement === 'undefined') return window.confirm(message);
+      if (!dlg) build();
+      pending = btn;
+      dlg.querySelector('#cf-msg').textContent = message;
+      dlg.showModal();
+      dlg.querySelector('#cf-yes').focus();
+      return false;
+    };
+  })();
+</script>
 </body>
 </html>

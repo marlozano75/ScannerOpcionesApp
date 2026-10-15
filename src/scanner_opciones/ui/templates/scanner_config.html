@@ -48,7 +48,7 @@
     <div class="cfg-actions">
       <button>Guardar perfiles</button>
       <button type="submit" formaction="/scanner/profiles/reset" formnovalidate class="secondary"
-        onclick="return confirm('¿Regenerar los perfiles desde config.yaml? Se pierden los filtros guardados en ellos.')" {{ '' if profiles_saved else 'disabled' }}>Regenerar desde config.yaml</button>
+        onclick="return confirmClick(this, '¿Regenerar los perfiles desde config.yaml? Se pierden los filtros guardados en ellos.')" {{ '' if profiles_saved else 'disabled' }}>Regenerar desde config.yaml</button>
     </div>
     </details>
   </form>
@@ -63,7 +63,7 @@
     <div class="cfg-actions">
       <button>Guardar</button>
       <button type="submit" formaction="/scanner/config/reset" formnovalidate class="secondary"
-        onclick="return confirm('¿Volver a los valores de config.yaml?')" {{ '' if user_edited else 'disabled' }}>Restaurar los de config.yaml</button>
+        onclick="return confirmClick(this, '¿Volver a los valores de config.yaml?')" {{ '' if user_edited else 'disabled' }}>Restaurar los de config.yaml</button>
     </div>
     </details>
   </form>

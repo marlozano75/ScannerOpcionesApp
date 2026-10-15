@@ -513,7 +513,7 @@ def test_apply_with_nothing_selected_does_not_wipe_the_watchlist(client_and_serv
 def test_page_has_replace_confirmation_and_select_all(client_and_service):
     client, *_ = client_and_service
     page = load_rank(client).text
-    assert 'name="mode" value="replace"' in page and "confirmReplace()" in page and 'id="rk-all"' in page
+    assert 'name="mode" value="replace"' in page and "confirmReplace(this)" in page and 'id="rk-all"' in page
 
 
 def test_a_newer_file_of_the_same_source_replaces_the_old_one_and_files_can_be_removed(client_and_service):

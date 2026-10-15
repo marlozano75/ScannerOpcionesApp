@@ -55,9 +55,10 @@
   @media (max-width: 900px) { #rk-apply .scroll { max-height:75vh; } }
 </style>
 <script>
-  function confirmSource(form) {
+  function confirmSource(btn) {
+    var form = btn.form;
     if (!form.reportValidity()) return false;
-    return confirm('La fuente «' + form.elements.source.value.trim() + '» quedará solo con los tickers escritos (si ya existe, se pierden los demás). ¿Sustituirla?');
+    return confirmClick(btn, 'La fuente «' + form.elements.source.value.trim() + '» quedará solo con los tickers escritos (si ya existe, se pierden los demás). ¿Sustituirla?');
   }
 </script>
 <div class="shell uni">
@@ -77,7 +78,7 @@
             <textarea name="text" rows="2" style="min-height:56px" placeholder="AAPL, MSFT, KO …" required></textarea>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <button name="mode" value="add" title="Suma los tickers a los que ya tiene la fuente">Añadir a la fuente</button>
-              <button name="mode" value="replace" class="secondary" onclick="return confirmSource(this.form)"
+              <button name="mode" value="replace" class="secondary" onclick="return confirmSource(this)"
                       title="La fuente pasa a tener solo estos tickers">Sustituir la fuente</button>
             </div>
           </form>
@@ -191,17 +192,17 @@
   {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
   <p>
     <button name="mode" value="add">Añadir selección a la watchlist</button>
-    <button name="mode" value="replace" class="secondary" onclick="return confirmReplace()"
+    <button name="mode" value="replace" class="secondary" onclick="return confirmReplace(this)"
             title="Quita de la watchlist (con sus contratos) los tickers que no estén en la selección">Sustituir watchlist con la selección</button>
     <span class="muted">Desmarca las que no quieras añadir.</span>
   </p>
   {% if src %}
   <p>
     <button class="secondary" type="submit" formaction="/universe/source/remove" name="scope" value="selected" data-removing
-            onclick="return confirm('Se quitarán de la fuente «{{ src }}» los tickers marcados (los que pasan el filtro). ¿Continuar?')"
+            onclick="return confirmClick(this, 'Se quitarán de la fuente «{{ src }}» los tickers marcados (los que pasan el filtro). ¿Continuar?')"
             title="Quita de esta fuente solo los tickers marcados; no toca la watchlist">Quitar los marcados de esta fuente</button>
     <button class="secondary" type="submit" formaction="/universe/source/remove" name="scope" value="all" data-removing
-            onclick="return confirm('Se quitarán TODOS los tickers de la fuente «{{ src }}», y la fuente desaparecerá. ¿Continuar?')"
+            onclick="return confirmClick(this, 'Se quitarán TODOS los tickers de la fuente «{{ src }}», y la fuente desaparecerá. ¿Continuar?')"
             title="Quita todos los tickers de esta fuente; no toca la watchlist">Quitar toda la fuente</button>
     <span class="muted">Un fichero nuevo de esta fuente la restaura entera.</span>
   </p>
@@ -244,8 +245,8 @@
   </section>
 </div>
 <script>
-  function confirmReplace() {
-    return confirm('Se quitarán de la watchlist, con sus contratos y cotizaciones, los tickers que no estén en la selección. ¿Sustituir la watchlist?');
+  function confirmReplace(btn) {
+    return confirmClick(btn, 'Se quitarán de la watchlist, con sus contratos y cotizaciones, los tickers que no estén en la selección. ¿Sustituir la watchlist?');
   }
   document.getElementById('rk-apply').addEventListener('submit', function (e) {
     if (e.submitter && e.submitter.hasAttribute('data-removing')) return;      // quitar de la fuente no toca la watchlist
