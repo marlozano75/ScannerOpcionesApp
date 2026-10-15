@@ -974,7 +974,10 @@ def create_app(
                 overrides["min_abs_delta"], overrides["max_abs_delta"] = lo, hi
             if form["signals"] not in ("", "0", "1", "2", "3", "4", "5"):
                 raise ValueError("número de señales de entrada no permitido")
-            overrides["signals_required"] = int(form["signals"] or 0)
+            # con menos señales marcadas que las exigidas, el selector pasa al nº de marcadas (0 = «Todas las marcadas», sin señales no hay nada que exigir)
+            marked = sum(1 for k in ("use_ivhv", "use_ivchg", "use_rsi", "use_boll", "use_near") if form[k])
+            form["signals"] = str(min(int(form["signals"] or 0), marked))
+            overrides["signals_required"] = int(form["signals"])
             if form["use_near"]:
                 overrides["near_level_pct"] = _required(form["near_pct"], float, "Distancia a la media de 50 o al soporte (%)")
                 if not (0 < overrides["near_level_pct"] <= 50):

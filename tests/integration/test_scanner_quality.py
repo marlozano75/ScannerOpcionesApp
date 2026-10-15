@@ -375,7 +375,7 @@ def test_the_panel_shows_the_put_management_card(client_and_service):
 def test_the_scanner_form_has_the_signals_selector_and_the_sigma_column(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
-    page = client.get(BASE + "&signals=2&use_near=on&near_pct=3").text
+    page = client.get(BASE + "&signals=2&use_near=on&near_pct=3&use_rsi=on&rsi_max=35").text
     entry = page.split('id="sec-entry"')[1].split("</details>")[0]
     assert 'name="signals"' in entry and '<option value="2" selected>' in entry and "≥ 2 señales de entrada" in page
     assert "Dist. σ" not in page and 'name="use_exp"' not in page
@@ -410,3 +410,11 @@ def test_put_management_profile_is_chosen_per_put_and_remembered(client_and_serv
     assert svc.put_profiles() == {key: "tastytrade"}
     svc.set_put_profile(f"MSFT|{(svc.now().date() - timedelta(days=1)).isoformat()}|300", "tpc")   # ya vencida: se olvida
     assert svc.put_profiles() == {key: "tastytrade"}
+
+
+def test_the_signals_selector_drops_to_the_number_of_marked_signals(client_and_service):
+    client = client_and_service[0]
+    one = client.get(BASE + "&signals=2&use_near=on&near_pct=3").text.split('id="sec-entry"')[1].split("</details>")[0]
+    assert '<option value="1" selected>' in one
+    none = client.get(BASE + "&signals=2").text.split('id="sec-entry"')[1].split("</details>")[0]
+    assert '<option value="0" selected>' in none
