@@ -26,6 +26,9 @@ function Anotar([string]$mensaje) {
     Write-Host $linea
 }
 
+# Fechas de apertura de tus puts vendidas (aperturas.json): si falla no afecta a la comunidad
+try { & (Join-Path $PSScriptRoot "actualizar_aperturas.ps1") -Modelo $Modelo } catch { Anotar "Aperturas: $($_.Exception.Message)" }
+
 $python = Join-Path $raiz ".venv\Scripts\python.exe"
 $prompt = [IO.File]::ReadAllText((Join-Path $PSScriptRoot "comunidad_prompt.md"), $utf8)
 $herramientas = "mcp__claude_ai_Tortuga_Trades__get_context,mcp__claude_ai_Tortuga_Trades__get_community_screener,mcp__claude_ai_Tortuga_Trades__list_public_operations"

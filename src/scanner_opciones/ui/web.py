@@ -574,7 +574,7 @@ def create_app(
         nlv = service.nlv_usd() or (service.state.account.net_liquidation if service.state.account else None)   # strikes y posiciones en USD
         mgmt = manage_puts(service.state.positions, nlv, service.now().date(),
                            {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
-                           service.put_management(), service.put_assignments())
+                           service.put_management(), service.put_assignments(), service.put_open_dates())
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
             cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),

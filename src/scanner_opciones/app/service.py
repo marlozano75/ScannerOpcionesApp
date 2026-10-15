@@ -29,6 +29,7 @@ from scanner_opciones.portfolio.diversification import WeekExposure, sector_expo
 from scanner_opciones.community.data import CommunityData, CommunityError, load_community
 from scanner_opciones.community.fit import strategy_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, snapshot_key
+from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, classify_dte
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
 from scanner_opciones.portfolio.spreads import with_spreads
@@ -84,11 +85,6 @@ class SelectedContract:
     max_loss: Optional[float] = None      # spread: pérdida máxima por spread en $ (hace de margen)
 
 
-def norm_ticker(ticker: str) -> str:
-    """BRK B, BRK-B y BRK.B son el mismo valor (IBKR escribe la clase con espacio, la app con guion)."""
-    return re.sub(r"[ .\-/]", "", ticker.upper())
-
-
 @dataclass
 class AppState:
     connected: bool = False
@@ -140,6 +136,8 @@ class AppService:
             volatility, prices, syncer, self.market,
         )
         self.state = AppState()
+        self._openings: Optional[tuple[float, OpeningsData]] = None
+        self._openings_error: Optional[str] = None
         self.profile_provider: Optional[Callable[[], tuple[list[ScannerProfile], str]]] = None   # lo pone la interfaz web (perfiles guardados o derivados)
         self._yaml_scanner = (settings.scanner.presets, settings.scanner.strategy, settings.scanner.spreads)   # los de config.yaml, para restaurarlos
         self._load_scanner_config()
@@ -1184,9 +1182,36 @@ class AppService:
         data = {k: v for k, v in {**self.put_profiles(), key: profile}.items() if k.split("|")[1] >= today}
         self.meta.set(PUT_PROFILES, json.dumps(data))
 
-    def _short_put_keys(self) -> list[tuple[str, date]]:
-        return [(put_key_of(p), p.option.expiry) for p in self.state.positions
+    def openings(self) -> Optional[OpeningsData]:
+        """Fechas exactas de apertura (JSON de la rutina de aperturas), releídas solo si el fichero cambió. None si no existe; si el nuevo es
+        inválido se conservan los últimos datos buenos."""
+        path = Path(self.settings.community.openings_path)
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            self._openings = None
+            return None
+        if self._openings is not None and self._openings[0] == mtime:
+            return self._openings[1]
+        try:
+            data = load_openings(path)
+        except OpeningsError as exc:
+            if self._openings_error != str(exc):
+                log.warning("Aperturas: %s no es válido (%s); se conservan los últimos datos buenos", path, exc)
+                self._openings_error = str(exc)
+            return self._openings[1] if self._openings is not None else None
+        self._openings, self._openings_error = (mtime, data), None
+        for w in data.warnings:
+            log.warning("Aperturas: %s", w)
+        return data
+
+    def _short_puts_info(self) -> list[tuple[str, date, str, float]]:
+        """(put_key, vencimiento, ticker, strike) de cada put vendida de la cartera."""
+        return [(put_key_of(p), p.option.expiry, p.ticker, p.option.strike) for p in self.state.positions
                 if p.option is not None and p.option.right is OptionRight.PUT and p.quantity < 0]
+
+    def _short_put_keys(self) -> list[tuple[str, date]]:
+        return [(key, expiry) for key, expiry, _, _ in self._short_puts_info()]
 
     def _put_opened(self) -> dict[str, str]:
         try:
@@ -1210,14 +1235,27 @@ class AppService:
         profiles = self.scanner_profiles()
         if not profiles:
             return {}
-        manual, opened, today = self.put_profiles(), self._put_opened(), self.now().date()
+        manual = self.put_profiles()
+        dates = self.put_open_dates()
         out: dict[str, str] = {}
         for key, expiry in self._short_put_keys():
             if key in manual:
                 out[key] = manual[key]
                 continue
-            first = date.fromisoformat(opened[key]) if key in opened else today
-            out[key] = classify_dte((expiry - first).days, profiles)
+            out[key] = classify_dte((expiry - dates[key][0]).days, profiles)
+        return out
+
+    def put_open_dates(self) -> dict[str, tuple[date, bool]]:
+        """{put_key: (fecha de apertura, es exacta)}: la de las operaciones de Tortuga si la rutina de aperturas la trae y, si no (Tortuga las publica
+        con un día de retraso), la primera vez que la app vio la posición."""
+        exact, seen, today = self.openings(), self._put_opened(), self.now().date()
+        out: dict[str, tuple[date, bool]] = {}
+        for key, expiry, ticker, strike in self._short_puts_info():
+            tortuga = exact.get(ticker, expiry, strike) if exact is not None else None
+            if tortuga is not None:
+                out[key] = (tortuga, True)
+            else:
+                out[key] = (date.fromisoformat(seen[key]) if key in seen else today, False)
         return out
 
     def put_management(self) -> dict[str, str]:

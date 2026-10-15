@@ -503,6 +503,7 @@ class CommunitySettings(_Model):
     universe_top: int = Field(40, ge=1)    # cuántos tickers entran en esa fuente (los de más traders en 30 días)
     min_traders: int = Field(3, ge=1)      # traders mínimos en 30 días para entrar en la fuente
     stale_hours: int = Field(72, ge=1)     # el Scanner avisa si el JSON es más viejo
+    openings_path: str = "data/community/aperturas.json"   # fechas exactas de apertura de TUS puts vendidas (`scripts/actualizar_aperturas.ps1`)
 
 
 class Settings(_Model):

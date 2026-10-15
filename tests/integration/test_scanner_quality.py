@@ -449,3 +449,27 @@ def test_owned_puts_are_marked_in_the_scanner(client_and_service):
     assert svc.owned_options() == {(contract.ticker, contract.expiry, round(contract.strike, 4)): -2}
     page = client.get("/scanner?submitted=1&discount=0&dte_min=0&dte_max=60&min_yield=0").text
     assert "EN CARTERA \u00d72" in page
+
+
+def test_the_exact_opening_date_from_tortuga_beats_the_first_time_the_app_saw_the_put(client_and_service, tmp_path):
+    import json as _json
+    from datetime import timedelta
+    from scanner_opciones.domain.enums import OptionRight
+    from scanner_opciones.domain.models import OptionContract, Position
+    client, svc, gw, _ = client_and_service
+    f = tmp_path / "aperturas.json"
+    object.__setattr__(svc.settings, "community", svc.settings.community.model_copy(update={"openings_path": str(f)}))
+    today = svc.now().date()
+    option = OptionContract("AAPL", today + timedelta(days=30), 90.0, OptionRight.PUT)
+    svc.state.positions = [Position("AAPL", -1, -90.0, "Technology", option, 110.0)]
+    svc._note_put_opened()                                                                    # sin fichero: hoy, a 30 DTE
+    key = f"AAPL|{option.expiry.isoformat()}|90"
+    assert svc.put_open_dates() == {key: (today, False)} and svc.put_assignments() == {key: "Mensual (TPC)"}
+    f.write_text(_json.dumps({"version": 1, "generated_at": "2026-10-15T13:00:00+02:00", "source": "tortuga", "puts": [
+        {"date": (today - timedelta(days=10)).isoformat(), "ticker": "AAPL", "expiry": option.expiry.isoformat(), "strike": 90, "qty": 1}]}), encoding="utf-8")
+    assert svc.put_open_dates() == {key: (today - timedelta(days=10), True)}                  # fecha exacta: abierta a 40 DTE
+    assert svc.put_assignments() == {key: "Tastytrade"}
+    page = client.get("/").text
+    assert "fecha exacta de Tortuga" in page and "40 DTE al abrir" in page
+    f.write_text("no es json", encoding="utf-8")                                              # un fichero estropeado conserva lo último bueno
+    assert svc.put_open_dates()[key][1] is True

@@ -180,6 +180,7 @@ trend:
 # scripts/programar_comunidad.ps1). Los trades llegan con un día de retraso (IBKR Flex): sirven para ideas y consenso, no como señal.
 community:
   path: data/community/tortuga.json
+  openings_path: data/community/aperturas.json   # fecha exacta de apertura de tus puts vendidas (scripts/actualizar_aperturas.ps1); sin él, la primera vez que la app las ve
   source_name: Tortuga       # fuente del Universo con los tickers más vendidos por la comunidad
   universe_top: 40           # cuántos tickers entran en esa fuente (los de más traders en 30 días)
   min_traders: 3             # traders mínimos en 30 días para entrar

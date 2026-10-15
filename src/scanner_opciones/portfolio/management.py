@@ -53,6 +53,8 @@ class PutStatus:
     profile: str = TASTYTRADE            # perfil de gestión aplicado
     key: str = ""                        # `put_key`, para cambiar el perfil desde el Panel
     assigned: str = ""                   # perfil del Scanner al que pertenece la put (por DTE de apertura o elegido a mano)
+    opened: Optional[date] = None        # fecha de apertura (de Tortuga si es exacta, si no la primera vez que la app vio la posición)
+    opened_exact: bool = False
 
 
 @dataclass(frozen=True)
@@ -159,14 +161,15 @@ def open_risk(positions: Sequence[Position]) -> float:
 def manage_puts(
     positions: Sequence[Position], net_liquidation: Optional[float], today: date,
     prices: dict[str, Optional[float]], cfg: ManagementSettings, profiles: Optional[dict[str, str]] = None,
-    assigned: Optional[dict[str, str]] = None,
+    assigned: Optional[dict[str, str]] = None, opened: Optional[dict[str, tuple[date, bool]]] = None,
 ) -> ManagementReport:
     """`profiles`: perfil de gestión elegido por put (`put_key`); las que no están usan `cfg.default_profile`."""
     positions = with_spreads(positions)     # cada spread es una sola fila: prima y valor netos, riesgo = ancho
     profiles = profiles or {}
-    assigned = assigned or {}
+    assigned, opened = assigned or {}, opened or {}
     puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile)),
-                           assigned=assigned.get(put_key(p), ""))
+                           assigned=assigned.get(put_key(p), ""), opened=opened.get(put_key(p), (None, False))[0],
+                           opened_exact=opened.get(put_key(p), (None, False))[1])
                    for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))
     weights = ticker_weights(positions, net_liquidation, cfg, profiles)
     total = open_risk(positions)
