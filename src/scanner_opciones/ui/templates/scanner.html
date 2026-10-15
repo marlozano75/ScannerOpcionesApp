@@ -271,6 +271,9 @@
         <label class="field">Señales de entrada: cumplir al menos
           <select name="signals" id="signals"><option value="0" {{ 'selected' if form.signals in ('', '0') }}>Todas las marcadas</option>
             {% for n in (1, 2, 3, 4, 5) %}<option value="{{ n }}" {{ 'selected' if form.signals == n|string }}>{{ n }} de las marcadas</option>{% endfor %}</select></label>
+        {% set sigs = [] %}
+        {% for use, name in (('use_ivhv', 'IV/HV'), ('use_ivchg', 'cambio de IV'), ('use_near', 'MA50/soporte'), ('use_rsi', 'RSI'), ('use_boll', 'Bollinger %B')) %}{% if form[use] %}{% set _ = sigs.append(name) %}{% endif %}{% endfor %}
+        <p class="note" id="signals-marked" style="display:block"><b>Señales marcadas ({{ sigs|length }}):</b> {{ sigs|join(', ') or 'ninguna' }}. IV/HV y cambio de IV se marcan en «Volatilidad (IV) y prima».</p>
         <p class="note">Cuentan como <b>señales</b>: IV/HV, IV que no sube, cerca de MA50/soporte, RSI y Bollinger %B. Con «al menos N» basta con que se cumplan N de las marcadas
           (con menos marcadas, todas); los demás filtros (delta, DTE, yield, IV Rank, ATR, resultados…) siguen siendo obligatorios. Es lo que pide la estrategia: no hace falta que se cumplan todas las señales de timing.</p>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_near" {{ 'checked' if form.use_near }}> Precio a ≤ X % de MA50 o soporte</span>
