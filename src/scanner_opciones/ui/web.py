@@ -262,7 +262,7 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
 # parámetros del formulario que controla la estrategia: el botón los sustituye y respeta todos los demás filtros
 STRATEGY_KEYS = frozenset((
     "discount", "dte_min", "dte_max", "min_yield", "use_delta", "delta_min", "delta_max", "use_near", "near_pct",
-    "use_ivr", "ivr", "use_ivp", "ivp", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_atr", "atr_mult", "use_rsi", "signals",
+    "use_ivr", "ivr", "use_ivp", "ivp", "iv_any", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_atr", "atr_mult", "use_rsi", "signals",
     "rsi_max", "use_boll", "boll_pctb", "use_bw", "boll_width", "ma200", "q_earn", "q_liq", "reset", "debug"))
 
 
@@ -275,6 +275,7 @@ STRATEGY_FIELDS = (
     ("Delta y volatilidad", (
         ("min_abs_delta", "|Delta| mín. (vacío = sin mínimo)", "ofloat"), ("max_abs_delta", "|Delta| máx.", "float"),
         ("min_iv_rank", "IV Rank mín.", "float"), ("min_iv_percentile", "IV Percentile mín.", "float"),
+        ("iv_rank_pct_any", "Basta con IV Rank o IV Percentile (no los dos)", "bool"),
         ("min_iv_hv_ratio", "IV / HV30 mín.", "float"), ("max_iv_change_5d", "Cambio de IV a 5 días máx. (puntos)", "float"))),
     ("Señales de entrada", (
         ("min_signals", "Señales mínimas (0 = todas las marcadas)", "int"), ("near_level_pct", "Cerca de la media de 50 / soporte (%)", "float"),
@@ -298,6 +299,7 @@ SPREAD_FIELDS = (    # valores iniciales del modo Spread del Scanner (`scanner.s
     ("min_return_on_risk_pct", "Retorno mín. sobre riesgo (%, hasta el vencimiento)", "float"),
     ("min_credit_usd", "Crédito mín. ($ por contrato)", "float"),
     ("max_short_spread_pct", "Spread bid/ask máx. de la pata vendida (%)", "float"),
+    ("max_combo_spread_pct", "Spread bid/ask máx. del combo (% del crédito)", "float"),
     ("min_long_oi", "OI mín. de la pata comprada", "int"),
     ("max_long_spread_pct", "Spread bid/ask máx. de la pata comprada (%)", "float"),
     ("max_loss_nlv_pct", "Pérdida máxima (% del NLV)", "float"),
@@ -374,6 +376,8 @@ def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
     }
     if st.min_abs_delta is not None:       # por defecto solo máximo: el mínimo de prima lo pone el yield
         params["delta_min"] = _fmt(st.min_abs_delta)
+    if st.iv_rank_pct_any:
+        params["iv_any"] = "on"
     params.update(use_ivhv="on", ivhv=_fmt(st.min_iv_hv_ratio), use_ivchg="on", ivchg=_fmt(st.max_iv_change_5d))
     for use, key, enabled, value in (("use_rsi", "rsi_max", st.use_rsi, st.max_rsi_level),
                                      ("use_boll", "boll_pctb", st.use_bollinger, st.max_bollinger_pctb),
@@ -395,6 +399,7 @@ def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
     on = on and all(form.get(f) for f in ("use_delta", "use_near", "use_ivr", "use_ivp", "use_ivhv", "use_ivchg",
                                           *(u for u in ("use_rsi", "use_boll", "use_bw", "use_atr") if u in params)))
     on = on and (not st.avoid_earnings or bool(form.get("q_earn")))
+    on = on and bool(form.get("iv_any")) == st.iv_rank_pct_any
     kept = {k: v for k, v in (current.items() if current is not None else ()) if k not in STRATEGY_KEYS} if current is not None and "submitted" in current else {}
     return urlencode({**kept, **params}), on
 
@@ -864,7 +869,7 @@ def create_app(
             form[key] = _fmt(cfg_value if cfg_value is not None else shown[key])
 
         st = service.settings.scanner.strategy       # delta y cercanía a un nivel: marcar el filtro lo aplica
-        form.update(use_delta=False, delta_min=_fmt(st.min_abs_delta) if st.min_abs_delta is not None else "", delta_max=_fmt(st.max_abs_delta),
+        form.update(iv_any=False, use_delta=False, delta_min=_fmt(st.min_abs_delta) if st.min_abs_delta is not None else "", delta_max=_fmt(st.max_abs_delta),
                     signals=str(base.signals_required),
                     use_near=False, near_pct=_fmt(st.near_level_pct),
                     use_rsi=False, rsi_max=_fmt(st.max_rsi_level), use_boll=False, boll_pctb=_fmt(st.max_bollinger_pctb),
@@ -875,7 +880,7 @@ def create_app(
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
         form.update(mode="put", best_width=True,
                     use_rr=True, rr=_fmt(sp.min_return_on_risk_pct), use_mc=True, mc=_fmt(sp.min_credit_usd),
-                    use_ss=True, ss=_fmt(sp.max_short_spread_pct), use_lo=True, lo=_fmt(sp.min_long_oi), use_ls=True, ls=_fmt(sp.max_long_spread_pct),
+                    use_ss=True, ss=_fmt(sp.max_short_spread_pct), use_cs=True, cs=_fmt(sp.max_combo_spread_pct), use_lo=True, lo=_fmt(sp.min_long_oi), use_ls=True, ls=_fmt(sp.max_long_spread_pct),
                     use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_ns=True, ns=_fmt(sp.max_naked_strike))
 
         criteria, error, warnings = None, None, []
@@ -885,15 +890,15 @@ def create_app(
                 form["mode"] = qp.get("mode", "put")
                 if form["mode"] not in ("put", "spread", "both"):
                     raise ValueError("modo desconocido")
-                if any(key in qp for key in ("rr", "mc", "mn", "ss", "lo", "ls", "ns")):   # bloque visible: lo enviado manda
+                if any(key in qp for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ns")):   # bloque visible: lo enviado manda
                     form["best_width"] = "best_width" in qp
                 # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
                 # de instrumento) los límites conservan sus valores marcados por defecto
-                for shown_keys in (("rr", "mc", "ss", "lo", "ls", "mn"), ("ns",)):
+                for shown_keys in (("rr", "mc", "ss", "cs", "lo", "ls", "mn"), ("ns",)):
                     if any(key in qp for key in shown_keys):
                         for key in shown_keys:
                             form[f"use_{key}"] = f"use_{key}" in qp
-                for key in ("rr", "mc", "mn", "ss", "lo", "ls", "ns"):
+                for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ns"):
                     if key in qp:
                         form[key] = qp.get(key, "").strip()
                 for key in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -941,7 +946,7 @@ def create_app(
                 for key in optional:
                     form[f"use_{key}"] = f"use_{key}" in qp
                     form[key] = qp.get(key, "").strip()
-                for key in ("use_delta", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg", "use_atr"):
+                for key in ("use_delta", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg", "use_atr", "iv_any"):
                     form[key] = key in qp
                 for key in ("delta_min", "delta_max", "near_pct", "rsi_max", "boll_pctb", "boll_width",
                             "ivhv", "ivchg", "atr_mult", "signals"):
@@ -986,6 +991,7 @@ def create_app(
             marked = sum(1 for k in ("use_ivhv", "use_ivchg", "use_rsi", "use_boll", "use_near") if form[k])
             form["signals"] = str(min(int(form["signals"] or 0), marked))
             overrides["signals_required"] = int(form["signals"])
+            overrides["iv_any"] = bool(form["iv_any"])
             if form["use_near"]:
                 overrides["near_level_pct"] = _required(form["near_pct"], float, "Distancia a la media de 50 o al soporte (%)")
                 if not (0 < overrides["near_level_pct"] <= 50):
@@ -1019,6 +1025,7 @@ def create_app(
                         ("use_mc", "mc", "min_spread_credit", "Crédito mín. ($ por contrato)", None),
                         ("use_ss", "ss", "max_short_spread_pct", "Spread máx. de la pata vendida (%)", None),
                         ("use_lo", "lo", "min_long_oi", "OI mín. de la pata comprada", None),
+                        ("use_cs", "cs", "max_combo_spread_pct", "Spread máx. del combo (% del crédito)", None),
                         ("use_ls", "ls", "max_long_spread_pct", "Spread máx. de la pata comprada (%)", None),
                         ("use_mn", "mn", "max_loss_nlv_pct", "Pérdida máxima (% del NLV)", 100)):
                     if form[use]:

@@ -30,6 +30,7 @@
 
 <div class="card" id="gestion">
   <h2>Gestión de puts vendidas{% if mgmt.attention %} <span class="muted" style="font-weight:400">· {{ mgmt.attention }} aviso{{ '' if mgmt.attention == 1 else 's' }} importante{{ '' if mgmt.attention == 1 else 's' }}</span>{% endif %}</h2>
+  {% if mgmt.risk_pct is not none %}<p class="banner {{ 'warn' if mgmt.risk_level else 'info' }}" title="Pérdida máxima de los spreads (ancho − crédito) + capital de asignación de las puts desnudas (strike × multiplicador), sobre el NLV. El margen de IBKR es un dato distinto.">Riesgo total abierto: <b>{{ mgmt.total_risk|num }} $</b> = {{ mgmt.risk_pct|pct }} del NLV{% if mgmt.risk_level %} · supera el {{ mgmt_cfg.max_total_risk_pct|round|int }} %: reduce tamaño o cierra posiciones{% endif %}</p>{% endif %}
   {% if mgmt.puts %}
   <div class="tscroll">
   <table class="sortable">

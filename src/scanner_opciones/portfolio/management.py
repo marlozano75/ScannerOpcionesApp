@@ -70,6 +70,9 @@ class ManagementReport:
     puts: tuple[PutStatus, ...]         # por vencimiento
     weights: tuple[TickerWeight, ...]   # de mayor a menor peso
     attention: int                      # alertas "warn" en total
+    total_risk: float = 0.0             # pérdida máxima de los spreads + capital de asignación de las puts desnudas, en USD
+    risk_pct: Optional[float] = None    # ... sobre el NLV
+    risk_level: Optional[str] = None    # None | warn (supera `max_total_risk_pct`)
 
 
 def _short_puts(positions: Sequence[Position]) -> list[Position]:
@@ -99,6 +102,13 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
                                     f"({got}). Cerrarla o rolarla a un vencimiento posterior cobrando crédito."))
     if captured is not None and captured < 0:
         alerts.append(Alert("info", "En pérdida: recomprarla cuesta más que la prima cobrada."))
+    spread = p.hedge_strike is not None
+    if spread and not tpc and entry and current is not None and current >= cfg.spread_stop_value_multiple * entry:
+        alerts.append(Alert("warn", f"Stop: el spread vale {current / entry:.1f} veces el crédito cobrado (límite {cfg.spread_stop_value_multiple:g}×): "
+                                    "la pérdida ya iguala o supera el crédito. Valora cerrarlo."))
+    if spread and underlying is not None and 0 <= dte <= cfg.pin_dte and underlying <= o.strike * (1 + cfg.pin_buffer_pct / 100):
+        alerts.append(Alert("warn", f"Riesgo de pin: quedan {dte} días y el precio ({underlying:.2f}) está a ≤ {cfg.pin_buffer_pct:g} % del strike vendido "
+                                    f"({o.strike:g}). Cerrarlo antes del vencimiento evita una asignación parcial."))
     if underlying is not None:
         if p.hedge_strike is not None and underlying <= p.hedge_strike:
             alerts.append(Alert("warn", f"Pérdida máxima: el precio ({underlying:.2f}) está por debajo de la put comprada ({p.hedge_strike:g}); "
@@ -133,6 +143,18 @@ def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[floa
     return sorted(out, key=lambda w: -(w.pct_nlv if w.pct_nlv is not None else -1))
 
 
+def open_risk(positions: Sequence[Position]) -> float:
+    """Lo máximo que pueden perder las puts vendidas abiertas: en un spread, su ancho menos el crédito cobrado (sin crédito conocido, el ancho
+    entero); en una put desnuda, su capital de asignación (strike × multiplicador), sin descontar la prima. `positions` ya con los spreads fundidos."""
+    total = 0.0
+    for p in _short_puts(positions):
+        risk = nominal_of(p)
+        if p.hedge_strike is not None and p.avg_cost:
+            risk = max(risk - abs(p.avg_cost) * abs(p.quantity), 0.0)
+        total += risk
+    return total
+
+
 def manage_puts(
     positions: Sequence[Position], net_liquidation: Optional[float], today: date,
     prices: dict[str, Optional[float]], cfg: ManagementSettings, profiles: Optional[dict[str, str]] = None,
@@ -143,5 +165,9 @@ def manage_puts(
     puts = sorted((put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile))
                    for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))
     weights = ticker_weights(positions, net_liquidation, cfg, profiles)
-    attention = sum(1 for s in puts for a in s.alerts if a.level == "warn") + sum(1 for w in weights if w.level == "warn")
-    return ManagementReport(tuple(puts), tuple(weights), attention)
+    total = open_risk(positions)
+    risk_pct = total / net_liquidation * 100 if net_liquidation and net_liquidation > 0 and total > 0 else None
+    risk_level = "warn" if risk_pct is not None and risk_pct > cfg.max_total_risk_pct else None
+    attention = (sum(1 for s in puts for a in s.alerts if a.level == "warn") + sum(1 for w in weights if w.level == "warn")
+                 + (1 if risk_level else 0))
+    return ManagementReport(tuple(puts), tuple(weights), attention, total, risk_pct, risk_level)

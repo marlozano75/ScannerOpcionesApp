@@ -169,6 +169,7 @@ class SpreadSettings(_Model):
     min_long_oi: int = Field(10, ge=0)               # OI mínimo de la pata comprada
     max_long_spread_pct: float = Field(25, gt=0)     # spread bid/ask máximo de la pata comprada (%); sin bid no pasa
     max_short_spread_pct: float = Field(25, gt=0)    # spread bid/ask máximo de la pata vendida del spread (%); sin bid no pasa
+    max_combo_spread_pct: float = Field(15, gt=0)    # spread bid/ask del combo (vendida − comprada) máximo, en % del crédito: con un combo ancho el crédito es incierto
     min_credit_usd: float = Field(30, gt=0)          # crédito neto mínimo por spread, en $ por contrato (descarta spreads de céntimos)
     # modo «Ambos»: la put desnuda solo se ofrece si cabe en este límite; si no, sale el spread
     max_naked_strike: float = Field(100, gt=0)       # strike máximo de la put desnuda ($)
@@ -312,6 +313,7 @@ class StrategySettings(_Model):
     max_abs_delta: float = Field(0.30, gt=0, le=1)
     min_iv_rank: float = Field(50, ge=0, le=100)           # > 30 aceptable, > 50 ideal
     min_iv_percentile: float = Field(50, ge=0, le=100)
+    iv_rank_pct_any: bool = True                           # basta con IV Rank O IV Percentile (no los dos): un pico antiguo de IV no descarta una IV alta de hoy
     min_signals: int = Field(2, ge=0, le=5)                # señales de entrada que deben cumplirse (de las marcadas); 0 = todas las marcadas
     near_level_pct: float = Field(3.0, gt=0, le=50)        # precio a ≤ N % de la media de 50 o de un soporte
     min_option_liquidity: Optional[int] = Field(3, ge=1, le=5)   # None = no exigirla al cargar la estrategia
@@ -466,6 +468,10 @@ class ManagementSettings(_Model):
     take_profit_pct: float = Field(50, gt=0, le=100)    # recoger beneficios al capturar este % de la prima cobrada
     take_profit_max_pct: float = Field(65, gt=0, le=100)  # techo del rango de tastytrade (50–65 %): por encima, no esperar más
     review_dte: int = Field(21, ge=0)                   # a este DTE, si no se ha llegado al objetivo: cerrar o rolar
+    spread_stop_value_multiple: float = Field(2.0, gt=1)  # spreads (perfil Tastytrade): aviso de stop cuando el spread vale N veces el crédito cobrado (pérdida ≈ 1 × crédito)
+    pin_dte: int = Field(5, ge=0)                       # spreads: riesgo de pin / asignación en los últimos N días...
+    pin_buffer_pct: float = Field(2.0, ge=0)            # ...si el precio está a menos de este % por encima del strike vendido (o por debajo)
+    max_total_risk_pct: float = Field(50, gt=0)         # riesgo total abierto (pérdida máxima de spreads + capital de asignación de puts desnudas) sobre el NLV: aviso por encima
     near_strike_pct: float = Field(2.0, ge=0)           # aviso cuando el precio está a menos de este % por encima del strike
     warn_position_pct: float = Field(5, gt=0)           # peso de una acción (acciones + puts vendidas asignadas) sobre el NLV: aviso
     max_position_pct: float = Field(10, gt=0)           # y por encima de este: alerta

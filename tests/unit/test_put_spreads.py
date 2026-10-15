@@ -95,6 +95,12 @@ def test_short_leg_needs_a_real_market_for_its_reference_price():
     assert scan([snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)], max_short_spread_pct=25, **ref).spreads
 
 
+def test_combo_spread_is_measured_against_the_credit():
+    legs = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]    # combo 1,40 / 1,70: 0,30 de spread sobre un crédito de 1,40 = 21,4 %
+    assert scan(legs, max_combo_spread_pct=25).spreads and not scan(legs, max_combo_spread_pct=20).spreads
+    assert scan(legs).spreads                           # sin el filtro, pasaba
+
+
 # ---- modo «Ambos»: put desnuda si cabe en los límites, si no spread ------------------------------------------------
 from types import SimpleNamespace
 
@@ -187,3 +193,13 @@ def test_check_in_both_mode_tells_put_from_spread():
     legs = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]
     assert [r.outcome for r in check(legs, mixed=True, max_naked_strike=100) if r.strike == 90] == ["put"]
     assert [r.outcome for r in check(legs, mixed=True, max_naked_strike=85) if r.strike == 90] == ["spread"]
+
+
+def test_iv_rank_or_percentile_mode():
+    legs = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]
+    from dataclasses import replace
+    low_rank = [replace(s, iv_rank=25.0, iv_percentile=80.0) for s in legs]
+    both = dict(min_iv_rank=30, min_iv_percentile=50)
+    assert not scan(low_rank, **both).spreads                       # los dos: el rank 25 < 30 descarta
+    assert scan(low_rank, iv_any=True, **both).spreads              # basta uno: el percentile 80 ≥ 50 pasa
+    assert not scan([replace(s, iv_rank=25.0, iv_percentile=40.0) for s in legs], iv_any=True, **both).spreads

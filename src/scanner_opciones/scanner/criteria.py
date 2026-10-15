@@ -63,6 +63,7 @@ class ScanCriteria:
     max_spread_pct: Optional[float] = None
     min_iv_rank: Optional[float] = None
     min_iv_percentile: Optional[float] = None
+    iv_any: bool = False                          # con IV Rank e IV Percentile marcados basta con que se cumpla uno (un pico antiguo de IV no descarta una IV alta de hoy)
     # prima y volatilidad del contrato (ver scanner/filters.py)
     min_abs_delta: Optional[float] = None         # |delta| de la put mínimo / máximo (0,20–0,30 ≈ 70–80 % de probabilidad de ganar)
     max_abs_delta: Optional[float] = None
@@ -160,6 +161,7 @@ class ScanCriteria:
     min_credit_width_pct: Optional[float] = None   # crédito neto / ancho mínimo (%)
     max_short_spread_pct: Optional[float] = None   # la vendida del spread también necesita mercado: su precio de referencia depende de su spread
     min_long_oi: Optional[int] = None              # liquidez de la pata comprada: OI mínimo
+    max_combo_spread_pct: Optional[float] = None   # spread bid/ask del combo (vendida − comprada) / crédito máximo (%)
     max_long_spread_pct: Optional[float] = None    # ... y spread bid/ask máximo (%); sin bid no pasa
     min_spread_credit: Optional[float] = None      # crédito neto mínimo por spread, $ por contrato
     max_spread_loss: Optional[float] = None        # pérdida máxima por spread en $

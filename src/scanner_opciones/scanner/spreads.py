@@ -31,6 +31,14 @@ class SpreadResult:
     assignment_pct_of_portfolio: Optional[float]   # nominal = ancho
 
 
+def combo_spread_pct(short: ContractSnapshot, long: ContractSnapshot, credit: float) -> float:
+    """Spread bid/ask del combo en % del crédito: combo_bid = bid_v − ask_c y combo_ask = ask_v − bid_c, así que mide spread_v + spread_c.
+    Un combo ancho frente a su crédito es un crédito que no se consigue (el precio de referencia depende de cada pata)."""
+    if short.bid is None or short.ask is None or long.ask is None or credit <= 0:
+        return float("inf")
+    return ((short.ask - (long.bid or 0.0)) - (short.bid - long.ask)) / credit * 100
+
+
 def _long_leg_index(snapshots: Sequence[ContractSnapshot]) -> dict[tuple, ContractSnapshot]:
     return {(s.contract.ticker, s.contract.expiry, round(s.contract.strike, 4)): s
             for s in snapshots if s.contract.right is OptionRight.PUT}
@@ -121,6 +129,8 @@ def build_spreads(
             credit = sell - long.ask
             max_loss_ps = width - credit
             if credit <= EPS or max_loss_ps <= EPS:
+                continue
+            if criteria.max_combo_spread_pct is not None and combo_spread_pct(r.snapshot, long, credit) > criteria.max_combo_spread_pct + EPS:
                 continue
             credit_width = credit / width * 100
             ror = credit / max_loss_ps * 100

@@ -81,10 +81,17 @@ def reject_reason(
     ):
         return "spread demasiado alto o desconocido"
     # un dato que falta no se puede evaluar y no descarta (IV Rank, IV Percentile, IV/HV, cambio de IV y ATR)
-    if criteria.min_iv_rank is not None and iv_rank is not None and iv_rank < criteria.min_iv_rank:
-        return "IV Rank insuficiente"
-    if criteria.min_iv_percentile is not None and iv_percentile is not None and iv_percentile < criteria.min_iv_percentile:
-        return "IV Percentile insuficiente"
+    rank_fails = criteria.min_iv_rank is not None and iv_rank is not None and iv_rank < criteria.min_iv_rank
+    pct_fails = criteria.min_iv_percentile is not None and iv_percentile is not None and iv_percentile < criteria.min_iv_percentile
+    if criteria.iv_any and criteria.min_iv_rank is not None and criteria.min_iv_percentile is not None:
+        # basta con uno: se descarta solo si los dos se miden y los dos fallan (un dato que falta no se puede evaluar)
+        if rank_fails and pct_fails:
+            return "IV Rank e IV Percentile insuficientes"
+    else:
+        if rank_fails:
+            return "IV Rank insuficiente"
+        if pct_fails:
+            return "IV Percentile insuficiente"
     if criteria.signals_required <= 0:   # con «al menos N señales», IV/HV y el cambio de IV se cuentan aparte (scanner/signals.py)
         if (why := iv_hv_reason(info, criteria)) is not None:
             return why

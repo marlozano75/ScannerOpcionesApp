@@ -181,3 +181,34 @@ def test_manage_puts_applies_the_chosen_profile_and_the_configured_default():
 def test_tpc_position_ceilings_are_validated():
     with pytest.raises(ValueError, match="tpc_warn_position_pct"):
         ManagementSettings(tpc_warn_position_pct=20, tpc_max_position_pct=15)
+
+
+# ---- spreads: stop a N × el crédito y riesgo de pin -------------------------------------------------------------
+def _spread_position(value: float, days: int = 30) -> Position:
+    c = OptionContract("AAPL", TODAY + timedelta(days=days), 90.0, OptionRight.PUT)
+    return Position("AAPL", -1, -value, option=c, avg_cost=140.0, hedge_strike=85.0)   # crédito neto 1,40 por acción
+
+
+def test_spread_stop_fires_when_the_spread_is_worth_twice_the_credit():
+    texts = lambda s: [a.text for a in s.alerts]
+    assert not any("Stop" in t for t in texts(put_status(_spread_position(270.0), TODAY, 95.0, CFG)))      # vale 2,70 < 2,80
+    assert any("Stop" in t for t in texts(put_status(_spread_position(290.0), TODAY, 95.0, CFG)))         # vale 2,90 ≥ 2,80
+    plain = Position("AAPL", -1, -290.0, option=_spread_position(1).option, avg_cost=140.0)               # una put sola no tiene este stop
+    assert not any("Stop" in t for t in texts(put_status(plain, TODAY, 95.0, CFG)))
+
+
+def test_spread_pin_risk_only_in_the_last_days_and_near_the_short_strike():
+    texts = lambda s: [a.text for a in s.alerts]
+    near = put_status(_spread_position(100.0, days=4), TODAY, 91.0, CFG)
+    assert any("pin" in t for t in texts(near))                                                              # 4 días y 91 ≤ 90 × 1,02
+    assert not any("pin" in t for t in texts(put_status(_spread_position(100.0, days=4), TODAY, 95.0, CFG)))  # lejos del strike
+    assert not any("pin" in t for t in texts(put_status(_spread_position(100.0, days=10), TODAY, 91.0, CFG)))  # aún quedan días
+
+
+def test_total_open_risk_adds_spread_max_loss_and_naked_put_capital():
+    spread = _spread_position(100.0)                                        # ancho 5 × 100 − crédito 140 = 360 $
+    c = OptionContract("MSFT", TODAY + timedelta(days=30), 50.0, OptionRight.PUT)
+    naked = Position("MSFT", -2, -100.0, option=c, avg_cost=60.0)           # 50 × 100 × 2 = 10.000 $
+    rep = manage_puts([spread, naked], 20_000.0, TODAY, {"AAPL": 95.0, "MSFT": 60.0}, CFG)
+    assert rep.total_risk == pytest.approx(10_360.0) and rep.risk_pct == pytest.approx(51.8) and rep.risk_level == "warn"
+    assert manage_puts([spread, naked], 100_000.0, TODAY, {}, CFG).risk_level is None
