@@ -72,7 +72,7 @@ class ImpactReport:
     conflicts: tuple[tuple[str, str], ...] = ()   # con 0 resultados: pares de filtros que, aunque cada uno deja contratos, no comparten ninguno
 
 
-_SIGNAL_GROUPS = {"iv_hv", "iv_change", "rsi", "bollinger", "near_level"}   # con «al menos N señales» cuentan como un único grupo
+_SIGNAL_GROUPS = {"rsi", "bollinger", "near_level"}   # con «al menos N señales» cuentan como un único grupo
 
 
 def _g(v: float) -> str:

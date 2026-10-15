@@ -92,11 +92,10 @@ def reject_reason(
             return "IV Rank insuficiente"
         if pct_fails:
             return "IV Percentile insuficiente"
-    if criteria.signals_required <= 0:   # con «al menos N señales», IV/HV y el cambio de IV se cuentan aparte (scanner/signals.py)
-        if (why := iv_hv_reason(info, criteria)) is not None:
-            return why
-        if (why := iv_change_reason(info, criteria)) is not None:
-            return why
+    if (why := iv_hv_reason(info, criteria)) is not None:      # IV/HV y cambio de IV son obligatorios (no cuentan como señales de entrada)
+        return why
+    if (why := iv_change_reason(info, criteria)) is not None:
+        return why
     if criteria.min_abs_delta is not None or criteria.max_abs_delta is not None:
         if snap.delta is None:
             return "delta desconocida"

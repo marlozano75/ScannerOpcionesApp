@@ -74,4 +74,4 @@ def test_each_filter_shows_its_current_configuration():
     assert describe_group("oi", c) == "≥ 10"
     assert describe_group("averages", c) == "MA200 precio sobre; EMA9/EMA20 ≥ (velas daily)"
     assert describe_group("max_debt_to_equity", c) == "deuda/patrimonio ≤ 1"
-    assert describe_group("signals", c) == "al menos 2 de: IV / HV30 mínimo ≥ 1,2; RSI rebotando desde el nivel de sobreventa tocó ≤ 35 y sube"
+    assert describe_group("signals", c) == "al menos 2 de: RSI rebotando desde el nivel de sobreventa tocó ≤ 35 y sube"

@@ -43,40 +43,34 @@ def test_delta_with_only_a_maximum_accepts_every_lower_delta():
 
 
 # ---- señales de entrada ------------------------------------------------------------------------------------------------
-def test_without_signals_required_the_iv_filters_are_all_mandatory():
-    c = BASE.with_filters(min_iv_hv_ratio=1.2, max_iv_change_5d=0.0)
-    assert reject_reason(snap(), 100.0, TODAY, c, info=GOOD_IV) is None
-    assert "ha subido" in reject_reason(snap(), 100.0, TODAY, c, info=RISING)           # modo clásico: cada filtro es obligatorio
-
-
-def test_with_signals_required_each_iv_filter_stops_being_mandatory_and_n_of_them_are_enough():
-    c = BASE.with_filters(min_iv_hv_ratio=1.2, max_iv_change_5d=0.0, signals_required=1)
-    assert reject_reason(snap(), 100.0, TODAY, c, info=RISING) is None                   # ya no rechaza por sí solo
-    assert signals_reject(c, RISING, None, "AAPL", 100.0) is None                        # cumple 1 de 2 (IV/HV)
-    two = c.with_filters(signals_required=2)
-    assert signals_reject(two, GOOD_IV, None, "AAPL", 100.0) is None
-    why = signals_reject(two, RISING, None, "AAPL", 100.0)
-    assert "solo 1 de las 2 señales" in why and "cumple: IV/HV" in why and "falla: IV no sube" in why
-    assert "solo 0" in signals_reject(two, NONE_OK, None, "AAPL", 100.0)
+def test_iv_hv_and_iv_change_are_always_mandatory_even_with_signals():
+    for n in (0, 2):
+        c = BASE.with_filters(min_iv_hv_ratio=1.2, max_iv_change_5d=0.0, signals_required=n)
+        assert reject_reason(snap(), 100.0, TODAY, c, info=GOOD_IV) is None
+        assert "ha subido" in reject_reason(snap(), 100.0, TODAY, c, info=RISING)       # no cuentan como señales: obligatorios
+        assert signals_reject(c, RISING, None, "AAPL", 100.0) is None                   # y no suman ni restan en las señales
 
 
 def test_signals_required_is_capped_by_the_number_of_active_signals_and_zero_means_off():
-    one_active = BASE.with_filters(min_iv_hv_ratio=1.2, signals_required=3)               # 3 exigidas pero solo 1 marcada: hay que cumplir esa
-    assert signals_reject(one_active, GOOD_IV, None, "AAPL", 100.0) is None
-    assert signals_reject(one_active, NONE_OK, None, "AAPL", 100.0) is not None
+    cfg = TechnicalSettings()
+    series = bars([100.0] * 60)                                                          # MA50 = 100: cerca; RSI sin rebote
+    c = BASE.with_filters(near_level_pct=3.0, rsi_rebound_max=35.0, signals_required=3)  # 3 exigidas pero solo 2 marcadas: hay que cumplir las 2
+    tech = TechnicalFilter(c, cfg, {"AAPL": series}, TODAY)
+    assert signals_reject(c, NONE_OK, tech, "AAPL", 100.0) is not None
+    assert signals_reject(c.with_filters(signals_required=1), NONE_OK, tech, "AAPL", 100.0) is None   # basta una
     assert signals_reject(BASE.with_filters(signals_required=2), NONE_OK, None, "AAPL", 100.0) is None   # sin señales marcadas no hay nada que exigir
-    assert signals_reject(BASE.with_filters(min_iv_hv_ratio=1.2, signals_required=0), NONE_OK, None, "AAPL", 100.0) is None
 
 
-def test_technical_signals_count_together_with_the_iv_ones():
+def test_technical_signals_count_together():
     cfg = TechnicalSettings()
     series = bars([100.0] * 60)                                                           # MA50 = 100 y el precio está a su lado; RSI sin rebote
-    c = BASE.with_filters(near_level_pct=3.0, rsi_rebound_max=35.0, min_iv_hv_ratio=1.2, signals_required=2)
+    c = BASE.with_filters(near_level_pct=3.0, rsi_rebound_max=35.0, signals_required=1)
     tech = TechnicalFilter(c, cfg, {"AAPL": series}, TODAY)
     assert dict(tech.signal_results("AAPL", 100.0)) == {"cerca de MA50/soporte": True, "RSI rebota": False}
     assert tech.reject("AAPL", 100.0, 90.0) is None                                       # con signals_required el RSI ya no rechaza por sí solo
-    assert signals_reject(c, GOOD_IV, tech, "AAPL", 100.0) is None                        # cerca de MA50 + IV/HV = 2 señales
-    assert signals_reject(c, NONE_OK, tech, "AAPL", 100.0) is not None                    # solo 1
+    assert signals_reject(c, NONE_OK, tech, "AAPL", 100.0) is None                        # cerca de MA50 = 1 señal
+    two = c.with_filters(signals_required=2)
+    assert "solo 1 de las 2 señales" in signals_reject(two, NONE_OK, tech, "AAPL", 100.0)
     classic = TechnicalFilter(c.with_filters(signals_required=0), cfg, {"AAPL": series}, TODAY)
     assert "RSI" in classic.reject("AAPL", 100.0, 90.0)                                   # modo clásico: el RSI es obligatorio
 
@@ -123,6 +117,6 @@ def test_conflicts_and_the_empty_explanation():
 
 
 def test_with_signals_the_impact_report_has_one_group_for_all_of_them():
-    c = BASE.with_filters(min_iv_hv_ratio=1.2, near_level_pct=3.0, signals_required=2)
-    assert [g[0] for g in active_groups(c)] == ["signals"]
-    assert {g[0] for g in active_groups(c.with_filters(signals_required=0))} == {"iv_hv", "near_level"}
+    c = BASE.with_filters(min_iv_hv_ratio=1.2, near_level_pct=3.0, rsi_rebound_max=35.0, signals_required=2)
+    assert {g[0] for g in active_groups(c)} == {"iv_hv", "signals"}                  # IV/HV es obligatorio: su propio grupo
+    assert {g[0] for g in active_groups(c.with_filters(signals_required=0))} == {"iv_hv", "near_level", "rsi"}

@@ -988,7 +988,7 @@ def create_app(
             if form["signals"] not in ("", "0", "1", "2", "3", "4", "5"):
                 raise ValueError("número de señales de entrada no permitido")
             # con menos señales marcadas que las exigidas, el selector pasa al nº de marcadas (0 = «Todas las marcadas», sin señales no hay nada que exigir)
-            marked = sum(1 for k in ("use_ivhv", "use_ivchg", "use_rsi", "use_boll", "use_near") if form[k])
+            marked = sum(1 for k in ("use_rsi", "use_boll", "use_near") if form[k])
             form["signals"] = str(min(int(form["signals"] or 0), marked))
             overrides["signals_required"] = int(form["signals"])
             overrides["iv_any"] = bool(form["iv_any"])
