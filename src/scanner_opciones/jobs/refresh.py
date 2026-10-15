@@ -316,11 +316,12 @@ class RefreshJob:
                     moved.add(ticker)
             if (metrics := external.get(ticker)) is not None:
                 self.ticker_info.update_iv_stats(ticker, metrics.iv_rank, metrics.iv_percentile,
-                                                 metrics.hv30, metrics.iv30, metrics.iv_change_5d)
+                                                 metrics.hv30, metrics.iv30, metrics.iv_change_5d, metrics.expiry_ivs)
                 info = replace(info, iv_rank=metrics.iv_rank, iv_percentile=metrics.iv_percentile,
                                hv30=metrics.hv30 if metrics.hv30 is not None else info.hv30,
                                iv30=metrics.iv30 if metrics.iv30 is not None else info.iv30,
-                               iv_change_5d=metrics.iv_change_5d if metrics.iv_change_5d is not None else info.iv_change_5d)
+                               iv_change_5d=metrics.iv_change_5d if metrics.iv_change_5d is not None else info.iv_change_5d,
+                               expiry_ivs=metrics.expiry_ivs or info.expiry_ivs)
                 report.iv_updated += 1
             infos[ticker] = info
         return infos

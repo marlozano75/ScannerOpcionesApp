@@ -1,6 +1,7 @@
 """Repositorios sobre SQLite. Solo acceso a datos, sin lógica de negocio."""
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from typing import Iterable, Optional, Sequence
 
@@ -90,7 +91,7 @@ class TickerInfoRepo:
 
     _COLUMNS = (
         "ticker", "sector", "category", "underlying_price", "days_to_ex_dividend", "iv_rank", "iv_percentile",
-        "updated_daily_at", "price_at", "hv30", "iv30", "iv_change_5d",
+        "updated_daily_at", "price_at", "hv30", "iv30", "iv_change_5d", "expiry_ivs",
     )
     # la ficha se lee con los datos de calidad (tabla aparte, también para tickers que no están en la watchlist)
     _SELECT = (
@@ -107,7 +108,7 @@ class TickerInfoRepo:
             info.iv_rank, info.iv_percentile,
             info.updated_daily_at.isoformat() if info.updated_daily_at else None,
             info.price_at.isoformat() if info.price_at else None,
-            info.hv30, info.iv30, info.iv_change_5d,
+            info.hv30, info.iv30, info.iv_change_5d, json.dumps(info.expiry_ivs) if info.expiry_ivs else None,
         )
         updates = ", ".join(f"{c}=excluded.{c}" for c in cols[1:])
         with self.db.conn:
@@ -124,14 +125,15 @@ class TickerInfoRepo:
     def update_iv_stats(
         self, ticker: str, iv_rank: Optional[float], iv_percentile: Optional[float],
         hv30: Optional[float] = None, iv30: Optional[float] = None, iv_change_5d: Optional[float] = None,
+        expiry_ivs: Optional[dict] = None,
     ) -> None:
         """Actualiza IV Rank / Percentile (p. ej. con la IV en directo) sin tocar el resto. HV30, IV30 y el cambio de la
         IV a 5 días solo se pisan si llegan (un dato que falta no borra el último guardado)."""
         with self.db.conn:
             self.db.conn.execute(
                 "UPDATE ticker_info SET iv_rank = ?, iv_percentile = ?, hv30 = COALESCE(?, hv30), iv30 = COALESCE(?, iv30), "
-                "iv_change_5d = COALESCE(?, iv_change_5d) WHERE ticker = ?",
-                (iv_rank, iv_percentile, hv30, iv30, iv_change_5d, ticker),
+                "iv_change_5d = COALESCE(?, iv_change_5d), expiry_ivs = COALESCE(?, expiry_ivs) WHERE ticker = ?",
+                (iv_rank, iv_percentile, hv30, iv30, iv_change_5d, json.dumps(expiry_ivs) if expiry_ivs else None, ticker),
             )
 
     def update_sector(self, ticker: str, sector: Optional[str], category: Optional[str]) -> None:
@@ -179,6 +181,7 @@ class TickerInfoRepo:
             revenue_drop_years=r["revenue_drop_years"], revenue_years=r["revenue_years"],
             earnings_volatility=r["earnings_volatility"],
             hv30=r["hv30"], iv30=r["iv30"], iv_change_5d=r["iv_change_5d"],
+            expiry_ivs=json.loads(r["expiry_ivs"]) if r["expiry_ivs"] else None,
         )
 
     def get(self, ticker: str) -> Optional[TickerInfo]:

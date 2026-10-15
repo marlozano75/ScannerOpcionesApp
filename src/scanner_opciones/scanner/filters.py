@@ -1,6 +1,7 @@
 """Predicados de filtrado. `reject_reason` devuelve el motivo de descarte o None si pasa."""
 from __future__ import annotations
 
+import math
 from datetime import date
 from typing import Optional
 
@@ -107,5 +108,13 @@ def reject_reason(
     if criteria.min_atr_multiple is not None and atr is not None:
         if underlying_price - c.strike < criteria.min_atr_multiple * atr - _EPS:
             return f"strike a {underlying_price - c.strike:.2f} del precio, menos de {criteria.min_atr_multiple:g} ATR ({atr:.2f})"
+    if criteria.expected_move_mult is not None:
+        # IV del vencimiento (tastytrade, la del movimiento esperado de su plataforma); sin ella, la del contrato
+        iv = ((info.expiry_ivs or {}).get(c.expiry.isoformat()) if info is not None else None) or snap.iv
+        if iv is None or iv <= 0:
+            return "sin IV para calcular el movimiento esperado"
+        limit = underlying_price - criteria.expected_move_mult * underlying_price * iv * math.sqrt(dte / 365)
+        if c.strike > limit + _EPS:
+            return f"strike {c.strike:g} dentro del movimiento esperado (límite {limit:.2f})"
     return None
 

@@ -18,6 +18,7 @@ class IVMetrics:
     hv30: Optional[float] = None            # volatilidad histórica a 30 días, en %
     iv30: Optional[float] = None            # volatilidad implícita a 30 días, en %
     iv_change_5d: Optional[float] = None    # cambio de la IV en 5 días, en puntos de IV
+    expiry_ivs: Optional[dict] = None       # IV de cada vencimiento (fecha ISO -> fracción: 0,28 = 28 %), para el movimiento esperado
 
 
 class VolatilityProvider(Protocol):

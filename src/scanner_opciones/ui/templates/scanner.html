@@ -45,6 +45,7 @@
 {% if form.use_near %}{% set _ = entry.append('A ≤ ' ~ form.near_pct ~ ' % de MA50 o soporte') %}{% endif %}
 {% set atrgroup = [] %}
 {% if form.use_atr %}{% set _ = atrgroup.append('Strike a ≥ ' ~ form.atr_mult ~ ' ATR') %}{% endif %}
+{% if form.use_exp %}{% set _ = atrgroup.append('Fuera de ' ~ form.exp_mult ~ '× mov. esperado') %}{% endif %}
 {% if form.use_rsi %}{% set _ = entry.append('RSI rebota desde ≤ ' ~ form.rsi_max) %}{% endif %}
 {% if form.use_boll %}{% set _ = entry.append('Bollinger %B ≤ ' ~ form.boll_pctb) %}{% endif %}
 {% if form.use_bw %}{% set _ = entry.append('Bandas ≥ ' ~ form.boll_width ~ ' %') %}{% endif %}
@@ -87,7 +88,7 @@
   {% if form.mode == 'both' %}{% for use, label in (('use_ns', 'Strike máx. put'),) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}{% endif %}
 {% endif %}
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-iv'), ('use_ivhv', 'IV/HV', 'sec-iv'),
-    ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-atr'), ('use_rsi', 'RSI', 'sec-entry'),
+    ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-atr'), ('use_exp', 'Mov. esperado', 'sec-atr'), ('use_rsi', 'RSI', 'sec-entry'),
     ('use_boll', 'Bollinger %B', 'sec-entry'), ('use_bw', 'Ancho de bandas', 'sec-entry'), ('use_oi', 'OI', 'sec-optional'),
     ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
   {% if not form[use] %}{% set _ = offs.append((sec, label)) %}{% endif %}
@@ -253,6 +254,9 @@
       {% call section('sec-atr', 'Distancia al precio (ATR)', (atrgroup | join(' · ')) or 'Sin filtros', atrgroup|length > 0) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_atr" {{ 'checked' if form.use_atr }}> Strike a ≥ N ATR(14) del precio</span>
           <input name="atr_mult" value="{{ form.atr_mult }}" inputmode="decimal"></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_exp" {{ 'checked' if form.use_exp }}> Strike fuera del mov. esperado (×)</span>
+          <input name="exp_mult" value="{{ form.exp_mult }}" inputmode="decimal"></label>
+        <p class="note"><b>Movimiento esperado</b> = precio × IV del vencimiento × √(DTE/365) (la IV por vencimiento de tastytrade; sin ella, la del contrato): el strike debe quedar por debajo de precio − N × ese movimiento (1× ≈ delta 0,15). Obligatorio.</p>
         <p class="note">Filtro <b>obligatorio</b> (no cuenta como señal de entrada). <b>ATR</b>(14) = rango diario medio (máximos, mínimos y cierres): con N = 2–3 el strike queda fuera del ruido normal de unos días.
           Necesita los máximos y mínimos diarios, que se descargan con el histórico (la primera vez tras actualizar se vuelven a pedir los últimos días).</p>
       {% endcall %}
@@ -598,9 +602,9 @@
   // botón) las que se desmarcan quedan en rojo en vez de desaparecer. Una casilla se activa/desactiva con un clic y conserva su
   // valor; escanea al cambiar. Cada condición activa muestra cuántos contratos de la ventana descarta ella sola (panel de impacto).
   (function () {
-    const BOXES = ['use_delta', 'use_near', 'use_ivr', 'use_ivp', 'use_ivhv', 'use_ivchg', 'use_atr', 'use_rsi', 'use_boll', 'use_bw'];
+    const BOXES = ['use_delta', 'use_near', 'use_ivr', 'use_ivp', 'use_ivhv', 'use_ivchg', 'use_atr', 'use_exp', 'use_rsi', 'use_boll', 'use_bw'];
     const KEYS = { use_delta: 'delta', use_near: 'near_level', use_ivr: 'iv_rank', use_ivp: 'iv_pct', use_ivhv: 'iv_hv', use_ivchg: 'iv_change',
-                   use_atr: 'atr', use_rsi: 'rsi', use_boll: 'bollinger', use_bw: 'bollinger_width', q_earn: 'earnings' };
+                   use_atr: 'atr', use_exp: 'expected_move', use_rsi: 'rsi', use_boll: 'bollinger', use_bw: 'bollinger_width', q_earn: 'earnings' };
     const FLAG = 'strategy-loaded';
     const rows = BOXES.map(function (n) { return form.elements[n]; }).filter(Boolean);
     const earn = form.elements['q_earn'];
@@ -644,7 +648,7 @@
       yield: { set: { min_yield: '0' } }, price: { set: { price_min: '', price_max: '' } },
       oi: { uncheck: ['use_oi'] }, bid_size: { uncheck: ['use_bidsize'] }, spread: { uncheck: ['use_spread'] },
       iv_rank: { uncheck: ['use_ivr'] }, iv_pct: { uncheck: ['use_ivp'] }, iv_hv: { uncheck: ['use_ivhv'] }, iv_change: { uncheck: ['use_ivchg'] },
-      atr: { uncheck: ['use_atr'] }, delta: { uncheck: ['use_delta'] }, near_level: { uncheck: ['use_near'] }, rsi: { uncheck: ['use_rsi'] },
+      atr: { uncheck: ['use_atr'] }, expected_move: { uncheck: ['use_exp'] }, delta: { uncheck: ['use_delta'] }, near_level: { uncheck: ['use_near'] }, rsi: { uncheck: ['use_rsi'] },
       bollinger: { uncheck: ['use_boll'] }, bollinger_width: { uncheck: ['use_bw'] },
       signals: { uncheck: ['use_rsi', 'use_boll', 'use_near'] },
       earnings: { uncheck: ['q_earn'] }, liquidity: { set: { q_liq: '' } },

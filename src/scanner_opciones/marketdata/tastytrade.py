@@ -89,6 +89,16 @@ def _iv30(item: Any) -> Optional[float]:
     return value if value is not None else _pct(getattr(item, "implied_volatility_index", None))
 
 
+def _expiry_ivs(item: Any) -> Optional[dict]:
+    """IV de cada vencimiento (`option_expiration_implied_volatilities`: fracción, 0,28 = 28 %) como {fecha ISO: IV}."""
+    out = {}
+    for e in getattr(item, "option_expiration_implied_volatilities", None) or ():
+        iv = _num(getattr(e, "implied_volatility", None))
+        if iv is not None and iv > 0:
+            out[e.expiration_date.isoformat()] = iv
+    return out or None
+
+
 def to_metrics(item: Any) -> Optional[IVMetrics]:
     """`None` si tastytrade no da ni rank ni percentil para ese símbolo."""
     rank = _pct(item.implied_volatility_index_rank)
@@ -101,6 +111,7 @@ def to_metrics(item: Any) -> Optional[IVMetrics]:
         hv30=_num(getattr(item, "historical_volatility_30_day", None)),     # tastytrade: ya en % (20,15)
         iv30=_iv30(item),
         iv_change_5d=_pct(change),                                          # fracción de IV (0,0104) -> puntos (1,04)
+        expiry_ivs=_expiry_ivs(item),
     )
 
 

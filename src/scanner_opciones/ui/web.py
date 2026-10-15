@@ -264,7 +264,7 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
 # parámetros del formulario que controla la estrategia: el botón los sustituye y respeta todos los demás filtros
 STRATEGY_KEYS = frozenset((
     "discount", "dte_min", "dte_max", "min_yield", "use_delta", "delta_min", "delta_max", "use_near", "near_pct",
-    "use_ivr", "ivr", "use_ivp", "ivp", "iv_any", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_atr", "atr_mult", "use_rsi", "signals",
+    "use_ivr", "ivr", "use_ivp", "ivp", "iv_any", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_atr", "atr_mult", "use_exp", "exp_mult", "use_rsi", "signals",
     "rsi_max", "use_boll", "boll_pctb", "use_bw", "boll_width", "ma200", "q_earn", "q_liq", "reset", "debug"))
 
 
@@ -282,10 +282,12 @@ STRATEGY_FIELDS = (
     ("Señales de entrada", (
         ("min_signals", "Señales mínimas (0 = todas las marcadas)", "int"), ("near_level_pct", "Cerca de la media de 50 / soporte (%)", "float"),
         ("max_rsi_level", "Nivel de RSI tocado", "float"), ("max_bollinger_pctb", "Bollinger %B máx.", "float"),
-        ("min_bollinger_width_pct", "Ancho de bandas mín. (%)", "float"), ("min_atr_multiple", "Strike a N × ATR", "float"))),
+        ("min_bollinger_width_pct", "Ancho de bandas mín. (%)", "float"), ("min_atr_multiple", "Strike a N × ATR", "float"),
+        ("expected_move_mult", "Fuera de N × movimiento esperado", "float"))),
     ("Qué activa el botón", (
         ("use_rsi", "RSI rebotando", "bool"), ("use_bollinger", "Bollinger %B", "bool"), ("use_bollinger_width", "Ancho de bandas", "bool"),
-        ("use_atr", "ATR", "bool"), ("price_above_ma200", "Precio sobre la MA200", "bool"), ("avoid_earnings", "Evitar resultados", "bool"),
+        ("use_atr", "ATR", "bool"), ("use_expected_move", "Movimiento esperado", "bool"),
+        ("price_above_ma200", "Precio sobre la MA200", "bool"), ("avoid_earnings", "Evitar resultados", "bool"),
         ("min_option_liquidity", "Liquidez de opciones mín. (1-5, vacío = no exigir)", "oint"))),
     ("Aviso del VIX (Panel)", (
         ("min_vix", "VIX: primas pobres por debajo de", "float"), ("ideal_vix_min", "VIX: ideal desde", "float"),
@@ -391,6 +393,8 @@ def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
                                      ("use_bw", "boll_width", st.use_bollinger_width, st.min_bollinger_width_pct)):
         if enabled:
             params[use], params[key] = "on", _fmt(value)
+    if st.use_expected_move:
+        params["use_exp"], params["exp_mult"] = "on", _fmt(st.expected_move_mult)
     if st.use_atr:
         params["use_atr"], params["atr_mult"] = "on", _fmt(st.min_atr_multiple)
     if st.price_above_ma200:
@@ -400,11 +404,11 @@ def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
     if st.min_option_liquidity is not None:
         params["q_liq"] = str(st.min_option_liquidity)
     checks = ("discount", "dte_min", "dte_max", "min_yield", "delta_max", "near_pct", "ivr", "ivp", "ma200", "q_liq", "rsi_max", "boll_pctb",
-              "boll_width", "ivhv", "ivchg", "atr_mult", "signals")
+              "boll_width", "ivhv", "ivchg", "atr_mult", "exp_mult", "signals")
     on = all(form.get(f) == params[f] for f in checks if f in params)
     on = on and form.get("delta_min", "") == params.get("delta_min", "")           # en blanco = sin mínimo
     on = on and all(form.get(f) for f in ("use_delta", "use_near", "use_ivr", "use_ivp", "use_ivhv", "use_ivchg",
-                                          *(u for u in ("use_rsi", "use_boll", "use_bw", "use_atr") if u in params)))
+                                          *(u for u in ("use_rsi", "use_boll", "use_bw", "use_atr", "use_exp") if u in params)))
     on = on and (not st.avoid_earnings or bool(form.get("q_earn")))
     on = on and bool(form.get("iv_any")) == st.iv_rank_pct_any
     kept = {k: v for k, v in (current.items() if current is not None else ()) if k not in STRATEGY_KEYS} if current is not None and "submitted" in current else {}
@@ -929,6 +933,7 @@ def create_app(
                     use_rsi=False, rsi_max=_fmt(st.max_rsi_level), use_boll=False, boll_pctb=_fmt(st.max_bollinger_pctb),
                     use_bw=False, boll_width=_fmt(st.min_bollinger_width_pct),
                     use_atr=False, atr_mult=_fmt(st.min_atr_multiple),
+                    use_exp=False, exp_mult=_fmt(st.expected_move_mult),
                     use_ivhv=False, ivhv=_fmt(st.min_iv_hv_ratio), use_ivchg=False, ivchg=_fmt(st.max_iv_change_5d),)
 
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
@@ -1001,10 +1006,10 @@ def create_app(
                     form[f"use_{key}"] = f"use_{key}" in qp
                     # un perfil (o enlace) que no trae la caja la muestra con su valor preconfigurado, desmarcada
                     form[key] = qp.get(key, _fmt(shown[key])).strip()
-                for key in ("use_delta", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg", "use_atr", "iv_any"):
+                for key in ("use_delta", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg", "use_atr", "use_exp", "iv_any"):
                     form[key] = key in qp
                 for key in ("delta_min", "delta_max", "near_pct", "rsi_max", "boll_pctb", "boll_width",
-                            "ivhv", "ivchg", "atr_mult", "signals"):
+                            "ivhv", "ivchg", "atr_mult", "exp_mult", "signals"):
                     # ausente de la URL (p. ej. la estrategia no los envía si están desactivados) = valor preconfigurado
                     if key in qp or key in ("delta_min", "delta_max", "signals"):
                         form[key] = qp.get(key, "").strip()
@@ -1057,6 +1062,10 @@ def create_app(
                     raise ValueError("IV / HV30 debe estar entre 0 y 10")
             if form["use_ivchg"]:
                 overrides["max_iv_change_5d"] = _required(form["ivchg"], float, "Cambio de IV a 5 días")
+            if form["use_exp"]:
+                overrides["expected_move_mult"] = _required(form["exp_mult"], float, "Movimiento esperado (×)")
+                if not (0 < overrides["expected_move_mult"] <= 5):
+                    raise ValueError("el múltiplo del movimiento esperado debe estar entre 0 y 5")
             if form["use_atr"]:
                 overrides["min_atr_multiple"] = _required(form["atr_mult"], float, "Distancia en ATR")
                 if not (0 < overrides["min_atr_multiple"] <= 10):

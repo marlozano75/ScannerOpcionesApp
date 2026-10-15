@@ -171,6 +171,10 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE snapshots ADD COLUMN bid_size_tws_at TEXT;
     """,
+    # v22: IV por vencimiento (JSON {fecha: IV}) de las market metrics de tastytrade, para el movimiento esperado
+    """
+    ALTER TABLE ticker_info ADD COLUMN expiry_ivs TEXT;
+    """,
 ]
 
 

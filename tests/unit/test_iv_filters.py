@@ -90,5 +90,38 @@ def test_migration_v19_adds_the_columns_without_losing_data(tmp_path):
     raw.close()
     db = Database(path)
     row = db.conn.execute("SELECT * FROM ticker_info WHERE ticker = 'AAPL'").fetchone()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 21
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 22
     assert row["iv_rank"] == 40 and row["hv30"] is None and {"hv30", "iv30", "iv_change_5d"} <= set(row.keys())
+
+
+def test_expected_move_filter_requires_the_strike_below_price_minus_n_moves():
+    c = BASE.with_filters(expected_move_mult=1.0)          # movimiento = 100 × 0,3 × √(30/365) ≈ 8,6 -> límite ≈ 91,4
+    assert reject_reason(snap(90.0), 100.0, TODAY, c) is None
+    assert "movimiento esperado" in reject_reason(snap(95.0), 100.0, TODAY, c)
+    nov = ContractSnapshot(snap().contract, NOW, bid=1.0, ask=1.1, delta=-0.22, iv=None, open_interest=500, spread_pct=5.0)
+    assert "sin IV" in reject_reason(nov, 100.0, TODAY, c)
+    assert reject_reason(snap(95.0), 100.0, TODAY, BASE) is None
+
+
+def test_expected_move_uses_the_iv_of_the_expiry_and_falls_back_to_the_contract_iv():
+    c = BASE.with_filters(expected_move_mult=1.0)
+    exp = snap().contract.expiry.isoformat()
+    calm = TickerInfo("AAPL", expiry_ivs={exp: 0.1})          # movimiento 100 × 0,1 × √(30/365) ≈ 2,9 -> límite ≈ 97,1
+    wide = TickerInfo("AAPL", expiry_ivs={exp: 0.6})          # movimiento ≈ 17,2 -> límite ≈ 82,8
+    assert reject_reason(snap(95.0), 100.0, TODAY, c, info=calm) is None
+    assert "movimiento esperado" in reject_reason(snap(90.0), 100.0, TODAY, c, info=wide)
+    other = TickerInfo("AAPL", expiry_ivs={"2030-01-01": 0.6})      # sin IV para ese vencimiento: la del contrato (0,3)
+    assert reject_reason(snap(90.0), 100.0, TODAY, c, info=other) is None
+
+
+def test_expiry_ivs_come_from_the_market_metrics_and_are_stored_without_being_erased():
+    item = SimpleNamespace(implied_volatility_index_rank="0.5", implied_volatility_percentile="0.6",
+                           option_expiration_implied_volatilities=[
+                               SimpleNamespace(expiration_date=date(2026, 10, 16), implied_volatility=Decimal("0.3074")),
+                               SimpleNamespace(expiration_date=date(2026, 10, 19), implied_volatility=None)])
+    m = to_metrics(item)
+    assert m.expiry_ivs == {"2026-10-16": 0.3074}
+    repo = TickerInfoRepo(Database(":memory:"))
+    repo.upsert(TickerInfo("AAPL", underlying_price=100.0, expiry_ivs=m.expiry_ivs))
+    repo.update_iv_stats("AAPL", 50.0, 60.0)                       # sin IV por vencimiento nuevas: se conservan las guardadas
+    assert repo.get("AAPL").expiry_ivs == {"2026-10-16": 0.3074}

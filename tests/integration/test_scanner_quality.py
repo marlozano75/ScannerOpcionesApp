@@ -380,7 +380,10 @@ def test_the_scanner_form_has_the_signals_selector_and_the_sigma_column(client_a
     page = client.get(BASE + "&signals=2&use_near=on&near_pct=3&use_rsi=on&rsi_max=35").text
     entry = page.split('id="sec-entry"')[1].split("</details>")[0]
     assert 'name="signals"' in entry and '<option value="2" selected>' in entry and "≥ 2 señales de entrada" in page
-    assert "Dist. σ" not in page and 'name="use_exp"' not in page
+    assert "Dist. σ" not in page and 'name="use_exp"' in page          # el filtro de movimiento esperado vuelve (2026-10-15); la columna σ no
+    on = client.get(BASE + "&use_exp=on&exp_mult=1").text
+    assert "Parámetro no válido" not in on and "Fuera de 1× mov. esperado" in on
+    assert "Parámetro no válido" in client.get(BASE + "&use_exp=on&exp_mult=9").text or "entre 0 y 5" in client.get(BASE + "&use_exp=on&exp_mult=9").text
 
 
 def test_an_empty_scan_explains_why_and_what_would_recover_contracts(client_and_service):

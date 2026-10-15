@@ -214,7 +214,7 @@ class DailyUpdater:
         for ticker, m in found.items():
             if self.ticker_info.get(ticker) is None:
                 continue
-            self.ticker_info.update_iv_stats(ticker, m.iv_rank, m.iv_percentile, m.hv30, m.iv30, m.iv_change_5d)
+            self.ticker_info.update_iv_stats(ticker, m.iv_rank, m.iv_percentile, m.hv30, m.iv30, m.iv_change_5d, m.expiry_ivs)
             n += 1
         self.meta.set(IV_STATS_FETCHED_AT, self.now().astimezone(timezone.utc).isoformat())
         log.info("IV Rank/Percentile y volatilidad histórica: %d fichas actualizadas", n)
@@ -403,6 +403,7 @@ class DailyUpdater:
                 iv_rank=rank, iv_percentile=percentile,
                 updated_daily_at=now, price_at=price_at,
                 hv30=keep("hv30"), iv30=keep("iv30"), iv_change_5d=keep("iv_change_5d"),
+                expiry_ivs=keep("expiry_ivs"),
             )
         )
         self.watchlist.mark_daily_updated(ticker, now)

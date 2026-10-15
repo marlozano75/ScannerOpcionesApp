@@ -333,6 +333,8 @@ class StrategySettings(_Model):
     max_vix: float = Field(30, ge=0)                       # por encima, mercado muy nervioso
     min_atr_multiple: float = Field(2.0, gt=0, le=10)      # el strike debe estar al menos a N × ATR(14) del precio (2–3)
     use_atr: bool = True
+    expected_move_mult: float = Field(1.0, gt=0, le=5)     # el strike debe quedar por debajo de precio − N × movimiento esperado (precio × IV × √(DTE/365))
+    use_expected_move: bool = False                        # el botón no lo activa: 1× equivale a delta ≈ 0,15 y choca con la banda de delta
     use_rsi: bool = True
     use_bollinger: bool = False
     use_bollinger_width: bool = False

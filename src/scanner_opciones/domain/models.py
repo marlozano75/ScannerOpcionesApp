@@ -49,6 +49,7 @@ class TickerInfo:
     hv30: Optional[float] = None                # volatilidad histórica a 30 días, en % (tastytrade)
     iv30: Optional[float] = None                # volatilidad implícita a 30 días, en % (tastytrade)
     iv_change_5d: Optional[float] = None        # cambio de la IV del subyacente en 5 días, en puntos de IV (+1 = ha subido 1 punto)
+    expiry_ivs: Optional[dict] = None           # IV de cada vencimiento (fecha ISO -> fracción), de tastytrade: movimiento esperado
 
 
 @dataclass(frozen=True)
