@@ -205,6 +205,10 @@ def test_the_two_filter_sets_travel_in_the_url_swap_with_the_tabs_and_are_saved_
     # y al cargarlo (modo Ambos) se ve el juego de put y el de spread viaja oculto
     loaded = client.get(r.headers["location"]).text
     assert 'name="o_use_ns" value="on"' in loaded and 'name="use_oi"' in loaded and "Parámetro no válido" not in loaded
+    # guardando desde la pestaña de filtros de SPREAD, al volver se sigue viendo esa pestaña (no la de put)
+    sp_query = "&".join(f"{k}={v}" for k, v in {"submitted": "1", "mode": "both", "set": "spread", "discount": "5", "dte_min": "30", "dte_max": "45", "min_yield": "1", "use_rr": "on", "rr": "12", "o_discount": "5", "o_dte_min": "30", "o_dte_max": "45", "o_min_yield": "1"}.items())
+    r2 = client.post("/scanner/profile/save", data={"name": "Dos", "query": sp_query}, follow_redirects=False)
+    assert r2.status_code == 303 and "set=spread" in r2.headers["location"] and "mode=both" in r2.headers["location"]
 
 
 def test_profiles_can_be_reordered_coloured_and_duplicated(client_and_service):

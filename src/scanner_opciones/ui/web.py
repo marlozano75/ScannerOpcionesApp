@@ -449,10 +449,10 @@ def seed_fallback(settings) -> Profile:
     return Profile(FALLBACK_PROFILE, ("put", "spread"), color=SEED_COLORS[FALLBACK_PROFILE]).with_filters("put", params).with_filters("spread", params)
 
 
-def profile_link(p: Profile, mode: Optional[str] = None) -> str:
+def profile_link(p: Profile, mode: Optional[str] = None, shown: Optional[str] = None) -> str:
     """Consulta que carga el perfil en el Scanner (reemplaza todo el formulario): el juego de filtros que se ve va sin prefijo y el otro como `o_...`."""
     mode = mode if mode in ("put", "spread", "both") else p.mode
-    shown = "spread" if mode == "spread" else "put"
+    shown = shown if shown in ("put", "spread") else ("spread" if mode == "spread" else "put")   # `shown`: la pestaña que se estaba viendo
     other = "put" if shown == "spread" else "spread"
     return urlencode({**p.set_params(shown), **{"o_" + k: v for k, v in p.set_params(other).items()},
                       "submitted": "1", "mode": mode, "profile": p.name, "set": shown})
@@ -1146,7 +1146,7 @@ def create_app(
         except ValueError:
             return RedirectResponse("/scanner?" + urlencode({**qp, "submitted": "1"}), status_code=303)
         remembered.pop("scanner", None)
-        return RedirectResponse("/scanner?" + profile_link(saved, mode), status_code=303)
+        return RedirectResponse("/scanner?" + profile_link(saved, mode, shown), status_code=303)
 
     @app.post("/scanner/profiles")
     async def scanner_profiles_save(request: Request):
