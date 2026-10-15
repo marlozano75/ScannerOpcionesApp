@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% import "_contract_cols.html" as cols %}
+{% import "_contract_cols.html" as cols with context %}
 {% block body_class %}app-shell{% endblock %}
 {% macro num(name, size, value, max=none) -%}
   <span class="stepper"><input name="{{ name }}" id="{{ name }}" size="{{ size }}" value="{{ value }}" inputmode="decimal"{% if max is not none %} data-max="{{ max }}"{% endif %}>

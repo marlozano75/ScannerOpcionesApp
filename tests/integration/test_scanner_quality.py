@@ -418,3 +418,16 @@ def test_the_signals_selector_drops_to_the_number_of_marked_signals(client_and_s
     assert '<option value="1" selected>' in one
     none = client.get(BASE + "&signals=2").text.split('id="sec-entry"')[1].split("</details>")[0]
     assert '<option value="0" selected>' in none
+
+
+def test_owned_puts_are_marked_in_the_scanner(client_and_service):
+    from scanner_opciones.domain.models import Position
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    contract = svc.contracts.list()[0]
+    page = client.get(BASE).text
+    assert "EN CARTERA" not in page.split("<tbody")[-1]
+    svc.state.positions = [Position(contract.ticker, -2, -100.0, option=contract)]
+    assert svc.owned_options() == {(contract.ticker, contract.expiry, round(contract.strike, 4)): -2}
+    page = client.get("/scanner?submitted=1&discount=0&dte_min=0&dte_max=60&min_yield=0").text
+    assert "EN CARTERA \u00d72" in page

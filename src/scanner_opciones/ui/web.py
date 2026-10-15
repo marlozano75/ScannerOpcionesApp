@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 
 from pydantic import ValidationError
 
-from scanner_opciones.app.service import SCANNER_USER_CONFIG, AppService, SelectedContract
+from scanner_opciones.app.service import SCANNER_USER_CONFIG, AppService, SelectedContract, norm_ticker
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
@@ -42,6 +42,14 @@ from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
 log = logging.getLogger(__name__)
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+
+
+def own_qty(owned, ticker, expiry, strike):
+    """Contratos que ya tienes de esa put (negativo = vendidos, positivo = comprados) o None; lo usan las plantillas."""
+    return (owned or {}).get((norm_ticker(ticker), expiry, round(float(strike), 4)))
+
+
+TEMPLATES.env.globals["own_qty"] = own_qty
 LIGHT_LABEL = {
     TrafficLight.GREEN: "Normal / Holgado",
     TrafficLight.AMBER: "Preocupación",
@@ -567,7 +575,7 @@ def create_app(
         views = [v for v in everything
                  if (venc or v.status != "expired") and (not solo or v.in_watchlist)
                  and (not trader or v.idea.trader == trader) and (not strategy or v.idea.strategy == strategy)]
-        return render(request, "ideas.html", data=data, file_path=service.settings.community.path, views=views, total=len(everything),
+        return render(request, "ideas.html", data=data, owned=service.owned_options(), file_path=service.settings.community.path, views=views, total=len(everything),
                       fit_names=[p.name for p in service.settings.scanner.presets] + [STRATEGY_NAME],
                       valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, strategy=strategy,
                       traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale(),
@@ -1136,7 +1144,7 @@ def create_app(
         counts = quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg)
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
-        return render(request, "scanner.html", no_autorefresh=True, out=out, ref_label=ref_label, watch_data=True, presets=presets,
+        return render(request, "scanner.html", no_autorefresh=True, out=out, owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets,
                       community=service.community_counts(),
                       yield_max=yield_max, nlv_usd=service.nlv_usd(), strategy_qs=strategy_qs, strategy_on=strategy_on,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),

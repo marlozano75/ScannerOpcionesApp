@@ -22,8 +22,12 @@
 <th>+Peso sector</th><th>Peso semana</th><th>% cartera si asignado</th>
 {%- endmacro %}
 
+{% macro own_badge(ticker, expiry, strike) -%}{% set q = own_qty(owned, ticker, expiry, strike) -%}
+{%- if q %} <span class="own{{ ' own-long' if q > 0 }}" title="{{ 'Ya tienes ' ~ (q|abs|int) ~ (' contrato vendido' if q < 0 else ' contrato comprado') ~ (' de esta put' if q|abs == 1 else 's de esta put') }} en cartera">{{ 'EN CARTERA' if q < 0 else 'COMPRADA' }} ×{{ q|abs|int }}</span>{% endif %}
+{%- endmacro %}
+
 {% macro lead_cells(r) -%}{% set c = r.snapshot.contract %}{% set i = r.info -%}
-<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el historial de cierres frente al strike y el último toque">{{ c.ticker }}</a></td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
+<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el historial de cierres frente al strike y el último toque">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
 {%- endmacro %}
 
 {% macro mini_cell(r) -%}{% set c = r.snapshot.contract -%}

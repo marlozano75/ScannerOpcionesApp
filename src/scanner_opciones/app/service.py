@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass, field, replace
 from dataclasses import replace
 from datetime import date, datetime
@@ -75,6 +76,11 @@ class SelectedContract:
     quantity: int = 1
     long_strike: Optional[float] = None   # spread de puts: strike de la comprada
     max_loss: Optional[float] = None      # spread: pérdida máxima por spread en $ (hace de margen)
+
+
+def norm_ticker(ticker: str) -> str:
+    """BRK B, BRK-B y BRK.B son el mismo valor (IBKR escribe la clase con espacio, la app con guion)."""
+    return re.sub(r"[ .\-/]", "", ticker.upper())
 
 
 @dataclass
@@ -1375,6 +1381,17 @@ class AppService:
         if criteria.min_atr_multiple is None:
             return None
         return self.bars.atr({s.contract.ticker for s in snapshots}, self.settings.scanner.technical.atr_period)
+
+    def owned_options(self) -> dict[tuple[str, date, float], float]:
+        """Puts que ya tienes en cartera: (ticker normalizado, vencimiento, strike) -> contratos (negativo = vendidos, positivo = comprados)."""
+        owned: dict[tuple[str, date, float], float] = {}
+        for p in self.state.positions:
+            o = p.option
+            if o is None or o.right is not OptionRight.PUT or not p.quantity:
+                continue
+            key = (norm_ticker(o.ticker), o.expiry, round(float(o.strike), 4))
+            owned[key] = owned.get(key, 0.0) + p.quantity
+        return owned
 
     def nlv_usd(self) -> Optional[float]:
         """NLV de la cuenta en USD: con el tipo de cambio de IBKR y, si no llega, `scanner.spreads.usd_per_base`.
