@@ -728,6 +728,22 @@
     document.getElementById('trend_days_label').style.opacity = (off || !low) ? .45 : 1;
   };
   techSync();
+  // Señales de entrada: si hay menos marcadas que las exigidas, el selector baja al nº de marcadas; sin ninguna marcada pasa a
+  // «Todas las marcadas» (que sin señales marcadas no aplica ninguna condición). Va antes del envío para que el escaneo ya lo lleve.
+  (function () {
+    const sel = document.getElementById('signals');
+    const boxes = ['use_ivhv', 'use_ivchg', 'use_rsi', 'use_boll', 'use_near'].map(function (n) { return form.elements[n]; }).filter(Boolean);
+    if (!sel) return;
+    function clamp() {
+      const marked = boxes.filter(function (c) { return c.checked; }).length;
+      if (parseInt(sel.value, 10) > marked) {
+        sel.value = String(marked);   // 0 = «Todas las marcadas»
+        sel.classList.toggle('set', sel.value !== '0');
+      }
+    }
+    boxes.concat([sel]).forEach(function (el) { el.addEventListener('change', clamp); });
+    clamp();
+  })();
   // Cualquier selector o casilla escanea al cambiar
   form.querySelectorAll('select, input[type=checkbox]').forEach(function (el) {
     el.addEventListener('change', function () { techSync(); form.submit(); });
