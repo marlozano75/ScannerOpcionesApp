@@ -68,7 +68,6 @@
 {% if trend_on %}{% set _ = chips.append(('sec-trend', ('Tendencia alcista' if form.trend_dir == 'up' else 'Tendencia bajista') ~ ' · ' ~ window_label)) %}{% endif %}
 {% if form.support %}{% set _ = chips.append(('sec-levels', 'Zona de soporte')) %}{% endif %}
 {% if form.touch %}{% set _ = chips.append(('sec-levels', 'Sin toque ' ~ touch_label)) %}{% endif %}
-{% if price_on %}{% set _ = chips.append(('sec-price', 'Precio ' ~ (form.price_min or '0') ~ '–' ~ (form.price_max or '∞'))) %}{% endif %}
 {% set ma_names = {'ma50': 'MA50', 'ma100': 'MA100', 'ma200': 'MA200', 'ema9': 'EMA9', 'ema20': 'EMA20'} %}
 {% for k in ma_keys if form[k] and form[k] != 'any' %}
   {% if k in ma_names %}{% set text = ('▲ ' if form[k] == 'above' else '▼ ') ~ ma_names[k] %}
@@ -97,7 +96,6 @@
 {% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia')) %}{% endif %}
 {% if not form.support %}{% set _ = offs.append(('sec-levels', 'Soporte')) %}{% endif %}
 {% if not form.touch %}{% set _ = offs.append(('sec-levels', 'Último toque')) %}{% endif %}
-{% if not price_on %}{% set _ = offs.append(('sec-price', 'Precio')) %}{% endif %}
 {% if not ma_count %}{% set _ = offs.append(('sec-ma', 'Medias')) %}{% endif %}
 {% if not form.signals or form.signals == '0' %}{% set _ = offs.append(('sec-entry', 'Mín. de señales')) %}{% endif %}
 
@@ -252,6 +250,13 @@
           del precio y DTE {{ candidates.dte_min }}–{{ candidates.dte_max }} (más un margen de ±{{ margin|num(0) }} % que se guarda pero no se cotiza). El descuento máximo es el del rango guardado.</p>
       {% endcall %}
 
+      {% call section('sec-atr', 'Distancia al precio (ATR)', (atrgroup | join(' · ')) or 'Sin filtros', atrgroup|length > 0) %}
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_atr" {{ 'checked' if form.use_atr }}> Strike a ≥ N ATR(14) del precio</span>
+          <input name="atr_mult" value="{{ form.atr_mult }}" inputmode="decimal"></label>
+        <p class="note">Filtro <b>obligatorio</b> (no cuenta como señal de entrada). <b>ATR</b>(14) = rango diario medio (máximos, mínimos y cierres): con N = 2–3 el strike queda fuera del ruido normal de unos días.
+          Necesita los máximos y mínimos diarios, que se descargan con el histórico (la primera vez tras actualizar se vuelven a pedir los últimos días).</p>
+      {% endcall %}
+
       {% call section('sec-yield', 'Rentabilidad', '≥ ' ~ form.min_yield ~ ' % · ' ~ ref_names.get(form.ref, form.ref)) %}
         <div class="fgrid">
           <label class="field" title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo mín. (%) {{ num("min_yield", 6, form.min_yield) }}</label>
@@ -328,13 +333,6 @@
           No hace falta que se cumplan todos los indicadores de timing: con una o dos señales basta, por eso el botón de la estrategia solo activa el RSI.</p>
         <p class="note">Entrada tras una corrección: el precio está a menos de X % de su media de 50 días (cierres diarios) <b>o</b> del borde superior de una zona de soporte probada.
           Para exigir el precio sobre la media de 200, usa <b>Medias móviles</b> (MA 200 «Por encima»).</p>
-      {% endcall %}
-
-      {% call section('sec-atr', 'Distancia al precio (ATR)', (atrgroup | join(' · ')) or 'Sin filtros', atrgroup|length > 0) %}
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_atr" {{ 'checked' if form.use_atr }}> Strike a ≥ N ATR(14) del precio</span>
-          <input name="atr_mult" value="{{ form.atr_mult }}" inputmode="decimal"></label>
-        <p class="note">Filtro <b>obligatorio</b> (no cuenta como señal de entrada). <b>ATR</b>(14) = rango diario medio (máximos, mínimos y cierres): con N = 2–3 el strike queda fuera del ruido normal de unos días.
-          Necesita los máximos y mínimos diarios, que se descargan con el histórico (la primera vez tras actualizar se vuelven a pedir los últimos días).</p>
       {% endcall %}
 
       {% call section('sec-trend', 'Tendencia', ((('Alcista' if form.trend_dir == 'up' else 'Bajista') ~ ' · ' ~ window_label) if trend_on else 'Off'), trend_on) %}
@@ -433,6 +431,7 @@
       {% if criteria %}
       {% set base = [('sec-contract', 'Strike ' ~ criteria.strike_below_pct_min|num(1) ~ '–' ~ criteria.strike_below_pct_max|num(1) ~ ' % por debajo'), ('sec-contract', 'DTE ' ~ criteria.dte_min ~ '–' ~ criteria.dte_max)] %}
       {% if not criteria.spread_mode %}{% set _ = base.append(('sec-yield', 'Yield periodo ≥ ' ~ criteria.min_yield_pct|num(1) ~ ' %')) %}{% endif %}
+      {% set _ = base.append(('sec-price', 'Subyacente ' ~ (('$' ~ (form.price_min or '0') ~ '–' ~ (form.price_max or '∞')) if price_on else 'cualquier precio'))) %}
       {% set _ = base.append(('sec-yield', 'Precio de venta: ' ~ ref_label)) %}
       <div class="chips base"><span class="chips-lbl">Base ({{ base|length }})</span>
         {% for sec, text in base %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}
