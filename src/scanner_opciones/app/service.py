@@ -29,7 +29,8 @@ from scanner_opciones.portfolio.diversification import WeekExposure, sector_expo
 from scanner_opciones.community.data import CommunityData, CommunityError, load_community
 from scanner_opciones.community.fit import strategy_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, snapshot_key
-from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES
+from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, classify_dte
+from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
 from scanner_opciones.portfolio.spreads import with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner import profiles as profiles_mod
@@ -63,6 +64,7 @@ PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posici
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
 SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
+PUT_OPENED = "put_opened"   # clave de `meta`: día en que la app vio por primera vez cada put vendida (JSON {put_key: AAAA-MM-DD})
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
 KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
@@ -137,6 +139,7 @@ class AppService:
             volatility, prices, syncer, self.market,
         )
         self.state = AppState()
+        self.profile_provider: Optional[Callable[[], tuple[list[ScannerProfile], str]]] = None   # lo pone la interfaz web (perfiles guardados o derivados)
         self._yaml_scanner = (settings.scanner.presets, settings.scanner.strategy, settings.scanner.spreads)   # los de config.yaml, para restaurarlos
         self._load_scanner_config()
         self._load_portfolio()
@@ -1144,23 +1147,82 @@ class AppService:
         self.state.data_version += 1
         return result
 
+    def scanner_profiles(self) -> list[ScannerProfile]:
+        """Perfiles del Scanner (los que da la interfaz web o, si no hay, los guardados)."""
+        if self.profile_provider is not None:
+            return self.profile_provider()[0]
+        stored = self.stored_profiles()
+        return stored[0] if stored else []
+
     def put_profiles(self) -> dict[str, str]:
-        """Perfil de gestión (tastytrade | tpc) elegido para cada put vendida, por `portfolio.management.put_key`."""
+        """Perfil del Scanner elegido a mano para cada put vendida (corrige la clasificación automática), por `portfolio.management.put_key`.
+        Los valores antiguos («tastytrade» / «tpc», que eran el estilo de gestión) se traducen al primer perfil con ese estilo."""
         try:
             data = json.loads(self.meta.get(PUT_PROFILES) or "{}")
         except ValueError:
             return {}
-        return {str(k): str(v) for k, v in data.items() if v in PUT_PROFILE_NAMES}
+        profiles = self.scanner_profiles()
+        names = {p.name for p in profiles}
+        out: dict[str, str] = {}
+        for k, v in data.items():
+            if v in names:
+                out[str(k)] = str(v)
+            elif v in PUT_PROFILE_NAMES:
+                legacy = next((p.name for p in profiles if p.management == v and p.name != FALLBACK_PROFILE), None)
+                if legacy:
+                    out[str(k)] = legacy
+        return out
 
     def set_put_profile(self, key: str, profile: str) -> None:
-        """Recuerda el perfil de gestión de una put (`TICKER|AAAA-MM-DD|strike`). Olvida las ya vencidas. `ValueError` si no es válido."""
+        """Recuerda el perfil del Scanner de una put (`TICKER|AAAA-MM-DD|strike`). Olvida las ya vencidas. `ValueError` si no es válido."""
         parts = key.split("|")
-        if profile not in PUT_PROFILE_NAMES or len(parts) != 3 or not parts[0]:
-            raise ValueError("perfil de gestión no válido")
+        if profile not in {p.name for p in self.scanner_profiles()} or len(parts) != 3 or not parts[0]:
+            raise ValueError("perfil no válido")
         date.fromisoformat(parts[1])
         today = self.now().date().isoformat()
         data = {k: v for k, v in {**self.put_profiles(), key: profile}.items() if k.split("|")[1] >= today}
         self.meta.set(PUT_PROFILES, json.dumps(data))
+
+    def _short_put_keys(self) -> list[tuple[str, date]]:
+        return [(put_key_of(p), p.option.expiry) for p in self.state.positions
+                if p.option is not None and p.option.right is OptionRight.PUT and p.quantity < 0]
+
+    def _put_opened(self) -> dict[str, str]:
+        try:
+            return {str(k): str(v) for k, v in json.loads(self.meta.get(PUT_OPENED) or "{}").items()}
+        except ValueError:
+            return {}
+
+    def _note_put_opened(self) -> None:
+        """Apunta el día en que aparece por primera vez cada put vendida (IBKR no da la fecha de apertura); olvida las vencidas."""
+        today = self.now().date().isoformat()
+        known = self._put_opened()
+        data = {k: v for k, v in known.items() if k.split("|")[1] >= today}
+        for key, _ in self._short_put_keys():
+            data.setdefault(key, today)
+        if data != known:
+            self.meta.set(PUT_OPENED, json.dumps(data))
+
+    def put_assignments(self) -> dict[str, str]:
+        """Perfil del Scanner de cada put vendida: el elegido a mano o, si no, el que corresponde al DTE con el que se abrió (fecha en que la
+        app la vio por primera vez); lo que no encaja en ningún perfil va a «Tortuga»."""
+        profiles = self.scanner_profiles()
+        if not profiles:
+            return {}
+        manual, opened, today = self.put_profiles(), self._put_opened(), self.now().date()
+        out: dict[str, str] = {}
+        for key, expiry in self._short_put_keys():
+            if key in manual:
+                out[key] = manual[key]
+                continue
+            first = date.fromisoformat(opened[key]) if key in opened else today
+            out[key] = classify_dte((expiry - first).days, profiles)
+        return out
+
+    def put_management(self) -> dict[str, str]:
+        """Estilo de gestión (tastytrade | tpc) de cada put vendida, según el perfil que tiene asignado."""
+        style = {p.name: p.management for p in self.scanner_profiles()}
+        return {key: style.get(name, "tastytrade") for key, name in self.put_assignments().items()}
 
     def record_today_prices(self) -> int:
         """Guarda el último precio de cada ticker como cierre provisional de la sesión de hoy en el histórico (lo
@@ -1345,6 +1407,7 @@ class AppService:
         try:
             self.state.account = await asyncio.wait_for(self.gateway.get_account_summary(), timeout=STEP_TIMEOUT_SECONDS)
             self.state.positions = await asyncio.wait_for(self.gateway.get_positions(), timeout=STEP_TIMEOUT_SECONDS)
+            self._note_put_opened()
             self.state.risk = build_risk_status(self.state.account, self.settings.risk.cushion_thresholds)
             self.state.errors.pop("portfolio", None)
             self.meta.set(PORTFOLIO_CACHE, portfolio_cache.dump(

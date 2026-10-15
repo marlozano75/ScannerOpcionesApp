@@ -2,6 +2,7 @@
 y resultados (Scanner) y el panel «¿Cuánto descarta cada filtro?»."""
 import json
 import re
+from json import dumps as json_dumps
 
 import pytest
 
@@ -390,7 +391,7 @@ def test_an_empty_scan_explains_why_and_what_would_recover_contracts(client_and_
     assert "Ningún contrato pasa todos los filtros" not in client.get(BASE).text      # con resultados no hay aviso
 
 
-def test_put_management_profile_is_chosen_per_put_and_remembered(client_and_service):
+def test_put_profile_is_assigned_by_opening_dte_and_can_be_corrected(client_and_service):
     from datetime import timedelta
     from scanner_opciones.domain.enums import OptionRight
     from scanner_opciones.domain.models import OptionContract, Position
@@ -399,18 +400,34 @@ def test_put_management_profile_is_chosen_per_put_and_remembered(client_and_serv
     svc.state.positions = [Position("AAPL", -1, -90.0, "Technology", option, 110.0)]       # 18 % de la prima ganada a 20 DTE
     key = f"AAPL|{option.expiry.isoformat()}|90"
     page = client.get("/").text
-    assert f'name="key" value="{key}"' in page and "Revisar: quedan" not in page          # por defecto: TPC (mantiene hasta el vencimiento)
-    assert '<option value="tpc" selected>' in page
-    r = client.post("/management/profile", data={"key": key, "profile": "tastytrade"}, follow_redirects=False)
-    assert r.status_code == 303 and svc.put_profiles() == {key: "tastytrade"}
+    assert f'name="key" value="{key}"' in page
+    assert '<option value="Tortuga" selected>' in page and "Revisar: quedan" in page        # 20 DTE no encaja en ningún perfil: Tortuga (gestión Tastytrade)
+    r = client.post("/management/profile", data={"key": key, "profile": "Mensual (TPC)"}, follow_redirects=False)
+    assert r.status_code == 303 and svc.put_profiles() == {key: "Mensual (TPC)"}
     page = client.get("/").text
-    assert "Revisar: quedan" in page and '<option value="tastytrade" selected>' in page   # Tastytrade revisa a 21 DTE
+    assert "Revisar: quedan" not in page and '<option value="Mensual (TPC)" selected>' in page   # el perfil TPC mantiene hasta el vencimiento
     assert client.post("/management/profile", data={"key": key, "profile": "x"}).status_code == 400
-    assert client.post("/management/profile", data={"key": "mal", "profile": "tpc"}).status_code == 400
-    assert client.post("/management/profile", data={"key": "AAPL|no-fecha|90", "profile": "tpc"}).status_code == 400
-    assert svc.put_profiles() == {key: "tastytrade"}
-    svc.set_put_profile(f"MSFT|{(svc.now().date() - timedelta(days=1)).isoformat()}|300", "tpc")   # ya vencida: se olvida
-    assert svc.put_profiles() == {key: "tastytrade"}
+    assert client.post("/management/profile", data={"key": "mal", "profile": "Tortuga"}).status_code == 400
+    assert client.post("/management/profile", data={"key": "AAPL|no-fecha|90", "profile": "Tortuga"}).status_code == 400
+    assert svc.put_profiles() == {key: "Mensual (TPC)"}
+    svc.set_put_profile(f"MSFT|{(svc.now().date() - timedelta(days=1)).isoformat()}|300", "Tortuga")   # ya vencida: se olvida
+    assert svc.put_profiles() == {key: "Mensual (TPC)"}
+
+
+def test_a_put_is_classified_with_the_dte_it_had_the_first_time_the_app_saw_it(client_and_service):
+    from datetime import timedelta
+    from scanner_opciones.domain.enums import OptionRight
+    from scanner_opciones.domain.models import OptionContract, Position
+    client, svc, gw, _ = client_and_service
+    today = svc.now().date()
+    option = OptionContract("AAPL", today + timedelta(days=30), 90.0, OptionRight.PUT)
+    svc.state.positions = [Position("AAPL", -1, -90.0, "Technology", option, 110.0)]
+    svc._note_put_opened()                                                                      # primera vez: hoy, a 30 DTE
+    key = f"AAPL|{option.expiry.isoformat()}|90"
+    assert svc.put_assignments() == {key: "Mensual (TPC)"}                                      # 25–35 DTE (rango más estrecho que Tastytrade 30–45)
+    svc.meta.set("put_opened", json_dumps({key: (today - timedelta(days=10)).isoformat()}))     # abierta hace 10 días a 40 DTE
+    assert svc.put_assignments() == {key: "Tastytrade"}
+    assert svc.put_management() == {key: "tastytrade"}
 
 
 def test_the_signals_selector_drops_to_the_number_of_marked_signals(client_and_service):

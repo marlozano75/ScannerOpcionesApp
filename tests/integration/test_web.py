@@ -601,7 +601,7 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     html = client.get("/scanner?reset=1").text
     form = html.split('id="scan-form"')[1].split("</form>")[0]
     # dos perfiles TPC, como enlaces que sustituyen los filtros de Tastytrade (los de calidad llevan class="preset qpreset")
-    assert form.count('<a class="preset"') == 2 and 'type="button" class="preset"' not in form
+    assert form.count('<a class="preset"') == 3 and 'type="button" class="preset"' not in form
     links = {m.group(2): dict(parse_qsl(m.group(1).replace("&amp;", "&")))
              for m in re.finditer(r'<a class="preset" href="/scanner\?([^"]+)"[^>]*>([^<]+)</a>', form)}
     mensual, tactico = links["Mensual (TPC)"], links["Táctico (TPC)"]
@@ -799,35 +799,23 @@ def test_header_shows_the_account_id(client_and_service):
     assert ">MiguelAngel<" in html and "Cuenta de IBKR DU1" in html
 
 
-def test_scanner_config_page_edits_presets_and_strategy(client_and_service):
+def test_scanner_config_page_lists_profiles_and_edits_the_vix_warning(client_and_service):
     client, svc, _, _ = client_and_service
     r = client.get("/scanner/config")
-    assert r.status_code == 200 and "Mensual (TPC)" in r.text and 's_max_abs_delta' in r.text
+    assert r.status_code == 200 and "Mensual (TPC)" in r.text and "Tortuga" in r.text and 'name="min_vix"' in r.text
     assert "/scanner/config" in client.get("/scanner?reset=1").text          # enlace «Editar» junto a los botones
-    form = {"n_presets": "4", "p0_name": "Corto X", "p0_discount": "12", "p0_dte_min": "2", "p0_dte_max": "9", "p0_yield": "30",
-            "p1_name": "", "p2_name": "Largo plazo", "p2_discount": "20", "p2_dte_min": "16", "p2_dte_max": "", "p2_yield": "13",
-            "p3_name": "", "s_max_abs_delta": "0,25", "s_min_iv_rank": "40", "s_dte_min": "30", "s_dte_max": "45",
-            "s_strike_below_pct_min": "5", "s_min_yield_pct": "10", "s_use_rsi": "on"}
-    post = client.post("/scanner/config", data=form, follow_redirects=False)
+    post = client.post("/scanner/config", data={"min_vix": "15", "ideal_vix_min": "19", "max_vix": "28"}, follow_redirects=False)
     assert post.status_code == 303 and "ok=" in post.headers["location"]
-    st = svc.settings.scanner
-    assert [p.name for p in st.presets] == ["Corto X", "Largo plazo"] and st.presets[0].dte_max == 9 and st.presets[1].dte_max is None
-    assert st.strategy.max_abs_delta == 0.25 and st.strategy.min_iv_rank == 40
-    assert st.strategy.use_atr is False and st.strategy.use_rsi is True      # casilla sin marcar = desactivada
-    page = client.get("/scanner?submitted=1")
-    assert "Corto X" in page.text and "Táctico (TPC)" not in page.text        # el botón usa lo editado
-    assert "delta_max=0.25" in page.text                                     # y el de la estrategia también
+    st = svc.settings.scanner.strategy
+    assert (st.min_vix, st.ideal_vix_min, st.max_vix) == (15, 19, 28) and st.max_abs_delta == 0.3      # lo demás de la estrategia no se toca
+    assert "ok=" in client.post("/scanner/config/reset", follow_redirects=False).headers["location"]
+    assert svc.settings.scanner.strategy.min_vix == 14
 
 
 def test_scanner_config_rejects_invalid_and_keeps_previous(client_and_service):
     client, svc, _, _ = client_and_service
     before = svc.settings.scanner.strategy
-    bad = {"n_presets": "1", "p0_name": "X", "p0_discount": "10", "p0_dte_min": "1", "p0_dte_max": "7", "p0_yield": "20",
-           "s_max_abs_delta": "abc"}
-    r = client.post("/scanner/config", data=bad, follow_redirects=False)
-    assert "error=" in r.headers["location"]
-    bad["s_max_abs_delta"] = "5"      # delta > 1: lo rechaza el modelo
-    r = client.post("/scanner/config", data={**bad, "s_dte_min": "50", "s_dte_max": "45"}, follow_redirects=False)
+    r = client.post("/scanner/config", data={"min_vix": "abc"}, follow_redirects=False)
     assert "error=" in r.headers["location"] and svc.settings.scanner.strategy == before
     assert svc.meta.get("scanner_user_config") is None
 
@@ -845,26 +833,6 @@ def test_scanner_config_persists_and_resets(client_and_service):
     svc._set_scanner_config(*svc._yaml_scanner)       # simula un reinicio: vuelve a leer la base de datos
     svc._load_scanner_config()
     assert [p.name for p in svc.settings.scanner.presets] == ["Solo"] and svc.settings.scanner.strategy.min_iv_rank == 33
-
-
-def test_scanner_config_edits_spread_defaults_persists_and_resets(client_and_service):
-    client, svc, _, _ = client_and_service
-    assert "sp_min_credit_usd" in client.get("/scanner/config").text
-    base = {"n_presets": "1", "p0_name": "Solo", "p0_discount": "10", "p0_dte_min": "1", "p0_dte_max": "7", "p0_yield": "1"}
-    post = client.post("/scanner/config", data={**base, "sp_min_credit_usd": "55", "sp_width_options": "2,5; 10", "sp_min_long_oi": "20",
-                                                "sp_usd_per_base": ""}, follow_redirects=False)
-    assert "ok=" in post.headers["location"]
-    sp = svc.settings.scanner.spreads
-    assert sp.min_credit_usd == 55 and sp.width_options == (2.0, 5.0, 10.0) and sp.min_long_oi == 20 and sp.usd_per_base is None
-    assert "Crédito ≥ 55 $" in client.get(BASE + "&mode=spread").text            # el Scanner arranca con lo editado
-    bad = client.post("/scanner/config", data={**base, "sp_min_credit_usd": "abc"}, follow_redirects=False)
-    assert "error=" in bad.headers["location"] and svc.settings.scanner.spreads.min_credit_usd == 55
-    svc._set_scanner_config(*svc._yaml_scanner)                                  # simula un reinicio
-    assert svc.settings.scanner.spreads.min_credit_usd == 30
-    svc._load_scanner_config()
-    assert svc.settings.scanner.spreads.min_credit_usd == 55
-    svc.reset_scanner_config()
-    assert svc.settings.scanner.spreads.min_credit_usd == 30 and svc.settings.scanner.spreads.width_options[-1] == 20
 
 
 def test_scanner_spread_mode_renders_and_validates(client_and_service):

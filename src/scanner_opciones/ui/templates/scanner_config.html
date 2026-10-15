@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Configuraciones del Scanner{% endblock %}
+{% block title %}Perfiles del Scanner{% endblock %}
 {% block content %}
 <style>
   .cfg-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:8px 22px; }
@@ -17,75 +17,52 @@
 </style>
 <div class="card cfg">
   <h2>Perfiles del Scanner</h2>
-  <p class="muted">Edita los perfiles <b>TPC (Mensual / Táctico)</b>, los valores que carga el perfil <b>Tastytrade</b> y los iniciales del <b>modo Spread</b>. Se guardan en la base de datos
-    y mandan sobre <code>config.yaml</code> hasta que pulses «Restaurar».
+  <p class="muted">Cada perfil guarda <b>todos los filtros</b> del Scanner. Aquí se gestionan los perfiles; los filtros se definen en el propio Scanner (<b>💾 Guardar en perfil</b>).
     <a href="/scanner">← Volver al Scanner</a></p>
   {% if ok %}<div class="banner ok">{{ ok }}</div>{% endif %}
   {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
   {% for g in gap %}<div class="banner info">Aviso: {{ g }}: solo se escanean los contratos guardados, amplía <code>scanner.candidates</code> en config.yaml.</div>{% endfor %}
   <form method="post" action="/scanner/profiles">
-    <details class="cfg-sec" open><summary>Perfiles del Scanner (botones, instrumentos y perfil inicial)</summary>
-    <p class="note">Cada perfil guarda <b>todos los filtros</b> del formulario del Scanner (cuáles están activados y sus valores, precio de venta, calidad, tendencia y medias) y cargarlo reemplaza el formulario entero.
-      Los filtros se definen en el propio Scanner: ajusta el formulario y pulsa <b>💾 Guardar en perfil</b> (con un nombre nuevo se crea otro perfil). Aquí eliges el nombre, los instrumentos activos (put vendida, spread de puts o ambos: con los dos marcados el perfil arranca en «Ambos»),
-      el <b>perfil inicial</b> que se carga al abrir el Scanner y cuáles borrar. {{ 'Estos perfiles se han guardado desde la aplicación.' if profiles_saved else 'Todavía se generan a partir de los presets TPC y de la estrategia Tastytrade de más abajo; al guardar aquí pasan a ser propios.' }}</p>
+    <details class="cfg-sec" open><summary>Perfiles (instrumentos, gestión y perfil inicial)</summary>
+    <p class="note">Cargar un perfil reemplaza el formulario entero. Con put y spread marcados el perfil arranca en «Ambos». El <b>perfil inicial</b> es el que se carga al abrir el Scanner.
+      En el <b>Panel</b>, cada put vendida se asigna sola al perfil cuyo <b>rango de DTE</b> (mínimo y máximo de sus filtros) contiene el DTE con el que se abrió (la fecha es la primera vez que la app la vio);
+      si hay varios, el rango más estrecho, y lo que no encaja en ninguno va a <b>{{ fallback }}</b>. Se puede corregir a mano en el Panel. La <b>gestión</b> del perfil decide los avisos de esas puts
+      (Tastytrade: recoger al 50 %, revisar a 21 DTE; TPC: mantener hasta el vencimiento).
+      {{ 'Estos perfiles se han guardado desde la aplicación.' if profiles_saved else 'Todavía se generan a partir de config.yaml (presets TPC y estrategia Tastytrade); al guardar aquí pasan a ser propios.' }}</p>
     <table class="cfg-pre">
-      <tr><th>Nombre</th><th>Put vendida</th><th>Spread</th><th>Inicial</th><th>Borrar</th></tr>
+      <tr><th>Nombre</th><th>Put vendida</th><th>Spread</th><th>Gestión</th><th>DTE (Panel)</th><th>Inicial</th><th>Borrar</th></tr>
       {% for p in profiles %}{% set i = loop.index0 %}
-      <tr><td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}"><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
+      <tr><td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}" {{ 'readonly' if p.name == fallback }}><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
         <td><input type="checkbox" name="pf{{ i }}_put" {{ 'checked' if 'put' in p.instruments }}></td>
         <td><input type="checkbox" name="pf{{ i }}_spread" {{ 'checked' if 'spread' in p.instruments }}></td>
+        <td><select name="pf{{ i }}_mgmt"><option value="tastytrade" {{ 'selected' if p.management == 'tastytrade' }}>Tastytrade</option><option value="tpc" {{ 'selected' if p.management == 'tpc' }}>TPC</option></select></td>
+        <td class="muted">{% if p.name == fallback %}el resto{% elif ranges[p.name] %}{{ ranges[p.name][0] }}–{{ ranges[p.name][1] }}{% else %}—{% endif %}</td>
         <td><input type="radio" name="default" value="{{ i }}" {{ 'checked' if p.name == default_profile }}></td>
-        <td><input type="checkbox" name="pf{{ i }}_del"></td></tr>
+        <td>{% if p.name != fallback %}<input type="checkbox" name="pf{{ i }}_del">{% else %}<span class="muted">—</span>{% endif %}</td></tr>
       {% endfor %}
     </table>
     <input type="hidden" name="n_profiles" value="{{ profiles|length }}">
     <div class="cfg-actions">
       <button>Guardar perfiles</button>
       <button type="submit" formaction="/scanner/profiles/reset" formnovalidate class="secondary"
-        onclick="return confirm('¿Regenerar los perfiles desde los presets TPC y la estrategia? Se pierden los filtros guardados en ellos.')" {{ '' if profiles_saved else 'disabled' }}>Regenerar desde TPC y Tastytrade</button>
+        onclick="return confirm('¿Regenerar los perfiles desde config.yaml? Se pierden los filtros guardados en ellos.')" {{ '' if profiles_saved else 'disabled' }}>Regenerar desde config.yaml</button>
     </div>
     </details>
   </form>
   <form method="post" action="/scanner/config">
-    <details class="cfg-sec"><summary>Perfiles TPC (valores base de los perfiles iniciales)</summary>
-    <p class="note">Descuento mín., DTE y yield que carga cada perfil. El yield es el del periodo (prima / strike hasta el vencimiento, sin anualizar; TPC pide el 1 %). DTE máx. vacío = el máximo del rango guardado. Para quitar uno, vacía su nombre; la última fila vacía sirve para añadir otro.</p>
-    <table class="cfg-pre">
-      <tr><th>Nombre</th><th>Descuento mín. (%)</th><th>DTE mín.</th><th>DTE máx.</th><th>Yield periodo mín. (%)</th></tr>
-      {% for p in presets + [dict(name='', discount='', dte_min='', dte_max='', min_yield='')] %}{% set i = loop.index0 %}
-      <tr><td><input class="nm" type="text" name="p{{ i }}_name" value="{{ p.name }}"></td>
-        <td><input type="text" name="p{{ i }}_discount" value="{{ p.discount }}" inputmode="decimal"></td>
-        <td><input type="text" name="p{{ i }}_dte_min" value="{{ p.dte_min }}" inputmode="numeric"></td>
-        <td><input type="text" name="p{{ i }}_dte_max" value="{{ p.dte_max }}" inputmode="numeric"></td>
-        <td><input type="text" name="p{{ i }}_yield" value="{{ p.min_yield }}" inputmode="decimal"></td></tr>
-      {% endfor %}
-    </table>
-    <input type="hidden" name="n_presets" value="{{ presets|length + 1 }}">
-    </details>
-    {% for title, fields in groups %}
-    <details class="cfg-sec"><summary>Perfil Tastytrade · {{ title }}</summary>
+    <details class="cfg-sec"><summary>Aviso del VIX (Panel)</summary>
+    <p class="note">Umbrales del aviso de mercado que acompaña al gráfico del VIX en el Panel (no es un filtro del Scanner).</p>
     <div class="cfg-grid">
-      {% for key, label, kind, value in fields %}
-      <label>{{ label }}
-        {% if kind == 'bool' %}<input type="checkbox" name="s_{{ key }}" {{ 'checked' if value }}>
-        {% else %}<input type="text" name="s_{{ key }}" value="{{ '' if value is none else value }}" inputmode="decimal">{% endif %}</label>
+      {% for key, label, kind, value in vix %}
+      <label>{{ label }}<input type="text" name="{{ key }}" value="{{ value }}" inputmode="decimal"></label>
       {% endfor %}
     </div>
-    </details>
-    {% endfor %}
-    <details class="cfg-sec"><summary>Modo Spread · valores iniciales</summary>
-    <p class="note">Valores con los que arrancan las casillas del bloque «Spread» del Scanner (siguen siendo editables allí para cada consulta).
-      Se prueban todos los anchos; sale el mejor por put. El strike máximo solo afecta al modo «Ambos».</p>
-    <div class="cfg-grid">
-      {% for key, label, kind, value in spread_fields %}
-      <label>{{ label }}<input type="text" name="sp_{{ key }}" value="{{ '' if value is none else value }}" inputmode="decimal"></label>
-      {% endfor %}
-    </div>
-    </details>
     <div class="cfg-actions">
       <button>Guardar</button>
       <button type="submit" formaction="/scanner/config/reset" formnovalidate class="secondary"
-        onclick="return confirm('¿Volver a los valores de config.yaml? Se pierden los editados aquí.')" {{ '' if user_edited else 'disabled' }}>Restaurar los de config.yaml</button>
+        onclick="return confirm('¿Volver a los valores de config.yaml?')" {{ '' if user_edited else 'disabled' }}>Restaurar los de config.yaml</button>
     </div>
+    </details>
   </form>
 </div>
 {% endblock %}

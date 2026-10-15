@@ -29,6 +29,7 @@ from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.portfolio.management import manage_puts
 from scanner_opciones.scanner.impact import explain_empty
+from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, dte_range
 from scanner_opciones.scanner.profiles import Profile
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
@@ -295,6 +296,11 @@ STRATEGY_FIELDS = (
 SPREAD_CHECK_MAX = 400   # filas máximas del panel «Revisión de spreads»
 SPREAD_CHECK_COLUMNS = SPREAD_CHECK_COLS
 
+VIX_FIELDS = (    # aviso del VIX del Panel (`scanner.strategy`): única parte de la estrategia que se edita en /scanner/config
+    ("min_vix", "VIX: primas pobres por debajo de", "float"), ("ideal_vix_min", "VIX: ideal desde", "float"),
+    ("max_vix", "VIX: nervioso por encima de", "float"),
+)
+
 SPREAD_FIELDS = (    # valores iniciales del modo Spread del Scanner (`scanner.spreads`); en el formulario van como `sp_<clave>`
     ("width_options", "Anchos que se prueban ($, separados por comas)", "floats"),
     ("min_return_on_risk_pct", "Retorno mín. sobre riesgo (%, hasta el vencimiento)", "float"),
@@ -426,10 +432,18 @@ def seed_profiles(settings) -> tuple[list[Profile], str]:
     out = []
     for p in settings.scanner.presets:
         params = dict(parse_qsl(preset_link(settings, p, {})[0]))
-        out.append(Profile(p.name, ("put",)).with_filters("put", params).with_filters("spread", params))
+        out.append(Profile(p.name, ("put",), management="tpc").with_filters("put", params).with_filters("spread", params))
     params = dict(parse_qsl(strategy_link(settings, {}, None)[0]))
     out.append(Profile("Tastytrade", ("put", "spread")).with_filters("put", params).with_filters("spread", params))
+    out.append(seed_fallback(settings))
     return out, "Tastytrade"
+
+
+def seed_fallback(settings) -> Profile:
+    """Perfil «Tortuga»: recoge las puts que no encajan por DTE en ningún otro; filtros básicos (los valores iniciales) y gestión Tastytrade."""
+    ini = settings.scanner.initial
+    params = {"discount": _fmt(ini.strike_below_pct_min), "dte_min": str(ini.dte_min), "dte_max": str(ini.dte_max), "min_yield": _fmt(ini.min_yield_pct)}
+    return Profile(FALLBACK_PROFILE, ("put", "spread")).with_filters("put", params).with_filters("spread", params)
 
 
 def profile_link(p: Profile, mode: Optional[str] = None) -> str:
@@ -539,25 +553,25 @@ def create_app(
         nlv = service.nlv_usd() or (service.state.account.net_liquidation if service.state.account else None)   # strikes y posiciones en USD
         mgmt = manage_puts(service.state.positions, nlv, service.now().date(),
                            {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
-                           service.put_profiles())
+                           service.put_management(), service.put_assignments())
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
             cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", profile_names=[p.name for p in get_profiles()[0]], sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 
     @app.post("/management/profile")
     async def management_profile(request: Request):
-        """Cambia el perfil de gestión (Tastytrade / TPC) de una put vendida del Panel."""
+        """Cambia el perfil del Scanner (y con él las reglas de gestión) de una put vendida del Panel."""
         form = await request.form()
         try:
             service.set_put_profile(str(form.get("key", "")), str(form.get("profile", "")))
         except ValueError:
-            return Response("Perfil de gestión no válido", status_code=400)
+            return Response("Perfil no válido", status_code=400)
         return RedirectResponse("/#gestion", status_code=303)
 
     @app.post("/refresh")
@@ -1072,7 +1086,12 @@ def create_app(
 
     def get_profiles() -> tuple[list[Profile], str]:
         """Perfiles guardados desde la aplicación o, mientras no haya, los que salen de los presets y la estrategia."""
-        return service.stored_profiles() or seed_profiles(service.settings)
+        profiles, default = service.stored_profiles() or seed_profiles(service.settings)
+        if not any(p.name == FALLBACK_PROFILE for p in profiles):     # el perfil de las puts que no encajan por DTE siempre existe
+            profiles = [*profiles, seed_fallback(service.settings)]
+        return profiles, default
+
+    service.profile_provider = get_profiles
 
     @app.post("/scanner/profile/save")
     async def scanner_profile_save(request: Request):
@@ -1108,10 +1127,11 @@ def create_app(
         new_default = default
         for i in range(int(form.get("n_profiles", 0) or 0)):
             orig = by_name.get(str(form.get(f"pf{i}_orig", "")))
-            if orig is None or form.get(f"pf{i}_del"):
+            if orig is None or (form.get(f"pf{i}_del") and orig.name != FALLBACK_PROFILE):
                 continue
             instruments = tuple(k for k in ("put", "spread") if form.get(f"pf{i}_{k}"))
-            out.append(Profile(str(form.get(f"pf{i}_name", "")), instruments, orig.put, orig.spread))
+            name = orig.name if orig.name == FALLBACK_PROFILE else str(form.get(f"pf{i}_name", ""))     # «Tortuga» no se renombra ni se borra
+            out.append(Profile(name, instruments, orig.put, orig.spread, str(form.get(f"pf{i}_mgmt", orig.management))))
             if chosen == str(i):
                 new_default = out[-1].name
         try:
@@ -1131,36 +1151,36 @@ def create_app(
     @app.get("/scanner/config", response_class=HTMLResponse)
     async def scanner_config_page(request: Request, ok: str = "", error: str = ""):
         sc = service.settings.scanner
-        cur = sc.strategy.model_dump()
-        presets = [dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
-                        dte_max="" if p.dte_max is None else p.dte_max, min_yield=_fmt(p.min_yield_pct)) for p in sc.presets]
-        groups = [(title, [(key, label, kind, cur[key]) for key, label, kind in fields]) for title, fields in STRATEGY_FIELDS]
-        sp = sc.spreads.model_dump()
-        spread_fields = [(key, label, kind, ", ".join(_fmt(w) for w in sp[key]) if kind == "floats" else sp[key]) for key, label, kind in SPREAD_FIELDS]
+        profiles, default_profile = get_profiles()
+        vix = [(key, label, "float", getattr(sc.strategy, key)) for key, label, _ in VIX_FIELDS]
         cand = sc.candidates
         gap = []
         if sc.strategy.dte_max > cand.dte_max:
             gap.append(f"el DTE máx. de la estrategia ({sc.strategy.dte_max}) supera el rango guardado ({cand.dte_max})")
         if sc.strategy.strike_below_pct_min < cand.strike_below_pct_min:
             gap.append(f"el descuento mín. de la estrategia ({_fmt(sc.strategy.strike_below_pct_min)} %) es menor que el del rango guardado ({_fmt(cand.strike_below_pct_min)} %)")
-        profiles, default_profile = get_profiles()
-        return render(request, "scanner_config.html", profiles=profiles, default_profile=default_profile,
-                      profiles_saved=service.stored_profiles() is not None, presets=presets, groups=groups, spread_fields=spread_fields, ok=ok, error=error,
-                      gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)))
+        return render(request, "scanner_config.html", profiles=profiles, default_profile=default_profile, fallback=FALLBACK_PROFILE,
+                      profiles_saved=service.stored_profiles() is not None, vix=vix, ok=ok, error=error,
+                      gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)),
+                      ranges={p.name: dte_range(p) for p in profiles})
 
     @app.post("/scanner/config")
     async def scanner_config_save(request: Request):
+        """Aviso del VIX del Panel (lo único de la estrategia que se edita aquí; los filtros viven en los perfiles)."""
         form = await request.form()
         try:
-            presets, strategy = parse_scanner_config(form, service.settings.scanner.strategy.model_dump())
-            service.save_scanner_config(presets, strategy, parse_spread_config(form, service.settings.scanner.spreads.model_dump()))
+            strategy = service.settings.scanner.strategy.model_dump()
+            for key, label, _ in VIX_FIELDS:
+                if key in form:
+                    strategy[key] = _read_num(form[key], float, label)
+            service.save_scanner_config([p.model_dump() for p in service.settings.scanner.presets], strategy,
+                                        service.settings.scanner.spreads.model_dump())
         except ValidationError as exc:
             msg = "; ".join(f"{'.'.join(str(x) for x in e['loc'])}: {e['msg']}" for e in exc.errors())
             return RedirectResponse(f"/scanner/config?{urlencode({'error': msg})}", status_code=303)
         except ValueError as exc:
             return RedirectResponse(f"/scanner/config?{urlencode({'error': str(exc)})}", status_code=303)
-        remembered.pop("scanner", None)
-        return RedirectResponse(f"/scanner/config?{urlencode({'ok': 'Guardado. Los botones y el modo Spread del Scanner ya usan estos valores.'})}", status_code=303)
+        return RedirectResponse(f"/scanner/config?{urlencode({'ok': 'Guardado el aviso del VIX.'})}", status_code=303)
 
     @app.post("/scanner/config/reset")
     async def scanner_config_reset():

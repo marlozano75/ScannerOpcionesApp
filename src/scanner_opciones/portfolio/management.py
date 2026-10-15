@@ -10,7 +10,7 @@ La prima capturada necesita el coste medio de la posición (`Position.avg_cost`)
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Optional, Sequence
 
@@ -52,6 +52,7 @@ class PutStatus:
     long_strike: Optional[float] = None  # put comprada si forma parte de un spread (prima y valor ya son netos)
     profile: str = TASTYTRADE            # perfil de gestión aplicado
     key: str = ""                        # `put_key`, para cambiar el perfil desde el Panel
+    assigned: str = ""                   # perfil del Scanner al que pertenece la put (por DTE de apertura o elegido a mano)
 
 
 @dataclass(frozen=True)
@@ -158,11 +159,14 @@ def open_risk(positions: Sequence[Position]) -> float:
 def manage_puts(
     positions: Sequence[Position], net_liquidation: Optional[float], today: date,
     prices: dict[str, Optional[float]], cfg: ManagementSettings, profiles: Optional[dict[str, str]] = None,
+    assigned: Optional[dict[str, str]] = None,
 ) -> ManagementReport:
     """`profiles`: perfil de gestión elegido por put (`put_key`); las que no están usan `cfg.default_profile`."""
     positions = with_spreads(positions)     # cada spread es una sola fila: prima y valor netos, riesgo = ancho
     profiles = profiles or {}
-    puts = sorted((put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile))
+    assigned = assigned or {}
+    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile)),
+                           assigned=assigned.get(put_key(p), ""))
                    for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))
     weights = ticker_weights(positions, net_liquidation, cfg, profiles)
     total = open_risk(positions)
