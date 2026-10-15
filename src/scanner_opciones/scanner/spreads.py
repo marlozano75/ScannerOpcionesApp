@@ -74,29 +74,40 @@ def build_mixed(
     naked_min_yield_pct: float = 0.0,
 ) -> list[MixedRow]:
     """Put desnuda si cumple los límites (peso acumulado sobre el NLV y strike máximo); si no, sus spreads. Orden: retorno anualizado sobre capital."""
+    return build_mixed_sets(shorts, shorts, spreads, criteria, positions, nlv_usd, naked_min_yield_pct)
+
+
+def build_mixed_sets(
+    naked_shorts: Sequence, spread_shorts: Sequence, spreads: Sequence[SpreadResult], criteria: ScanCriteria, positions: Sequence,
+    nlv_usd: Optional[float], naked_min_yield_pct: float = 0.0,
+) -> list[MixedRow]:
+    """Modo «Ambos» con un juego de filtros para cada instrumento: sale como put desnuda la que pasa los filtros de put (`naked_shorts`) y su
+    strike cabe en `max_naked_strike`; si no cabe, sale su spread, siempre que la vendida pase los filtros de spread (`spread_shorts`)."""
     held = ticker_exposure(positions)
     by_short: dict[int, list[SpreadResult]] = {}
     for sp in spreads:
         by_short.setdefault(id(sp.short), []).append(sp)
+    limit = criteria.max_naked_strike
     rows: list[MixedRow] = []
-    for r in shorts:
+    for r in naked_shorts:
         c = r.snapshot.contract
-        nominal_naked = c.strike * c.multiplier
-        weight = (held.get(c.ticker, 0.0) + nominal_naked) / nlv_usd * 100 if nlv_usd else None
-        reasons = []
-        if criteria.max_naked_strike is not None and c.strike > criteria.max_naked_strike:
-            reasons.append(f"strike {c.strike:g} > {criteria.max_naked_strike:g}")
-        if not reasons:
-            if (r.yield_ref_pct or 0.0) < naked_min_yield_pct:
-                continue
-            margin = r.snapshot.initial_margin
-            ror = (r.reference_price * c.multiplier / margin * 365 / r.dte
-                   if margin and margin > 0 and r.reference_price and r.dte > 0 else None)
-            rows.append(MixedRow("put", r, None, r.reference_price or 0.0, margin, ror * 100 if ror is not None else None, weight))
+        if limit is not None and c.strike > limit:
             continue
+        if (r.yield_ref_pct or 0.0) < naked_min_yield_pct:
+            continue
+        weight = (held.get(c.ticker, 0.0) + c.strike * c.multiplier) / nlv_usd * 100 if nlv_usd else None
+        margin = r.snapshot.initial_margin
+        ror = (r.reference_price * c.multiplier / margin * 365 / r.dte
+               if margin and margin > 0 and r.reference_price and r.dte > 0 else None)
+        rows.append(MixedRow("put", r, None, r.reference_price or 0.0, margin, ror * 100 if ror is not None else None, weight))
+    for r in spread_shorts:
+        c = r.snapshot.contract
+        if limit is None or c.strike <= limit:
+            continue
+        reason = f"strike {c.strike:g} > {limit:g}"
         for sp in by_short.get(id(r), []):
             w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier) / nlv_usd * 100 if nlv_usd else None
-            rows.append(MixedRow("spread", r, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, "; ".join(reasons)))
+            rows.append(MixedRow("spread", r, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, reason))
     rows.sort(key=lambda x: (x.return_on_capital_annualized_pct is not None, x.return_on_capital_annualized_pct or 0.0), reverse=True)
     return rows
 

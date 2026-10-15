@@ -447,9 +447,27 @@ def seed_fallback(settings) -> Profile:
 
 
 def profile_link(p: Profile, mode: Optional[str] = None) -> str:
-    """Consulta que carga el perfil en el Scanner (reemplaza todo el formulario con su juego de filtros del instrumento)."""
+    """Consulta que carga el perfil en el Scanner (reemplaza todo el formulario): el juego de filtros que se ve va sin prefijo y el otro como `o_...`."""
     mode = mode if mode in ("put", "spread", "both") else p.mode
-    return urlencode({**p.params(mode), "submitted": "1", "mode": mode, "profile": p.name})
+    shown = "spread" if mode == "spread" else "put"
+    other = "put" if shown == "spread" else "spread"
+    return urlencode({**p.set_params(shown), **{"o_" + k: v for k, v in p.set_params(other).items()},
+                      "submitted": "1", "mode": mode, "profile": p.name, "set": shown})
+
+
+# parámetros de la URL que no pertenecen a ningún juego de filtros
+STRUCT_KEYS = frozenset(("submitted", "mode", "profile", "set", "debug", "reset", "message"))
+
+
+def split_sets(qp) -> tuple[str, dict, dict]:
+    """(juego visible, sus parámetros, parámetros del otro juego). El visible va sin prefijo; el otro como `o_...` (campos ocultos del formulario).
+    Una consulta sin `o_...` (enlaces antiguos) trata el otro juego como una copia del visible."""
+    items = dict(qp)
+    shown = items.get("set") or ("put" if items.get("mode", "put") == "put" else "spread")
+    shown = shown if shown in ("put", "spread") else "put"
+    own = {k: v for k, v in items.items() if k not in STRUCT_KEYS and not k.startswith("o_")}
+    other = {k[2:]: v for k, v in items.items() if k.startswith("o_") and k[2:] not in STRUCT_KEYS}
+    return shown, own, (other or dict(own))
 
 
 def _sector_of(row, sector_col: Optional[int], watchlist_sectors: dict) -> Optional[str]:
@@ -862,8 +880,8 @@ def create_app(
         return RedirectResponse(f"/watchlist?{urlencode({'message': msg})}", status_code=303)
 
     # ---- scanner y simulador ---------------------------------------------------------------
-    def parse_scan(qp) -> dict:
-        """Lee el formulario del scanner (GET o POST). Devuelve form, criteria, error y avisos."""
+    def parse_scan(qp, set_name: str = "put") -> dict:
+        """Lee UN juego de filtros del formulario del scanner (`put` o `spread`; GET o POST). Devuelve form, criteria, error y avisos."""
         submitted = "submitted" in qp
         cand = service.settings.scanner.candidates
         # el descuento máximo no es editable: es siempre el máximo del rango guardado (scanner.candidates)
@@ -911,7 +929,7 @@ def create_app(
                     use_ivhv=False, ivhv=_fmt(st.min_iv_hv_ratio), use_ivchg=False, ivchg=_fmt(st.max_iv_change_5d),)
 
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
-        form.update(mode="put", best_width=True,
+        form.update(mode="put", set=set_name, best_width=True,
                     use_rr=True, rr=_fmt(sp.min_return_on_risk_pct), use_mc=True, mc=_fmt(sp.min_credit_usd),
                     use_ss=True, ss=_fmt(sp.max_short_spread_pct), use_cs=True, cs=_fmt(sp.max_combo_spread_pct), use_lo=True, lo=_fmt(sp.min_long_oi), use_ls=True, ls=_fmt(sp.max_long_spread_pct),
                     use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_ns=True, ns=_fmt(sp.max_naked_strike))
@@ -1052,7 +1070,7 @@ def create_app(
                 overrides["min_bollinger_width_pct"] = _required(form["boll_width"], float, "Ancho de bandas (%)")
                 if not (0 < overrides["min_bollinger_width_pct"] <= 100):
                     raise ValueError("el ancho de las bandas debe estar entre 0 y 100 %")
-            if form["mode"] in ("spread", "both"):
+            if set_name == "spread":     # los filtros propios del spread solo existen en su juego de filtros
                 overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(sp.width_options))), best_width=bool(form["best_width"]))
                 for use, key, field_name, label, upper in (
                         ("use_rr", "rr", "min_return_on_risk_pct", "Retorno s/ riesgo mín. (%)", None),
@@ -1084,6 +1102,15 @@ def create_app(
             error = f"Parámetro no válido: {exc}"
         return dict(form=form, criteria=criteria, error=error, warnings=warnings)
 
+    def parse_pair(qp) -> dict:
+        """Lee los dos juegos de filtros (put y spread): {shown, put, spread, other_params, mode}; cada uno es el resultado de `parse_scan`."""
+        shown, own, other = split_sets(qp)
+        struct = {k: v for k, v in dict(qp).items() if k in STRUCT_KEYS}
+        sets = {shown: own, ("put" if shown == "spread" else "spread"): other}
+        parsed = {name: parse_scan({**struct, **params}, name) for name, params in sets.items()}
+        return dict(shown=shown, put=parsed["put"], spread=parsed["spread"], other_params=other,
+                    mode=parsed[shown]["form"]["mode"])
+
     def get_profiles() -> tuple[list[Profile], str]:
         """Perfiles guardados desde la aplicación o, mientras no haya, los que salen de los presets y la estrategia."""
         profiles, default = service.stored_profiles() or seed_profiles(service.settings)
@@ -1100,15 +1127,17 @@ def create_app(
         name = str(form.get("name", "")).strip()
         qp = dict(parse_qsl(str(form.get("query", "")), keep_blank_values=True))
         mode = qp.get("mode", "put") if qp.get("mode") in ("put", "spread", "both") else "put"
+        shown, own, other = split_sets(qp)
+        put_params, spread_params = (own, other) if shown == "put" else (other, own)
         profiles, default = get_profiles()
         try:
             existing = next((p for p in profiles if p.name.casefold() == name.casefold()), None)
             if existing is not None:
-                saved = existing.with_filters(mode, qp)
+                saved = existing.with_sets(put_params, spread_params)
                 profiles = [saved if p is existing else p for p in profiles]
             else:
                 instruments = ("put",) if mode == "put" else ("spread",) if mode == "spread" else ("put", "spread")
-                saved = Profile(name, instruments).with_filters("put", qp).with_filters("spread", qp)
+                saved = Profile(name, instruments).with_sets(put_params, spread_params)
                 profiles = [*profiles, saved]
             service.save_profiles(profiles, default)
         except ValueError:
@@ -1191,7 +1220,8 @@ def create_app(
     @app.get("/scanner/impact", response_class=HTMLResponse)
     async def scanner_impact(request: Request):
         """Panel «¿Cuánto descarta cada filtro?» (fragmento HTML, se carga al abrir el panel del scanner)."""
-        parsed = parse_scan(request.query_params)
+        pair = parse_pair(request.query_params)
+        parsed = pair[pair["shown"]]       # se mide el juego de filtros que se está viendo
         if parsed["criteria"] is None:
             return render(request, "_impact.html", error=parsed["error"] or "Parámetros no válidos", report=None)
         return render(request, "_impact.html", error=None, report=service.scan_impact(parsed["criteria"]))
@@ -1199,9 +1229,9 @@ def create_app(
     @app.get("/scanner/spread-check", response_class=HTMLResponse)
     async def scanner_spread_check(request: Request):
         """Panel «Revisión de spreads» (fragmento HTML, se carga al abrirlo): cada put vendida que pasa como put sola y sus condiciones de spread."""
-        parsed = parse_scan(request.query_params)
+        parsed = parse_pair(request.query_params)["spread"]       # la revisión parte de los filtros del juego de spread
         c = parsed["criteria"]
-        if c is None or not c.spread_mode:
+        if c is None or not c.spread_mode or request.query_params.get("mode", "put") == "put":
             return render(request, "_spread_check.html", error=parsed["error"] or "Solo en los modos Spread y Ambos.", rows=[], total=0, dropped=0, columns=[], mixed=False)
         every = service.spread_check(c)
         rows = [r for r in every if r.outcome == "no"]      # solo las que se descartan; las que salen ya están en la tabla de resultados
@@ -1216,10 +1246,23 @@ def create_app(
         if "submitted" not in request.query_params and "reset" not in request.query_params:    # sin consulta: se carga el perfil inicial
             first = next((p for p in profiles if p.name == default_profile), profiles[0])
             return RedirectResponse("/scanner?" + profile_link(first), status_code=303)
-        parsed = parse_scan(request.query_params)
-        out = service.scan(parsed["criteria"], include_rejections=bool(debug)) if parsed["criteria"] else None
-        c = parsed["criteria"]
-        if c is not None and c.technical_active:
+        pair = parse_pair(request.query_params)
+        mode, shown = pair["mode"], pair["shown"]
+        parsed = dict(pair[shown])
+        # el escaneo usa el juego de put, el de spread o los dos según el instrumento; un error del juego visible se ve siempre
+        used = {"put": ("put",), "spread": ("spread",), "both": ("put", "spread")}.get(mode, ("put",))
+        bad = next((pair[n] for n in (shown, *used) if pair[n]["criteria"] is None), None)
+        out = c = None
+        if bad is None:
+            c = pair["put"]["criteria"] if mode == "put" else pair["spread"]["criteria"]
+            if mode == "both":
+                out = service.scan_both(pair["put"]["criteria"], pair["spread"]["criteria"], include_rejections=bool(debug))
+            else:
+                out = service.scan(c, include_rejections=bool(debug))
+            parsed["criteria"] = c
+        else:
+            parsed["criteria"], parsed["error"] = None, bad["error"]
+        if c is not None and any(pair[n]["criteria"].technical_active for n in used):
             with_history, total = service.history_coverage()
             if with_history < total:
                 parsed["warnings"].append(
@@ -1259,7 +1302,7 @@ def create_app(
         counts = quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg)
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
-        return render(request, "scanner.html", no_autorefresh=True, out=out, owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, default_qs=default_qs,
+        return render(request, "scanner.html", no_autorefresh=True, out=out, other_params=pair["other_params"], owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, default_qs=default_qs,
                       community=service.community_counts(),
                       yield_max=yield_max, nlv_usd=service.nlv_usd(), strategy_qs=strategy_qs, strategy_on=strategy_on,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),

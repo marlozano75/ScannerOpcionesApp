@@ -38,6 +38,7 @@ from scanner_opciones.scanner.profiles import Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
+from scanner_opciones.scanner.spreads import build_mixed_sets
 from scanner_opciones.scanner.impact import ImpactReport, impact_report
 from scanner_opciones.scanner.spread_check import CheckRow, spread_check
 from scanner_opciones.storage.db import Database
@@ -1454,6 +1455,15 @@ class AppService:
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
             self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots), self.nlv_usd(),
         )
+
+    def scan_both(self, put_criteria: ScanCriteria, spread_criteria: ScanCriteria, include_rejections: bool = False) -> ScanOutput:
+        """Modo «Ambos» con un juego de filtros para la put desnuda y otro para el spread: la put sale como put si pasa los de put y su strike
+        cabe en `max_naked_strike` de `spread_criteria`; si no cabe, sale su spread si la vendida pasa los de spread."""
+        put_out = self.scan(put_criteria.with_filters(spread_mode=False, mixed=False), include_rejections)
+        spread_out = self.scan(spread_criteria.with_filters(spread_mode=True, mixed=False), include_rejections)
+        mixed = build_mixed_sets(put_out.results, spread_out.results, spread_out.spreads, spread_criteria, with_spreads(self.state.positions),
+                                 self.nlv_usd(), put_criteria.min_yield_pct)
+        return ScanOutput(put_out.results, put_out.rejected_count, {**spread_out.rejections, **put_out.rejections}, spread_out.spreads, mixed)
 
     def _atr(self, criteria: ScanCriteria, snapshots) -> Optional[dict[str, float]]:
         """ATR de los subyacentes, solo si el filtro está activo."""

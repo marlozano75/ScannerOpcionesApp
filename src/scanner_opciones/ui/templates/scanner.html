@@ -49,7 +49,7 @@
 {% if form.use_boll %}{% set _ = entry.append('Bollinger %B ≤ ' ~ form.boll_pctb) %}{% endif %}
 {% if form.use_bw %}{% set _ = entry.append('Bandas ≥ ' ~ form.boll_width ~ ' %') %}{% endif %}
 {% set spreadf = [] %}
-{% if form.mode != 'put' %}
+{% if form.set == 'spread' %}
   {% set _ = spreadf.append('Mejor ancho por put' if form.best_width else 'Todos los anchos') %}
   {% if form.use_mc %}{% set _ = spreadf.append('Crédito ≥ ' ~ form.mc ~ ' $') %}{% endif %}
   {% if form.use_rr %}{% set _ = spreadf.append('Retorno/riesgo ≥ ' ~ form.rr ~ ' %') %}{% endif %}
@@ -77,7 +77,7 @@
 {% for o in optional %}{% set _ = chips.append(('sec-optional', o)) %}{% endfor %}
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto) #}
 {% set offs = [] %}
-{% if form.mode != 'put' %}
+{% if form.set == 'spread' %}
   {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_ss', 'Spread vendida'), ('use_cs', 'Spread combo'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
   {% if form.mode == 'both' %}{% for use, label in (('use_ns', 'Strike máx. put'),) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}{% endif %}
 {% endif %}
@@ -196,6 +196,8 @@
     <form method="get" action="/scanner" id="scan-form">
       <input type="hidden" name="submitted" value="1">
       <input type="hidden" name="profile" value="{{ active_profile.name if active_profile else '' }}">
+      <input type="hidden" name="set" value="{{ form.set }}">
+      {% for k, v in other_params.items() %}<input type="hidden" name="o_{{ k }}" value="{{ v }}">{% endfor %}
       <div class="presets"><span class="lbl">Perfiles</span>
         {% for p in profile_buttons %}
         <a class="preset{{ ' strategy' if p.strategy }}{{ ' active' if p.on }}" href="/scanner?{{ p.qs }}" style="text-decoration:none"
@@ -212,7 +214,11 @@
           {% if 'spread' in ins or form.mode == 'spread' %}<option value="spread" {{ 'selected' if form.mode == 'spread' }}>Spread de puts (vendida + comprada)</option>{% endif %}
           {% if ('put' in ins and 'spread' in ins) or form.mode == 'both' %}<option value="both" {{ 'selected' if form.mode == 'both' }}>Ambos: put si cabe en mis límites, si no spread</option>{% endif %}
         </select></label>
-      {% if form.mode != 'put' %}
+      <div class="settabs" style="display:flex;gap:6px;align-items:center;margin:4px 0 8px"><span class="lbl">Filtros de</span>
+        <button type="button" class="settab{{ ' active' if form.set == 'put' }}" data-set="put" title="Ver y editar los filtros de la put vendida">Put</button>
+        <button type="button" class="settab{{ ' active' if form.set == 'spread' }}" data-set="spread" title="Ver y editar los filtros del spread de puts (el perfil guarda un juego para cada instrumento)">Spread</button>
+        <span class="muted" style="font-size:12px">{{ 'Escanea: ' ~ ({'put': 'put vendida', 'spread': 'spread', 'both': 'ambos'}.get(form.mode, '?')) ~ ('' if form.mode == form.set or form.mode == 'both' else ' (este juego no se usa)') }}</span></div>
+      {% if form.set == 'spread' %}
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
         <label class="check"><input type="checkbox" name="best_width" {{ 'checked' if form.best_width }}> Solo el mejor ancho por put (se prueban todos los anchos; gana el de mayor retorno anualizado sobre riesgo)</label>
         {% for key, use, label in (('rr', 'use_rr', 'Retorno s/ riesgo mín. (%, hasta el vencimiento)'), ('mc', 'use_mc', 'Crédito mín. ($ por contrato)'), ('ss', 'use_ss', 'Spread bid/ask máx. pata vendida (%)'), ('cs', 'use_cs', 'Spread bid/ask máx. del combo (% del crédito)'), ('lo', 'use_lo', 'OI mín. pata comprada'), ('ls', 'use_ls', 'Spread bid/ask máx. pata comprada (%)'), ('mn', 'use_mn', 'Pérdida máxima (% del NLV)')) %}
@@ -755,6 +761,22 @@
     }
     boxes.concat([sel]).forEach(function (el) { el.addEventListener('change', clamp); });
     clamp();
+  })();
+  // Selector Put | Spread: cambia el juego de filtros que se ve; el otro viaja como campos ocultos `o_...` y se intercambian sin perder lo editado
+  (function () {
+    const STRUCT = ['submitted', 'mode', 'profile', 'set', 'debug'];
+    document.querySelectorAll('.settabs button[data-set]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (b.classList.contains('active')) return;
+        const out = new URLSearchParams();
+        new FormData(form).forEach(function (v, k) {
+          if (STRUCT.indexOf(k) >= 0) { out.append(k, v); return; }
+          out.append(k.indexOf('o_') === 0 ? k.slice(2) : 'o_' + k, v);
+        });
+        out.set('set', b.dataset.set);
+        window.location.href = '/scanner?' + out.toString();
+      });
+    });
   })();
   // «Guardar en perfil»: envía por POST los filtros actuales (la consulta del formulario) al perfil elegido o a uno nuevo
   (function () {

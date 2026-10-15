@@ -12,7 +12,7 @@ from typing import Optional
 
 INSTRUMENTS = ("put", "spread")
 # claves de la URL que no son filtros de un perfil (navegación, estado de la página o identidad del perfil)
-NOT_FILTERS = frozenset(("profile", "reset", "debug", "message", "submitted", "mode"))
+NOT_FILTERS = frozenset(("profile", "reset", "debug", "message", "submitted", "mode", "set"))
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,16 @@ class Profile:
         """Parámetros del juego de filtros de un instrumento (`put`, `spread` o `both`; el modo «Ambos» usa de momento el de spread)."""
         mode = mode or self.mode
         return dict(self.spread if mode in ("spread", "both") else self.put)
+
+    def set_params(self, name: str) -> dict:
+        """Parámetros de la URL del juego de filtros `put` o `spread`."""
+        return dict(self.spread if name == "spread" else self.put)
+
+    def with_sets(self, put: dict, spread: dict) -> "Profile":
+        """Copia con los dos juegos de filtros sustituidos (sin las claves que no son filtros ni los `o_...` del otro juego)."""
+        def clean(params: dict) -> dict:
+            return {k: str(v) for k, v in params.items() if k not in NOT_FILTERS and not k.startswith("o_")}
+        return replace(self, put=clean(put), spread=clean(spread))
 
     def with_filters(self, mode: str, params: dict) -> "Profile":
         """Copia con el juego de filtros del instrumento `mode` sustituido por `params` (sin las claves que no son filtros)."""

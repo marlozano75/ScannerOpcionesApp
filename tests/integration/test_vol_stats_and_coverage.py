@@ -183,3 +183,25 @@ def test_the_example_config_stores_the_range_the_strategy_needs():
     c, st = s.scanner.candidates, s.scanner.strategy
     assert c.strike_below_pct_min <= st.strike_below_pct_min and c.dte_max >= st.dte_max and c.dte_min <= st.dte_min
     assert [(p.name, p.dte_min, p.dte_max) for p in s.scanner.presets] == [("Mensual (TPC)", 25, 35), ("Táctico (TPC)", 10, 14)]
+
+
+def test_the_two_filter_sets_travel_in_the_url_swap_with_the_tabs_and_are_saved_in_the_profile(client_and_service):
+    client, svc, gw, _ = client_and_service
+    base = BASE.split("?")[1]
+    obase = "&".join("o_" + kv for kv in base.split("&") if not kv.startswith("submitted"))      # el otro juego trae también sus valores básicos
+    # juego visible = spread (mode=both y sin set); el de put viaja como o_...
+    page = client.get("/scanner?" + base + "&mode=both&use_ns=on&ns=100&set=spread&o_use_oi=on&o_oi=77&" + obase).text
+    assert 'name="o_use_oi" value="on"' in page and 'name="o_oi" value="77"' in page and 'data-set="spread"' in page
+    assert 'class="settab active" data-set="spread"' in page and 'id="sec-spread"' in page            # el bloque de spread se ve con el juego de spread
+    # con el juego de put visible no hay bloque de spread y el de spread viaja oculto
+    put_page = client.get("/scanner?" + base + "&mode=both&set=put&use_oi=on&oi=77&o_use_ns=on&o_ns=100&o_use_rr=on&o_rr=5&" + obase).text
+    assert 'name="o_use_ns" value="on"' in put_page and 'id="sec-spread"' not in put_page.split('id="scan-form"')[1].split("</aside>")[0] and "Parámetro no válido" not in put_page
+    # guardar: cada juego va a su sitio
+    r = client.post("/scanner/profile/save", data={"name": "Dos", "query": base + "&mode=both&set=put&use_oi=on&oi=77&o_use_ns=on&o_ns=100&o_use_rr=on&o_rr=5&" + obase},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    prof = next(p for p in svc.stored_profiles()[0] if p.name == "Dos")
+    assert prof.put["use_oi"] == "on" and "use_ns" not in prof.put and prof.spread["use_ns"] == "on" and prof.spread["rr"] == "5" and "use_oi" not in prof.spread
+    # y al cargarlo (modo Ambos) se ve el juego de put y el de spread viaja oculto
+    loaded = client.get(r.headers["location"]).text
+    assert 'name="o_use_ns" value="on"' in loaded and 'name="use_oi"' in loaded and "Parámetro no válido" not in loaded

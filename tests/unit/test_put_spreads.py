@@ -203,3 +203,24 @@ def test_iv_rank_or_percentile_mode():
     assert not scan(low_rank, **both).spreads                       # los dos: el rank 25 < 30 descarta
     assert scan(low_rank, iv_any=True, **both).spreads              # basta uno: el percentile 80 ≥ 50 pasa
     assert not scan([replace(s, iv_rank=25.0, iv_percentile=40.0) for s in legs], iv_any=True, **both).spreads
+
+
+# ---- «Ambos» con un juego de filtros para la put y otro para el spread --------------------------------------------------------
+from scanner_opciones.scanner.spreads import build_mixed_sets
+
+
+def test_both_with_separate_filter_sets():
+    snaps = legs(90) + legs(75)                        # vendidas de 90 y 75 (con sus compradas 85 y 70)
+    put_c = BASE.with_filters(spread_mode=False, min_yield_pct=0.0, strike_below_pct_min=0)
+    spread_c = BASE.with_filters(spread_widths=(5.0,), min_yield_pct=0.0, max_naked_strike=80.0, mixed=True)
+    put_out = run_scan(snaps, INFO, [], put_c, TODAY)
+    spread_out = run_scan(snaps, INFO, [], spread_c.with_filters(mixed=False), TODAY)
+    rows = build_mixed_sets(put_out.results, spread_out.results, spread_out.spreads, spread_c, [], 100_000.0)
+    assert sorted((r.kind, r.short.snapshot.contract.strike) for r in rows if r.short.snapshot.contract.strike in (90, 75)) == [("put", 75), ("spread", 90)]
+    # la put de 90 solo sale como spread si la vendida pasa los filtros de SPREAD, aunque los de put la dejen fuera
+    strict_put = run_scan(snaps, INFO, [], put_c.with_filters(min_oi=10_000), TODAY)
+    rows = build_mixed_sets(strict_put.results, spread_out.results, spread_out.spreads, spread_c, [], 100_000.0)
+    assert [(r.kind, r.short.snapshot.contract.strike) for r in rows if r.short.snapshot.contract.strike in (90, 75)] == [("spread", 90)]
+    strict_spread = run_scan(snaps, INFO, [], spread_c.with_filters(mixed=False, min_oi=10_000), TODAY)
+    rows = build_mixed_sets(put_out.results, strict_spread.results, strict_spread.spreads, spread_c, [], 100_000.0)
+    assert [(r.kind, r.short.snapshot.contract.strike) for r in rows if r.short.snapshot.contract.strike in (90, 75)] == [("put", 75)]
