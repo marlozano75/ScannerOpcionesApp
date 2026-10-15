@@ -69,7 +69,13 @@
 {% if form.support %}{% set _ = chips.append(('sec-levels', 'Zona de soporte')) %}{% endif %}
 {% if form.touch %}{% set _ = chips.append(('sec-levels', 'Sin toque ' ~ touch_label)) %}{% endif %}
 {% if price_on %}{% set _ = chips.append(('sec-price', 'Precio ' ~ (form.price_min or '0') ~ '–' ~ (form.price_max or '∞'))) %}{% endif %}
-{% if ma_count %}{% set _ = chips.append(('sec-ma', ma_count ~ ' cond. de medias (' ~ frame_names[form.ma_frame] ~ ')')) %}{% endif %}
+{% set ma_names = {'ma50': 'MA50', 'ma100': 'MA100', 'ma200': 'MA200', 'ema9': 'EMA9', 'ema20': 'EMA20'} %}
+{% for k in ma_keys if form[k] and form[k] != 'any' %}
+  {% if k in ma_names %}{% set text = ('▲ ' if form[k] == 'above' else '▼ ') ~ ma_names[k] %}
+  {% elif k.startswith('cmp_') %}{% set a, b = k[4:].split('_') %}{% set text = a|upper ~ (' ≥ ' if form[k] == 'gte' else ' ≤ ') ~ b|upper %}
+  {% else %}{% set text = ma_names[k[6:]] ~ (' ↗' if form[k] == 'up' else ' ↘') %}{% endif %}
+  {% set _ = chips.append(('sec-ma', text ~ ' ' ~ {'daily': 'D', 'weekly': 'S', 'monthly': 'M'}[form.ma_frame])) %}
+{% endfor %}
 {% for q in quality %}{% set _ = chips.append(('sec-quality', q)) %}{% endfor %}
 {% for o in ivgroup %}{% set _ = chips.append(('sec-iv', o)) %}{% endfor %}
 {% for o in entry %}{% set _ = chips.append(('sec-entry', o)) %}{% endfor %}
