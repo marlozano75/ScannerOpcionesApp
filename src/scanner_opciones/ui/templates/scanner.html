@@ -27,9 +27,9 @@
 {% set ma_count = ns.ma_count %}
 {% set frame_names = {'daily': 'diarias', 'weekly': 'semanales', 'monthly': 'mensuales'} %}
 {% set quality = [] %}
-{% if form.q_liq %}{% set _ = quality.append('Liquidez ≥ ' ~ form.q_liq) %}{% endif %}
 {% if form.q_earn %}{% set _ = quality.append('Sin resultados') %}{% endif %}
 {% set optional = [] %}
+{% if form.q_liq %}{% set _ = optional.append('Liquidez ≥ ' ~ form.q_liq) %}{% endif %}
 {% for key, use, label, sign in (('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤')) %}
   {% if form[use] %}{% set _ = optional.append(label ~ ' ' ~ sign ~ ' ' ~ form[key]) %}{% endif %}
 {% endfor %}
@@ -93,7 +93,7 @@
     ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
   {% if not form[use] %}{% set _ = offs.append((sec, label)) %}{% endif %}
 {% endfor %}
-{% if not form.q_liq %}{% set _ = offs.append(('sec-quality', 'Liquidez')) %}{% endif %}
+{% if not form.q_liq %}{% set _ = offs.append(('sec-optional', 'Liquidez')) %}{% endif %}
 {% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia')) %}{% endif %}
 {% if not form.support %}{% set _ = offs.append(('sec-levels', 'Soporte')) %}{% endif %}
 {% if not form.touch %}{% set _ = offs.append(('sec-levels', 'Último toque')) %}{% endif %}
@@ -400,18 +400,18 @@
           La <b>pendiente</b> compara la media de hoy con la de hace {{ tech_opts.slope_candles }} velas (las elegidas arriba): ascendente si es mayor, descendente si es menor.</p>
       {% endcall %}
 
-      {% call section('sec-quality', 'Opciones: liquidez y resultados', (quality | join(' · ')) or 'Sin filtros', quality|length > 0) %}
-        <p class="note">Datos de tastytrade; los tickers sin dato se descartan, salvo en el filtro de resultados. Los filtros de calidad de la empresa (beneficios, deuda, caja…) están en la pestaña <a href="/universe">Universo</a>.</p>
+      {% call section('sec-quality', 'Evitar vencimientos con resultados', (quality | join(' · ')) or 'Sin filtros', quality|length > 0) %}
+        <p class="note">Datos de tastytrade. Los filtros de calidad de la empresa (beneficios, deuda, caja…) están en la pestaña <a href="/universe">Universo</a>.</p>
+        <label class="check"><input type="checkbox" name="q_earn" id="q_earn" {{ 'checked' if form.q_earn }}> Evitar vencimientos con resultados</label>
+        <p class="note">Se descartan los <b>contratos</b> cuyo vencimiento es igual o posterior a la próxima fecha de resultados: no se vende una put que atraviese un informe. Sin fecha conocida no se descarta nada.</p>
+      {% endcall %}
+
+      {% call section('sec-optional', 'Liquidez', (optional | join(' · ')) or 'Sin filtros', optional|length > 0) %}
         <label class="field">Liquidez de las opciones (1-5)
           <select name="q_liq" id="q_liq">
             <option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>
             {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más{{ count_text('min_option_liquidity', n) }}</option>{% endfor %}</select></label>
         <p class="note">La liquidez es la valoración de tastytrade de las opciones del ticker (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers: úsala con cuidado.</p>
-        <label class="check"><input type="checkbox" name="q_earn" id="q_earn" {{ 'checked' if form.q_earn }}> Evitar vencimientos con resultados</label>
-        <p class="note">Se descartan los <b>contratos</b> cuyo vencimiento es igual o posterior a la próxima fecha de resultados: no se vende una put que atraviese un informe. Sin fecha conocida no se descarta nada.</p>
-      {% endcall %}
-
-      {% call section('sec-optional', 'Filtros opcionales', (optional | join(' · ')) or 'Sin filtros', optional|length > 0) %}
         {% for key, use, label in (('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)')) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>

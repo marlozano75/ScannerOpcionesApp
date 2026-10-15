@@ -60,7 +60,7 @@ BASE = "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=1"
 
 
 def _optional_block(html: str) -> str:
-    return html.split("Filtros opcionales")[1].split("</form>")[0]
+    return html.split("id=\"sec-optional\"")[1].split("</form>")[0]
 
 
 def test_scanner_defaults_from_config(client_and_service):
