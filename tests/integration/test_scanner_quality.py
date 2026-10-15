@@ -341,12 +341,13 @@ def test_invalid_iv_values_are_reported(client_and_service):
         assert "Parámetro no válido" in client.get(BASE + "&" + bad).text, bad
 
 
-def test_the_atr_filter_is_in_the_entry_group_and_the_strategy_button_turns_it_on(client_and_service):
+def test_the_atr_filter_has_its_own_group_and_the_strategy_button_turns_it_on(client_and_service):
     from urllib.parse import parse_qs
     client, svc, gw, _ = client_and_service
     page = client.get("/scanner?reset=1").text
     entry = page.split('id="sec-entry"')[1].split("</details>")[0]
-    assert 'name="atr_mult" value="2"' in entry
+    atr = page.split('id="sec-atr"')[1].split("</details>")[0]
+    assert 'name="atr_mult" value="2"' in atr and "atr_mult" not in entry
     href = re.search(r'<a class="preset strategy" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
     q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
     assert q["use_atr"] == "on" and q["atr_mult"] == "2"
