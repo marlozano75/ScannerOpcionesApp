@@ -23,8 +23,31 @@
   {% if ok %}<div class="banner ok">{{ ok }}</div>{% endif %}
   {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
   {% for g in gap %}<div class="banner info">Aviso: {{ g }}: solo se escanean los contratos guardados, amplía <code>scanner.candidates</code> en config.yaml.</div>{% endfor %}
+  <form method="post" action="/scanner/profiles">
+    <details class="cfg-sec" open><summary>Perfiles del Scanner (botones, instrumentos y perfil inicial)</summary>
+    <p class="note">Cada perfil guarda <b>todos los filtros</b> del formulario del Scanner (cuáles están activados y sus valores, precio de venta, calidad, tendencia y medias) y cargarlo reemplaza el formulario entero.
+      Los filtros se definen en el propio Scanner: ajusta el formulario y pulsa <b>💾 Guardar en perfil</b> (con un nombre nuevo se crea otro perfil). Aquí eliges el nombre, los instrumentos activos (put vendida, spread de puts o ambos: con los dos marcados el perfil arranca en «Ambos»),
+      el <b>perfil inicial</b> que se carga al abrir el Scanner y cuáles borrar. {{ 'Estos perfiles se han guardado desde la aplicación.' if profiles_saved else 'Todavía se generan a partir de los presets TPC y de la estrategia Tastytrade de más abajo; al guardar aquí pasan a ser propios.' }}</p>
+    <table class="cfg-pre">
+      <tr><th>Nombre</th><th>Put vendida</th><th>Spread</th><th>Inicial</th><th>Borrar</th></tr>
+      {% for p in profiles %}{% set i = loop.index0 %}
+      <tr><td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}"><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
+        <td><input type="checkbox" name="pf{{ i }}_put" {{ 'checked' if 'put' in p.instruments }}></td>
+        <td><input type="checkbox" name="pf{{ i }}_spread" {{ 'checked' if 'spread' in p.instruments }}></td>
+        <td><input type="radio" name="default" value="{{ i }}" {{ 'checked' if p.name == default_profile }}></td>
+        <td><input type="checkbox" name="pf{{ i }}_del"></td></tr>
+      {% endfor %}
+    </table>
+    <input type="hidden" name="n_profiles" value="{{ profiles|length }}">
+    <div class="cfg-actions">
+      <button>Guardar perfiles</button>
+      <button type="submit" formaction="/scanner/profiles/reset" formnovalidate class="secondary"
+        onclick="return confirm('¿Regenerar los perfiles desde los presets TPC y la estrategia? Se pierden los filtros guardados en ellos.')" {{ '' if profiles_saved else 'disabled' }}>Regenerar desde TPC y Tastytrade</button>
+    </div>
+    </details>
+  </form>
   <form method="post" action="/scanner/config">
-    <details class="cfg-sec"><summary>Perfiles TPC (botones del Scanner)</summary>
+    <details class="cfg-sec"><summary>Perfiles TPC (valores base de los perfiles iniciales)</summary>
     <p class="note">Descuento mín., DTE y yield que carga cada perfil. El yield es el del periodo (prima / strike hasta el vencimiento, sin anualizar; TPC pide el 1 %). DTE máx. vacío = el máximo del rango guardado. Para quitar uno, vacía su nombre; la última fila vacía sirve para añadir otro.</p>
     <table class="cfg-pre">
       <tr><th>Nombre</th><th>Descuento mín. (%)</th><th>DTE mín.</th><th>DTE máx.</th><th>Yield periodo mín. (%)</th></tr>

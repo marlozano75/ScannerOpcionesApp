@@ -188,27 +188,29 @@
     <div class="side-head">
       <h2>Filtros</h2><span class="count">{{ chips|length }} activo{{ '' if chips|length == 1 else 's' }}</span>
       <div class="actions">
-        <a href="/scanner?reset=1" class="btn secondary" title="Vuelve a los valores iniciales de la configuración">Restablecer</a>
+        <a href="/scanner?{{ default_qs }}" class="btn secondary" title="Vuelve a cargar el perfil inicial">Restablecer</a>
         <button form="scan-form">Escanear</button>
       </div>
     </div>
     <div class="side-scroll" id="side-scroll" data-keep-scroll>
     <form method="get" action="/scanner" id="scan-form">
       <input type="hidden" name="submitted" value="1">
+      <input type="hidden" name="profile" value="{{ active_profile.name if active_profile else '' }}">
       <div class="presets"><span class="lbl">Perfiles</span>
-        {% for p in presets %}
-        <a class="preset{{ ' active' if p.on }}" href="/scanner?{{ p.qs }}" style="text-decoration:none"
-          title="TPC (The Premium Collector, mantener hasta el vencimiento): descuento mín. {{ p.discount }} % · DTE {{ p.dte_min }}–{{ p.dte_max }} · yield del periodo mín. {{ p.min_yield }} %. Sustituye los filtros del perfil Tastytrade (delta, IV Rank, señales…) y conserva el resto">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
-        <a class="preset strategy{{ ' active' if strategy_on }}" href="/scanner?{{ strategy_qs }}" style="text-decoration:none"
-          title="Perfil Tastytrade (venta de volatilidad): carga y activa de una vez DTE 30–45, delta, IV Rank y Percentile, IV/HV, señales de entrada, precio sobre la media de 200 y liquidez. Se gestiona al 50 % de la prima y a 21 DTE. Los valores son editables (✎ Editar); sustituye los filtros del otro perfil y conserva el resto">{{ '✓ ' if strategy_on }}Tastytrade</a>
-        <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Editar los valores por defecto de todos los perfiles (TPC y Tastytrade)">✎ Editar</a>
+        {% for p in profile_buttons %}
+        <a class="preset{{ ' strategy' if p.strategy }}{{ ' active' if p.on }}" href="/scanner?{{ p.qs }}" style="text-decoration:none"
+          title="Carga el perfil «{{ p.name }}» ({{ p.instruments | join(' + ') | replace('put', 'put vendida') | replace('spread', 'spread') }}): reemplaza todos los filtros del formulario por los guardados en el perfil">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
+        <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Perfiles: nombre, instrumentos activos y perfil inicial">✎ Editar</a>
+        <button type="button" class="secondary" id="save-profile" style="font-size:12px;padding:2px 8px"
+          title="Guarda los filtros que ves ahora (activados y valores) en un perfil: el del nombre que elijas, o uno nuevo">💾 Guardar en perfil</button>
       </div>
 
       <label class="field" style="margin:6px 0">Instrumento
         <select name="mode" id="mode">
-          <option value="put" {{ 'selected' if form.mode == 'put' }}>Put vendida</option>
-          <option value="spread" {{ 'selected' if form.mode == 'spread' }}>Spread de puts (vendida + comprada)</option>
-          <option value="both" {{ 'selected' if form.mode == 'both' }}>Ambos: put si cabe en mis límites, si no spread</option>
+          {% set ins = active_profile.instruments if active_profile else ('put', 'spread') %}
+          {% if 'put' in ins or form.mode == 'put' %}<option value="put" {{ 'selected' if form.mode == 'put' }}>Put vendida</option>{% endif %}
+          {% if 'spread' in ins or form.mode == 'spread' %}<option value="spread" {{ 'selected' if form.mode == 'spread' }}>Spread de puts (vendida + comprada)</option>{% endif %}
+          {% if ('put' in ins and 'spread' in ins) or form.mode == 'both' %}<option value="both" {{ 'selected' if form.mode == 'both' }}>Ambos: put si cabe en mis límites, si no spread</option>{% endif %}
         </select></label>
       {% if form.mode != 'put' %}
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
@@ -753,6 +755,23 @@
     }
     boxes.concat([sel]).forEach(function (el) { el.addEventListener('change', clamp); });
     clamp();
+  })();
+  // «Guardar en perfil»: envía por POST los filtros actuales (la consulta del formulario) al perfil elegido o a uno nuevo
+  (function () {
+    const btn = document.getElementById('save-profile');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      const current = form.elements['profile'] ? form.elements['profile'].value : '';
+      const name = window.prompt('Guardar los filtros actuales en el perfil (escribe un nombre nuevo para crear otro):', current);
+      if (!name || !name.trim()) return;
+      const f = document.createElement('form');
+      f.method = 'post'; f.action = '/scanner/profile/save';
+      [['name', name.trim()], ['query', new URLSearchParams(new FormData(form)).toString()]].forEach(function (kv) {
+        const i = document.createElement('input'); i.type = 'hidden'; i.name = kv[0]; i.value = kv[1]; f.appendChild(i);
+      });
+      document.body.appendChild(f);
+      f.submit();
+    });
   })();
   // Cualquier selector o casilla escanea al cambiar
   form.querySelectorAll('select, input[type=checkbox]').forEach(function (el) {

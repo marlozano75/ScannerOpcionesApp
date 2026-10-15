@@ -116,19 +116,31 @@ def test_the_scanner_page_warns_when_an_active_filter_has_no_data(client_and_ser
 
 
 # ---- 5. el botón de la estrategia respeta los demás filtros -----------------------------------------------------
-def test_the_strategy_button_keeps_the_filters_that_are_not_part_of_the_strategy(client_and_service):
+def test_loading_a_profile_replaces_the_form_and_saving_stores_the_current_filters(client_and_service):
     client, svc, gw, _ = client_and_service
-    url = BASE + "&ref=mid&use_oi=on&oi=300&trend_dir=up&price_min=20&dte_min=5&use_near=on&near_pct=9&use_boll=on&boll_pctb=0.1"
-    page = client.get(url).text
+    page = client.get(BASE + "&ref=mid&use_oi=on&oi=300&trend_dir=up&price_min=20").text
     href = re.search(r'<a class="preset strategy(?: on)?" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
     q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
-    assert (q["ref"], q["use_oi"], q["oi"], q["trend_dir"], q["price_min"]) == ("mid", "on", "300", "up", "20")     # se conservan
-    assert q["dte_min"] == "30" and q["near_pct"] == "3" and "use_boll" not in q and "boll_pctb" not in q               # la estrategia manda
+    assert "use_oi" not in q and "trend_dir" not in q and "price_min" not in q          # el perfil reemplaza todo el formulario
+    assert q["profile"] == "Tastytrade" and q["mode"] == "both" and q["dte_min"] == "30"
     on = client.get(href).text
-    assert 'class="preset strategy active"' in on and "Tendencia alcista" in on and "OI ≥ 300" in on
-    first = client.get("/scanner?reset=1").text                                                                         # sin consulta previa: solo la estrategia
-    href0 = re.search(r'<a class="preset strategy" href="(/scanner\?[^"]+)"', first).group(1).replace("&amp;", "&")
-    assert "trend_dir" not in href0 and "use_oi" not in href0
+    assert 'class="preset strategy active"' in on and "Tendencia alcista" not in on and "OI ≥ 300" not in on
+    # guardar los filtros actuales en un perfil nuevo (solo put) y volver a cargarlo
+    saved = client.post("/scanner/profile/save", data={"name": "Mio", "query": BASE.split("?")[1] + "&use_oi=on&oi=300&mode=put&profile=Tastytrade"},
+                        follow_redirects=False)
+    assert saved.status_code == 303 and "profile=Mio" in saved.headers["location"] and "use_oi=on" in saved.headers["location"]
+    mine = client.get(saved.headers["location"]).text
+    assert "OI ≥ 300" in mine and ">✓ Mio</a>" in mine and '<option value="spread"' not in mine      # solo los instrumentos activos del perfil
+    # perfil inicial: desde /scanner/config; sin consulta se carga ese perfil
+    names = [p.name for p in svc.stored_profiles()[0]]
+    form = {"n_profiles": str(len(names)), "default": str(names.index("Mio"))}
+    for i, n in enumerate(names):
+        form.update({f"pf{i}_name": n, f"pf{i}_orig": n, f"pf{i}_put": "on"})
+        if n != "Mio":
+            form[f"pf{i}_spread"] = "on"
+    assert client.post("/scanner/profiles", data=form, follow_redirects=False).status_code == 303
+    assert "profile=Mio" in str(client.get("/scanner").url)
+    assert "Perfiles del Scanner" in client.get("/scanner/config").text
 
 
 # ---- 3. velas: los símbolos sin respuesta se piden de nuevo con una conexión nueva -------------------------------

@@ -32,6 +32,8 @@ from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key,
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES
 from scanner_opciones.portfolio.spreads import with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
+from scanner_opciones.scanner import profiles as profiles_mod
+from scanner_opciones.scanner.profiles import Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
@@ -60,6 +62,7 @@ EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos)
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
+SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
 KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
@@ -929,6 +932,19 @@ class AppService:
         self.meta.set(SCANNER_USER_CONFIG, json.dumps({"presets": [p.model_dump() for p in new_presets], "strategy": new_strategy.model_dump(),
                                                        "spreads": new_spreads.model_dump()}))
         self._set_scanner_config(new_presets, new_strategy, new_spreads)
+
+    def stored_profiles(self) -> Optional[tuple[list[ScannerProfile], str]]:
+        """(perfiles, perfil inicial) guardados desde la aplicación, o None si se usan los de config.yaml."""
+        return profiles_mod.load(self.meta.get(SCANNER_PROFILES) or "")
+
+    def save_profiles(self, profiles: list[ScannerProfile], default: Optional[str]) -> None:
+        """Guarda los perfiles del Scanner (sobreviven a reinicios). Lanza `ValueError` si no son válidos (no se guarda nada)."""
+        valid, default_name = profiles_mod.validate_profiles(profiles, default)
+        self.meta.set(SCANNER_PROFILES, profiles_mod.dump(valid, default_name))
+
+    def reset_profiles(self) -> None:
+        """Vuelve a los perfiles que salen de los presets TPC y de la estrategia (config.yaml o editados en /scanner/config)."""
+        self.meta.set(SCANNER_PROFILES, "")
 
     def reset_scanner_config(self) -> None:
         """Vuelve a los presets y la estrategia de config.yaml."""

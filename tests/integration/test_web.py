@@ -66,7 +66,7 @@ def _optional_block(html: str) -> str:
 def test_scanner_defaults_from_config(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
-    r = client.get("/scanner")
+    r = client.get("/scanner?reset=1")
     assert r.status_code == 200 and "contratos cumplen" in r.text and "AAPL" in r.text
     for name, value in (("discount", "10"), ("dte_min", "1"), ("dte_max", "35"), ("min_yield", "1")):
         assert f'name="{name}"' in r.text and f'name="{name}" id="{name}" size="{6 if "d" in name[:1] and "dte" not in name else 5}" value="{value}"' in r.text.replace(
@@ -78,7 +78,7 @@ def test_scanner_defaults_from_config(client_and_service):
 
 def test_scanner_has_no_operation_selector(client_and_service):
     client, svc, gw, _ = client_and_service
-    r = client.get("/scanner")
+    r = client.get("/scanner?reset=1")
     assert 'name="op"' not in r.text and "<option value=\"tactical\"" not in r.text
     assert 'id="dte_min_label"' not in r.text and 'name="dte_min"' in r.text      # DTE mín. siempre editable
     assert "Operación" not in r.text
@@ -142,7 +142,7 @@ def test_config_filter_values_start_ticked(client_and_service):
     client, svc, gw, _ = client_and_service
     from scanner_opciones.config.settings import Settings
     svc.settings = Settings.model_validate({"scanner": {"filters": {"min_oi": 50}}})
-    r = client.get("/scanner")
+    r = client.get("/scanner?reset=1")
     assert 'name="use_oi" checked' in r.text and 'value="50"' in r.text
     assert 'name="use_oi" checked' not in client.get(BASE + "&oi=50").text   # enviado sin marcar = desactivado
 
@@ -179,7 +179,7 @@ def test_removing_a_ticker_deletes_its_contracts(client_and_service):
 def test_scanner_shows_desc_and_bid_size_columns(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
-    r = client.get("/scanner")
+    r = client.get("/scanner?reset=1")
     assert "<th>Desc.</th>" in r.text and "<th>Dist.</th>" not in r.text
     assert "<th>Bid size</th>" in r.text
 
@@ -190,7 +190,7 @@ def test_watchlist_and_scanner_tables_are_sortable(client_and_service):
     wl = client.get("/watchlist").text
     assert 'class="sortable" id="watchlist-table"' in wl
     assert "SortableTables.init" in wl and "function sortRows" in wl          # script incluido en la página
-    sc = client.get("/scanner").text
+    sc = client.get("/scanner?reset=1").text
     assert 'class="sortable sticky-tk with-sel" id="scan-results"' in sc
     assert "<th data-nosort>Cant.</th>" in sc                                # la columna de cantidad no ordena
     assert "th[aria-sort=descending]::after" in sc and "\\25BC" in sc     # indicador de dirección
@@ -203,7 +203,7 @@ def test_watchlist_and_scanner_tables_are_sortable(client_and_service):
 def test_price_reference_selector_defaults_and_columns(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
-    r = client.get("/scanner")
+    r = client.get("/scanner?reset=1")
     assert 'name="ref"' in r.text and 'name="ref_x"' in r.text
     assert 'value="bid_plus_spread" selected' in r.text and 'name="ref_x" id="ref_x" size="5" value="25"' in r.text
     assert "Precio de venta: bid + 25% del spread" in r.text
@@ -252,7 +252,7 @@ def test_invalid_price_reference(client_and_service, qs):
 def test_contracts_tab_is_gone(client_and_service):
     client, *_ = client_and_service
     assert client.get("/contracts").status_code == 404
-    assert "/contracts" not in client.get("/scanner").text and "Contratos</a>" not in client.get("/").text
+    assert "/contracts" not in client.get("/scanner?reset=1").text and "Contratos</a>" not in client.get("/").text
 
 
 def test_banner_when_market_is_closed_and_not_when_open(client_and_service):
@@ -277,7 +277,7 @@ def test_banner_when_market_is_closed_and_not_when_open(client_and_service):
 def test_ticker_column_is_sticky_in_scanner(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
-    scanner = client.get("/scanner").text
+    scanner = client.get("/scanner?reset=1").text
     assert 'class="sortable sticky-tk with-sel" id="scan-results"' in scanner
     assert '<th class="tk">Ticker</th>' in scanner and '<td class="tk" data-sort="AAPL"><a href="#" class="chart-link" data-ticker="AAPL"' in scanner
     assert '<th class="sel"></th>' in scanner and '<td class="sel"><input type="checkbox"' in scanner   # casilla también fija
@@ -561,7 +561,7 @@ def test_activity_banner_shows_the_ibkr_pacing_wait(client_and_service):
 
 def test_scanner_remembers_last_filters_when_returning_from_the_menu(client_and_service):
     client = client_and_service[0]
-    first = client.get("/scanner")
+    first = client.get("/scanner?reset=1")
     assert 'name="discount" id="discount" size="6" value="10"' in first.text      # valores iniciales
     client.get(BASE + "&use_oi=on&oi=77")
     back = client.get("/scanner")                                                  # clic en la pestaña
@@ -569,7 +569,7 @@ def test_scanner_remembers_last_filters_when_returning_from_the_menu(client_and_
     assert 'name="use_oi" checked' in back.text
     reset = client.get("/scanner?reset=1")
     assert 'name="discount" id="discount" size="6" value="10"' in reset.text
-    assert 'value="10"' in client.get("/scanner").text                             # y se olvida lo anterior
+    assert "profile=Tastytrade" in str(client.get("/scanner").url)                         # y se olvida lo anterior: carga el perfil inicial
 
 
 def test_simulation_page_does_not_autoreload_and_get_redirects(client_and_service):
@@ -579,7 +579,7 @@ def test_simulation_page_does_not_autoreload_and_get_redirects(client_and_servic
     key = f"AAPL|{c.expiry}|{c.strike}"
     svc.state.activity = "Refrescando"                      # con un refresco en curso otras páginas se recargan solas...
     assert 'http-equiv="refresh"' in client.get("/").text
-    assert 'http-equiv="refresh"' not in client.get("/scanner").text     # el scanner tampoco: perdería los contratos marcados
+    assert 'http-equiv="refresh"' not in client.get("/scanner?reset=1").text     # el scanner tampoco: perdería los contratos marcados
     r = client.post("/simulate", data={"sel": key, f"qty_{key}": "1"})
     assert r.status_code == 200 and 'http-equiv="refresh"' not in r.text    # ...la simulación no (perdería el resultado)
     g = client.get("/simulate", follow_redirects=False)                     # y un GET ya no da «Method Not Allowed»
@@ -590,7 +590,7 @@ def test_data_version_sube_al_refrescar_y_las_tablas_lo_vigilan(client_and_servi
     client, svc, gw, _ = client_and_service
     before = client.get("/data-version").json()["version"]
     assert f"var current = {before}" in client.get("/scanner?reset=1").text
-    assert "/data-version" in client.get("/scanner").text
+    assert "/data-version" in client.get("/scanner?reset=1").text
     assert "/data-version" not in client.get("/").text   # el panel no vigila los datos del scanner
     refresh(client)
     assert client.get("/data-version").json()["version"] > before
@@ -676,7 +676,7 @@ def test_a_corrupt_saved_file_is_ignored_on_start(tmp_path):
 
 def test_no_trend_column_and_no_old_uptrend_filter(client_and_service):
     client, svc, gw, _ = client_and_service
-    r = client.get("/scanner")
+    r = client.get("/scanner?reset=1")
     assert "<th>Tendencia</th>" not in r.text and "<th>Tendencia</th>" not in client.get("/scanner?submitted=1").text
     assert "use_trend" not in r.text and "Solo tendencia alcista" not in r.text        # el filtro antiguo ya no existe
     assert client.get("/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid&use_trend=on").status_code == 200
@@ -685,7 +685,7 @@ def test_no_trend_column_and_no_old_uptrend_filter(client_and_service):
 def test_technical_filters_form(client_and_service):
     client, svc, gw, _ = client_and_service
     base = "/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid"
-    r = client.get("/scanner")
+    r = client.get("/scanner?reset=1")
     for name in ("trend_dir", "trend_method", "trend_days", "touch", "support", "ma50", "ma100", "ma200", "ema9", "ema20"):
         assert f'name="{name}"' in r.text
     assert "1 mes" in r.text and "1 año" in r.text and "1 semana" in r.text          # opciones con etiquetas legibles
@@ -702,7 +702,7 @@ def test_technical_filters_form(client_and_service):
 def test_last_price_filter_form(client_and_service):
     client, svc, gw, _ = client_and_service
     base = "/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid"
-    r = client.get("/scanner")
+    r = client.get("/scanner?reset=1")
     assert 'name="price_min"' in r.text and 'name="price_max"' in r.text
     out = client.get(base + "&price_min=20&price_max=150.5").text
     assert 'name="price_min" placeholder="Mín." value="20"' in out and 'value="150.5"' in out
@@ -727,7 +727,7 @@ def test_technical_filters_warn_when_closes_are_missing(client_and_service):
 def test_strike_chart_endpoint_and_link(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
-    assert 'class="chart-link" data-ticker="AAPL"' in client.get("/scanner").text and 'id="strike-dialog"' in client.get("/scanner").text
+    assert 'class="chart-link" data-ticker="AAPL"' in client.get("/scanner?reset=1").text and 'id="strike-dialog"' in client.get("/scanner?reset=1").text
     assert "Sin histórico de cierres" in client.get("/chart/strike?ticker=AAPL&strike=75").text
     today = svc.now().date()
     bars = [(today - timedelta(days=700 - i), 100.0 + (i % 40) - (30 if 200 < i < 215 else 0)) for i in range(700)]
@@ -739,7 +739,7 @@ def test_strike_chart_endpoint_and_link(client_and_service):
     assert "Sin toques del strike" in client.get("/chart/strike?ticker=AAPL&strike=10").text
     assert client.get("/chart/strike?ticker=AAPL&strike=abc").status_code == 422
     # miniatura de cada fila: imagen SVG propia que se carga al hacerse visible
-    page = client.get("/scanner").text
+    page = client.get("/scanner?reset=1").text
     assert '<img loading="lazy" width="110" height="30" alt="" src="/chart/mini.svg?ticker=AAPL&amp;strike=' in page
     assert "<th data-nosort>Historial</th>" in page
     mini = client.get("/chart/mini.svg?ticker=AAPL&strike=75")
@@ -750,7 +750,7 @@ def test_strike_chart_endpoint_and_link(client_and_service):
 def test_trend_window_months_form(client_and_service):
     client, svc, gw, _ = client_and_service
     base = "/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid"
-    r = client.get("/scanner")
+    r = client.get("/scanner?reset=1")
     assert 'name="trend_window"' in r.text
     for label in ("1 mes", "2 meses", "3 meses", "6 meses", "9 meses", "12 meses", "18 meses", "24 meses"):
         assert f">{label}</option>" in r.text, label
@@ -764,7 +764,7 @@ def test_trend_window_months_form(client_and_service):
 def test_moving_average_candles_and_comparisons_form(client_and_service):
     client, svc, gw, _ = client_and_service
     base = "/scanner?submitted=1&discount=10&dte_min=1&dte_max=35&min_yield=0.1&ref=bid"
-    r = client.get("/scanner")
+    r = client.get("/scanner?reset=1")
     for name in ("ma_frame", "cmp_ema9_ema20", "cmp_ema20_ma50", "cmp_ma50_ma100", "cmp_ma100_ma200"):
         assert f'name="{name}"' in r.text, name
     assert "EMA9 ≥ EMA20" in r.text and "MA100 ≤ MA200" in r.text
@@ -803,7 +803,7 @@ def test_scanner_config_page_edits_presets_and_strategy(client_and_service):
     client, svc, _, _ = client_and_service
     r = client.get("/scanner/config")
     assert r.status_code == 200 and "Mensual (TPC)" in r.text and 's_max_abs_delta' in r.text
-    assert "/scanner/config" in client.get("/scanner").text          # enlace «Editar» junto a los botones
+    assert "/scanner/config" in client.get("/scanner?reset=1").text          # enlace «Editar» junto a los botones
     form = {"n_presets": "4", "p0_name": "Corto X", "p0_discount": "12", "p0_dte_min": "2", "p0_dte_max": "9", "p0_yield": "30",
             "p1_name": "", "p2_name": "Largo plazo", "p2_discount": "20", "p2_dte_min": "16", "p2_dte_max": "", "p2_yield": "13",
             "p3_name": "", "s_max_abs_delta": "0,25", "s_min_iv_rank": "40", "s_dte_min": "30", "s_dte_max": "45",

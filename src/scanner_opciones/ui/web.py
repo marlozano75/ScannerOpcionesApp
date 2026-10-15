@@ -5,7 +5,7 @@ import asyncio
 import logging
 import re
 import tempfile
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
@@ -29,6 +29,7 @@ from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.portfolio.management import manage_puts
 from scanner_opciones.scanner.impact import explain_empty
+from scanner_opciones.scanner.profiles import Profile
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.scanner.spread_check import COLUMNS as SPREAD_CHECK_COLS
@@ -417,6 +418,24 @@ def preset_link(settings, preset, form: dict, current=None) -> tuple[str, bool]:
     on = all(form.get(k) == params[k] for k in ("discount", "dte_min", "dte_max", "min_yield"))
     kept = {k: v for k, v in (current.items() if current is not None else ()) if k not in STRATEGY_KEYS} if current is not None and "submitted" in current else {}
     return urlencode({**kept, **params}), on
+
+
+def seed_profiles(settings) -> tuple[list[Profile], str]:
+    """Perfiles que salen de los presets TPC y de la estrategia Tastytrade (config.yaml o editados en /scanner/config) mientras no se
+    guarden perfiles propios. TPC solo con put vendida; Tastytrade con put y spread. El inicial es Tastytrade."""
+    out = []
+    for p in settings.scanner.presets:
+        params = dict(parse_qsl(preset_link(settings, p, {})[0]))
+        out.append(Profile(p.name, ("put",)).with_filters("put", params).with_filters("spread", params))
+    params = dict(parse_qsl(strategy_link(settings, {}, None)[0]))
+    out.append(Profile("Tastytrade", ("put", "spread")).with_filters("put", params).with_filters("spread", params))
+    return out, "Tastytrade"
+
+
+def profile_link(p: Profile, mode: Optional[str] = None) -> str:
+    """Consulta que carga el perfil en el Scanner (reemplaza todo el formulario con su juego de filtros del instrumento)."""
+    mode = mode if mode in ("put", "spread", "both") else p.mode
+    return urlencode({**p.params(mode), "submitted": "1", "mode": mode, "profile": p.name})
 
 
 def _sector_of(row, sector_col: Optional[int], watchlist_sectors: dict) -> Optional[str]:
@@ -945,7 +964,8 @@ def create_app(
                     raise ValueError("días desde el último toque no permitidos")
                 for key in optional:
                     form[f"use_{key}"] = f"use_{key}" in qp
-                    form[key] = qp.get(key, "").strip()
+                    # un perfil (o enlace) que no trae la caja la muestra con su valor preconfigurado, desmarcada
+                    form[key] = qp.get(key, _fmt(shown[key])).strip()
                 for key in ("use_delta", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg", "use_atr", "iv_any"):
                     form[key] = key in qp
                 for key in ("delta_min", "delta_max", "near_pct", "rsi_max", "boll_pctb", "boll_width",
@@ -1050,6 +1070,63 @@ def create_app(
             error = f"Parámetro no válido: {exc}"
         return dict(form=form, criteria=criteria, error=error, warnings=warnings)
 
+    def get_profiles() -> tuple[list[Profile], str]:
+        """Perfiles guardados desde la aplicación o, mientras no haya, los que salen de los presets y la estrategia."""
+        return service.stored_profiles() or seed_profiles(service.settings)
+
+    @app.post("/scanner/profile/save")
+    async def scanner_profile_save(request: Request):
+        """Guarda los filtros actuales del formulario en un perfil (existente o nuevo): el juego del instrumento que se está viendo."""
+        form = await request.form()
+        name = str(form.get("name", "")).strip()
+        qp = dict(parse_qsl(str(form.get("query", "")), keep_blank_values=True))
+        mode = qp.get("mode", "put") if qp.get("mode") in ("put", "spread", "both") else "put"
+        profiles, default = get_profiles()
+        try:
+            existing = next((p for p in profiles if p.name.casefold() == name.casefold()), None)
+            if existing is not None:
+                saved = existing.with_filters(mode, qp)
+                profiles = [saved if p is existing else p for p in profiles]
+            else:
+                instruments = ("put",) if mode == "put" else ("spread",) if mode == "spread" else ("put", "spread")
+                saved = Profile(name, instruments).with_filters("put", qp).with_filters("spread", qp)
+                profiles = [*profiles, saved]
+            service.save_profiles(profiles, default)
+        except ValueError:
+            return RedirectResponse("/scanner?" + urlencode({**qp, "submitted": "1"}), status_code=303)
+        remembered.pop("scanner", None)
+        return RedirectResponse("/scanner?" + profile_link(saved, mode), status_code=303)
+
+    @app.post("/scanner/profiles")
+    async def scanner_profiles_save(request: Request):
+        """Nombre, instrumentos activos, borrado y perfil inicial de los perfiles (los filtros se guardan desde el Scanner)."""
+        form = await request.form()
+        profiles, default = get_profiles()
+        by_name = {p.name: p for p in profiles}
+        out: list[Profile] = []
+        chosen = str(form.get("default", ""))
+        new_default = default
+        for i in range(int(form.get("n_profiles", 0) or 0)):
+            orig = by_name.get(str(form.get(f"pf{i}_orig", "")))
+            if orig is None or form.get(f"pf{i}_del"):
+                continue
+            instruments = tuple(k for k in ("put", "spread") if form.get(f"pf{i}_{k}"))
+            out.append(Profile(str(form.get(f"pf{i}_name", "")), instruments, orig.put, orig.spread))
+            if chosen == str(i):
+                new_default = out[-1].name
+        try:
+            service.save_profiles(out, new_default)
+        except ValueError as exc:
+            return RedirectResponse("/scanner/config?" + urlencode({"error": str(exc)}), status_code=303)
+        remembered.pop("scanner", None)
+        return RedirectResponse("/scanner/config?" + urlencode({"ok": "Perfiles guardados."}), status_code=303)
+
+    @app.post("/scanner/profiles/reset")
+    async def scanner_profiles_reset():
+        service.reset_profiles()
+        remembered.pop("scanner", None)
+        return RedirectResponse("/scanner/config?" + urlencode({"ok": "Perfiles regenerados desde los presets TPC y la estrategia Tastytrade."}), status_code=303)
+
     # ---- configuraciones y estrategia editables ------------------------------------------------
     @app.get("/scanner/config", response_class=HTMLResponse)
     async def scanner_config_page(request: Request, ok: str = "", error: str = ""):
@@ -1066,7 +1143,9 @@ def create_app(
             gap.append(f"el DTE máx. de la estrategia ({sc.strategy.dte_max}) supera el rango guardado ({cand.dte_max})")
         if sc.strategy.strike_below_pct_min < cand.strike_below_pct_min:
             gap.append(f"el descuento mín. de la estrategia ({_fmt(sc.strategy.strike_below_pct_min)} %) es menor que el del rango guardado ({_fmt(cand.strike_below_pct_min)} %)")
-        return render(request, "scanner_config.html", presets=presets, groups=groups, spread_fields=spread_fields, ok=ok, error=error,
+        profiles, default_profile = get_profiles()
+        return render(request, "scanner_config.html", profiles=profiles, default_profile=default_profile,
+                      profiles_saved=service.stored_profiles() is not None, presets=presets, groups=groups, spread_fields=spread_fields, ok=ok, error=error,
                       gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)))
 
     @app.post("/scanner/config")
@@ -1113,6 +1192,10 @@ def create_app(
     async def scanner(request: Request, debug: int = 0):
         if (back := recall(request, "scanner")) is not None:
             return back
+        profiles, default_profile = get_profiles()
+        if "submitted" not in request.query_params and "reset" not in request.query_params:    # sin consulta: se carga el perfil inicial
+            first = next((p for p in profiles if p.name == default_profile), profiles[0])
+            return RedirectResponse("/scanner?" + profile_link(first), status_code=303)
         parsed = parse_scan(request.query_params)
         out = service.scan(parsed["criteria"], include_rejections=bool(debug)) if parsed["criteria"] else None
         c = parsed["criteria"]
@@ -1147,11 +1230,16 @@ def create_app(
             presets.append(dict(name=p.name, discount=_fmt(p.strike_below_pct_min), dte_min=p.dte_min,
                                 dte_max=p.dte_max if p.dte_max is not None else cand.dte_max,
                                 min_yield=_fmt(p.min_yield_pct), qs=qs, on=on))
+        active_name = request.query_params.get("profile", "")
+        default_qs = profile_link(next((p for p in profiles if p.name == default_profile), profiles[0]))
+        profile_buttons = [dict(name=p.name, qs=profile_link(p), on=p.name == active_name, instruments=p.instruments,
+                                strategy=p.put.get("use_delta") == "on") for p in profiles]
+        active_profile = next((p for p in profiles if p.name == active_name), None)
         qcfg = service.settings.scanner.quality
         counts = quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg)
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
-        return render(request, "scanner.html", no_autorefresh=True, out=out, owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets,
+        return render(request, "scanner.html", no_autorefresh=True, out=out, owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, default_qs=default_qs,
                       community=service.community_counts(),
                       yield_max=yield_max, nlv_usd=service.nlv_usd(), strategy_qs=strategy_qs, strategy_on=strategy_on,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),

@@ -281,7 +281,7 @@ def test_the_strategy_button_activates_every_related_filter_and_marks_itself_on(
     assert 'class="preset strategy active"' in on and "Parámetro no válido" not in on                    # la estrategia cargada se marca
     for chip in ("|Δ| ≤ 0.3", "≥ 2 señales de entrada", "IV Rank ≥ 50", "A ≤ 3 % de MA50 o soporte"):
         assert chip in on
-    assert 'class="preset strategy active"' not in client.get(href.replace("delta_max=0.3", "delta_max=0.4")).text   # cambiar un valor la desmarca
+    assert 'class="preset strategy active"' in client.get(href.replace("delta_max=0.3", "delta_max=0.4")).text   # el perfil activo es el de la URL (profile=)
 
 
 def test_invalid_delta_and_near_values_are_reported(client_and_service):
