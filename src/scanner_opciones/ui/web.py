@@ -307,10 +307,6 @@ SPREAD_FIELDS = (    # valores iniciales del modo Spread del Scanner (`scanner.s
     ("width_options", "Anchos que se prueban ($, separados por comas)", "floats"),
     ("min_return_on_risk_pct", "Retorno mín. sobre riesgo (%, hasta el vencimiento)", "float"),
     ("min_credit_usd", "Crédito mín. ($ por contrato)", "float"),
-    ("max_short_spread_pct", "Spread bid/ask máx. de la pata vendida (%)", "float"),
-    ("max_combo_spread_pct", "Spread bid/ask máx. del combo (% del crédito)", "float"),
-    ("min_long_oi", "OI mín. de la pata comprada", "int"),
-    ("max_long_spread_pct", "Spread bid/ask máx. de la pata comprada (%)", "float"),
     ("max_loss_nlv_pct", "Pérdida máxima (% del NLV)", "float"),
     ("max_naked_strike", "Strike máximo de la put desnuda en «Ambos» ($)", "float"),
     ("usd_per_base", "Dólares por unidad de moneda base (vacío = el de IBKR)", "ofloat"),
@@ -939,7 +935,6 @@ def create_app(
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
         form.update(mode="put", set=set_name, best_width=True,
                     use_rr=True, rr=_fmt(sp.min_return_on_risk_pct), use_mc=True, mc=_fmt(sp.min_credit_usd),
-                    use_ss=True, ss=_fmt(sp.max_short_spread_pct), use_cs=True, cs=_fmt(sp.max_combo_spread_pct), use_lo=True, lo=_fmt(sp.min_long_oi), use_ls=True, ls=_fmt(sp.max_long_spread_pct),
                     use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_ns=True, ns=_fmt(sp.max_naked_strike))
 
         criteria, error, warnings = None, None, []
@@ -949,15 +944,15 @@ def create_app(
                 form["mode"] = qp.get("mode", "put")
                 if form["mode"] not in ("put", "spread", "both"):
                     raise ValueError("modo desconocido")
-                if any(key in qp for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ns")):   # bloque visible: lo enviado manda
+                if any(key in qp for key in ("rr", "mc", "mn", "ns")):   # bloque visible: lo enviado manda
                     form["best_width"] = "best_width" in qp
                 # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
                 # de instrumento) los límites conservan sus valores marcados por defecto
-                for shown_keys in (("rr", "mc", "ss", "cs", "lo", "ls", "mn"), ("ns",)):
+                for shown_keys in (("rr", "mc", "mn"), ("ns",)):
                     if any(key in qp for key in shown_keys):
                         for key in shown_keys:
                             form[f"use_{key}"] = f"use_{key}" in qp
-                for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ns"):
+                for key in ("rr", "mc", "mn", "ns"):
                     if key in qp:
                         form[key] = qp.get(key, "").strip()
                 for key in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -1087,10 +1082,6 @@ def create_app(
                 for use, key, field_name, label, upper in (
                         ("use_rr", "rr", "min_return_on_risk_pct", "Retorno s/ riesgo mín. (%)", None),
                         ("use_mc", "mc", "min_spread_credit", "Crédito mín. ($ por contrato)", None),
-                        ("use_ss", "ss", "max_short_spread_pct", "Spread máx. de la pata vendida (%)", None),
-                        ("use_lo", "lo", "min_long_oi", "OI mín. de la pata comprada", None),
-                        ("use_cs", "cs", "max_combo_spread_pct", "Spread máx. del combo (% del crédito)", None),
-                        ("use_ls", "ls", "max_long_spread_pct", "Spread máx. de la pata comprada (%)", None),
                         ("use_mn", "mn", "max_loss_nlv_pct", "Pérdida máxima (% del NLV)", 100)):
                     if form[use]:
                         overrides[field_name] = _required(form[key], float, label)

@@ -927,7 +927,8 @@ class AppService:
             return
         try:
             data = json.loads(raw)
-            spreads = SpreadSettings(**data["spreads"]) if data.get("spreads") else None   # las guardadas antes no lo traen
+            spreads = (SpreadSettings(**{k: v for k, v in data["spreads"].items() if k in SpreadSettings.model_fields})
+                       if data.get("spreads") else None)   # las guardadas antes no lo traen; los filtros retirados se ignoran
             self._set_scanner_config(tuple(ScannerPreset(**p) for p in data["presets"]), StrategySettings(**data["strategy"]), spreads)
         except Exception:   # una configuración guardada que ya no es válida (cambió el modelo): se usa la de config.yaml
             log.exception("Configuración del Scanner guardada no válida; se usa la de config.yaml")

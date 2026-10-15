@@ -31,14 +31,6 @@ class SpreadResult:
     assignment_pct_of_portfolio: Optional[float]   # nominal = ancho
 
 
-def combo_spread_pct(short: ContractSnapshot, long: ContractSnapshot, credit: float) -> float:
-    """Spread bid/ask del combo en % del crédito: combo_bid = bid_v − ask_c y combo_ask = ask_v − bid_c, así que mide spread_v + spread_c.
-    Un combo ancho frente a su crédito es un crédito que no se consigue (el precio de referencia depende de cada pata)."""
-    if short.bid is None or short.ask is None or long.ask is None or credit <= 0:
-        return float("inf")
-    return ((short.ask - (long.bid or 0.0)) - (short.bid - long.ask)) / credit * 100
-
-
 def _long_leg_index(snapshots: Sequence[ContractSnapshot]) -> dict[tuple, ContractSnapshot]:
     return {(s.contract.ticker, s.contract.expiry, round(s.contract.strike, 4)): s
             for s in snapshots if s.contract.right is OptionRight.PUT}
@@ -124,24 +116,13 @@ def build_spreads(
         sell = r.reference_price
         if sell is None:
             continue
-        if criteria.max_short_spread_pct is not None:   # con un spread enorme el precio de referencia (bid + X % del spread) es irreal
-            sb, sa = r.snapshot.bid, r.snapshot.ask
-            if sb is None or sa is None or sb <= 0 or (sa - sb) / mid_price(sb, sa) * 100 > criteria.max_short_spread_pct + EPS:
-                continue
         for width in criteria.spread_widths:
             long = index.get((sc.ticker, sc.expiry, round(sc.strike - width, 4)))
             if long is None or long.ask is None or long.ask <= 0 or mid_price(long.bid, long.ask) is None:
                 continue
-            if criteria.min_long_oi is not None and (long.open_interest or 0) < criteria.min_long_oi:
-                continue
-            if criteria.max_long_spread_pct is not None:   # un ask sin bid no es un mercado: spread de 200 % o más
-                if long.bid is None or long.bid <= 0 or (long.ask - long.bid) / mid_price(long.bid, long.ask) * 100 > criteria.max_long_spread_pct + EPS:
-                    continue
             credit = sell - long.ask
             max_loss_ps = width - credit
             if credit <= EPS or max_loss_ps <= EPS:
-                continue
-            if criteria.max_combo_spread_pct is not None and combo_spread_pct(r.snapshot, long, credit) > criteria.max_combo_spread_pct + EPS:
                 continue
             credit_width = credit / width * 100
             ror = credit / max_loss_ps * 100

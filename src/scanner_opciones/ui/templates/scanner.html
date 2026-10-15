@@ -55,10 +55,6 @@
   {% set _ = spreadf.append('Mejor ancho por put' if form.best_width else 'Todos los anchos') %}
   {% if form.use_mc %}{% set _ = spreadf.append('Crédito ≥ ' ~ form.mc ~ ' $') %}{% endif %}
   {% if form.use_rr %}{% set _ = spreadf.append('Retorno/riesgo ≥ ' ~ form.rr ~ ' %') %}{% endif %}
-  {% if form.use_ss %}{% set _ = spreadf.append('Spread vendida ≤ ' ~ form.ss ~ ' %') %}{% endif %}
-  {% if form.use_cs %}{% set _ = spreadf.append('Spread combo ≤ ' ~ form.cs ~ ' % del crédito') %}{% endif %}
-  {% if form.use_lo %}{% set _ = spreadf.append('OI comprada ≥ ' ~ form.lo) %}{% endif %}
-  {% if form.use_ls %}{% set _ = spreadf.append('Spread comprada ≤ ' ~ form.ls ~ ' %') %}{% endif %}
   {% if form.use_mn %}{% set _ = spreadf.append('Pérdida máx. ≤ ' ~ form.mn ~ ' % NLV') %}{% endif %}
   {% if form.mode == 'both' %}
     {% if form.use_ns %}{% set _ = spreadf.append('Put si strike ≤ ' ~ form.ns) %}{% endif %}
@@ -86,7 +82,7 @@
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto) #}
 {% set offs = [] %}
 {% if form.set == 'spread' %}
-  {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_ss', 'Spread vendida'), ('use_cs', 'Spread combo'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
+  {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_mn', 'Pérdida máx. NLV')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
   {% if form.mode == 'both' %}{% for use, label in (('use_ns', 'Strike máx. put'),) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}{% endif %}
 {% endif %}
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-delta'), ('use_ivhv', 'IV/HV', 'sec-iv'),
@@ -232,7 +228,7 @@
       {% if form.set == 'spread' %}
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
         <label class="check"><input type="checkbox" name="best_width" {{ 'checked' if form.best_width }}> Solo el mejor ancho por put (se prueban todos los anchos; gana el de mayor retorno anualizado sobre riesgo)</label>
-        {% for key, use, label in (('rr', 'use_rr', 'Retorno s/ riesgo mín. (%, hasta el vencimiento)'), ('mc', 'use_mc', 'Crédito mín. ($ por contrato)'), ('ss', 'use_ss', 'Spread bid/ask máx. pata vendida (%)'), ('cs', 'use_cs', 'Spread bid/ask máx. del combo (% del crédito)'), ('lo', 'use_lo', 'OI mín. pata comprada'), ('ls', 'use_ls', 'Spread bid/ask máx. pata comprada (%)'), ('mn', 'use_mn', 'Pérdida máxima (% del NLV)')) %}
+        {% for key, use, label in (('rr', 'use_rr', 'Retorno s/ riesgo mín. (%, hasta el vencimiento)'), ('mc', 'use_mc', 'Crédito mín. ($ por contrato)'), ('mn', 'use_mn', 'Pérdida máxima (% del NLV)')) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
@@ -242,7 +238,7 @@
           <input name="ns" value="{{ form.ns }}" inputmode="decimal"></label>
         {% endif %}
         <p class="note">Los filtros de abajo (strike, delta, IV, técnicos, calidad…) se aplican a la <b>put vendida</b>; la comprada es la del mismo vencimiento con strike inferior, probando cada ancho ofrecido (1 a 20 $).
-          El crédito se calcula con la vendida al precio de venta elegido y la comprada al <b>ask</b>. Pérdida máxima = (ancho − crédito) × 100, que es también el margen aproximado del spread.
+          La liquidez de la <b>vendida</b> (OI, bid size y spread) sale de la sección «Liquidez»; la comprada no tiene filtros de liquidez. El crédito se calcula con la vendida al precio de venta elegido y la comprada al <b>ask</b>. Pérdida máxima = (ancho − crédito) × 100, que es también el margen aproximado del spread.
           El yield anual sobre el strike no se aplica: lo sustituye el retorno sobre riesgo del periodo (crédito / pérdida máxima, hasta el vencimiento y sin anualizar, como el yield de TPC; equivale a crédito/ancho: 25 % de crédito/ancho = 33 % de retorno/riesgo). La tabla se ordena por el retorno anualizado.</p>
       {% endcall %}
       {% endif %}

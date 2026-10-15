@@ -13,18 +13,13 @@ from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot
 from scanner_opciones.metrics.yields import mid_price
 from scanner_opciones.scanner.criteria import ScanCriteria
-from scanner_opciones.scanner.spreads import combo_spread_pct
 
 EPS = 1e-6
 
 # (clave, cabecera)
 COLUMNS: tuple[tuple[str, str], ...] = (
     ("long", "Pata comprada"),
-    ("short_spread", "Spread vendida (%)"),
-    ("long_oi", "OI comprada"),
-    ("long_spread", "Spread comprada (%)"),
     ("credit", "Crédito ($/contrato)"),
-    ("combo", "Spread combo / crédito (%)"),
     ("ror", "Retorno/riesgo (%)"),
     ("loss", "Pérdida máx. (% NLV)"),
 )
@@ -53,12 +48,6 @@ def _pct(x: float) -> str:
     return f"{x:.1f}"
 
 
-def _spread_of(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
-    if bid is None or ask is None or bid <= 0 or ask <= 0:
-        return None
-    return (ask - bid) / mid_price(bid, ask) * 100
-
-
 def _cmp(value: Optional[float], limit: Optional[float], text: str, upper: bool) -> Check:
     """`upper`: el valor tiene que ser ≤ límite; si no, ≥ límite."""
     if limit is None:
@@ -73,34 +62,25 @@ def _evaluate(r, long: Optional[ContractSnapshot], width: float, criteria: ScanC
     s = r.snapshot
     sc = s.contract
     checks: dict[str, Check] = {}
-    short_spread = _spread_of(s.bid, s.ask)
-    checks["short_spread"] = _cmp(short_spread, criteria.max_short_spread_pct,
-                                  _pct(short_spread) if short_spread is not None else "sin bid", True)
     if long is None or long.ask is None or long.ask <= 0 or mid_price(long.bid, long.ask) is None:
         checks["long"] = Check(f"{sc.strike - width:g} · no existe" if long is None else f"{long.contract.strike:g} · sin ask", False)
-        for key in ("long_oi", "long_spread", "credit", "combo", "ror", "loss"):
+        for key in ("credit", "ror", "loss"):
             checks[key] = Check("—", None)
         return checks, -1e9
     checks["long"] = Check(f"{long.contract.strike:g}", True)
-    checks["long_oi"] = _cmp(float(long.open_interest or 0), criteria.min_long_oi, str(long.open_interest if long.open_interest is not None else "—"), False)
-    long_spread = _spread_of(long.bid, long.ask)
-    checks["long_spread"] = _cmp(long_spread, criteria.max_long_spread_pct, _pct(long_spread) if long_spread is not None else "sin bid", True)
     sell = r.reference_price
     if sell is None:
-        for key in ("credit", "combo", "ror", "loss"):
+        for key in ("credit", "ror", "loss"):
             checks[key] = Check("—", False)
         return checks, -1e9
     credit = sell - long.ask
     max_loss_ps = width - credit
     if credit <= EPS or max_loss_ps <= EPS:
         checks["credit"] = Check(f"{credit * sc.multiplier:.0f}", False)
-        checks["combo"] = Check("—", None)
         checks["ror"] = Check("—", False)
         checks["loss"] = Check("—", None)
         return checks, -1e9
     checks["credit"] = _cmp(credit * sc.multiplier, criteria.min_spread_credit, f"{credit * sc.multiplier:.0f}", False)
-    combo = combo_spread_pct(s, long, credit)
-    checks["combo"] = _cmp(combo, criteria.max_combo_spread_pct, _pct(combo) if combo != float("inf") else "—", True)
     ror = credit / max_loss_ps * 100
     checks["ror"] = _cmp(ror, criteria.min_return_on_risk_pct, _pct(ror), False)
     loss_pct = max_loss_ps * sc.multiplier / nlv_usd * 100 if nlv_usd else None

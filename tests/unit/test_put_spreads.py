@@ -1,4 +1,5 @@
 """Modo spread del scanner: emparejado de la pata comprada, crédito conservador y filtros de riesgo."""
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 from scanner_opciones.config.settings import Settings
@@ -78,27 +79,13 @@ def test_min_credit_per_contract_drops_penny_spreads():
     assert scan(legs, min_spread_credit=140).spreads and not scan(legs, min_spread_credit=141).spreads
 
 
-def test_long_leg_needs_open_interest_and_a_two_sided_market():
-    ok = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]                               # OI 300, spread ~18 %
-    assert scan(ok, min_long_oi=10, max_long_spread_pct=25).spreads
-    assert not scan(ok, min_long_oi=500).spreads                                 # OI insuficiente
-    assert not scan(ok, max_long_spread_pct=10).spreads                          # spread demasiado abierto
-    assert not scan([snap(90, 2.0, 2.2), snap(85, 0.0, 0.3)], max_long_spread_pct=25).spreads   # ask sin bid (caso EOG)
-    assert scan([snap(90, 2.0, 2.2), snap(85, 0.0, 0.3)]).spreads                # sin el filtro, pasaba
-
-
-def test_short_leg_needs_a_real_market_for_its_reference_price():
-    wide = [snap(90, 0.05, 2.35), snap(85, 0.5, 0.6)]                           # caso EOG 135/134: la referencia (bid + 25 % del spread) es irreal
+def test_spread_has_no_liquidity_filters_of_its_own_the_short_leg_uses_the_put_ones():
+    wide_short = [replace(snap(90, 0.05, 2.35), spread_pct=191.7), snap(85, 0.5, 0.6)]   # caso EOG 135/134: vendida con un spread enorme
     ref = dict(price_reference=PriceReference.BID_PLUS_SPREAD, price_spread_pct=25.0, min_credit_width_pct=None)
-    assert scan(wide, **ref).spreads                                              # sin el filtro, salía
-    assert not scan(wide, max_short_spread_pct=25, **ref).spreads
-    assert scan([snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)], max_short_spread_pct=25, **ref).spreads
-
-
-def test_combo_spread_is_measured_against_the_credit():
-    legs = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]    # combo 1,40 / 1,70: 0,30 de spread sobre un crédito de 1,40 = 21,4 %
-    assert scan(legs, max_combo_spread_pct=25).spreads and not scan(legs, max_combo_spread_pct=20).spreads
-    assert scan(legs).spreads                           # sin el filtro, pasaba
+    assert scan(wide_short, **ref).spreads                                              # sin el filtro de spread de Liquidez, sale
+    assert not scan(wide_short, max_spread_pct=35, **ref).spreads                       # con «Spread máx.» de Liquidez, la vendida se descarta
+    no_bid_long = [snap(90, 2.0, 2.2), snap(85, 0.0, 0.3)]
+    assert scan(no_bid_long).spreads                                             # la comprada no tiene filtros de liquidez
 
 
 # ---- modo «Ambos»: put desnuda si cabe en los límites, si no spread ------------------------------------------------
@@ -174,19 +161,18 @@ def check(snaps, **over):
 
 def test_check_marks_each_condition_and_matches_build_spreads():
     legs = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]
-    row = [r for r in check(legs, min_return_on_risk_pct=10, min_spread_credit=30, min_long_oi=10) if r.strike == 90][0]
+    row = [r for r in check(legs, min_return_on_risk_pct=10, min_spread_credit=30) if r.strike == 90][0]
     assert row.outcome == "spread" and not row.failed and row.checks["long"].ok and row.checks["ror"].ok is True
-    assert [s.short.snapshot.contract.strike for s in scan(legs, min_return_on_risk_pct=10, min_spread_credit=30, min_long_oi=10).spreads] == [90]
+    assert [s.short.snapshot.contract.strike for s in scan(legs, min_return_on_risk_pct=10, min_spread_credit=30).spreads] == [90]
     bad = [r for r in check(legs, min_return_on_risk_pct=90) if r.strike == 90][0]
     assert bad.outcome == "no" and bad.checks["ror"].ok is False and "Retorno/riesgo (%)" in bad.failed
     assert not scan(legs, min_return_on_risk_pct=90).spreads
 
 
-def test_check_reports_missing_long_leg_and_illiquid_long_leg():
+def test_check_reports_missing_long_leg():
     no_leg = [r for r in check([snap(90, 2.0, 2.2), snap(86, 0.5, 0.6)]) if r.strike == 90][0]
     assert no_leg.checks["long"].ok is False and no_leg.outcome == "no"
-    eog = [r for r in check([snap(90, 2.0, 2.2), snap(85, 0.0, 0.3)], max_long_spread_pct=25) if r.strike == 90][0]
-    assert eog.checks["long_spread"].ok is False and eog.checks["long_spread"].text == "sin bid"
+    assert set(no_leg.checks) == {"long", "credit", "ror", "loss"}         # sin filtros de liquidez de la comprada ni de combo
 
 
 def test_check_in_both_mode_tells_put_from_spread():
