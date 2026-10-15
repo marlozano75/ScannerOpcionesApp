@@ -103,3 +103,16 @@ def test_a_spread_does_not_use_the_yield_and_an_expired_idea_has_no_fit():
     f = strategy_fits(spread, DEFAULT_PRESETS, StrategySettings())[2]
     assert f.fits and "Yield" in f.unknown
     assert strategy_fits(run(idea(expiry=date(2026, 10, 1))), DEFAULT_PRESETS, StrategySettings()) == ()
+
+
+def test_the_price_range_of_a_profile_is_one_more_criterion_only_when_it_has_limits():
+    from scanner_opciones.community.fit import strategy_fits
+    from scanner_opciones.config.settings import DEFAULT_PRESETS, StrategySettings
+    v = run(idea(), [snap("VZ", 42.0, 0.95, 1.10)])                                  # precio del subyacente ≈ 50
+    base = {f.name: f for f in strategy_fits(v, DEFAULT_PRESETS, StrategySettings())}
+    assert all(c.label != "Precio" for f in base.values() for c in f.criteria)       # sin rango en el perfil no se comprueba
+    fits = {f.name: f for f in strategy_fits(v, DEFAULT_PRESETS, StrategySettings(), {"Tastytrade": (10.0, 20.0), "Mensual (TPC)": (None, 100.0)})}
+    tt = next(c for c in fits["Tastytrade"].criteria if c.label == "Precio")
+    assert tt.ok is False and tt.short == "PRE" and not fits["Tastytrade"].fits
+    assert next(c for c in fits["Mensual (TPC)"].criteria if c.label == "Precio").ok is True
+    assert fits["Táctico (TPC)"].total == base["Táctico (TPC)"].total

@@ -103,6 +103,13 @@ class AppState:
     data_version: int = 0            # sube al terminar un refresco: las páginas abiertas lo consultan para recargarse
 
 
+def _to_float(value) -> Optional[float]:
+    try:
+        return float(str(value).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
 class AppService:
     def __init__(
         self,
@@ -1008,7 +1015,12 @@ class AppService:
         ref = self.criteria()
         views = evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct)
         sc = self.settings.scanner
-        return [replace(v, fits=strategy_fits(v, sc.presets, sc.strategy)) for v in views]
+        prices = {}       # rango de precio del subyacente que cada perfil (por nombre) tiene en su juego de filtros de put
+        for prof in self.scanner_profiles():
+            lo, hi = (_to_float(prof.put.get(k)) for k in ("price_min", "price_max"))
+            if lo is not None or hi is not None:
+                prices[prof.name] = (lo, hi)
+        return [replace(v, fits=strategy_fits(v, sc.presets, sc.strategy, prices)) for v in views]
 
     async def refresh_community_quotes(self, max_age_seconds: Optional[float] = 300) -> None:
         """Cotiza en directo (tastytrade) las patas de las ideas que no están guardadas (tickers fuera de la watchlist, strikes o

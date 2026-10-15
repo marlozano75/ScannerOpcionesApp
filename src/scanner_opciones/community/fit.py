@@ -3,20 +3,20 @@
 Se compara con los valores de HOY (DTE, distancia del strike, yield y delta de la cotización actual) y con los valores por defecto de
 cada perfil (`scanner.presets` y `scanner.strategy`). Solo se comprueban los criterios que una idea permite medir: descuento del strike,
 DTE, yield del periodo (solo en la put desnuda: en un spread el yield es sobre el ancho y no es comparable), delta, IV Rank e IV Percentile
-(solo si el ticker tiene ficha). No se evalúan los técnicos (RSI, medias, ATR…), la calidad de la empresa ni la liquidez: «encaja» significa
+(solo si el ticker tiene ficha) y el precio del subyacente (solo si el perfil del mismo nombre lo limita). No se evalúan los técnicos (RSI, medias, ATR…), la calidad de la empresa ni la liquidez: «encaja» significa
 «cumple lo medible», y lo que no se pudo medir se indica aparte.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from scanner_opciones.config.settings import ScannerPreset, StrategySettings
 
 STRATEGY_NAME = "Tastytrade"
 
 
-SHORT = {"Descuento": "DES", "DTE": "DTE", "Yield": "YLD", "Delta": "DEL", "IV Rank": "IVR", "IV Percentile": "IVP"}
+SHORT = {"Precio": "PRE", "Descuento": "DES", "DTE": "DTE", "Yield": "YLD", "Delta": "DEL", "IV Rank": "IVR", "IV Percentile": "IVP"}
 
 
 @dataclass(frozen=True)
@@ -73,8 +73,14 @@ def _crit(label: str, value: Optional[float], ok, shown: str) -> Criterion:
 
 def _fit(name: str, view, *, discount_min: float, dte_min: int, dte_max: Optional[int], yield_min: float,
          delta_min: Optional[float] = None, delta_max: Optional[float] = None,
-         iv_rank_min: Optional[float] = None, iv_pct_min: Optional[float] = None) -> Fit:
+         iv_rank_min: Optional[float] = None, iv_pct_min: Optional[float] = None,
+         price: tuple[Optional[float], Optional[float]] = (None, None)) -> Fit:
     out: list[Criterion] = []
+    lo, hi = price
+    if lo is not None or hi is not None:      # el filtro de precio del subyacente del perfil (en $); sin límites no se comprueba
+        px = view.price_now
+        limits = f"{'0' if lo is None else f'{lo:g}'}–{'∞' if hi is None else f'{hi:g}'} $"
+        out.append(_crit("Precio", px, lambda v: (lo is None or v >= lo) and (hi is None or v <= hi), f"{px or 0:.2f} $ (rango {limits})"))
     d = view.otm_now_pct
     out.append(_crit("Descuento", d, lambda v: v >= discount_min, f"{d or 0:.1f} % (mín. {discount_min:g} %)"))
     top = "" if dte_max is None else f"–{dte_max}"
@@ -95,13 +101,17 @@ def _fit(name: str, view, *, discount_min: float, dte_min: int, dte_max: Optiona
     return Fit(name, tuple(out), d is not None)
 
 
-def strategy_fits(view, presets: Sequence[ScannerPreset], strategy: StrategySettings) -> tuple[Fit, ...]:
-    """Un `Fit` por perfil: los TPC (`presets`) y el de Tastytrade (`strategy`). Vacío si la idea ya venció."""
+def strategy_fits(view, presets: Sequence[ScannerPreset], strategy: StrategySettings,
+                  prices: Optional[Mapping[str, tuple[Optional[float], Optional[float]]]] = None) -> tuple[Fit, ...]:
+    """Un `Fit` por perfil: los TPC (`presets`) y el de Tastytrade (`strategy`). `prices` da el rango de precio del subyacente del perfil de
+    cada nombre. Vacío si la idea ya venció."""
+    prices = prices or {}
     if view.dte < 0:
         return ()
-    out = [_fit(p.name, view, discount_min=p.strike_below_pct_min, dte_min=p.dte_min, dte_max=p.dte_max, yield_min=p.min_yield_pct)
+    out = [_fit(p.name, view, discount_min=p.strike_below_pct_min, dte_min=p.dte_min, dte_max=p.dte_max, yield_min=p.min_yield_pct, price=prices.get(p.name, (None, None)))
            for p in presets]
     out.append(_fit(STRATEGY_NAME, view, discount_min=strategy.strike_below_pct_min, dte_min=strategy.dte_min, dte_max=strategy.dte_max,
                     yield_min=strategy.min_yield_pct, delta_min=strategy.min_abs_delta, delta_max=strategy.max_abs_delta,
-                    iv_rank_min=strategy.min_iv_rank, iv_pct_min=strategy.min_iv_percentile))
+                    iv_rank_min=strategy.min_iv_rank, iv_pct_min=strategy.min_iv_percentile,
+                    price=prices.get(STRATEGY_NAME, (None, None))))
     return tuple(out)
