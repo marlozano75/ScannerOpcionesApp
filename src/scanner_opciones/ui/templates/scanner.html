@@ -37,7 +37,8 @@
 {% set ivgroup = [] %}
 {% if form.use_ivr %}{% set _ = ivgroup.append('IV Rank ≥ ' ~ form.ivr) %}{% endif %}
 {% if form.use_ivp %}{% set _ = ivgroup.append('IV Pctl ≥ ' ~ form.ivp) %}{% endif %}
-{% if form.use_delta %}{% set _ = ivgroup.append('|Δ| ' ~ ((form.delta_min ~ '–' ~ form.delta_max) if form.delta_min and form.delta_max else (('≤ ' ~ form.delta_max) if form.delta_max else ('≥ ' ~ form.delta_min)))) %}{% endif %}
+{% set deltagroup = [] %}
+{% if form.use_delta %}{% set _ = deltagroup.append('|Δ| ' ~ ((form.delta_min ~ '–' ~ form.delta_max) if form.delta_min and form.delta_max else (('≤ ' ~ form.delta_max) if form.delta_max else ('≥ ' ~ form.delta_min)))) %}{% endif %}
 {% if form.use_ivhv %}{% set _ = ivgroup.append('IV/HV ≥ ' ~ form.ivhv) %}{% endif %}
 {% if form.use_ivchg %}{% set _ = ivgroup.append('ΔIV 5d ≤ ' ~ form.ivchg) %}{% endif %}
 {% set entry = [] %}
@@ -77,6 +78,7 @@
   {% set _ = chips.append(('sec-ma', text ~ ' ' ~ {'daily': 'D', 'weekly': 'S', 'monthly': 'M'}[form.ma_frame])) %}
 {% endfor %}
 {% for q in quality %}{% set _ = chips.append(('sec-quality', q)) %}{% endfor %}
+{% for o in deltagroup %}{% set _ = chips.append(('sec-delta', o)) %}{% endfor %}
 {% for o in ivgroup %}{% set _ = chips.append(('sec-iv', o)) %}{% endfor %}
 {% for o in entry %}{% set _ = chips.append(('sec-entry', o)) %}{% endfor %}
 {% for o in atrgroup %}{% set _ = chips.append(('sec-atr', o)) %}{% endfor %}
@@ -87,7 +89,7 @@
   {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_ss', 'Spread vendida'), ('use_cs', 'Spread combo'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
   {% if form.mode == 'both' %}{% for use, label in (('use_ns', 'Strike máx. put'),) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}{% endif %}
 {% endif %}
-{% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-iv'), ('use_ivhv', 'IV/HV', 'sec-iv'),
+{% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-delta'), ('use_ivhv', 'IV/HV', 'sec-iv'),
     ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-atr'), ('use_exp', 'Mov. esperado', 'sec-atr'), ('use_rsi', 'RSI', 'sec-entry'),
     ('use_boll', 'Bollinger %B', 'sec-entry'), ('use_bw', 'Ancho de bandas', 'sec-entry'), ('use_oi', 'OI', 'sec-optional'),
     ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
@@ -255,6 +257,12 @@
           del precio y DTE {{ candidates.dte_min }}–{{ candidates.dte_max }} (más un margen de ±{{ margin|num(0) }} % que se guarda pero no se cotiza). El descuento máximo es el del rango guardado.</p>
       {% endcall %}
 
+      {% call section('sec-delta', 'Delta', (deltagroup | join(' · ')) or 'Sin filtros', deltagroup|length > 0) %}
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_delta" {{ 'checked' if form.use_delta }}> |Delta| del put (mín. opcional, máx.)</span>
+          <span style="display:flex;gap:4px"><input name="delta_min" value="{{ form.delta_min }}" inputmode="decimal" size="4" style="width:46px"><input name="delta_max" value="{{ form.delta_max }}" inputmode="decimal" size="4" style="width:46px"></span></label>
+        <p class="note">Marca el filtro para aplicarlo. <b>Delta</b>: −0,20 a −0,30 ≈ 70–80 % de probabilidad de expirar sin valor. El mínimo es opcional.</p>
+      {% endcall %}
+
       {% call section('sec-atr', 'Distancia al precio (ATR)', (atrgroup | join(' · ')) or 'Sin filtros', atrgroup|length > 0) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_atr" {{ 'checked' if form.use_atr }}> Strike a ≥ N ATR(14) del precio</span>
           <input name="atr_mult" value="{{ form.atr_mult }}" inputmode="decimal"></label>
@@ -307,16 +315,13 @@
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
         <label class="check" title="Con los dos marcados, basta con que se cumpla uno: un pico antiguo de IV no descarta una IV alta de hoy"><input type="checkbox" name="iv_any" {{ 'checked' if form.iv_any }}> IV Rank <b>o</b> IV Percentile (basta uno de los dos)</label>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_delta" {{ 'checked' if form.use_delta }}> |Delta| del put (mín. opcional, máx.)</span>
-          <span style="display:flex;gap:4px"><input name="delta_min" value="{{ form.delta_min }}" inputmode="decimal" size="4" style="width:46px"><input name="delta_max" value="{{ form.delta_max }}" inputmode="decimal" size="4" style="width:46px"></span></label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ivhv" {{ 'checked' if form.use_ivhv }}> IV / HV30 mín.</span>
           <input name="ivhv" value="{{ form.ivhv }}" inputmode="decimal"></label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ivchg" {{ 'checked' if form.use_ivchg }}> Cambio de IV a 5 días ≤ (puntos)</span>
           <input name="ivchg" value="{{ form.ivchg }}" inputmode="decimal"></label>
         <p class="note"><b>IV / HV30</b> &gt; 1,2: las opciones están caras frente a lo que realmente se mueve la acción (tastytrade: IV a 30 días ÷ volatilidad histórica a 30 días).
           <b>Cambio de IV a 5 días</b> ≤ 0: el miedo deja de crecer. El <b>VIX</b> no es un filtro: su aviso (primas pobres, mercado nervioso, condiciones ideales) está en el Panel, junto a su gráfico.</p>
-        <p class="note">Marca cada filtro para aplicarlo (las cajas traen los valores de la estrategia). <b>Delta</b>: −0,20 a −0,30 ≈ 70–80 % de probabilidad de expirar sin valor.
-          IV Rank &gt; 30 % es aceptable y &gt; 50 % ideal.</p>
+        <p class="note">Marca cada filtro para aplicarlo (las cajas traen los valores de la estrategia). IV Rank &gt; 30 % es aceptable y &gt; 50 % ideal.</p>
       {% endcall %}
 
       {% call section('sec-entry', 'Técnicos de entrada', (entry | join(' · ')) or 'Sin filtros', entry|length > 0) %}
