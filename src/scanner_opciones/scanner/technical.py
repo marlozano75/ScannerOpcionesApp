@@ -24,6 +24,7 @@ class TechnicalFilter:
         self._ticker_cache: dict[str, Optional[str]] = {}
         self._zone_cache: dict[str, Optional[ta.Zone]] = {}
         self._lines_cache: dict[str, tuple[dict[str, Optional[float]], dict[str, Optional[float]], int]] = {}
+        self._signal_cache: dict[tuple[str, float], list[tuple[str, bool]]] = {}
 
     def _lines(self, ticker: str) -> tuple[dict[str, Optional[float]], dict[str, Optional[float]], int]:
         """Valor actual de cada media con las velas elegidas (`ma_frame`), su valor de hace `ma_slope_candles`
@@ -107,10 +108,15 @@ class TechnicalFilter:
 
     def signal_results(self, ticker: str, price: float) -> list[tuple[str, bool]]:
         """(nombre, cumple) de las señales técnicas activas del ticker: cercanía a MA50/soporte, RSI y Bollinger %B."""
+        key = (ticker, price)
+        if key in self._signal_cache:      # el RSI recorre todo el histórico: una vez por ticker y escaneo, no por contrato
+            return self._signal_cache[key]
         series = self.bars.get(ticker, [])
         checks = (("cerca de MA50/soporte", self._near_reason), ("RSI rebota", self._rsi_reason), ("Bollinger %B", self._boll_pctb_reason))
         active = {"cerca de MA50/soporte": self.c.near_level_pct, "RSI rebota": self.c.rsi_rebound_max, "Bollinger %B": self.c.max_bollinger_pctb}
-        return [(name, not series and False or fn(ticker, price, series) is None) for name, fn in checks if active[name] is not None]
+        out = [(name, bool(series) and fn(ticker, price, series) is None) for name, fn in checks if active[name] is not None]
+        self._signal_cache[key] = out
+        return out
 
     def _zone(self, ticker: str, price: float) -> Optional[ta.Zone]:
         if ticker not in self._zone_cache:

@@ -1,6 +1,7 @@
 """Servicio de aplicación: orquesta jobs, estado en memoria y casos de uso para la UI."""
 from __future__ import annotations
 
+import time
 import asyncio
 import json
 import logging
@@ -69,6 +70,7 @@ SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner 
 PUT_OPENED = "put_opened"   # clave de `meta`: día en que la app vio por primera vez cada put vendida (JSON {put_key: AAAA-MM-DD})
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
+SCAN_MEMO_SECONDS = 120.0                           # vida de las lecturas reutilizadas entre cálculos del Scanner (`_memo`)
 KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
 MAX_SOURCE_NAME = 40  # longitud máxima del nombre de una fuente manual
 MAX_HISTORY = 200     # cargas que recuerda el historial del Universo
@@ -136,6 +138,7 @@ class AppService:
             volatility, prices, syncer, self.market,
         )
         self.state = AppState()
+        self._scan_memo: dict[tuple, tuple[float, object]] = {}
         self._openings: Optional[tuple[float, OpeningsData]] = None
         self._openings_error: Optional[str] = None
         self.profile_provider: Optional[Callable[[], tuple[list[ScannerProfile], str]]] = None   # lo pone la interfaz web (perfiles guardados o derivados)
@@ -926,6 +929,7 @@ class AppService:
         """Guarda y aplica los presets (Mensual/Táctico…), los valores de la estrategia de venta de puts y los del modo Spread editados en la
         aplicación; sobreviven a reinicios y mandan sobre config.yaml hasta `reset_scanner_config`. Lanza `ValidationError`/
         `ValueError` si no son válidos (no se guarda nada)."""
+        self._scan_memo.clear()      # los criterios por defecto y el exento de sectores pueden cambiar
         new_presets = tuple(ScannerPreset(**p) for p in presets)
         if not new_presets:
             raise ValueError("Tiene que quedar al menos una configuración")
@@ -950,6 +954,7 @@ class AppService:
 
     def reset_scanner_config(self) -> None:
         """Vuelve a los presets y la estrategia de config.yaml."""
+        self._scan_memo.clear()      # los criterios por defecto y el exento de sectores pueden cambiar
         self.meta.set(SCANNER_USER_CONFIG, "")
         self._set_scanner_config(*self._yaml_scanner)
 
@@ -1485,9 +1490,41 @@ class AppService:
     def criteria(self, **overrides) -> ScanCriteria:
         return criteria_from_settings(self.settings).with_filters(**overrides)
 
+    def _memo(self, name: str, build):
+        """Lectura costosa (snapshots, cierres, ATR) reutilizada entre los cálculos de una misma petición del Scanner: «Ambos» escanea dos
+        veces y el aviso de resultados vacíos una más. Caduca a los `SCAN_MEMO_SECONDS` o si cambian los datos (`data_version`)."""
+        now = time.monotonic()
+        key = (name, self.state.data_version, self.watchlist.db.conn.total_changes)     # total_changes: cualquier escritura en la base invalida
+        hit = self._scan_memo.get(key)
+        if hit is not None and now - hit[0] < SCAN_MEMO_SECONDS:
+            return hit[1]
+        value = build()
+        self._scan_memo = {k: v for k, v in self._scan_memo.items() if now - v[0] < SCAN_MEMO_SECONDS}
+        self._scan_memo[key] = (now, value)
+        return value
+
+    def _memo_result(self, name: str, criteria: ScanCriteria, extra, build):
+        """Resultado de un cálculo del Scanner para los mismos criterios, datos y cartera: volver a un perfil ya visto no lo recalcula."""
+        positions = self.state.positions
+        try:
+            key = (name, criteria, extra, id(positions), len(positions), self.nlv_usd(), self.now().date())
+            hash(key)
+        except TypeError:
+            return build()
+        return self._memo(repr(key), build)
+
+    def _scan_snapshots(self):
+        return self._memo("snapshots", self.snapshots.all)
+
+    def _scan_closes(self, snapshots):
+        return self._memo("closes", lambda: self.bars.all_closes({s.contract.ticker for s in snapshots}))
+
     def scan(self, criteria: ScanCriteria, include_rejections: bool = False) -> ScanOutput:
-        snapshots = self.snapshots.all()
-        bars = self.bars.all_closes({s.contract.ticker for s in snapshots}) if criteria.technical_active else None
+        return self._memo_result("scan", criteria, include_rejections, lambda: self._scan(criteria, include_rejections))
+
+    def _scan(self, criteria: ScanCriteria, include_rejections: bool) -> ScanOutput:
+        snapshots = self._scan_snapshots()
+        bars = self._scan_closes(snapshots) if criteria.technical_active else None
         return run_scan(
             snapshots, self.infos(criteria), with_spreads(self.state.positions), criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
@@ -1507,7 +1544,7 @@ class AppService:
         """ATR de los subyacentes, solo si el filtro está activo."""
         if criteria.min_atr_multiple is None:
             return None
-        return self.bars.atr({s.contract.ticker for s in snapshots}, self.settings.scanner.technical.atr_period)
+        return self._memo("atr", lambda: self.bars.atr({s.contract.ticker for s in snapshots}, self.settings.scanner.technical.atr_period))
 
     def owned_options(self) -> dict[tuple[str, date, float], float]:
         """Puts que ya tienes en cartera: (ticker normalizado, vencimiento, strike) -> contratos (negativo = vendidos, positivo = comprados)."""
@@ -1536,14 +1573,17 @@ class AppService:
     def spread_check(self, criteria: ScanCriteria) -> list[CheckRow]:
         """Para cada put vendida que pasa el escaneo COMO PUT SOLA (con su yield mínimo), qué condiciones del spread cumple y cuáles no."""
         put_scan = self.scan(criteria.with_filters(spread_mode=False, mixed=False))
-        return spread_check(put_scan.results, self.snapshots.all(), criteria, self.nlv_usd())
+        return spread_check(put_scan.results, self._scan_snapshots(), criteria, self.nlv_usd())
 
     def scan_impact(self, criteria: ScanCriteria) -> ImpactReport:
         """Cuánto descarta cada filtro activo (ver `scanner/impact.py`). En modo spread se mide la pata vendida, sin yield."""
         if criteria.spread_mode:
             criteria = criteria.with_filters(min_yield_pct=0.0)
-        snapshots = self.snapshots.all()
-        bars = self.bars.all_closes({s.contract.ticker for s in snapshots}) if criteria.technical_active else None
+        return self._memo_result("impact", criteria, None, lambda: self._scan_impact(criteria))
+
+    def _scan_impact(self, criteria: ScanCriteria) -> ImpactReport:
+        snapshots = self._scan_snapshots()
+        bars = self._scan_closes(snapshots) if criteria.technical_active else None
         return impact_report(
             snapshots, self.infos(criteria), criteria, self.now().date(), bars, self.settings.scanner.technical,
             self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots),
