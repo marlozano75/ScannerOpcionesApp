@@ -30,8 +30,11 @@ daily_update:
 scanner:
   spreads:                 # modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior)
     width_options: [1, 2.5, 5, 10, 15, 20]        # anchos que se prueban todos (strike vendido − comprado, en $)
+    max_combo_spread_pct: 15                # spread bid/ask del combo (vendida − comprada) máximo, en % del crédito
+    min_long_oi: 10                         # pata comprada: OI mínimo
+    max_long_spread_pct: 25                 # pata comprada: spread bid/ask máximo (%); sin bid no pasa
     min_credit_usd: 30                      # crédito neto mínimo por spread ($ por contrato)
-    min_return_on_risk_pct: 10              # retorno mínimo hasta el vencimiento sobre el riesgo (crédito / pérdida máxima), sin anualizar
+    min_return_on_risk_pct: 25              # retorno mínimo hasta el vencimiento sobre el riesgo (crédito / pérdida máxima), sin anualizar
     max_naked_strike: 100                   # strike máximo de la put desnuda ($); por encima, solo spread
     max_loss_nlv_pct: 2                     # pérdida máxima del spread como % del NLV
     # usd_per_base: 1.17                    # dólares por euro, solo si IBKR no da el tipo de cambio
@@ -181,6 +184,21 @@ community:
   universe_top: 40           # cuántos tickers entran en esa fuente (los de más traders en 30 días)
   min_traders: 3             # traders mínimos en 30 días para entrar
   stale_hours: 72            # horas sin rutina a partir de las cuales se avisa
+
+# Universo para bull put spreads: lo mantiene la rutina diaria scripts/actualizar_universo_bps.ps1 (se programa con
+# scripts/programar_universo_bps.ps1). Sus tickers no pasan los filtros de la empresa (solo liquidez de opciones y precio) y en el Scanner
+# solo salen como spread. Los valores por defecto sirven; esto solo documenta lo que se puede cambiar.
+# spread_universe:
+#   source_name: Universo_BPS      # fuente del Universo (apta para spreads)
+#   min_option_liquidity: 3        # liquidez de opciones de tastytrade (1-5)
+#   price_min: 30
+#   entry_days: 1                  # días hábiles seguidos como candidato (VRP>0, tendencia, put 30Δ…) para entrar
+#   exit_days: 5                   # días hábiles seguidos sin serlo para salir
+#   min_put30_yield_pct: 20        # acciones: rendimiento anualizado de la put de 30Δ
+#   max_expected_move_pct: 25      # movimiento esperado a 30 días máximo
+# scanner:
+#   quality:
+#     etf_index_symbols: [SPY, QQQ, IWM, ...]   # ETF e índices: exentos de beneficios, trimestres, deuda y solvencia
 
 storage:
   path: data/app.db

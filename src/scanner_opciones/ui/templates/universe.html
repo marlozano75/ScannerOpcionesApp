@@ -206,6 +206,20 @@
             title="Quita todos los tickers de esta fuente; no toca la watchlist">Quitar toda la fuente</button>
     <span class="muted">Un fichero nuevo de esta fuente la restaura entera.</span>
   </p>
+  <p>
+    {% if src in spread_sources %}
+    <b title="Sus tickers no pasan los filtros de la empresa: solo liquidez de opciones ≥ {{ spread_cfg.min_option_liquidity }} y precio ≥ {{ spread_cfg.price_min|int }} $. Si solo están en fuentes así, el Scanner los muestra únicamente como spread.">✓ Fuente apta para spreads</b>
+    {% if src != spread_builtin %}
+    <button class="secondary" type="submit" formaction="/universe/source/spread" name="on" value="0">Dejar de marcarla como apta para spreads</button>
+    {% else %}
+    <span class="muted">Es la del universo de spreads (rutina diaria); no se puede desmarcar.</span>
+    {% endif %}
+    {% if src == spread_builtin and spread_stale %}<span class="muted" style="color:var(--warn)">⚠ El JSON del universo tiene {{ spread_stale }} días: la rutina diaria no se ha ejecutado.</span>{% endif %}
+    {% else %}
+    <button class="secondary" type="submit" formaction="/universe/source/spread" name="on" value="1"
+            title="En una fuente apta para spreads no se miden los beneficios ni la solvencia (el riesgo del spread está definido): solo liquidez de opciones y precio. Sus tickers solo salen en el Scanner como spread, nunca como put desnuda.">Marcar como fuente apta para spreads</button>
+    {% endif %}
+  </p>
   {% endif %}
   <div class="banner info" id="rk-working" hidden>⏳ Aplicando la selección a la watchlist…</div>
   <div class="scroll"><table class="sortable sticky-tk with-sel" id="universe-table">

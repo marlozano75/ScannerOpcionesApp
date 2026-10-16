@@ -165,7 +165,10 @@ class SpreadSettings(_Model):
     """Modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior): anchos
     probados siempre todos (en $) y valores que aparecen en las cajas de los filtros del spread."""
     width_options: tuple[float, ...] = (1.0, 2.5, 5.0, 10.0, 15.0, 20.0)
-    min_return_on_risk_pct: float = Field(10, gt=0)   # retorno mínimo del PERIODO sobre el riesgo: crédito / (ancho − crédito), sin anualizar (como el yield de TPC)
+    min_return_on_risk_pct: float = Field(25, gt=0)   # retorno mínimo del PERIODO sobre el riesgo: crédito / (ancho − crédito), sin anualizar (como el yield de TPC)
+    min_long_oi: int = Field(10, ge=0)               # OI mínimo de la pata comprada
+    max_long_spread_pct: float = Field(25, gt=0)     # spread bid/ask máximo de la pata comprada (%); sin bid no pasa
+    max_combo_spread_pct: float = Field(15, gt=0)    # spread bid/ask del combo (vendida − comprada) máximo, en % del crédito: con un combo ancho el crédito es incierto
     min_credit_usd: float = Field(30, gt=0)          # crédito neto mínimo por spread, en $ por contrato (descarta spreads de céntimos)
     # modo «Ambos»: la put desnuda solo se ofrece si cabe en este límite; si no, sale el spread
     max_naked_strike: float = Field(100, gt=0)       # strike máximo de la put desnuda ($)
@@ -291,6 +294,16 @@ class QualitySettings(_Model):
     level_labels: dict[str, str] = {"flexible": "Flexible", "standard": "Estándar", "strict": "Estricto"}
     # sectores a los que NO se miden la deuda, la caja ni la solvencia (pasan sin medirse): trozos del nombre del sector
     exempt_sectors: list[str] = ["financ", "energy", "utilit", "material", "real estate"]
+    # ETF e índices: no tienen EPS ni datos en EDGAR, así que no se les exige ningún filtro de la empresa (sí la liquidez de opciones)
+    etf_index_symbols: list[str] = [
+        "SPY", "QQQ", "IWM", "DIA", "XSP", "SMH", "GLD", "SLV", "TLT", "HYG", "USO", "IBIT", "EEM", "EFA", "FXI", "EWZ", "GDX", "XBI", "KRE",
+        "XLE", "XLF", "XLK", "XLV", "XLU", "XLI", "XLP", "XLY", "XLC", "XLB", "XLRE",
+    ]
+
+    @property
+    def exempt_entries(self) -> tuple[str, ...]:
+        """Lo que entiende `scanner.quality.is_exempt`: trozos de sector y, con el prefijo «=», tickers exactos (los ETF)."""
+        return (*self.exempt_sectors, *(f"={s.upper()}" for s in self.etf_index_symbols))
 
 
 class StrategySettings(_Model):
@@ -504,6 +517,28 @@ class CommunitySettings(_Model):
     openings_path: str = "data/community/aperturas.json"   # fechas exactas de apertura de TUS puts vendidas (`scripts/actualizar_aperturas.ps1`)
 
 
+class SpreadUniverseSettings(_Model):
+    """Universo para bull put spreads (`scripts/actualizar_universo_bps.ps1`, diaria). Sus tickers no pasan por los filtros de calidad de la empresa
+    (en un spread el riesgo está definido): solo por liquidez de opciones y precio. Solo salen en el Scanner como spread, nunca como put desnuda."""
+    source_name: str = "Universo_BPS"            # fuente del Universo que se sustituye con cada JSON nuevo (apta para spreads)
+    min_option_liquidity: int = Field(3, ge=0, le=5)   # liquidez de opciones mínima de tastytrade (1-5) en las fuentes aptas para spreads
+    price_min: float = Field(30, ge=0)           # por debajo, los strikes de 0,5-1 $ dan créditos de céntimos que se comen las comisiones
+    price_max: Optional[float] = Field(None, gt=0)
+    path: str = "data/universe/universo_bps.json"
+    seed_path: str = "universo/seed_bps.json"    # núcleo fijo de ETF que el radar no cubre (radar=false) y exclusiones (versionada)
+    history_path: str = "data/universe/bps_history.json"
+    # qué valores del Market Radar de Tortuga son candidatos (los filtros finos del spread los aplica el Scanner)
+    radar_min_liquidity: int = Field(3, ge=0, le=4)    # nota de liquidez del radar (0-4)
+    min_vrp_pp: float = 0                        # VRP (IV30 − RV20, puntos) estrictamente mayor: la IV sobreestima la volatilidad real
+    min_put30_yield_pct: float = Field(20, ge=0)       # acciones: rendimiento anualizado de la put de 30Δ (crédito potencial); los ETF no lo cumplen por IV baja
+    exclude_bearish: bool = True                 # fuera los de tendencia bajista del radar
+    max_expected_move_pct: Optional[float] = Field(25, gt=0)   # movimiento esperado a 30 días máximo (descarta los que se mueven a saltos); None = sin tope
+    entry_days: int = Field(1, ge=1)             # días hábiles seguidos como candidato para entrar
+    exit_days: int = Field(5, ge=1)              # días hábiles seguidos sin serlo para salir
+    max_sector_pct: float = Field(30, gt=0, le=100)    # aviso si un sector (acciones) supera este % del universo
+    stale_days: int = Field(4, ge=1)             # el Scanner avisa si el JSON es más viejo (un fin de semana son 3 días)
+
+
 class Settings(_Model):
     ibkr: IbkrSettings = IbkrSettings()
     refresh: RefreshSettings = RefreshSettings()
@@ -521,6 +556,7 @@ class Settings(_Model):
     market: MarketSettings = MarketSettings()
     management: ManagementSettings = ManagementSettings()
     community: CommunitySettings = CommunitySettings()
+    spread_universe: SpreadUniverseSettings = SpreadUniverseSettings()
 
     @property
     def refresh_interval_minutes(self) -> float:

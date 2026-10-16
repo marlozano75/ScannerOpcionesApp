@@ -31,6 +31,14 @@ class SpreadResult:
     assignment_pct_of_portfolio: Optional[float]   # nominal = ancho
 
 
+def combo_spread_pct(short: ContractSnapshot, long: ContractSnapshot, credit: float) -> float:
+    """Spread bid/ask del combo en % del crédito: combo_bid = bid_v − ask_c y combo_ask = ask_v − bid_c, así que mide spread_v + spread_c.
+    Un combo ancho frente a su crédito es un crédito que no se consigue (el precio de referencia depende de cada pata)."""
+    if short.bid is None or short.ask is None or long.ask is None or credit <= 0:
+        return float("inf")
+    return ((short.ask - (long.bid or 0.0)) - (short.bid - long.ask)) / credit * 100
+
+
 def _long_leg_index(snapshots: Sequence[ContractSnapshot]) -> dict[tuple, ContractSnapshot]:
     return {(s.contract.ticker, s.contract.expiry, round(s.contract.strike, 4)): s
             for s in snapshots if s.contract.right is OptionRight.PUT}
@@ -63,18 +71,19 @@ def ticker_exposure(positions: Sequence) -> dict[str, float]:
 
 def build_mixed(
     shorts: Sequence, spreads: Sequence[SpreadResult], criteria: ScanCriteria, positions: Sequence, nlv_usd: Optional[float],
-    naked_min_yield_pct: float = 0.0,
+    naked_min_yield_pct: float = 0.0, spread_only: frozenset = frozenset(),
 ) -> list[MixedRow]:
     """Put desnuda si cumple los límites (peso acumulado sobre el NLV y strike máximo); si no, sus spreads. Orden: retorno anualizado sobre capital."""
-    return build_mixed_sets(shorts, shorts, spreads, criteria, positions, nlv_usd, naked_min_yield_pct)
+    return build_mixed_sets(shorts, shorts, spreads, criteria, positions, nlv_usd, naked_min_yield_pct, spread_only)
 
 
 def build_mixed_sets(
     naked_shorts: Sequence, spread_shorts: Sequence, spreads: Sequence[SpreadResult], criteria: ScanCriteria, positions: Sequence,
-    nlv_usd: Optional[float], naked_min_yield_pct: float = 0.0,
+    nlv_usd: Optional[float], naked_min_yield_pct: float = 0.0, spread_only: frozenset = frozenset(),
 ) -> list[MixedRow]:
     """Modo «Ambos» con un juego de filtros para cada instrumento: sale como put desnuda la que pasa los filtros de put (`naked_shorts`) y su
-    strike cabe en `max_naked_strike`; si no cabe, sale su spread, siempre que la vendida pase los filtros de spread (`spread_shorts`)."""
+    strike cabe en `max_naked_strike`; si no cabe, sale su spread, siempre que la vendida pase los filtros de spread (`spread_shorts`).
+    Los tickers de `spread_only` (solo están en fuentes aptas para spreads) nunca salen como put desnuda: solo su spread, con cualquier strike."""
     held = ticker_exposure(positions)
     by_short: dict[int, list[SpreadResult]] = {}
     for sp in spreads:
@@ -83,7 +92,7 @@ def build_mixed_sets(
     rows: list[MixedRow] = []
     for r in naked_shorts:
         c = r.snapshot.contract
-        if limit is not None and c.strike > limit:
+        if c.ticker in spread_only or (limit is not None and c.strike > limit):
             continue
         if (r.yield_ref_pct or 0.0) < naked_min_yield_pct:
             continue
@@ -94,9 +103,10 @@ def build_mixed_sets(
         rows.append(MixedRow("put", r, None, r.reference_price or 0.0, margin, ror * 100 if ror is not None else None, weight))
     for r in spread_shorts:
         c = r.snapshot.contract
-        if limit is None or c.strike <= limit:
+        only = c.ticker in spread_only
+        if not only and (limit is None or c.strike <= limit):
             continue
-        reason = f"strike {c.strike:g} > {limit:g}"
+        reason = "solo spread (fuente apta para spreads)" if only else f"strike {c.strike:g} > {limit:g}"
         for sp in by_short.get(id(r), []):
             w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier) / nlv_usd * 100 if nlv_usd else None
             rows.append(MixedRow("spread", r, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, reason))
@@ -120,9 +130,16 @@ def build_spreads(
             long = index.get((sc.ticker, sc.expiry, round(sc.strike - width, 4)))
             if long is None or long.ask is None or long.ask <= 0 or mid_price(long.bid, long.ask) is None:
                 continue
+            if criteria.min_long_oi is not None and (long.open_interest or 0) < criteria.min_long_oi:
+                continue
+            if criteria.max_long_spread_pct is not None:   # un ask sin bid no es un mercado: spread de 200 % o más
+                if long.bid is None or long.bid <= 0 or (long.ask - long.bid) / mid_price(long.bid, long.ask) * 100 > criteria.max_long_spread_pct + EPS:
+                    continue
             credit = sell - long.ask
             max_loss_ps = width - credit
             if credit <= EPS or max_loss_ps <= EPS:
+                continue
+            if criteria.max_combo_spread_pct is not None and combo_spread_pct(r.snapshot, long, credit) > criteria.max_combo_spread_pct + EPS:
                 continue
             credit_width = credit / width * 100
             ror = credit / max_loss_ps * 100

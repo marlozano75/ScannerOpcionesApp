@@ -32,7 +32,7 @@ from scanner_opciones.scanner.impact import explain_empty
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, dte_range
 from scanner_opciones.scanner.profiles import Profile
 from scanner_opciones.scanner.market import vix_advice
-from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
+from scanner_opciones.scanner.quality import is_exempt, spread_universe_reject, ticker_quality_reject
 from scanner_opciones.scanner.spread_check import COLUMNS as SPREAD_CHECK_COLS
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
@@ -200,7 +200,7 @@ def quality_counts(infos: dict, tickers: list[str], base, qcfg) -> dict:
 
     def passing(**overrides) -> int:
         c = base.with_filters(**overrides)
-        return sum(1 for t in tickers if ticker_quality_reject(infos.get(t) or TickerInfo(t), c, qcfg.exempt_sectors) is None)
+        return sum(1 for t in tickers if ticker_quality_reject(infos.get(t) or TickerInfo(t), c, qcfg.exempt_entries) is None)
 
     by: dict = {("require_profitable", True): passing(require_profitable=True),
                 ("require_positive_fcf", True): passing(require_positive_fcf=True),
@@ -307,6 +307,9 @@ SPREAD_FIELDS = (    # valores iniciales del modo Spread del Scanner (`scanner.s
     ("width_options", "Anchos que se prueban ($, separados por comas)", "floats"),
     ("min_return_on_risk_pct", "Retorno mín. sobre riesgo (%, hasta el vencimiento)", "float"),
     ("min_credit_usd", "Crédito mín. ($ por contrato)", "float"),
+    ("max_combo_spread_pct", "Spread bid/ask máx. del combo (% del crédito)", "float"),
+    ("min_long_oi", "OI mín. de la pata comprada", "int"),
+    ("max_long_spread_pct", "Spread bid/ask máx. de la pata comprada (%)", "float"),
     ("max_loss_nlv_pct", "Pérdida máxima (% del NLV)", "float"),
     ("max_naked_strike", "Strike máximo de la put desnuda en «Ambos» ($)", "float"),
     ("usd_per_base", "Dólares por unidad de moneda base (vacío = el de IBKR)", "ofloat"),
@@ -734,13 +737,20 @@ def create_app(
         criteria = base.with_filters(**overrides)
         total_rows = len(rows)
         exempt_tickers: set[str] = set()
+        exempt_entries = service.quality_exempt()
+        spread_only = service.spread_only_tickers()      # solo en fuentes aptas para spreads: liquidez y precio en vez de calidad de la empresa
+        sucfg = service.settings.spread_universe
         shown = []
         for row in rows:
             info = replace(qinfos.get(row.ticker) or TickerInfo(row.ticker),
                            sector=_sector_of(row, sector_col, sectors) or ident.get(row.ticker, ("", ""))[1] or None)
-            if is_exempt(info, qcfg.exempt_sectors):
+            if row.ticker in spread_only:
+                if spread_universe_reject(info, sucfg.min_option_liquidity, sucfg.price_min, sucfg.price_max) is None:
+                    shown.append(row)
+                continue
+            if is_exempt(info, exempt_entries):
                 exempt_tickers.add(row.ticker)
-            if ticker_quality_reject(info, criteria, qcfg.exempt_sectors) is None:
+            if ticker_quality_reject(info, criteria, exempt_entries) is None:
                 shown.append(row)
         rows = shown
         labels = {key: label for key, _, _, label, _, _ in SOLVENCY_UI}
@@ -767,6 +777,9 @@ def create_app(
                       source_info=info, in_watchlist=set(service.watchlist.list()),
                       qinfos=qinfos, with_quality=with_quality, edgar=bool(service.settings.edgar.contact.strip()),
                       exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors),
+                      spread_only=spread_only, spread_sources=service.spread_source_names(),
+                      spread_cfg=sucfg, spread_stale=service.spread_universe_stale(),
+                      spread_builtin=sucfg.source_name,
                       total_rows=total_rows, qform=form, filter_error=filter_error, n_active=n_active, q_presets=q_presets,
                       solvency=solvency_controls(qcfg, form), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
                       quality_opts=dict(quarters=qcfg.positive_quarters_options,
@@ -859,6 +872,20 @@ def create_app(
         remembered.pop("universe", None)
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
 
+    @app.post("/universe/source/spread")
+    async def universe_source_spread(request: Request):
+        """Marca (`on=1`) o desmarca una fuente como apta para spreads."""
+        form = await request.form()
+        source, on = str(form.get("src", "")), str(form.get("on", "")) == "1"
+        try:
+            service.set_spread_source(source, on)
+        except WatchlistError as exc:
+            return RedirectResponse(f"/universe?{urlencode({'message': _grp('err', 'Error', [], str(exc))})}", status_code=303)
+        remembered.pop("universe", None)
+        what = "apta para spreads" if on else "ya no es apta para spreads"
+        msg = _grp("ok", f"{source}: {what}", [], "")
+        return RedirectResponse(f"/universe?{urlencode({'message': msg, 'src': source})}", status_code=303)
+
     @app.post("/universe/source/remove")
     async def universe_source_remove(request: Request):
         """Quita de una fuente los tickers marcados (`scope=selected`) o todos (`scope=all`)."""
@@ -935,6 +962,7 @@ def create_app(
         sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
         form.update(mode="put", set=set_name, best_width=True,
                     use_rr=True, rr=_fmt(sp.min_return_on_risk_pct), use_mc=True, mc=_fmt(sp.min_credit_usd),
+                    use_cs=True, cs=_fmt(sp.max_combo_spread_pct), use_lo=True, lo=_fmt(sp.min_long_oi), use_ls=True, ls=_fmt(sp.max_long_spread_pct),
                     use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_ns=True, ns=_fmt(sp.max_naked_strike))
 
         criteria, error, warnings = None, None, []
@@ -944,15 +972,15 @@ def create_app(
                 form["mode"] = qp.get("mode", "put")
                 if form["mode"] not in ("put", "spread", "both"):
                     raise ValueError("modo desconocido")
-                if any(key in qp for key in ("rr", "mc", "mn", "ns")):   # bloque visible: lo enviado manda
+                if any(key in qp for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ns")):   # bloque visible: lo enviado manda
                     form["best_width"] = "best_width" in qp
                 # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
                 # de instrumento) los límites conservan sus valores marcados por defecto
-                for shown_keys in (("rr", "mc", "mn"), ("ns",)):
+                for shown_keys in (("rr", "mc", "ss", "cs", "lo", "ls", "mn"), ("ns",)):
                     if any(key in qp for key in shown_keys):
                         for key in shown_keys:
                             form[f"use_{key}"] = f"use_{key}" in qp
-                for key in ("rr", "mc", "mn", "ns"):
+                for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ns"):
                     if key in qp:
                         form[key] = qp.get(key, "").strip()
                 for key in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -1082,6 +1110,9 @@ def create_app(
                 for use, key, field_name, label, upper in (
                         ("use_rr", "rr", "min_return_on_risk_pct", "Retorno s/ riesgo mín. (%)", None),
                         ("use_mc", "mc", "min_spread_credit", "Crédito mín. ($ por contrato)", None),
+                        ("use_lo", "lo", "min_long_oi", "OI mín. de la pata comprada", None),
+                        ("use_cs", "cs", "max_combo_spread_pct", "Spread máx. del combo (% del crédito)", None),
+                        ("use_ls", "ls", "max_long_spread_pct", "Spread máx. de la pata comprada (%)", None),
                         ("use_mn", "mn", "max_loss_nlv_pct", "Pérdida máxima (% del NLV)", 100)):
                     if form[use]:
                         overrides[field_name] = _required(form[key], float, label)

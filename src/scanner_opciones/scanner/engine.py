@@ -55,8 +55,10 @@ def run_scan(
     exempt_sectors: Optional[Sequence[str]] = None,
     atr: Optional[dict[str, float]] = None,
     nlv_usd: Optional[float] = None,
+    spread_only: frozenset = frozenset(),
 ) -> ScanOutput:
-    """`bars` (cierres diarios por ticker) y `technical` solo hacen falta si `criteria.technical_active`."""
+    """`bars` (cierres diarios por ticker) y `technical` solo hacen falta si `criteria.technical_active`. Los tickers de `spread_only`
+    (solo están en fuentes aptas para spreads) no salen como put desnuda: solo en modo Spread, o su spread en «Ambos»."""
     exempt = exempt_sectors
     naked_min_yield = criteria.min_yield_pct    # en modo «Ambos» solo lo exige la put desnuda
     if criteria.spread_mode:   # el yield sobre el strike no vale para un spread: lo sustituyen crédito/ancho y retorno sobre riesgo
@@ -69,8 +71,10 @@ def run_scan(
         c = snap.contract
         info = infos.get(c.ticker)
         price = info.underlying_price if info else None
-        why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info,
-                            (atr or {}).get(c.ticker))
+        why = "solo spreads (fuente apta para spreads)" if c.ticker in spread_only and not criteria.spread_mode else None
+        if why is None:
+            why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info,
+                                (atr or {}).get(c.ticker))
         if why is None and criteria.quality_active:
             why = quality_reject(info, c.expiry, criteria, today, exempt if exempt is not None else DEFAULT_EXEMPT)
         if why is None and tech is not None:
@@ -85,7 +89,7 @@ def run_scan(
         results.append(build_result(snap, info, positions, criteria, today))
     results.sort(key=lambda r: r.yield_ref_annualized_pct or 0.0, reverse=True)
     spreads = build_spreads(results, snapshots, criteria, positions, nlv_usd) if criteria.spread_mode else []
-    mixed = build_mixed(results, spreads, criteria, positions, nlv_usd, naked_min_yield) if criteria.mixed else []
+    mixed = build_mixed(results, spreads, criteria, positions, nlv_usd, naked_min_yield, spread_only) if criteria.mixed else []
     return ScanOutput(results, rejected, rejections, spreads, mixed)
 
 

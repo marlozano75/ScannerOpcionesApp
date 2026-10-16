@@ -48,7 +48,11 @@ ticker pasa la calidad; si no, su spread.
 
 ## 2. Cambios priorizados
 
-### P1 — Universo apto para spreads (prioridad alta)
+### P1 — Universo apto para spreads (prioridad alta) — IMPLEMENTADO 2026-10-16
+
+> Hecho: `scanner.quality.etf_index_symbols` (ETF exentos), fuentes aptas para spreads (liquidez y precio en vez de calidad, solo modo Spread)
+> y la rutina semanal del universo (`scripts/actualizar_universo_bps.ps1`). La config final usa `spread_universe.min_option_liquidity`,
+> `price_min` y `price_max` en lugar de `price_range`. Ver CLAUDE.md.
 
 **Objetivo:** ampliar los tickers escaneados más allá de las empresas de calidad, porque en un
 spread el riesgo está definido y lo que importa es la liquidez de las opciones.

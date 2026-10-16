@@ -29,6 +29,7 @@ from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_e
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.community.data import CommunityData, CommunityError, load_community
 from scanner_opciones.community.fit import strategy_fits
+from scanner_opciones.universe_bps.data import SpreadUniverse, UniverseBpsError, load_universe
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, classify_dte
@@ -64,6 +65,8 @@ log = logging.getLogger(__name__)
 LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco completo
 EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos): ya no se usa, se vacía al arrancar
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
+SPREAD_SOURCES = "spread_sources"       # clave de `meta`: fuentes del Universo marcadas a mano como aptas para spreads (JSON, lista de nombres)
+SPREAD_UNIVERSE_SYNCED = "spread_universe_synced"   # clave de `meta`: `generated_at` del JSON del universo de spreads ya volcado en su fuente
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
 SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
@@ -161,6 +164,9 @@ class AppService:
         self._community: Optional[tuple[float, CommunityData]] = None    # (mtime del JSON, datos) de la comunidad de Tortuga
         self._community_error: Optional[str] = None
         self._community_syncing = False
+        self._spread_universe: Optional[tuple[float, SpreadUniverse]] = None     # (mtime del JSON, universo) de los spreads
+        self._spread_universe_error: Optional[str] = None
+        self._spread_universe_syncing = False
         # cotizaciones en directo de las ideas fuera de lo guardado: (hora, generated_at del JSON, snapshots, fichas, cierres)
         self._community_live: Optional[tuple[datetime, str, dict, dict, dict]] = None
         self._community_live_running = False
@@ -610,6 +616,7 @@ class AppService:
             await self.refresh_all()
         self.update_financials_in_background()
         self.sync_community_in_background()
+        self.sync_spread_universe_in_background()
         if self.manual_sources:
             self.launch(self.complete_info())
         if self.settings.daily_update.run_on_startup:
@@ -927,8 +934,7 @@ class AppService:
             return
         try:
             data = json.loads(raw)
-            spreads = (SpreadSettings(**{k: v for k, v in data["spreads"].items() if k in SpreadSettings.model_fields})
-                       if data.get("spreads") else None)   # las guardadas antes no lo traen; los filtros retirados se ignoran
+            spreads = SpreadSettings(**data["spreads"]) if data.get("spreads") else None   # las guardadas antes no lo traen
             self._set_scanner_config(tuple(ScannerPreset(**p) for p in data["presets"]), StrategySettings(**data["strategy"]), spreads)
         except Exception:   # una configuración guardada que ya no es válida (cambió el modelo): se usa la de config.yaml
             log.exception("Configuración del Scanner guardada no válida; se usa la de config.yaml")
@@ -965,6 +971,113 @@ class AppService:
         self._scan_memo.clear()      # los criterios por defecto y el exento de sectores pueden cambiar
         self.meta.set(SCANNER_USER_CONFIG, "")
         self._set_scanner_config(*self._yaml_scanner)
+
+    # ---- Universo para bull put spreads: fuentes aptas para spreads -----------------------------
+    def spread_universe(self) -> Optional[SpreadUniverse]:
+        """Universo para spreads (JSON de la rutina diaria), releído solo si el fichero cambió. Si el nuevo es inválido se conservan
+        los últimos buenos. None si no existe."""
+        path = Path(self.settings.spread_universe.path)
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            self._spread_universe = None
+            return None
+        if self._spread_universe is not None and self._spread_universe[0] == mtime:
+            return self._spread_universe[1]
+        try:
+            data = load_universe(path)
+        except UniverseBpsError as exc:
+            if self._spread_universe_error != str(exc):
+                log.warning("Universo de spreads: %s no es válido (%s); se conservan los últimos datos buenos", path, exc)
+                self._spread_universe_error = str(exc)
+            return self._spread_universe[1] if self._spread_universe is not None else None
+        self._spread_universe, self._spread_universe_error = (mtime, data), None
+        for w in data.warnings:
+            log.warning("Universo de spreads: %s", w)
+        return data
+
+    def spread_universe_stale(self) -> Optional[int]:
+        """Días desde que se generó el JSON si superan `spread_universe.stale_days` (la rutina diaria no ha corrido); None si está al día o no hay."""
+        data = self.spread_universe()
+        if data is None:
+            return None
+        now, generated = self.now(), data.generated_at
+        if (generated.tzinfo is None) != (now.tzinfo is None):
+            now, generated = now.replace(tzinfo=None), generated.replace(tzinfo=None)
+        days = (now - generated).days
+        return days if days > self.settings.spread_universe.stale_days else None
+
+    def spread_source_names(self) -> set[str]:
+        """Fuentes del Universo aptas para spreads: la del universo de spreads (`spread_universe.source_name`) y las que el usuario marcó."""
+        try:
+            marked = json.loads(self.meta.get(SPREAD_SOURCES) or "[]")
+        except (ValueError, TypeError):
+            marked = []
+        return {self.settings.spread_universe.source_name, *(n for n in marked if isinstance(n, str))}
+
+    def set_spread_source(self, name: str, on: bool) -> None:
+        """Marca o desmarca una fuente del Universo como apta para spreads (la propia del universo de spreads no se puede desmarcar)."""
+        if name not in {s.name for s in self.universe_sources}:
+            raise WatchlistError(f"La fuente «{name}» no existe")
+        marked = self.spread_source_names() - {self.settings.spread_universe.source_name}
+        marked = marked | {name} if on else marked - {name}
+        self.meta.set(SPREAD_SOURCES, json.dumps(sorted(marked)))
+        self.state.data_version += 1
+
+    def spread_only_tickers(self) -> frozenset:
+        """Tickers que SOLO están en fuentes aptas para spreads: no pasan filtros de la empresa y solo se escanean como spread."""
+        def build() -> frozenset:
+            flagged = self.spread_source_names()
+            return frozenset(t for t, names in self.ticker_lists().items() if names and all(n in flagged for n in names))
+        return self._memo("spread_only", build)
+
+    def quality_exempt(self) -> tuple[str, ...]:
+        """Sectores y tickers exentos de los filtros de la empresa: los de `scanner.quality` más los ETF del universo de spreads."""
+        base = self.settings.scanner.quality.exempt_entries
+        extra = self.spread_universe()
+        return (*base, *(f"={t}" for t in sorted(extra.etfs()))) if extra else base
+
+    def sync_spread_universe_in_background(self) -> None:
+        """Vuelca el universo de spreads en su fuente del Universo si hay un JSON nuevo, sin esperar y sin solaparse."""
+        if self._spread_universe_syncing or self.spread_universe() is None:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._spread_universe_syncing = True
+
+        async def run() -> None:
+            try:
+                await self.sync_spread_universe_source()
+            except Exception:
+                log.exception("No se pudo actualizar la fuente del universo de spreads")
+            finally:
+                self._spread_universe_syncing = False
+
+        self.launch(run())
+
+    async def sync_spread_universe_source(self) -> Optional[dict]:
+        """La fuente del Universo (`spread_universe.source_name`) pasa a ser los miembros activos (niveles A-C) del JSON. No hace nada si
+        ese JSON ya se volcó. Devuelve el resultado de `add_manual_tickers`."""
+        cfg = self.settings.spread_universe
+        data = self.spread_universe()
+        if data is None:
+            return None
+        stamp = data.generated_at.isoformat()
+        if self.meta.get(SPREAD_UNIVERSE_SYNCED) == stamp and cfg.source_name in self.manual_sources:
+            return None
+        parsed = parse_tokens([m.ticker for m in data.active()])
+        if not parsed.tickers:
+            return None
+        try:
+            result = await self.add_manual_tickers(parsed, cfg.source_name, replace_source=True)
+        except WatchlistError as exc:
+            log.warning("Universo de spreads: no se pudo actualizar la fuente «%s»: %s", cfg.source_name, exc)
+            return None
+        self.meta.set(SPREAD_UNIVERSE_SYNCED, stamp)
+        self.state.data_version += 1
+        return result
 
     def community(self) -> Optional[CommunityData]:
         """Datos de la comunidad de Tortuga (JSON de la rutina diaria), releídos solo si el fichero cambió. None si no existe; si el nuevo
@@ -1361,6 +1474,7 @@ class AppService:
         self.update_iv_stats_if_due()            # ídem para IV Rank/Percentile, HV30 y cambio de IV (también con el mercado cerrado)
         self.update_quality_if_due()             # ídem: solo si tastytrade ha recalculado sus métricas desde la última descarga
         self.sync_community_in_background()      # ídem: solo si la rutina diaria dejó un JSON nuevo de la comunidad
+        self.sync_spread_universe_in_background()   # ídem con el universo de spreads (rutina diaria)
         if not self._paused() or self._capture_needed():
             return await self.refresh_all()
         log.info("Mercado cerrado: se refrescan solo cartera y VIX")
@@ -1541,7 +1655,7 @@ class AppService:
         return run_scan(
             snapshots, self.infos(criteria), with_spreads(self.state.positions), criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
-            self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots), self.nlv_usd(),
+            self.quality_exempt(), self._atr(criteria, snapshots), self.nlv_usd(), self.spread_only_tickers(),
         )
 
     def scan_both(self, put_criteria: ScanCriteria, spread_criteria: ScanCriteria, include_rejections: bool = False) -> ScanOutput:
@@ -1550,7 +1664,7 @@ class AppService:
         put_out = self.scan(put_criteria.with_filters(spread_mode=False, mixed=False), include_rejections)
         spread_out = self.scan(spread_criteria.with_filters(spread_mode=True, mixed=False), include_rejections)
         mixed = build_mixed_sets(put_out.results, spread_out.results, spread_out.spreads, spread_criteria, with_spreads(self.state.positions),
-                                 self.nlv_usd(), put_criteria.min_yield_pct)
+                                 self.nlv_usd(), put_criteria.min_yield_pct, self.spread_only_tickers())
         return ScanOutput(put_out.results, put_out.rejected_count, {**spread_out.rejections, **put_out.rejections}, spread_out.spreads, mixed)
 
     def _atr(self, criteria: ScanCriteria, snapshots) -> Optional[dict[str, float]]:
@@ -1599,7 +1713,7 @@ class AppService:
         bars = self._scan_closes(snapshots) if criteria.technical_active else None
         return impact_report(
             snapshots, self.infos(criteria), criteria, self.now().date(), bars, self.settings.scanner.technical,
-            self.settings.scanner.quality.exempt_sectors, self._atr(criteria, snapshots),
+            self.quality_exempt(), self._atr(criteria, snapshots),
         )
 
     def assignment(self) -> AssignmentExposure:

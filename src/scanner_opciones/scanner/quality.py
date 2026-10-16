@@ -3,7 +3,7 @@
 Un dato que falta cuenta como «no cumple» en los filtros que lo exigen (beneficios, trimestres, liquidez,
 solvencia): que se desconozca no es que sea bueno. Los sectores exentos (`scanner.quality.exempt_sectors`:
 financiero, energía, utilities, materiales, inmobiliario) pasan sin medirse el apalancamiento, la solvencia y la caja.
-La excepción es el filtro de resultados: sin fecha conocida no se puede saber si caen antes del vencimiento, y no se
+Los ETF e índices (`etf_index_symbols`) quedan además exentos de beneficios y trimestres. La excepción es el filtro de resultados: sin fecha conocida no se puede saber si caen antes del vencimiento, y no se
 descarta nada. Una fecha pasada (la del último informe) se ignora.
 """
 from __future__ import annotations
@@ -18,11 +18,18 @@ from scanner_opciones.scanner.criteria import SOLVENCY_RULES, ScanCriteria
 DEFAULT_EXEMPT = ("financ", "energy", "utilit", "material", "real estate")
 
 
+def is_fund(info: Optional[TickerInfo], exempt_sectors: Sequence[str] = DEFAULT_EXEMPT) -> bool:
+    """ETF o índice: aparece en la lista con el prefijo «=» (`scanner.quality.etf_index_symbols`). No tiene EPS ni datos en EDGAR."""
+    return info is not None and f"={info.ticker.upper()}" in exempt_sectors
+
+
 def is_exempt(info: Optional[TickerInfo], exempt_sectors: Sequence[str] = DEFAULT_EXEMPT) -> bool:
     """Sectores con una estructura de deuda y de caja especial (bancos y aseguradoras, energía, utilities, materiales,
-    inmobiliarias): el apalancamiento, la solvencia y el flujo de caja no se les exigen, pasan sin medirse."""
+    inmobiliarias) y ETF/índices: el apalancamiento, la solvencia y el flujo de caja no se les exigen, pasan sin medirse."""
+    if is_fund(info, exempt_sectors):
+        return True
     sector = ((info.sector if info else None) or "").lower()
-    return any(part in sector for part in exempt_sectors)
+    return any(part in sector for part in exempt_sectors if not part.startswith("="))
 
 
 def ticker_quality_reject(
@@ -30,10 +37,11 @@ def ticker_quality_reject(
 ) -> Optional[str]:
     """Motivo por el que el ticker no pasa los filtros de calidad de la EMPRESA (todos menos el de resultados, que
     depende del vencimiento de cada contrato), o None. Es lo que usa la vista del Universo."""
-    if criteria.require_profitable and (info is None or info.eps_ttm is None or info.eps_ttm <= 0):
+    fund = is_fund(info, exempt_sectors)     # un ETF no tiene beneficios ni trimestres: solo se le pide la liquidez de opciones
+    if criteria.require_profitable and not fund and (info is None or info.eps_ttm is None or info.eps_ttm <= 0):
         return "sin beneficios (EPS 12 m ≤ 0 o sin dato)"
     n = criteria.min_positive_quarters
-    if n is not None and (info is None or info.positive_quarters is None or info.positive_quarters < n):
+    if n is not None and not fund and (info is None or info.positive_quarters is None or info.positive_quarters < n):
         return f"menos de {n} de los últimos 4 trimestres con beneficios"
     if criteria.min_option_liquidity is not None and (
         info is None or info.option_liquidity is None or info.option_liquidity < criteria.min_option_liquidity
@@ -75,4 +83,17 @@ def quality_reject(
     if criteria.avoid_earnings and info is not None and info.next_earnings is not None:
         if today <= info.next_earnings <= expiry:
             return f"resultados el {info.next_earnings} antes del vencimiento"
+    return None
+
+
+def spread_universe_reject(
+    info: Optional[TickerInfo], min_liquidity: int, price_min: float, price_max: Optional[float] = None,
+) -> Optional[str]:
+    """Motivo por el que un ticker de una fuente apta para spreads no sirve, o None. No se mide la empresa (en un spread el riesgo está
+    definido): solo la liquidez de opciones (sin dato no cumple) y el precio del subyacente (sin precio no se descarta: aún no se ha bajado)."""
+    if info is None or info.option_liquidity is None or info.option_liquidity < min_liquidity:
+        return f"liquidez de opciones inferior a {min_liquidity} (o sin dato)"
+    price = info.underlying_price
+    if price is not None and (price < price_min or (price_max is not None and price > price_max)):
+        return f"precio {price:g} fuera de {price_min:g}–{price_max:g}" if price_max is not None else f"precio {price:g} inferior a {price_min:g}"
     return None
