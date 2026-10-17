@@ -11,7 +11,7 @@ from html import escape
 from scanner_opciones.metrics.technical import StrikeHistory
 
 W, H = 760, 300
-LEFT, RIGHT, TOP, BOTTOM = 58, 22, 44, 34
+LEFT, RIGHT, TOP, BOTTOM = 58, 84, 20, 34
 _MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 BLUE, RED, YELLOW, ORANGE = "#2f6fd1", "#d64545", "#d9a400", "#e87a1e"
 MA50, MA200 = "#8a5cd0", "#1f9d8a"
@@ -48,10 +48,32 @@ def _series(h: StrikeHistory) -> list[tuple[date, float]]:
 
 
 def _pill(x: float, y: float, text: str, fill: str, anchor: str = "middle") -> str:
-    w = 7.2 * len(text) + 18
+    w = 6.4 * len(text) + 12
     left = x - w / 2 if anchor == "middle" else (x - w if anchor == "end" else x)
-    return (f'<rect x="{left:.1f}" y="{y - 11:.1f}" width="{w:.1f}" height="22" rx="11" fill="{fill}"/>'
-            f'<text x="{left + w / 2:.1f}" y="{y + 4:.1f}" text-anchor="middle" font-size="11.5" font-weight="700" fill="#fff">{escape(text)}</text>')
+    return (f'<rect x="{left:.1f}" y="{y - 8:.1f}" width="{w:.1f}" height="16" rx="8" fill="{fill}"/>'
+            f'<text x="{left + w / 2:.1f}" y="{y + 3.5:.1f}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">{escape(text)}</text>')
+
+
+def _side_tags(tags: list[tuple[float, str, str, str]], x: float, top: float, bottom: float) -> str:
+    """Etiquetas de valor en el margen derecho (fuera de la zona de datos), separadas entre sí para que no se pisen.
+    Cada una es (y, texto, color, clase CSS de la media o '')."""
+    gap = 17.0
+    tags = sorted(tags, key=lambda t: t[0])
+    ys = [t[0] for t in tags]
+    for i in range(1, len(ys)):
+        ys[i] = max(ys[i], ys[i - 1] + gap)
+    over = ys[-1] - bottom if ys else 0
+    if over > 0:
+        ys = [y - over for y in ys]
+        for i in range(len(ys) - 2, -1, -1):
+            ys[i] = min(ys[i], ys[i + 1] - gap)
+    out = []
+    for (y0, text, colour, cls), y in zip(tags, ys):
+        y = max(y, top)
+        pill = _pill(x, y, text, colour, anchor="start")
+        lead = f'<line x1="{x - 6:.1f}" x2="{x:.1f}" y1="{y0:.1f}" y2="{y:.1f}" stroke="{colour}" stroke-width="1" opacity=".6"/>'
+        out.append(f'<g class="{cls}">{lead}{pill}</g>' if cls else lead + pill)
+    return "".join(out)
 
 
 def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: float) -> str:
@@ -97,6 +119,7 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     sy = px_y(strike)
 
     g = []
+    tags: list[tuple[float, str, str, str]] = []
     for i in range(5):                                                 # cuadrícula y precios del eje
         v = lo + (hi - lo) * i / 4
         y = px_y(v)
@@ -110,15 +133,14 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     g.append(f'<path d="{line}" fill="none" stroke="{BLUE}" stroke-width="2.2"/>')
     for label, key, colour, s in mas:                                  # medias móviles diarias (activables desde la leyenda)
         mp = [(px_x(d), px_y(v)) for d, v in s]
-        g.append(f'<g class="sh-ma {key}"><path d="{_smooth(mp)}" fill="none" stroke="{colour}" stroke-width="1.4" opacity=".9"/>'
-                 f'<text x="{mp[-1][0] - 4:.1f}" y="{mp[-1][1] - 6:.1f}" text-anchor="end" font-size="10.5" font-weight="700" '
-                 f'fill="{colour}">{label} {_usd(s[-1][1])}</text></g>')
+        g.append(f'<g class="sh-ma {key}"><path d="{_smooth(mp)}" fill="none" stroke="{colour}" stroke-width="1.4" opacity=".9"/></g>')
+        tags.append((mp[-1][1], _usd(s[-1][1]), colour, f"sh-ma {key}"))
     g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{sy:.1f}" y2="{sy:.1f}" stroke="{RED}" stroke-width="1.6" stroke-dasharray="6 4"/>')
     g.append(f'<text x="{LEFT - 8}" y="{sy + 4:.1f}" text-anchor="end" font-size="11" font-weight="700" fill="{RED}">${strike:,.0f}</text>')
     for (d, p), (x, y) in zip(h.months, pts):                          # puntos: rojo ≤ strike, amarillo cerca, azul resto
         colour = RED if p <= strike else (YELLOW if p <= strike * (1 + near_pct / 100) else BLUE)
         g.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.6" fill="{colour}"><title>{_mon(d)}: {_usd(p)}</title></circle>')
-    g.append(_pill(LEFT + (W - LEFT - RIGHT) * 0.5, sy, f"STRIKE {_usd(strike)}", RED))
+    tags.append((sy, _usd(strike), RED, ""))
     if h.touch:                                                        # último toque: aro naranja con su etiqueta
         d, p, days = h.touch
         if d.toordinal() >= t0:
@@ -129,9 +151,10 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
             anchor = "end" if x > W * 0.6 else "start"
             tx = x - 4 if anchor == "end" else x + 4
             g.append(f'<text x="{tx:.1f}" y="{ty:.1f}" text-anchor="{anchor}" font-size="11.5" font-weight="700" fill="{ORANGE}">{escape(label)}</text>')
-    g.append(_pill(pts[-1][0], max(pts[-1][1] - 20, 14), f"ACTUAL {_usd(current)}", BLUE, anchor="end"))
+    tags.append((pts[-1][1], _usd(current), BLUE, ""))
+    g.append(_side_tags(tags, W - RIGHT + 12, TOP, base_y))
 
-    legend = (f'<div class="sh-legend"><span style="--c:{BLUE}">Cierre mensual</span><span style="--c:{RED}" class="dash">Strike {_usd(strike)}</span>'
+    legend = (f'<div class="sh-legend"><span style="--c:{BLUE}">Cierre mensual (actual)</span><span style="--c:{RED}" class="dash">Strike {_usd(strike)}</span>'
               f'<span style="--c:{YELLOW}">A menos de {near_pct:g}% del strike</span><span style="--c:{RED}">En o bajo el strike</span>'
               f'<span style="--c:{ORANGE}" class="ring">Último toque (cierre diario)</span>'
               + "".join(f'<label class="sh-tog" style="--c:{c}"><input type="checkbox" data-ma="{k}" checked> {lb}</label>' for lb, k, c, _ in mas)

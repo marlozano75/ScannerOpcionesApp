@@ -738,7 +738,7 @@ def test_strike_chart_endpoint_and_link(client_and_service):
     svc.bars.upsert("AAPL", bars)
     last_low = max(d for d, p in bars if p <= 75.0)
     out = client.get("/chart/strike?ticker=AAPL&strike=75").text
-    assert "<svg" in out and "STRIKE $75.00" in out and "ACTUAL $" in out
+    assert "<svg" in out and "Strike $75.00" in out and "(actual)" in out
     assert f"hace {(today - last_low).days} días" in out and "meses por encima del strike $75.00" in out
     assert "Sin toques del strike" in client.get("/chart/strike?ticker=AAPL&strike=10").text
     assert client.get("/chart/strike?ticker=AAPL&strike=abc").status_code == 422
