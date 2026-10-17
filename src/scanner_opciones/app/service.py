@@ -52,6 +52,8 @@ from scanner_opciones.storage.repositories import (
 )
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.filings import FilingAlert
+from scanner_opciones.tortuga.radar import RadarData, RadarError, load_radar, passes as radar_passes
+from scanner_opciones.tortuga.routines import BY_KEY as TORTUGA_ROUTINES, RoutineRunner
 from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider
 from scanner_opciones.marketdata.names import CompanyNameProvider
@@ -69,6 +71,7 @@ EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos)
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
 SPREAD_SOURCES = "spread_sources"       # clave de `meta`: fuentes del Universo marcadas a mano como aptas para spreads (JSON, lista de nombres)
 SPREAD_UNIVERSE_SYNCED = "spread_universe_synced"   # clave de `meta`: `generated_at` del JSON del universo de spreads ya volcado en su fuente
+RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
 SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
@@ -129,6 +132,7 @@ class AppService:
         fundamentals: Optional[FundamentalsProvider] = None,
         financials: Optional[FinancialsProvider] = None,
         names: Optional[CompanyNameProvider] = None,
+        tortuga: Optional[RoutineRunner] = None,
     ) -> None:
         self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
@@ -167,6 +171,11 @@ class AppService:
         self._community: Optional[tuple[float, CommunityData]] = None    # (mtime del JSON, datos) de la comunidad de Tortuga
         self._community_error: Optional[str] = None
         self._community_syncing = False
+        self.tortuga = tortuga                    # rutinas que lanzan la CLI de Claude (None en los tests: nunca se ejecuta nada externo)
+        self._tortuga_busy = False
+        self._radar: Optional[tuple[float, RadarData]] = None
+        self._radar_error: Optional[str] = None
+        self._radar_syncing = False
         self._spread_universe: Optional[tuple[float, SpreadUniverse]] = None     # (mtime del JSON, universo) de los spreads
         self._spread_universe_error: Optional[str] = None
         self._spread_universe_syncing = False
@@ -1095,6 +1104,121 @@ class AppService:
         self.state.data_version += 1
         return result
 
+    # ---- Tortuga: rutinas que lanza la propia aplicación y radar de Bull Put Spreads -------------------
+    def tortuga_in_background(self, force: Optional[str] = None) -> bool:
+        """Lanza sin esperar las rutinas de Tortuga que toquen hoy (o solo `force`, a mano) una detrás de otra. False si no hay nada que hacer."""
+        runner = self.tortuga
+        if runner is None or not self.settings.tortuga.enabled or self._tortuga_busy:
+            return False
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+        todo = (list(TORTUGA_ROUTINES.values()) if force == "all" else [TORTUGA_ROUTINES[force]]) if force else runner.due()
+        if not todo:
+            return False
+        self._tortuga_busy = True
+
+        async def run() -> None:
+            try:
+                for routine in todo:
+                    await runner.run_one(routine.key)
+                self.state.data_version += 1
+                self.sync_community_in_background()
+                self.sync_spread_universe_in_background()
+                self.sync_radar_in_background()
+            except Exception:
+                log.exception("Falló una rutina de Tortuga")
+            finally:
+                self._tortuga_busy = False
+
+        self.launch(run())
+        return True
+
+    def radar_spreads(self) -> Optional[RadarData]:
+        """Radar de Bull Put Spreads (JSON de la rutina), releído solo si el fichero cambió; si el nuevo es inválido se conserva el último bueno."""
+        path = Path(self.settings.tortuga.radar_path)
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            self._radar = None
+            return None
+        if self._radar is not None and self._radar[0] == mtime:
+            return self._radar[1]
+        try:
+            data = load_radar(path)
+        except RadarError as exc:
+            if self._radar_error != str(exc):
+                log.warning("Radar de Tortuga: %s no es válido (%s); se conservan los últimos datos buenos", path, exc)
+                self._radar_error = str(exc)
+            return self._radar[1] if self._radar is not None else None
+        self._radar, self._radar_error = (mtime, data), None
+        return data
+
+    def radar_min_yield(self) -> float:
+        """Yield mínimo del periodo (% de la prima sobre el strike) que exige el perfil `tortuga.profile` a las puts; si el perfil no lo
+        fija, el de la estrategia."""
+        name = self.settings.tortuga.profile
+        for prof in self.scanner_profiles():
+            if prof.name == name:
+                value = _to_float(prof.put.get("min_yield"))
+                if value is not None:
+                    return value
+        return self.settings.scanner.strategy.min_yield_pct
+
+    def radar_passing(self) -> list[str]:
+        data = self.radar_spreads()
+        if data is None:
+            return []
+        minimum = self.radar_min_yield()
+        return [r.ticker for r in data.rows if radar_passes(r, minimum)]
+
+    def sync_radar_in_background(self) -> None:
+        if self._radar_syncing or self.radar_spreads() is None:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._radar_syncing = True
+
+        async def run() -> None:
+            try:
+                await self.sync_radar_source()
+            except Exception:
+                log.exception("No se pudo actualizar la fuente del radar de Tortuga")
+            finally:
+                self._radar_syncing = False
+
+        self.launch(run())
+
+    async def sync_radar_source(self) -> Optional[dict]:
+        """La fuente del Universo `tortuga.source_name` pasa a ser los valores del radar cuya put de 30Δ rinde en el periodo al menos el
+        yield del perfil, y esos tickers se añaden a la watchlist (con su actualización diaria en segundo plano). Solo AÑADE a la
+        watchlist: nunca quita nada. No hace nada si ese JSON (con ese umbral) ya se volcó."""
+        cfg = self.settings.tortuga
+        data = self.radar_spreads()
+        if data is None:
+            return None
+        stamp = f"{data.generated_at.isoformat()}|{self.radar_min_yield():g}"
+        if self.meta.get(RADAR_SYNCED) == stamp and cfg.source_name in self.manual_sources:
+            return None
+        parsed = parse_tokens(self.radar_passing())
+        if not parsed.tickers:
+            log.info("Radar de Tortuga: ningún valor llega al yield del perfil «%s»; la fuente «%s» no cambia", cfg.profile, cfg.source_name)
+            return None
+        try:
+            result = await self.add_manual_tickers(parsed, cfg.source_name, replace_source=True)
+        except WatchlistError as exc:
+            log.warning("Radar de Tortuga: no se pudo actualizar la fuente «%s»: %s", cfg.source_name, exc)
+            return None
+        if result["added"]:
+            new = await self.add_watchlist(parse_tokens(list(result["added"])), background=True)
+            result["watchlist_new"] = new
+        self.meta.set(RADAR_SYNCED, stamp)
+        self.state.data_version += 1
+        return result
+
     def community(self) -> Optional[CommunityData]:
         """Datos de la comunidad de Tortuga (JSON de la rutina diaria), releídos solo si el fichero cambió. None si no existe; si el nuevo
         es inválido se conservan los últimos buenos (y se avisa una vez en el log)."""
@@ -1493,6 +1617,8 @@ class AppService:
         self.update_quality_if_due()             # ídem: solo si tastytrade ha recalculado sus métricas desde la última descarga
         self.sync_community_in_background()      # ídem: solo si la rutina diaria dejó un JSON nuevo de la comunidad
         self.sync_spread_universe_in_background()   # ídem con el universo de spreads (rutina diaria)
+        self.tortuga_in_background()             # lanza las rutinas de Tortuga que toquen hoy (CLI de Claude, solo lectura)
+        self.sync_radar_in_background()          # ídem con el radar de Bull Put Spreads: fuente TortugaSpreads y watchlist
         if not self._paused() or self._capture_needed():
             return await self.refresh_all()
         log.info("Mercado cerrado: se refrescan solo cartera y VIX")

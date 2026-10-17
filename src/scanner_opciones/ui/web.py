@@ -29,6 +29,8 @@ from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.portfolio.management import manage_puts
+from scanner_opciones.tortuga.radar import passes as radar_passes
+from scanner_opciones.tortuga.routines import ROUTINES
 from scanner_opciones.scanner.impact import explain_empty
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, dte_range
 from scanner_opciones.scanner.profiles import Profile
@@ -658,6 +660,35 @@ def create_app(
                       auto_reload=service.market.is_open(service.now()), message=message, groups=message_groups(message),
                       keys=[idea_key(v.idea) for v in views], perm_name=service.settings.community.perm_source_name,
                       lists={t: [(source_initials(n), n) for n in names] for t, names in service.ticker_lists().items()})
+
+    # ---- Tortuga: radar de Bull Put Spreads y rutinas -------------------------------------------
+    @app.get("/tortuga", response_class=HTMLResponse)
+    async def tortuga(request: Request, cumple: int = 0, solo: int = 0, message: str = ""):
+        data = service.radar_spreads()
+        minimum = service.radar_min_yield()
+        watch = set(service.watchlist.list())
+        held = {norm_ticker(p.ticker) for p in service.state.positions}
+        items = [dict(row=r, ok=radar_passes(r, minimum), wl=r.ticker in watch, held=norm_ticker(r.ticker) in held)
+                 for r in (data.rows if data else ())]
+        shown = [i for i in items if (not cumple or i["ok"]) and (not solo or i["wl"])]
+        runner = service.tortuga
+        return render(request, "tortuga.html", data=data, items=shown, total=len(items), passing=sum(1 for i in items if i["ok"]),
+                      minimum=minimum, cumple=cumple, solo=solo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
+                      routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,
+                      enabled=runner is not None and service.settings.tortuga.enabled, busy_routines=service._tortuga_busy,
+                      age_days=(service.now().date() - data.as_of).days if data and data.as_of else None)
+
+    @app.post("/tortuga/run")
+    async def tortuga_run(request: Request):
+        """Lanza a mano una rutina de Tortuga (o todas las que toquen si no se indica) sin esperar a su hora."""
+        form = await request.form()
+        key = str(form.get("key", ""))
+        if key not in {"all", *(r.key for r in ROUTINES)}:
+            return Response("Rutina desconocida", status_code=400)
+        started = service.tortuga_in_background(force=key)
+        msg = _grp("ok", "Lanzada", [], "se está ejecutando en segundo plano; recarga la página en un par de minutos") if started else \
+            _grp("skip", "No se ha lanzado", [], "ya hay una rutina en curso, no hay nada pendiente o las rutinas están desactivadas")
+        return RedirectResponse(f"/tortuga?{urlencode({'message': msg})}", status_code=303)
 
     @app.post("/ideas/perm")
     async def ideas_perm(request: Request):

@@ -520,6 +520,33 @@ class CommunitySettings(_Model):
     openings_path: str = "data/community/aperturas.json"   # fechas exactas de apertura de TUS puts vendidas (`scripts/actualizar_aperturas.ps1`)
 
 
+class TortugaSettings(_Model):
+    """Rutinas que la propia aplicación lanza con la CLI de Claude (`claude -p`, solo lectura) para leer el conector de Tortuga Trades:
+    comunidad, aperturas propias, universo de spreads y radar de Bull Put Spreads. Sustituyen a las tareas programadas de `scripts/`.
+    Cada una se ejecuta una vez al día a su hora (hora local) mientras la aplicación está abierta, y también a mano desde la pestaña Tortuga."""
+    enabled: bool = True
+    command: str = "claude"                  # ejecutable de la CLI de Claude (debe estar en el PATH y con la sesión iniciada)
+    model: str = "sonnet"
+    timeout_seconds: int = Field(900, ge=60)  # tiempo máximo de cada rutina
+    retry_minutes: int = Field(120, ge=1)     # tras un fallo no se reintenta hasta pasado este tiempo
+    prompts_dir: str = "scripts"              # carpeta de los *_prompt.md
+    radar_path: str = "data/community/radar_spreads.json"
+    source_name: str = "TortugaSpreads"       # fuente del Universo con los tickers del radar que cumplen el yield del perfil
+    profile: str = "Tastytrade"               # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
+    times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "universo_bps": "11:30", "radar_spreads": "11:45"}
+
+    @model_validator(mode="after")
+    def _check(self) -> "TortugaSettings":
+        for key, value in self.times.items():
+            try:
+                hh, mm = value.split(":")
+                if not (0 <= int(hh) < 24 and 0 <= int(mm) < 60):
+                    raise ValueError
+            except ValueError:
+                raise ValueError(f"tortuga.times.{key}: hora «{value}» no válida (HH:MM)") from None
+        return self
+
+
 class SpreadUniverseSettings(_Model):
     """Universo para bull put spreads (`scripts/actualizar_universo_bps.ps1`, diaria). Sus tickers no pasan por los filtros de calidad de la empresa
     (en un spread el riesgo está definido): solo por liquidez de opciones y precio. Solo salen en el Scanner como spread, nunca como put desnuda."""
@@ -560,6 +587,7 @@ class Settings(_Model):
     management: ManagementSettings = ManagementSettings()
     community: CommunitySettings = CommunitySettings()
     spread_universe: SpreadUniverseSettings = SpreadUniverseSettings()
+    tortuga: TortugaSettings = TortugaSettings()
 
     @property
     def refresh_interval_minutes(self) -> float:

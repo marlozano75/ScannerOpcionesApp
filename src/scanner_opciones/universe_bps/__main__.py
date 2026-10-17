@@ -28,8 +28,8 @@ def _read(path: "str | Path"):
         raise UniverseBpsError(f"no se pudo leer {path}: {exc}") from exc
 
 
-def build(radar_path: str, out_path: str, config: str = DEFAULT_CONFIG, now: Optional[datetime] = None) -> str:
-    cfg = load_settings(config).spread_universe
+def build(radar_path: str, out_path: str, config: str = DEFAULT_CONFIG, now: Optional[datetime] = None, cfg=None) -> str:
+    cfg = cfg or load_settings(config).spread_universe
     now = now or datetime.now().astimezone()
     seed, excluded = parse_seed(_read(cfg.seed_path))
     radar = parse_radar(_read(radar_path))

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "_msgs.html" %}
+{% macro n(x, d=2) %}{{ x|num(d) if x is not none else '—' }}{% endmacro %}
+<style>
+  .tscroll table th.tk, .tscroll table td.tk { position:sticky; left:0; background:var(--panel); z-index:1; white-space:nowrap; box-shadow:inset -1px 0 0 var(--line); }
+  .tr-ok { color:#1d6b3f; font-weight:700; } .tr-ko { color:var(--mute); }
+  .tr-bar { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin:0 0 10px; }
+  table.routines td, table.routines th { padding:3px 10px; text-align:left; font-size:13px; }
+  .tr-err { color:#b3361b; }
+</style>
+<div class="card">
+  <h2>Tortuga · Bull Put Spreads del Market Radar</h2>
+  {% if not data %}
+  <p class="muted">Todavía no hay datos del radar. {% if enabled %}La aplicación los pide sola cada día a las {{ cfg.times.get('radar_spreads') }}; también puedes lanzarlos a mano abajo.{% else %}Las rutinas de Tortuga están desactivadas (<code>tortuga.enabled</code>) o falta el lanzador.{% endif %}</p>
+  {% else %}
+  <p class="muted" style="margin-top:0">Valores del Market Radar de Tortuga cuya estrategia propuesta es <b>Bull Put Spread</b>, con los datos del {{ data.as_of.strftime('%d/%m/%Y') if data.as_of else '—' }}{% if age_days and age_days > 3 %} <b class="tr-err">(hace {{ age_days }} días: la rutina no se ha ejecutado)</b>{% endif %}.
+    El radar se calcula una vez al día. La lista no trae los strikes del spread que propone (solo su ficha, una por valor), así que se muestra la
+    <b>put de 30Δ</b> de referencia: ✓ indica que su prima cubre al menos el <b>{{ minimum|num(2) }} % del strike hasta el vencimiento</b>, el yield del periodo del perfil «{{ cfg.profile }}».
+    Los ✓ forman la fuente <b>{{ cfg.source_name }}</b> del Universo y pasan a tu watchlist (solo se añaden, nunca se quitan).
+    Con <span class="tl tl-w" style="background:#dff3e6;color:#1d6b3f;padding:0 4px;border-radius:7px;font-size:10px;font-weight:700">W</span> los que ya están en tu watchlist y <span class="own">EN CARTERA</span> los que tienes en posiciones.
+    Es información de otro motor, no una recomendación: compruébalo con los filtros del Scanner (modo Spread).</p>
+  <form method="get" action="/tortuga" class="tr-bar">
+    <label class="check"><input type="checkbox" name="cumple" value="1" {{ 'checked' if cumple }} onchange="this.form.submit()"> Solo los que cumplen el yield (✓)</label>
+    <label class="check"><input type="checkbox" name="solo" value="1" {{ 'checked' if solo }} onchange="this.form.submit()"> Solo los de mi watchlist</label>
+    <span class="muted">{{ items|length }} de {{ total }} · {{ passing }} cumplen</span>
+  </form>
+  {% if items %}
+  <div class="tscroll">
+  <table class="sortable">
+    <tr><th class="tk">Ticker</th><th title="La put de 30Δ rinde en el periodo al menos el yield del perfil">✓</th><th class="txt">Sector</th><th>Precio</th><th>Var. día %</th>
+      <th title="Put de 30Δ de referencia">Strike 30Δ</th><th>Venc.</th><th>DTE</th><th>Prima</th><th>Delta</th><th title="Distancia del strike por debajo del precio">Desc. %</th><th title="Prima / strike hasta el vencimiento, sin anualizar">Yield periodo</th><th class="hl" data-sort-default="desc" title="Rendimiento anualizado de la put de 30Δ, según Tortuga">Yield anual</th>
+      <th>IV Rank</th><th>IV Pctl</th><th>IV30 %</th><th>RV20 %</th><th title="IV30 − RV20, en puntos">VRP</th><th>IV/HV</th><th>Estructura</th><th title="Skew 25Δ, en puntos">Skew</th><th title="Movimiento esperado a 30 días, %">Mov. esp. %</th>
+      <th>RSI</th><th class="txt">Tendencia</th><th>Resultados</th><th class="txt">Zona</th><th class="txt">Estrategia</th><th title="Puntuación del motor del radar">Score</th><th class="txt">Señal</th>
+      <th title="Nota de liquidez de opciones (0-4)">Liq.</th><th>Spread %</th><th>Vol. opc.</th><th title="Volumen de hoy / media de 20 sesiones">Vol. rel.</th><th>OI total</th><th>P/C OI</th><th>P/C vol.</th>
+      <th>Muro put</th><th>Muro call</th><th>Max pain</th></tr>
+    {% for i in items %}{% set r = i.row %}
+    <tr><td class="tk"><b>{{ r.ticker }}</b>{{ sec_flag(sec_alerts, r.ticker) }}{% if i.wl %} <span class="tl tl-w" title="Está en tu watchlist" style="background:#dff3e6;color:#1d6b3f;padding:0 4px;border-radius:7px;font-size:10px;font-weight:700">W</span>{% endif %}{% if i.held %} <span class="own" title="Tienes posiciones en este valor">EN CARTERA</span>{% endif %}</td>
+      <td data-sort="{{ 1 if i.ok else 0 }}" class="{{ 'tr-ok' if i.ok else 'tr-ko' }}">{{ '✓' if i.ok else '·' }}</td>
+      <td class="txt">{{ r.sector or '—' }}</td><td>{{ n(r.price) }}</td><td>{{ n(r.change_pct) }}</td>
+      <td>{{ n(r.put_strike) }}</td><td{% if r.put_expiry %} data-sort="{{ r.put_expiry.toordinal() }}"{% endif %}>{{ r.put_expiry.strftime('%d/%m') if r.put_expiry else '—' }}</td><td>{{ r.put_dte if r.put_dte is not none else '—' }}</td><td>{{ n(r.put_mid) }}</td><td>{{ n(r.put_delta) }}</td><td>{{ n(r.distance_pct, 1) }}</td>
+      <td>{{ n(r.put_yield_period_pct) }}</td><td class="hl">{{ n(r.put_yield_annual_pct, 1) }}</td>
+      <td>{{ n(r.iv_rank, 0) }}</td><td>{{ n(r.iv_percentile, 0) }}</td><td>{{ n(r.iv30_pct, 1) }}</td><td>{{ n(r.rv20_pct, 1) }}</td><td>{{ n(r.vrp_pp, 1) }}</td><td>{{ n(r.iv_hv) }}</td><td class="txt">{{ r.term_structure or '—' }}</td><td>{{ n(r.skew25d_pp, 1) }}</td><td>{{ n(r.expected_move_pct, 1) }}</td>
+      <td>{{ n(r.rsi14, 0) }}</td><td class="txt">{{ r.trend or '—' }}</td>
+      <td{% if r.earnings_date %} data-sort="{{ r.earnings_date.toordinal() }}"{% endif %}{% if r.earnings_before_expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% endif %}>{{ r.earnings_date.strftime('%d/%m') ~ ' (' ~ r.earnings_days ~ ' d)' if r.earnings_date else '—' }}</td>
+      <td class="txt">{{ r.zone or '—' }}</td><td class="txt">{{ r.strategy or '—' }}</td><td>{{ n(r.score, 0) }}</td><td class="txt">{{ r.signal or '—' }}</td>
+      <td>{{ n(r.liquidity_stars, 0) }}</td><td>{{ n(r.liquidity_spread_pct, 1) }}</td><td>{{ n(r.option_volume, 0) }}</td><td>{{ n(r.volume_ratio) }}</td><td>{{ n(r.total_oi, 0) }}</td><td>{{ n(r.put_call_oi) }}</td><td>{{ n(r.put_call_volume) }}</td>
+      <td>{{ n(r.put_wall) }}</td><td>{{ n(r.call_wall) }}</td><td>{{ n(r.max_pain) }}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">Ningún valor cumple los filtros.</p>{% endif %}
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Rutinas de lectura de Tortuga</h2>
+  <p class="muted" style="margin-top:0">La aplicación llama sola a la CLI de Claude (solo herramientas de lectura del conector de Tortuga) una vez al día a la hora indicada, mientras está abierta;
+    si algo falla se conserva el fichero anterior y se reintenta pasadas {{ cfg.retry_minutes }} minutos. Necesitas la CLI <code>{{ cfg.command }}</code> con la sesión iniciada.
+    {% if not enabled %}<b class="tr-err">Desactivadas.</b>{% endif %}</p>
+  <table class="routines">
+    <tr><th>Rutina</th><th>Hora</th><th>Última vez que salió bien</th><th>Resultado</th><th>Qué alimenta</th><th></th></tr>
+    {% for r in routines %}{% set st = rstate.get(r.key, {}) %}
+    <tr><td><b>{{ r.title }}</b></td><td>{{ cfg.times.get(r.key, '—') }}</td>
+      <td>{{ st.last_ok[:16].replace('T', ' ') if st.last_ok else 'nunca' }}</td>
+      <td>{% if running == r.key %}<i>ejecutándose…</i>{% elif st.error %}<span class="tr-err" title="{{ st.error }}">Falló: {{ st.error[:90] }}</span>{% elif st.summary %}{{ st.summary }}{% else %}—{% endif %}</td>
+      <td class="muted">{{ r.produces }}</td>
+      <td><form method="post" action="/tortuga/run" style="margin:0"><input type="hidden" name="key" value="{{ r.key }}"><button type="submit" {{ 'disabled' if not enabled or busy_routines }}>Actualizar ahora</button></form></td></tr>
+    {% endfor %}
+  </table>
+  <form method="post" action="/tortuga/run" style="margin:10px 0 0"><input type="hidden" name="key" value="all"><button type="submit" {{ 'disabled' if not enabled or busy_routines }}>Actualizar todas</button></form>
+</div>
+{% endblock %}
