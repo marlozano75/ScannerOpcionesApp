@@ -9,6 +9,9 @@ ejecuciones de apertura de puts vendidas y deja un JSON; la aplicación solo lo 
       "source": "tortuga",
       "puts": [   # ejecuciones de apertura (SELL, put); si un contrato se abrió en varios días, la aplicación usa la primera
         {"date": "2026-10-13", "ticker": "FRO", "expiry": "2026-11-20", "strike": 49.2, "qty": 2}
+      ],
+      "closes": [   # (opcional) recompras de puts vendidas: lo que ya operaste y cerraste
+        {"date": "2026-10-15", "ticker": "VZ", "expiry": "2026-11-20", "strike": 40, "qty": 1, "pct_captured": 62.2, "pnl": 24.5}
       ]
     }
 
@@ -38,10 +41,22 @@ class OpeningsError(ValueError):
 
 
 @dataclass(frozen=True)
+class Close:
+    """Recompra (cierre) de una put vendida."""
+    day: date
+    ticker: str                  # normalizado
+    expiry: date
+    strike: float
+    pct_captured: Optional[float] = None    # % de la prima que se había ganado al cerrar
+    pnl: Optional[float] = None             # P&L en la divisa base de la cuenta
+
+
+@dataclass(frozen=True)
 class OpeningsData:
     generated_at: datetime
     opened: dict = field(default_factory=dict)      # (ticker normalizado, vencimiento, strike redondeado) -> fecha de la primera apertura
     warnings: tuple[str, ...] = ()
+    closes: tuple[Close, ...] = ()                  # cierres de puts vendidas, más recientes primero
 
     def get(self, ticker: str, expiry: date, strike: float) -> Optional[date]:
         return self.opened.get((norm_ticker(ticker), expiry, round(float(strike), 4)))
@@ -67,7 +82,23 @@ def parse_openings(raw: object) -> OpeningsData:
             continue
         if key not in opened or day < opened[key]:
             opened[key] = day
-    return OpeningsData(generated, opened, tuple(warnings))
+    closes: list[Close] = []
+    raw_closes = raw.get("closes", [])
+    for i, row in enumerate(raw_closes if isinstance(raw_closes, list) else []):
+        try:
+            strike = round(float(row["strike"]), 4)
+            if not norm_ticker(str(row["ticker"])) or strike <= 0:
+                raise ValueError("ticker o strike vacío")
+            closes.append(Close(date.fromisoformat(str(row["date"])), norm_ticker(str(row["ticker"])), date.fromisoformat(str(row["expiry"])), strike,
+                                _num(row.get("pct_captured")), _num(row.get("pnl"))))
+        except (KeyError, TypeError, ValueError) as exc:
+            warnings.append(f"closes[{i}] descartado: {exc}")
+    closes.sort(key=lambda c: c.day, reverse=True)
+    return OpeningsData(generated, opened, tuple(warnings), tuple(closes))
+
+
+def _num(value: object) -> Optional[float]:
+    return None if value is None else float(value)
 
 
 def load_openings(path: str | Path) -> OpeningsData:
@@ -89,7 +120,7 @@ def main(argv: list[str]) -> int:
     except OpeningsError as exc:
         print(f"NO VÁLIDO: {exc}", file=sys.stderr)
         return 1
-    print(f"OK: {len(data.opened)} contratos, generado {data.generated_at.isoformat()}")
+    print(f"OK: {len(data.opened)} contratos, {len(data.closes)} cierres, generado {data.generated_at.isoformat()}")
     for w in data.warnings:
         print(f"aviso: {w}", file=sys.stderr)
     return 0

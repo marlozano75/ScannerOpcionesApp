@@ -11,7 +11,11 @@ STEPS
    Bull Put Spread. Ignore calls, bought puts and everything else. For each kept row output:
    date = the row "date" (YYYY-MM-DD), ticker = the row "underlying", expiry = the row "expiry", strike = the row "strike",
    qty = the row "qty".
-4. If two kept rows are the same contract (same ticker, expiry and strike) keep both; the application uses the earliest date.
+4. For EVERY account also call list_trades with status="closed", type="option", from = (today minus 90 days), to = today,
+   sort="date_desc", limit=200 (same pagination rule). Keep only rows with side "BUY" and right "P" (short puts bought back; this
+   includes the short-put leg bought back inside a spread). For each kept row output in "closes": date, ticker (= "underlying"),
+   expiry, strike, qty, pct_captured = the row "pct_premium_captured" (null if missing), pnl = the row "pnl".
+5. If two kept rows are the same contract (same ticker, expiry and strike) keep both; the application uses the earliest date.
 
 OUTPUT FORMAT (version 1) - exactly these keys:
 {
@@ -20,7 +24,10 @@ OUTPUT FORMAT (version 1) - exactly these keys:
   "source": "tortuga",
   "puts": [
     {"date": "2026-10-13", "ticker": "FRO", "expiry": "2026-11-20", "strike": 49.2, "qty": 2}
+  ],
+  "closes": [
+    {"date": "2026-10-15", "ticker": "VZ", "expiry": "2026-11-20", "strike": 40, "qty": 1, "pct_captured": 62.22, "pnl": 24.53}
   ]
 }
-Rules: numbers are JSON numbers, dates are YYYY-MM-DD. If there are no such rows print "puts": []. If a tool fails, retry it
+Rules: numbers are JSON numbers, dates are YYYY-MM-DD. If there are no such rows print "puts": [] (and "closes": []). If a tool fails, retry it
 once; if it still fails, print the single word FAILED and nothing else.

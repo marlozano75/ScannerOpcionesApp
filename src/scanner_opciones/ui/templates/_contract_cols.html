@@ -12,6 +12,7 @@
 
 {% macro extra_head() -%}
 <th title="Traders de la comunidad de Tortuga que han vendido puts o spreads de puts en este valor en los últimos 30 días (entre paréntesis, en los últimos 7). Informativo: los trades llegan con un día de retraso">Comunidad</th>
+<th title="Señales técnicas que se cumplen hoy de las medibles (informativo, no filtra): precio sobre MA200, MA50 &gt; MA200, RSI rebotando, Bollinger %B bajo, precio cerca de la MA50 o del soporte y strike en el soporte. Pasa el ratón por la celda para ver el detalle">Técnicos</th>
 <th>Resultados</th><th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Pasivo/Patr.</th>
 {%- endmacro %}
 
@@ -43,6 +44,7 @@
 
 {% macro extra_cells(r, community={}) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
 {%- set cm = community.get(c.ticker) %}<td{% if cm %} data-sort="{{ cm[0] }}"{% endif %}>{{ cm[0] ~ ' (' ~ cm[1] ~ ')' if cm else '—' }}</td>
+{%- set tc = techs.get((c.ticker, c.strike)) if techs else none %}<td{% if tc and tc.total %} data-sort="{{ tc.passed / tc.total }}" title="{{ tc.detail }}"{% endif %}>{{ tc.passed ~ '/' ~ tc.total if tc and tc.total else '—' }}</td>
 <td{% if i and i.next_earnings and i.next_earnings >= s.updated_at.date() and i.next_earnings <= c.expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% elif i and i.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(i.eps_surprise_pct) }} %"{% endif %}>{{ i.next_earnings if i and i.next_earnings else '—' }}</td>
 <td>{{ i.eps_ttm|num if i and i.eps_ttm is not none else '—' }}</td>
 <td>{{ i.positive_quarters ~ '/' ~ i.reported_quarters if i and i.positive_quarters is not none else '—' }}</td>

@@ -30,7 +30,7 @@ from scanner_opciones.portfolio.diversification import WeekExposure, sector_expo
 from scanner_opciones.community.data import CommunityData, CommunityError, load_community
 from scanner_opciones.community.fit import strategy_fits
 from scanner_opciones.universe_bps.data import SpreadUniverse, UniverseBpsError, load_universe
-from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, snapshot_key
+from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, classify_dte
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
@@ -42,6 +42,7 @@ from scanner_opciones.scanner.filters import iv_change_available, iv_hv_availabl
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.scanner.spreads import build_mixed_sets
+from scanner_opciones.scanner.tech_summary import TechSummarizer, TechSummary
 from scanner_opciones.scanner.impact import ImpactReport, impact_report
 from scanner_opciones.scanner.spread_check import CheckRow, spread_check
 from scanner_opciones.storage.db import Database
@@ -1134,7 +1135,9 @@ class AppService:
             lo, hi = (_to_float(prof.put.get(k)) for k in ("price_min", "price_max"))
             if lo is not None or hi is not None:
                 prices[prof.name] = (lo, hi)
-        return [replace(v, fits=strategy_fits(v, sc.presets, sc.strategy, prices)) for v in views]
+        closes = self.openings().closes if self.openings() is not None else ()
+        days, today = self.settings.community.closed_marker_days, self.now().date()
+        return [replace(v, fits=strategy_fits(v, sc.presets, sc.strategy, prices), traded=past_trade(v.idea, closes, today, days)) for v in views]
 
     async def refresh_community_quotes(self, max_age_seconds: Optional[float] = 300) -> None:
         """Cotiza en directo (tastytrade) las patas de las ideas que no están guardadas (tickers fuera de la watchlist, strikes o
@@ -1672,6 +1675,32 @@ class AppService:
         if criteria.min_atr_multiple is None:
             return None
         return self._memo("atr", lambda: self.bars.atr({s.contract.ticker for s in snapshots}, self.settings.scanner.technical.atr_period))
+
+    def put_margins(self) -> dict[str, float]:
+        """Margen what-if guardado (por contrato) de las puts vendidas de la cartera, por `put_key` (en un spread, de la pata vendida).
+        Es el de abrir una put nueva con esos datos: sirve para saber cuánto margen libera cerrarla, no es el margen real que fija IBKR."""
+        stored = {(norm_ticker(s.contract.ticker), s.contract.expiry, round(float(s.contract.strike), 4)): s.initial_margin
+                  for s in self._scan_snapshots() if s.initial_margin is not None and s.contract.right is OptionRight.PUT}
+        out: dict[str, float] = {}
+        for p in self.state.positions:
+            o = p.option
+            if o is None or o.right is not OptionRight.PUT or p.quantity >= 0:
+                continue
+            m = stored.get((norm_ticker(o.ticker), o.expiry, round(float(o.strike), 4)))
+            if m is not None:
+                out[put_key_of(p)] = m
+        return out
+
+    def tech_summaries(self, out: ScanOutput) -> dict[tuple[str, float], TechSummary]:
+        """Resumen técnico (informativo) de la pata vendida de cada fila del resultado: {(ticker, strike): TechSummary}."""
+        shorts = list(out.results) + [m.short for m in out.mixed] + [sp.short for sp in out.spreads]
+        wanted = {(r.snapshot.contract.ticker, r.snapshot.contract.strike): r.info.underlying_price if r.info else None for r in shorts}
+        if not wanted:
+            return {}
+        bars = self._memo("closes_all", lambda: self.bars.all_closes(set(self.watchlist.list())))
+        summarizer = TechSummarizer(bars, self.settings.scanner.technical, self.settings.scanner.strategy, self.now().date())
+        found = ((key, summarizer.summary(key[0], price, key[1])) for key, price in wanted.items())
+        return {key: s for key, s in found if s is not None}
 
     def owned_options(self) -> dict[tuple[str, date, float], float]:
         """Puts que ya tienes en cartera: (ticker normalizado, vencimiento, strike) -> contratos (negativo = vendidos, positivo = comprados)."""

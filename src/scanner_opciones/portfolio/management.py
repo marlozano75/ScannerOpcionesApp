@@ -55,6 +55,8 @@ class PutStatus:
     assigned: str = ""                   # perfil del Scanner al que pertenece la put (por DTE de apertura o elegido a mano)
     opened: Optional[date] = None        # fecha de apertura (de Tortuga si es exacta, si no la primera vez que la app vio la posición)
     opened_exact: bool = False
+    margin: Optional[float] = None       # margen comprometido en $ (todos los contratos): what-if guardado (put desnuda) o pérdida máxima (spread)
+    margin_exact: bool = False           # False = estimado con el what-if de una put nueva, no con el margen real de IBKR
 
 
 @dataclass(frozen=True)
@@ -76,13 +78,27 @@ class ManagementReport:
     total_risk: float = 0.0             # pérdida máxima de los spreads + capital de asignación de las puts desnudas, en USD
     risk_pct: Optional[float] = None    # ... sobre el NLV
     risk_level: Optional[str] = None    # None | warn (supera `max_total_risk_pct`)
+    margin_total: float = 0.0           # suma del margen conocido de las puts vendidas
+    margin_missing: int = 0             # puts sin margen conocido (no entran en la suma)
+    margin_pct: Optional[float] = None  # ... sobre el NLV
 
 
 def _short_puts(positions: Sequence[Position]) -> list[Position]:
     return [p for p in positions if p.option is not None and p.option.right is OptionRight.PUT and p.quantity < 0]
 
 
-def put_status(p: Position, today: date, underlying: Optional[float], cfg: ManagementSettings, profile: str = TASTYTRADE) -> PutStatus:
+def committed_margin(p: Position, entry: Optional[float], contracts: int, what_if: Optional[float]) -> Optional[float]:
+    """Margen que inmoviliza la posición (todos sus contratos). Spread: su pérdida máxima ((ancho − crédito) × multiplicador; sin crédito
+    conocido, el ancho entero). Put desnuda: el margen what-if guardado de ese contrato (por contrato), o None si no se calculó."""
+    o = p.option
+    if p.hedge_strike is not None:
+        net = max(o.strike - p.hedge_strike - (entry or 0.0), 0.0)
+        return net * o.multiplier * contracts
+    return what_if * contracts if what_if is not None else None
+
+
+def put_status(p: Position, today: date, underlying: Optional[float], cfg: ManagementSettings, profile: str = TASTYTRADE,
+               what_if_margin: Optional[float] = None) -> PutStatus:
     o = p.option
     contracts = int(abs(p.quantity))
     dte = (o.expiry - today).days
@@ -123,7 +139,7 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         elif (underlying - o.strike) / underlying * 100 < cfg.near_strike_pct:
             alerts.append(Alert("info", f"El precio ({underlying:g}) está a menos de {cfg.near_strike_pct:g} % del strike."))
     return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts), p.hedge_strike,
-                     profile, put_key(p))
+                     profile, put_key(p), margin=committed_margin(p, entry, contracts, what_if_margin), margin_exact=spread)
 
 
 def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[float], cfg: ManagementSettings,
@@ -162,12 +178,14 @@ def manage_puts(
     positions: Sequence[Position], net_liquidation: Optional[float], today: date,
     prices: dict[str, Optional[float]], cfg: ManagementSettings, profiles: Optional[dict[str, str]] = None,
     assigned: Optional[dict[str, str]] = None, opened: Optional[dict[str, tuple[date, bool]]] = None,
+    margins: Optional[dict[str, float]] = None,
 ) -> ManagementReport:
-    """`profiles`: perfil de gestión elegido por put (`put_key`); las que no están usan `cfg.default_profile`."""
+    """`profiles`: perfil de gestión elegido por put (`put_key`); las que no están usan `cfg.default_profile`.
+    `margins`: margen what-if guardado por contrato de cada put desnuda (`put_key`); en un spread el margen es su pérdida máxima."""
     positions = with_spreads(positions)     # cada spread es una sola fila: prima y valor netos, riesgo = ancho
     profiles = profiles or {}
-    assigned, opened = assigned or {}, opened or {}
-    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile)),
+    assigned, opened, margins = assigned or {}, opened or {}, margins or {}
+    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile), margins.get(put_key(p))),
                            assigned=assigned.get(put_key(p), ""), opened=opened.get(put_key(p), (None, False))[0],
                            opened_exact=opened.get(put_key(p), (None, False))[1])
                    for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))
@@ -177,4 +195,7 @@ def manage_puts(
     risk_level = "warn" if risk_pct is not None and risk_pct > cfg.max_total_risk_pct else None
     attention = (sum(1 for s in puts for a in s.alerts if a.level == "warn") + sum(1 for w in weights if w.level == "warn")
                  + (1 if risk_level else 0))
-    return ManagementReport(tuple(puts), tuple(weights), attention, total, risk_pct, risk_level)
+    margin_total = sum(s.margin for s in puts if s.margin is not None)
+    margin_pct = margin_total / net_liquidation * 100 if net_liquidation and net_liquidation > 0 and margin_total > 0 else None
+    return ManagementReport(tuple(puts), tuple(weights), attention, total, risk_pct, risk_level,
+                            margin_total, sum(1 for s in puts if s.margin is None), margin_pct)

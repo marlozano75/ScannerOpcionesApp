@@ -214,6 +214,7 @@ def test_price_reference_selector_defaults_and_columns(client_and_service):
     for gone in ("Vence", "Prima ref.", "Yield", "Bid", "Ask", "Last", "Margen ini.", "Yield bid", "Hora precio",
                  "Ex-div (d)", "FCF (M$)", "Actualizado"):
         assert f"<th>{gone}</th>" not in r.text
+    assert ">Técnicos</th>" in r.text and "{{" not in r.text          # contador de señales técnicas (informativo)
     assert 'id="ref_x_label" hidden' not in r.text                    # X visible con «Bid + X % del spread»
     mid = client.get(BASE + "&ref=mid&ref_x=25")
     assert "Precio de venta: mid (media bid/ask)" in mid.text and 'id="ref_x_label" hidden' in mid.text

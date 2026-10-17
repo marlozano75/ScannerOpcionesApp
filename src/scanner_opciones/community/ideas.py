@@ -15,6 +15,7 @@ from scanner_opciones.community.data import CommunityIdea
 from scanner_opciones.domain.enums import PriceReference
 from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
 from scanner_opciones.metrics.yields import reference_price
+from scanner_opciones.portfolio.openings import Close, norm_ticker
 
 EXPIRED, NO_DATA, ITM, DROPPED, LOWER, VALID = "expired", "no_data", "itm", "dropped", "lower", "valid"
 SNAPSHOT_KEY = tuple[str, date, float]
@@ -28,6 +29,16 @@ def idea_key(idea: CommunityIdea) -> str:
 
 def snapshot_key(ticker: str, expiry: date, strike: float) -> SNAPSHOT_KEY:
     return ticker, expiry, round(float(strike), 4)
+
+
+@dataclass(frozen=True)
+class PastTrade:
+    """Una put vendida tuya en ese valor que ya cerraste (por ejemplo, recogiendo beneficios pronto)."""
+    day: date
+    days_ago: int
+    pct_captured: Optional[float]
+    pnl: Optional[float]
+    same_contract: bool         # mismo vencimiento y strike que la idea (si no, solo el mismo ticker)
 
 
 @dataclass(frozen=True)
@@ -49,6 +60,7 @@ class IdeaView:
     iv_rank: Optional[float] = None
     iv_percentile: Optional[float] = None
     fits: tuple = ()                        # `fit.Fit` de cada perfil del Scanner (los pone el servicio)
+    traded: Optional[PastTrade] = None      # tu cierre más reciente de una put vendida en este ticker (lo pone el servicio)
 
     @property
     def risk_base(self) -> float:
@@ -113,3 +125,18 @@ def evaluate_ideas(ideas: Sequence[CommunityIdea], today: date, snapshots, infos
     views = [evaluate_idea(i, today, snapshots, infos, closes, watchlist, mode, spread_pct, **kw) for i in ideas]
     order = {VALID: 0, LOWER: 1, NO_DATA: 2, DROPPED: 3, ITM: 4, EXPIRED: 5}
     return sorted(views, key=lambda v: (-v.idea.day.toordinal(), order[v.status], v.idea.ticker, v.idea.trader))
+
+
+def past_trade(idea: CommunityIdea, closes: Sequence[Close], today: date, max_days: int) -> Optional[PastTrade]:
+    """Tu cierre más reciente de una put vendida en el ticker de la idea, de hace como mucho `max_days` días (el del mismo contrato manda
+    sobre uno más reciente de otro strike). `closes` ya viene con los más recientes primero."""
+    ticker = norm_ticker(idea.ticker)
+    best: Optional[PastTrade] = None
+    for c in closes:
+        age = (today - c.day).days
+        if c.ticker != ticker or age < 0 or age > max_days:
+            continue
+        same = c.expiry == idea.expiry and abs(c.strike - idea.short_strike) < 1e-4
+        if best is None or (same and not best.same_contract):
+            best = PastTrade(c.day, age, c.pct_captured, c.pnl, same)
+    return best
