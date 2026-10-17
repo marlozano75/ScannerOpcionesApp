@@ -570,7 +570,7 @@ def test_scanner_remembers_last_filters_when_returning_from_the_menu(client_and_
     assert 'name="use_oi" checked' in back.text
     reset = client.get("/scanner?reset=1")
     assert 'name="discount" id="discount" size="6" value="10"' in reset.text
-    assert "profile=Tastytrade" in str(client.get("/scanner").url)                         # y se olvida lo anterior: carga el perfil inicial
+    assert "profile=TastyPut" in str(client.get("/scanner").url)                         # y se olvida lo anterior: carga el perfil inicial
 
 
 def test_simulation_page_does_not_autoreload_and_get_redirects(client_and_service):

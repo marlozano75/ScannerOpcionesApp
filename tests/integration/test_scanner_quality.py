@@ -429,7 +429,7 @@ def test_a_put_is_classified_with_the_dte_it_had_the_first_time_the_app_saw_it(c
     key = f"AAPL|{option.expiry.isoformat()}|90"
     assert svc.put_assignments() == {key: "Mensual (TPC)"}                                      # 25–35 DTE (rango más estrecho que Tastytrade 30–45)
     svc.meta.set("put_opened", json_dumps({key: (today - timedelta(days=10)).isoformat()}))     # abierta hace 10 días a 40 DTE
-    assert svc.put_assignments() == {key: "Tastytrade"}
+    assert svc.put_assignments() == {key: "TastyPut"}
     assert svc.put_management() == {key: "tastytrade"}
 
 
@@ -471,7 +471,7 @@ def test_the_exact_opening_date_from_tortuga_beats_the_first_time_the_app_saw_th
     f.write_text(_json.dumps({"version": 1, "generated_at": "2026-10-15T13:00:00+02:00", "source": "tortuga", "puts": [
         {"date": (today - timedelta(days=10)).isoformat(), "ticker": "AAPL", "expiry": option.expiry.isoformat(), "strike": 90, "qty": 1}]}), encoding="utf-8")
     assert svc.put_open_dates() == {key: (today - timedelta(days=10), True)}                  # fecha exacta: abierta a 40 DTE
-    assert svc.put_assignments() == {key: "Tastytrade"}
+    assert svc.put_assignments() == {key: "TastyPut"}
     page = client.get("/").text
     assert "fecha exacta de Tortuga" in page and "40 DTE al abrir" in page
     f.write_text("no es json", encoding="utf-8")                                              # un fichero estropeado conserva lo último bueno

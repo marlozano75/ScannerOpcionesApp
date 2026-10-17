@@ -41,7 +41,7 @@ from scanner_opciones.scanner.profiles import Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
-from scanner_opciones.scanner.spreads import build_mixed_sets
+from scanner_opciones.scanner.spreads import build_mixed_sets, build_profile_rows
 from scanner_opciones.scanner.tech_summary import TechSummarizer, TechSummary
 from scanner_opciones.scanner.impact import ImpactReport, impact_report
 from scanner_opciones.scanner.spread_check import CheckRow, spread_check
@@ -555,6 +555,7 @@ class AppService:
     async def start(self) -> None:
         if self._starting:
             return
+        self.split_tastytrade_profile()
         self._starting = True
         try:
             connected = await self._connect()
@@ -1160,7 +1161,7 @@ class AppService:
         fija, el de la estrategia."""
         name = self.settings.tortuga.profile
         for prof in self.scanner_profiles():
-            if prof.name == name:
+            if prof.name == name or {name, prof.name} == {"Tastytrade", "TastyPut"}:
                 value = _to_float(prof.put.get("min_yield"))
                 if value is not None:
                     return value
@@ -1810,6 +1811,52 @@ class AppService:
         mixed = build_mixed_sets(put_out.results, spread_out.results, spread_out.spreads, spread_criteria, with_spreads(self.state.positions),
                                  self.nlv_usd(), put_criteria.min_yield_pct, self.spread_only_tickers())
         return ScanOutput(put_out.results, put_out.rejected_count, {**spread_out.rejections, **put_out.rejections}, spread_out.spreads, mixed)
+
+    def scan_profiles(self, sets: list[tuple[str, str, ScanCriteria]]) -> tuple[list, dict[str, dict[str, int]]]:
+        """Un solo escaneo con los filtros de varios perfiles: `sets` = (perfil, instrumento `put`|`spread`, criterios). Cada contrato (o spread)
+        que cumple los de algún perfil sale UNA vez, con la lista de perfiles que cumple. Devuelve (filas, {perfil: {instrumento: nº de filas}})."""
+        put_hits: dict = {}
+        spread_hits: dict = {}
+        counts: dict[str, dict[str, int]] = {}
+        for name, instrument, criteria in sets:
+            if instrument == "spread":
+                out = self.scan(criteria.with_filters(spread_mode=True, mixed=False))
+                for sp in out.spreads:
+                    c = sp.short.snapshot.contract
+                    key = (c.ticker, c.expiry, c.strike, sp.long.contract.strike)
+                    spread_hits.setdefault(key, (sp, []))[1].append(name)
+                n = len(out.spreads)
+            else:
+                out = self.scan(criteria.with_filters(spread_mode=False, mixed=False))
+                for r in out.results:
+                    c = r.snapshot.contract
+                    put_hits.setdefault((c.ticker, c.expiry, c.strike), (r, []))[1].append(name)
+                n = len(out.results)
+            counts.setdefault(name, {})[instrument] = n
+        rows = build_profile_rows(put_hits, spread_hits, with_spreads(self.state.positions), self.nlv_usd())
+        return rows, counts
+
+    def split_tastytrade_profile(self) -> bool:
+        """Migración única: el perfil guardado «Tastytrade» (put + spread) pasa a dos, «TastyPut» y «TastySpread», con los mismos filtros y color.
+        Las puts del Panel que tenían asignado «Tastytrade» pasan a «TastyPut». True si cambió algo."""
+        stored = self.stored_profiles()
+        if stored is None:
+            return False
+        profiles, default = stored
+        old = next((p for p in profiles if p.name == "Tastytrade" and len(p.instruments) > 1), None)
+        if old is None or any(p.name in ("TastyPut", "TastySpread") for p in profiles):
+            return False
+        pair = [replace(old, name="TastyPut", instruments=("put",)), replace(old, name="TastySpread", instruments=("spread",))]
+        out = [q for p in profiles for q in (pair if p is old else [p])]
+        try:
+            assigned = json.loads(self.meta.get(PUT_PROFILES) or "{}")      # en bruto: `put_profiles()` descarta los nombres que ya no existen
+        except ValueError:
+            assigned = {}
+        self.save_profiles(out, "TastyPut" if default == "Tastytrade" else default)
+        if any(v == "Tastytrade" for v in assigned.values()):
+            self.meta.set(PUT_PROFILES, json.dumps({k: ("TastyPut" if v == "Tastytrade" else v) for k, v in assigned.items()}))
+        log.info("Perfil «Tastytrade» dividido en «TastyPut» y «TastySpread»")
+        return True
 
     def _atr(self, criteria: ScanCriteria, snapshots) -> Optional[dict[str, float]]:
         """ATR de los subyacentes, solo si el filtro está activo."""

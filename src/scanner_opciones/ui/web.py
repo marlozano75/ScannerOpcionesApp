@@ -29,6 +29,7 @@ from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.portfolio.management import manage_puts
+from scanner_opciones.scanner.engine import ScanOutput
 from scanner_opciones.tortuga.radar import passes as radar_passes
 from scanner_opciones.tortuga.routines import ROUTINES
 from scanner_opciones.scanner.impact import explain_empty
@@ -445,20 +446,22 @@ def preset_link(settings, preset, form: dict, current=None) -> tuple[str, bool]:
     return urlencode({**kept, **params}), on
 
 
-SEED_COLORS = {"Mensual (TPC)": "#2e7d32", "Táctico (TPC)": "#e08a00", "Tastytrade": "#1f6feb", FALLBACK_PROFILE: "#7b5ea7"}
+SEED_COLORS = {"Mensual (TPC)": "#2e7d32", "Táctico (TPC)": "#e08a00", "TastyPut": "#1f6feb", "TastySpread": "#0b8a8f", FALLBACK_PROFILE: "#7b5ea7"}
 
 
 def seed_profiles(settings) -> tuple[list[Profile], str]:
     """Perfiles que salen de los presets TPC y de la estrategia Tastytrade (config.yaml o editados en /scanner/config) mientras no se
-    guarden perfiles propios. TPC solo con put vendida; Tastytrade con put y spread. El inicial es Tastytrade."""
+    guarden perfiles propios. TPC solo con put vendida; la estrategia Tastytrade se reparte en TastyPut (put vendida) y TastySpread
+    (spread de puts). El inicial es TastyPut."""
     out = []
     for p in settings.scanner.presets:
         params = dict(parse_qsl(preset_link(settings, p, {})[0]))
         out.append(Profile(p.name, ("put",), management="tpc", color=SEED_COLORS.get(p.name, "")).with_filters("put", params).with_filters("spread", params))
     params = dict(parse_qsl(strategy_link(settings, {}, None)[0]))
-    out.append(Profile("Tastytrade", ("put", "spread"), color=SEED_COLORS["Tastytrade"]).with_filters("put", params).with_filters("spread", params))
+    out.append(Profile("TastyPut", ("put",), color=SEED_COLORS["TastyPut"]).with_filters("put", params).with_filters("spread", params))
+    out.append(Profile("TastySpread", ("spread",), color=SEED_COLORS["TastySpread"]).with_filters("put", params).with_filters("spread", params))
     out.append(seed_fallback(settings))
-    return out, "Tastytrade"
+    return out, "TastyPut"
 
 
 def seed_fallback(settings) -> Profile:
@@ -1198,6 +1201,28 @@ def create_app(
         return profiles, default
 
     service.profile_provider = get_profiles
+
+    @app.get("/scanner/todos", response_class=HTMLResponse)
+    async def scanner_all(request: Request):
+        """Un solo escaneo con los filtros de varios perfiles (`pf` repetido; sin ninguno, todos menos el de las puts que no encajan): cada
+        put o spread que cumple los de alguno sale una vez, con la columna de los perfiles que cumple. Los filtros son los guardados en cada perfil."""
+        profiles, _ = get_profiles()
+        candidates = [p for p in profiles if p.name != FALLBACK_PROFILE]
+        asked = set(request.query_params.getlist("pf"))
+        chosen = [p for p in candidates if not asked or p.name in asked]
+        sets, errors = [], []
+        for p in chosen:
+            for inst in p.instruments:
+                parsed = parse_scan({"submitted": "1", "mode": inst, **p.set_params(inst)}, inst)
+                if parsed["criteria"] is None:
+                    errors.append(f"{p.name} ({'put' if inst == 'put' else 'spread'}): {parsed['error']}")
+                else:
+                    sets.append((p.name, inst, parsed["criteria"]))
+        rows, counts = service.scan_profiles(sets)
+        return render(request, "scanner_all.html", rows=rows, counts=counts, candidates=candidates, chosen={p.name for p in chosen}, errors=errors,
+                      colors={p.name: p.color for p in profiles}, nlv_usd=service.nlv_usd(), community=service.community_counts(),
+                      owned=service.owned_options(), techs=service.tech_summaries(ScanOutput([m.short for m in rows], 0, {}, [], rows)),
+                      watch_data=True)
 
     @app.post("/scanner/profile/save")
     async def scanner_profile_save(request: Request):

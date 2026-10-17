@@ -122,11 +122,11 @@ def test_loading_a_profile_replaces_the_form_and_saving_stores_the_current_filte
     href = re.search(r'<a class="preset strategy(?: on)?" href="(/scanner\?[^"]+)"', page).group(1).replace("&amp;", "&")
     q = {k: v[0] for k, v in parse_qs(href.split("?")[1]).items()}
     assert "use_oi" not in q and "trend_dir" not in q and "price_min" not in q          # el perfil reemplaza todo el formulario
-    assert q["profile"] == "Tastytrade" and q["mode"] == "both" and q["dte_min"] == "30"
+    assert q["profile"] == "TastyPut" and q["mode"] == "put" and q["dte_min"] == "30"
     on = client.get(href).text
     assert 'class="preset strategy active"' in on and "Tendencia alcista" not in on and "OI ≥ 300" not in on
     # guardar los filtros actuales en un perfil nuevo (solo put) y volver a cargarlo
-    saved = client.post("/scanner/profile/save", data={"name": "Mio", "query": BASE.split("?")[1] + "&use_oi=on&oi=300&mode=put&profile=Tastytrade"},
+    saved = client.post("/scanner/profile/save", data={"name": "Mio", "query": BASE.split("?")[1] + "&use_oi=on&oi=300&mode=put&profile=TastyPut"},
                         follow_redirects=False)
     assert saved.status_code == 303 and "profile=Mio" in saved.headers["location"] and "use_oi=on" in saved.headers["location"]
     mine = client.get(saved.headers["location"]).text
@@ -214,8 +214,8 @@ def test_the_two_filter_sets_travel_in_the_url_swap_with_the_tabs_and_are_saved_
 def test_profiles_can_be_reordered_coloured_and_duplicated(client_and_service):
     client, svc, gw, _ = client_and_service
     client.get("/scanner?reset=1")
-    names = ["Mensual (TPC)", "Táctico (TPC)", "Tastytrade", "Tortuga"]
-    form = {"n_profiles": "4", "default": "2"}
+    names = ["Mensual (TPC)", "Táctico (TPC)", "TastyPut", "TastySpread", "Tortuga"]
+    form = {"n_profiles": "5", "default": "2"}
     for i, n in enumerate(names):
         form.update({f"pf{i}_name": n, f"pf{i}_orig": n, f"pf{i}_put": "on", f"pf{i}_order": str(10 - i)})     # orden inverso
     form.update({"pf2_usecolor": "on", "pf2_color": "#112233", "pf2_dup": "on", "pf2_spread": "on", "pf0_usecolor": "on", "pf0_color": "rojo"})
@@ -224,9 +224,9 @@ def test_profiles_can_be_reordered_coloured_and_duplicated(client_and_service):
     form["pf0_color"] = "#aa0000"
     assert "ok=" in client.post("/scanner/profiles", data=form, follow_redirects=False).headers["location"]
     saved, default = svc.stored_profiles()
-    assert [p.name for p in saved] == ["Tortuga", "Tastytrade", "Tastytrade (copia)", "Táctico (TPC)", "Mensual (TPC)"]
+    assert [p.name for p in saved] == ["Tortuga", "TastySpread", "TastyPut", "TastyPut (copia)", "Táctico (TPC)", "Mensual (TPC)"]
     by = {p.name: p for p in saved}
-    assert by["Tastytrade"].color == "#112233" and by["Tastytrade (copia)"].color == "#112233" and by["Táctico (TPC)"].color == ""
-    assert by["Tastytrade (copia)"].put == by["Tastytrade"].put and default == "Tastytrade"
+    assert by["TastyPut"].color == "#112233" and by["TastyPut (copia)"].color == "#112233" and by["Táctico (TPC)"].color == ""
+    assert by["TastyPut (copia)"].put == by["TastyPut"].put and default == "TastyPut"
     page = client.get("/scanner?reset=1").text
-    assert page.index(">Tortuga</a>") < page.index(">Tastytrade</a>") < page.index(">Mensual (TPC)</a>") and "--pc:#112233" in page
+    assert page.index(">Tortuga</a>") < page.index(">TastyPut</a>") < page.index(">Mensual (TPC)</a>") and "--pc:#112233" in page

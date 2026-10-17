@@ -532,7 +532,7 @@ class TortugaSettings(_Model):
     prompts_dir: str = "scripts"              # carpeta de los *_prompt.md
     radar_path: str = "data/community/radar_spreads.json"
     source_name: str = "TortugaSpreads"       # fuente del Universo con los tickers del radar que cumplen el yield del perfil
-    profile: str = "Tastytrade"               # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
+    profile: str = "TastyPut"                 # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
     times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "universo_bps": "11:30", "radar_spreads": "11:45"}
 
     @model_validator(mode="after")

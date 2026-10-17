@@ -55,6 +55,7 @@ class MixedRow:
     return_on_capital_annualized_pct: Optional[float]
     weight_pct: Optional[float]      # peso de la acción sobre el NLV si te asignan, con esta posición (spread: su ancho)
     why_spread: str = ""             # por qué la put desnuda no cabe (solo en spreads)
+    profiles: tuple = ()             # escaneo de todos los perfiles: nombres de los perfiles cuyos filtros cumple la fila
 
 
 def ticker_exposure(positions: Sequence) -> dict[str, float]:
@@ -110,6 +111,28 @@ def build_mixed_sets(
         for sp in by_short.get(id(r), []):
             w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier) / nlv_usd * 100 if nlv_usd else None
             rows.append(MixedRow("spread", r, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, reason))
+    rows.sort(key=lambda x: (x.return_on_capital_annualized_pct is not None, x.return_on_capital_annualized_pct or 0.0), reverse=True)
+    return rows
+
+
+def build_profile_rows(
+    put_hits: dict, spread_hits: dict, positions: Sequence, nlv_usd: Optional[float],
+) -> list[MixedRow]:
+    """Filas del escaneo de TODOS los perfiles: una por put desnuda (`put_hits`: clave -> (ScanResult, nombres de perfil)) y una por spread
+    (`spread_hits`: clave -> (SpreadResult, nombres)), con los perfiles cuyos filtros cumple cada una. Mismo capital y retorno que el modo «Ambos»."""
+    held = ticker_exposure(positions)
+    rows: list[MixedRow] = []
+    for r, names in put_hits.values():
+        c = r.snapshot.contract
+        weight = (held.get(c.ticker, 0.0) + c.strike * c.multiplier) / nlv_usd * 100 if nlv_usd else None
+        margin = r.snapshot.initial_margin
+        ror = (r.reference_price * c.multiplier / margin * 365 / r.dte
+               if margin and margin > 0 and r.reference_price and r.dte > 0 else None)
+        rows.append(MixedRow("put", r, None, r.reference_price or 0.0, margin, ror * 100 if ror is not None else None, weight, "", tuple(names)))
+    for sp, names in spread_hits.values():
+        c = sp.short.snapshot.contract
+        w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier) / nlv_usd * 100 if nlv_usd else None
+        rows.append(MixedRow("spread", sp.short, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, "", tuple(names)))
     rows.sort(key=lambda x: (x.return_on_capital_annualized_pct is not None, x.return_on_capital_annualized_pct or 0.0), reverse=True)
     return rows
 
