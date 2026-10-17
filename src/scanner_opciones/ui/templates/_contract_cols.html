@@ -28,7 +28,7 @@
 {%- endmacro %}
 
 {% macro lead_cells(r) -%}{% set c = r.snapshot.contract %}{% set i = r.info -%}
-<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el historial de cierres frente al strike y el último toque">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
+<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el historial de cierres frente al strike y el último toque">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
 {%- endmacro %}
 
 {% macro mini_cell(r) -%}{% set c = r.snapshot.contract -%}

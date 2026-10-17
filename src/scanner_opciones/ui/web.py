@@ -14,6 +14,7 @@ from typing import Awaitable, Callable, Optional
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup, escape
 
 from pydantic import ValidationError
 
@@ -52,6 +53,19 @@ def own_qty(owned, ticker, expiry, strike):
 
 
 TEMPLATES.env.globals["own_qty"] = own_qty
+
+
+def sec_flag(alerts, ticker):
+    """⚠ junto al ticker si tiene presentaciones recientes ante la SEC de las que preceden a problemas (cuentas no fiables, cambio de auditor,
+    exclusión de bolsa...); el texto de cada una sale al pasar el ratón."""
+    items = (alerts or {}).get(norm_ticker(ticker))
+    if not items:
+        return ""
+    tip = "Presentaciones recientes ante la SEC (mira antes de vender una put):\n" + "\n".join(a.text for a in items)
+    return Markup(f' <span class="sec" title="{escape(tip)}">⚠</span>')
+
+
+TEMPLATES.env.globals["sec_flag"] = sec_flag
 LIGHT_LABEL = {
     TrafficLight.GREEN: "Normal / Holgado",
     TrafficLight.AMBER: "Preocupación",
@@ -562,7 +576,7 @@ def create_app(
             pacing_wait=service.pacing_wait_seconds() if service.busy else 0,
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()), path=request.url.path,
-            excluded_notice=service.excluded_notice,
+            excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(),
         )
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 
@@ -1386,7 +1400,10 @@ def create_app(
             return HTMLResponse('<p class="muted">Sin histórico de cierres de este ticker: se descarga con la actualización diaria.</p>')
         tcfg = service.settings.scanner.technical
         history = strike_history(sorted(closes.items()), strike, service.now().date(), tcfg.chart_months)
-        return HTMLResponse(strike_chart_html(history, ticker, strike, tcfg.chart_near_pct))
+        alerts = service.filing_alert_map().get(norm_ticker(ticker), [])
+        box = ('<div class="banner warn"><b>⚠ Presentaciones recientes ante la SEC</b><ul style="margin:4px 0 0 18px;padding:0">'
+               + "".join(f"<li>{escape(a.text)}</li>" for a in alerts) + "</ul></div>") if alerts else ""
+        return HTMLResponse(box + strike_chart_html(history, ticker, strike, tcfg.chart_near_pct))
 
     @app.get("/chart/mini.svg")
     async def strike_mini(ticker: str, strike: float):

@@ -175,6 +175,14 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE ticker_info ADD COLUMN expiry_ivs TEXT;
     """,
+    # v23: alertas de la SEC (8-K de cuentas no fiables, cambio de auditor, exclusión de bolsa...) por ticker, en JSON
+    """
+    CREATE TABLE filing_alerts (
+        ticker TEXT PRIMARY KEY,
+        checked_at TEXT NOT NULL,
+        alerts TEXT NOT NULL
+    );
+    """,
 ]
 
 

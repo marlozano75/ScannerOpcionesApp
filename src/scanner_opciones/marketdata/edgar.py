@@ -18,11 +18,13 @@ from datetime import date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Optional
 
 from scanner_opciones.domain.errors import FinancialsError
+from scanner_opciones.marketdata.filings import FilingAlert, classify_filings
 from scanner_opciones.marketdata.financials import NO_LIMIT, Financials
 
 log = logging.getLogger(__name__)
 
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 STALE_DAYS = 460   # un dato más viejo que esto (≈15 meses) es de otra época: etiquetas abandonadas, empresa que dejó de reportar
 ANNUAL_FORMS = ("10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A")
@@ -417,6 +419,41 @@ class EdgarFinancialsProvider:
                     log.info("EDGAR: %s no disponible: %s", ticker, exc)
                     return
             out[ticker] = (parse_company_facts(data, today) if data else None) or Financials()
+
+        results = await asyncio.gather(*(one(t) for t in tickers), return_exceptions=True)
+        for r in results:
+            if isinstance(r, FinancialsError):
+                raise r
+        return out
+
+    async def get_filing_alerts(self, tickers: list[str], window_days: int) -> dict[str, list[FilingAlert]]:
+        """Alertas de 8-K y avisos de retraso de los últimos `window_days` días (una petición pequeña por empresa)."""
+        try:
+            await self._ticker_map()
+        except FinancialsError:
+            raise
+        except Exception as exc:
+            raise FinancialsError(f"SEC EDGAR: {type(exc).__name__}: {str(exc)[:200]}") from exc
+        self._blocked = False
+        today = self._today()
+        out: dict[str, list[FilingAlert]] = {}
+
+        async def one(ticker: str) -> None:
+            cik = self._cik(ticker)
+            if cik is None:
+                out[ticker] = []
+                return
+            async with self._sem:
+                if self._blocked:
+                    return
+                try:
+                    data = await self._fetch_json(SUBMISSIONS_URL.format(cik=cik))
+                except FinancialsError:
+                    raise
+                except Exception as exc:
+                    log.info("EDGAR: presentaciones de %s no disponibles: %s", ticker, exc)
+                    return
+            out[ticker] = classify_filings(((data or {}).get("filings") or {}).get("recent") or {}, today, window_days)
 
         results = await asyncio.gather(*(one(t) for t in tickers), return_exceptions=True)
         for r in results:

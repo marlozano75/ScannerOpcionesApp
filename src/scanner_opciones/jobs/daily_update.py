@@ -23,7 +23,7 @@ from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider, resolve_eps
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.storage.repositories import (
-    QualityRepo,
+    QualityRepo, FilingAlertRepo,
     BarRepo, ContractRepo, MetaRepo, TickerInfoRepo, WatchlistRepo,
 )
 
@@ -70,6 +70,7 @@ class DailyUpdater:
         self.fundamentals = fundamentals
         self.financials = financials
         self.quality = QualityRepo(ticker_info.db)
+        self.filing_alerts = FilingAlertRepo(ticker_info.db)
         self.meta = MetaRepo(ticker_info.db)
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
@@ -337,6 +338,28 @@ class DailyUpdater:
             done += self.quality.save(updated)
         log.info("Balance y flujo de caja (SEC EDGAR): %d de %d fichas actualizadas en %.1f s", done, len(stale),
                  time.monotonic() - started)
+        return done
+
+    async def update_filing_alerts(self, tickers: list[str]) -> int:
+        """Alertas de la SEC (8-K de cuentas no fiables, cambio de auditor, exclusión de bolsa...) de los tickers cuya consulta tiene más de
+        `edgar.alerts_refresh_hours` horas o no existe. Devuelve cuántos tickers consultó. Un fallo de la SEC conserva lo guardado."""
+        provider = self.financials
+        if not tickers or self.filing_alerts is None or not hasattr(provider, "get_filing_alerts"):
+            return 0
+        now, cfg = self.now(), self.settings.edgar
+        known = self.filing_alerts.all()
+        stale = [t for t in tickers if t not in known or (now - known[t][0]).total_seconds() >= cfg.alerts_refresh_hours * 3600]
+        if not stale:
+            return 0
+        started, done = time.monotonic(), 0
+        for k in range(0, len(stale), 100):
+            try:
+                found = await provider.get_filing_alerts(stale[k:k + 100], cfg.alerts_window_days)
+            except FinancialsError as exc:
+                log.warning("Alertas de la SEC no disponibles, se conservan las guardadas: %s", exc)
+                break
+            done += self.filing_alerts.save(found, now)
+        log.info("Alertas de la SEC: %d de %d tickers consultados en %.1f s", done, len(stale), time.monotonic() - started)
         return done
 
     async def update_history(self, tickers: list[str]) -> int:

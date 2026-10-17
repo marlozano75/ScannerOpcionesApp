@@ -433,6 +433,8 @@ class EdgarSettings(_Model):
     contact: str = ""                                    # tu correo (o nombre y correo): se envía a la SEC en el User-Agent
     refresh_days: int = Field(14, ge=1)                  # cada cuántos días se consulta de nuevo (los informes son trimestrales)
     requests_per_second: float = Field(5, gt=0, le=10)   # la SEC permite 10 como máximo
+    alerts_window_days: int = Field(90, ge=1)            # alertas de 8-K / retrasos de los últimos N días (⚠ junto al ticker)
+    alerts_refresh_hours: float = Field(12, gt=0)        # cada cuántas horas se vuelven a consultar las presentaciones
 
 
 class TrendSettings(_Model):

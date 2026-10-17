@@ -51,6 +51,7 @@ from scanner_opciones.storage.repositories import (
     BarRepo, ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 from scanner_opciones.domain.models import TickerInfo
+from scanner_opciones.marketdata.filings import FilingAlert
 from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider
 from scanner_opciones.marketdata.names import CompanyNameProvider
@@ -144,6 +145,7 @@ class AppService:
         syncer = ContractSyncer(gateway, self.contracts, settings)  # comparte la cadena en caché
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.contracts, settings,
                                   now, volatility, prices, candles, self.bars, syncer, fundamentals, financials)
+        self.filing_alerts = self.daily.filing_alerts
         self.refresh_job = RefreshJob(
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
             volatility, prices, syncer, self.market,
@@ -741,6 +743,16 @@ class AppService:
         self.ticker_info.delete(ticker)
         return {"contracts": self.contracts.delete_for_ticker(ticker), "ticker_info": int(had_info)}
 
+    def filing_alert_map(self) -> dict[str, list[FilingAlert]]:
+        """Alertas vigentes de la SEC por ticker normalizado (`norm_ticker`): solo los que tienen alguna dentro de la ventana configurada."""
+        today, window = self.now().date(), self.settings.edgar.alerts_window_days
+        out: dict[str, list[FilingAlert]] = {}
+        for ticker, (_, alerts) in self.filing_alerts.all().items():
+            recent = [a for a in alerts if 0 <= (today - a.day).days <= window]
+            if recent:
+                out[norm_ticker(ticker)] = recent
+        return out
+
     def quality_scope(self) -> list[str]:
         """Tickers de los que se guardan datos de calidad: la watchlist y todo el Universo (ficheros y manuales), para
         poder filtrar ANTES de decidir qué entra en la watchlist."""
@@ -767,6 +779,7 @@ class AppService:
             "ticker_info": self.ticker_info.purge_except(keep),
             "daily_bars": self.bars.purge_except(keep),
             "quality": self.quality.purge_except(self.quality_scope()),
+            "filing_alerts": self.filing_alerts.purge_except(self.quality_scope()),
         }
         if any(removed.values()):
             log.info("Limpieza de tickers fuera de la watchlist: %s", removed)
@@ -911,7 +924,9 @@ class AppService:
 
         async def run() -> None:
             try:
-                if await self.daily.update_financials(self.quality_scope()):
+                changed = await self.daily.update_financials(self.quality_scope())
+                scope = sorted({*self.quality_scope(), *(p.ticker for p in self.state.positions)})
+                if await self.daily.update_filing_alerts(scope) or changed:
                     self.state.data_version += 1
             except Exception:
                 log.exception("No se pudieron actualizar el balance y el flujo de caja")
