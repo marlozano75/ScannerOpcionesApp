@@ -67,6 +67,7 @@ log = logging.getLogger(__name__)
 
 LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco completo
 EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos): ya no se usa, se vacía al arrancar
+MIG_TASTYPUT_TPC = "mig_tastyput_tpc"   # clave de `meta`: ya se pasó TastyPut a la gestión TPC
 VIX_CACHE = "vix_cache"   # clave de `meta`: último VIX leído (ver `app/vix_cache.py`)
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
 SPREAD_SOURCES = "spread_sources"       # clave de `meta`: fuentes del Universo marcadas a mano como aptas para spreads (JSON, lista de nombres)
@@ -554,6 +555,7 @@ class AppService:
         if self._starting:
             return
         self.split_tastytrade_profile()
+        self.tastyput_to_tpc()
         self.remove_legacy_spread_universe()
         self._starting = True
         try:
@@ -1793,6 +1795,22 @@ class AppService:
         rows = build_profile_rows(put_hits, spread_hits, with_spreads(self.state.positions), self.nlv_usd())
         return rows, counts
 
+    def tastyput_to_tpc(self) -> bool:
+        """Migración única (2026-10-17): las puts de TastyPut se gestionan con TPC (mantener hasta el vencimiento); los spreads, con Tastytrade.
+        Cambia el estilo de gestión del perfil guardado «TastyPut» una sola vez, para no pisar un cambio posterior hecho a mano."""
+        if self.meta.get(MIG_TASTYPUT_TPC):
+            return False
+        self.meta.set(MIG_TASTYPUT_TPC, "1")
+        stored = self.stored_profiles()
+        if stored is None:
+            return False
+        profiles, default = stored
+        if not any(p.name == "TastyPut" and p.management != "tpc" for p in profiles):
+            return False
+        self.save_profiles([replace(p, management="tpc") if p.name == "TastyPut" else p for p in profiles], default)
+        log.info("El perfil «TastyPut» pasa a gestionarse con TPC")
+        return True
+
     def split_tastytrade_profile(self) -> bool:
         """Migración única: el perfil guardado «Tastytrade» (put + spread) pasa a dos, «TastyPut» y «TastySpread», con los mismos filtros y color.
         Las puts del Panel que tenían asignado «Tastytrade» pasan a «TastyPut». True si cambió algo."""
@@ -1803,7 +1821,7 @@ class AppService:
         old = next((p for p in profiles if p.name == "Tastytrade" and len(p.instruments) > 1), None)
         if old is None or any(p.name in ("TastyPut", "TastySpread") for p in profiles):
             return False
-        pair = [replace(old, name="TastyPut", instruments=("put",)), replace(old, name="TastySpread", instruments=("spread",))]
+        pair = [replace(old, name="TastyPut", instruments=("put",), management="tpc"), replace(old, name="TastySpread", instruments=("spread",))]
         out = [q for p in profiles for q in (pair if p is old else [p])]
         try:
             assigned = json.loads(self.meta.get(PUT_PROFILES) or "{}")      # en bruto: `put_profiles()` descarta los nombres que ya no existen

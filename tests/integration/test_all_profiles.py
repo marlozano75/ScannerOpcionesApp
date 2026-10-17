@@ -1,6 +1,7 @@
 """Fase 4: perfiles TastyPut / TastySpread separados y un solo escaneo con todos los perfiles y la columna de estrategias."""
 import json
 import re
+from dataclasses import replace
 
 from scanner_opciones.scanner.profiles import Profile
 from tests.integration.test_web import client_and_service, refresh  # noqa: F401
@@ -29,6 +30,23 @@ def test_the_saved_tastytrade_profile_is_split_once_and_its_puts_follow(client_a
     assert default == "TastyPut" and all(p.color == "#1f6feb" for p in profiles if p.name.startswith("Tasty")) and profiles[2].spread == old.spread
     assert json.loads(svc.meta.get("put_profiles")) == {"AAPL|2099-01-01|90": "TastyPut", "MU|2099-01-01|50": "Mensual (TPC)"}
     assert svc.split_tastytrade_profile() is False                                      # ya dividido: no repite
+    assert {p.name: p.management for p in profiles if p.name.startswith("Tasty")} == {"TastyPut": "tpc", "TastySpread": "tastytrade"}
+
+
+def test_tastyput_moves_to_tpc_once_and_a_later_manual_change_is_respected(client_and_service):
+    client, svc, gw, _ = client_and_service
+    svc.meta.set("mig_tastyput_tpc", "")
+    svc.save_profiles([Profile("TastyPut", ("put",), {"dte_min": "30"}, {}), Profile("TastySpread", ("spread",), {}, {"dte_min": "30"})], "TastyPut")
+    assert svc.tastyput_to_tpc() is True
+    assert {p.name: p.management for p in svc.stored_profiles()[0]} == {"TastyPut": "tpc", "TastySpread": "tastytrade"}
+    svc.save_profiles([replace(p, management="tastytrade") if p.name == "TastyPut" else p for p in svc.stored_profiles()[0]], "TastyPut")
+    assert svc.tastyput_to_tpc() is False and svc.stored_profiles()[0][0].management == "tastytrade"       # ya migrado: no pisa lo elegido
+
+
+def test_seed_profiles_manage_puts_with_tpc_and_spreads_with_tastytrade(client_and_service):
+    from scanner_opciones.ui.web import seed_profiles
+    profiles, _ = seed_profiles(client_and_service[1].settings)
+    assert {p.name: p.management for p in profiles if p.name.startswith("Tasty")} == {"TastyPut": "tpc", "TastySpread": "tastytrade"}
 
 
 def test_one_scan_lists_each_contract_once_with_every_profile_that_passes(client_and_service):

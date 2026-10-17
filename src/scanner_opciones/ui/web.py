@@ -452,13 +452,13 @@ SEED_COLORS = {"Mensual (TPC)": "#2e7d32", "Táctico (TPC)": "#e08a00", "TastyPu
 def seed_profiles(settings) -> tuple[list[Profile], str]:
     """Perfiles que salen de los presets TPC y de la estrategia Tastytrade (config.yaml o editados en /scanner/config) mientras no se
     guarden perfiles propios. TPC solo con put vendida; la estrategia Tastytrade se reparte en TastyPut (put vendida) y TastySpread
-    (spread de puts). El inicial es TastyPut."""
+    (spread de puts). El inicial es TastyPut. Las puts se gestionan con TPC (mantener hasta el vencimiento) y los spreads con Tastytrade."""
     out = []
     for p in settings.scanner.presets:
         params = dict(parse_qsl(preset_link(settings, p, {})[0]))
         out.append(Profile(p.name, ("put",), management="tpc", color=SEED_COLORS.get(p.name, "")).with_filters("put", params).with_filters("spread", params))
     params = dict(parse_qsl(strategy_link(settings, {}, None)[0]))
-    out.append(Profile("TastyPut", ("put",), color=SEED_COLORS["TastyPut"]).with_filters("put", params).with_filters("spread", params))
+    out.append(Profile("TastyPut", ("put",), management="tpc", color=SEED_COLORS["TastyPut"]).with_filters("put", params).with_filters("spread", params))
     out.append(Profile("TastySpread", ("spread",), color=SEED_COLORS["TastySpread"]).with_filters("put", params).with_filters("spread", params))
     out.append(seed_fallback(settings))
     return out, "TastyPut"

@@ -430,7 +430,7 @@ def test_a_put_is_classified_with_the_dte_it_had_the_first_time_the_app_saw_it(c
     assert svc.put_assignments() == {key: "Mensual (TPC)"}                                      # 25–35 DTE (rango más estrecho que Tastytrade 30–45)
     svc.meta.set("put_opened", json_dumps({key: (today - timedelta(days=10)).isoformat()}))     # abierta hace 10 días a 40 DTE
     assert svc.put_assignments() == {key: "TastyPut"}
-    assert svc.put_management() == {key: "tastytrade"}
+    assert svc.put_management() == {key: "tpc"}                                                  # TastyPut: las puts se gestionan con TPC (2026-10-17)
 
 
 def test_the_signals_selector_drops_to_the_number_of_marked_signals(client_and_service):
