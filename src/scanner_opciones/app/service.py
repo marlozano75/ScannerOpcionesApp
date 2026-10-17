@@ -32,6 +32,7 @@ from scanner_opciones.community.fit import strategy_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, classify_dte
+from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
 from scanner_opciones.portfolio.spreads import with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
@@ -77,6 +78,7 @@ COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JS
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
 SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
 PUT_OPENED = "put_opened"   # clave de `meta`: día en que la app vio por primera vez cada put vendida (JSON {put_key: AAAA-MM-DD})
+PUT_ENTRY_FIT = "put_entry_fit"   # clave de `meta`: estrategia reconocida al abrir cada put/spread (JSON {put_key: EntryFit})
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
 SCAN_MEMO_SECONDS = 120.0                           # vida de las lecturas reutilizadas entre cálculos del Scanner (`_memo`)
@@ -1465,13 +1467,64 @@ class AppService:
             return {}
         manual = self.put_profiles()
         dates = self.put_open_dates()
+        names = {p.name for p in profiles}
+        positions = {put_key_of(p): p for p in with_spreads(self.state.positions)
+                     if p.option is not None and p.option.right is OptionRight.PUT and p.quantity < 0}
+        fits = self._entry_fits()
+        today = self.now().date().isoformat()
         out: dict[str, str] = {}
+        changed = False
         for key, expiry in self._short_put_keys():
             if key in manual:
                 out[key] = manual[key]
                 continue
-            out[key] = classify_dte((expiry - dates[key][0]).days, profiles)
+            stored = fits.get(key)
+            if stored is not None and stored.profile in names:      # reconocida al abrir: no cambia aunque cambien los filtros después
+                out[key] = stored.profile
+                continue
+            pos = positions.get(key)
+            if pos is None:
+                out[key] = classify_dte((expiry - dates[key][0]).days, profiles)
+                continue
+            fit = recognize_entry(self._entry_facts(pos, dates[key][0]), profiles, FALLBACK_PROFILE)
+            fits[key] = fit
+            out[key] = fit.profile
+            changed = True
+        if changed:
+            self.meta.set(PUT_ENTRY_FIT, json.dumps({k: v.to_json() for k, v in fits.items() if k.split("|")[1] >= today}))
         return out
+
+    def _entry_fits(self) -> dict[str, EntryFit]:
+        try:
+            return {k: EntryFit.from_json(v) for k, v in json.loads(self.meta.get(PUT_ENTRY_FIT) or "{}").items()}
+        except (ValueError, KeyError, TypeError):
+            return {}
+
+    def put_assignment_notes(self) -> dict[str, str]:
+        """Explicación del perfil de cada put/spread (para el tooltip del Panel): cómo se reconoció al abrirla o que se eligió a mano."""
+        manual = self.put_profiles()
+        fits = self._entry_fits()
+        out = {k: "Perfil elegido a mano." for k in manual}
+        out.update({k: f.note for k, f in fits.items() if k not in manual and f.note})
+        return out
+
+    def _entry_facts(self, p: Position, opened: date) -> EntryFacts:
+        """Lo que se sabía el día de la apertura: DTE, descuento del strike sobre el cierre de ese día y prima cobrada (de `avg_cost`)."""
+        o = p.option
+        closes = self.bars.closes(p.ticker.replace(" ", "-"))
+        before = [d for d in closes if d <= opened]
+        price = closes[max(before)] if before else None
+        if price is None:
+            info = self.ticker_info.get(p.ticker.replace(" ", "-"))
+            price = info.underlying_price if info else None      # sin cierre de ese día: el precio de hoy (aproximado)
+        discount = (price - o.strike) / price * 100 if price else None
+        entry = abs(p.avg_cost) / o.multiplier if p.avg_cost and o.multiplier else None
+        dte = (o.expiry - opened).days
+        if p.hedge_strike is not None:
+            width = o.strike - p.hedge_strike
+            ror = entry / (width - entry) * 100 if entry and width > entry else None
+            return EntryFacts("spread", dte, discount, ror_pct=ror)
+        return EntryFacts("put", dte, discount, yield_pct=entry / o.strike * 100 if entry and o.strike else None)
 
     def put_open_dates(self) -> dict[str, tuple[date, bool]]:
         """{put_key: (fecha de apertura, es exacta)}: la de las operaciones de Tortuga si la rutina de aperturas la trae y, si no (Tortuga las publica

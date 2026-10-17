@@ -423,12 +423,14 @@ def test_a_put_is_classified_with_the_dte_it_had_the_first_time_the_app_saw_it(c
     from scanner_opciones.domain.models import OptionContract, Position
     client, svc, gw, _ = client_and_service
     today = svc.now().date()
-    option = OptionContract("AAPL", today + timedelta(days=30), 90.0, OptionRight.PUT)
+    option = OptionContract("AAPL", today + timedelta(days=30), 75.0, OptionRight.PUT)
     svc.state.positions = [Position("AAPL", -1, -90.0, "Technology", option, 110.0)]
     svc._note_put_opened()                                                                      # primera vez: hoy, a 30 DTE
-    key = f"AAPL|{option.expiry.isoformat()}|90"
+    key = f"AAPL|{option.expiry.isoformat()}|75"
     assert svc.put_assignments() == {key: "Mensual (TPC)"}                                      # 25–35 DTE (rango más estrecho que Tastytrade 30–45)
     svc.meta.set("put_opened", json_dumps({key: (today - timedelta(days=10)).isoformat()}))     # abierta hace 10 días a 40 DTE
+    assert svc.put_assignments() == {key: "Mensual (TPC)"}                                      # lo reconocido al abrir queda fijo
+    svc.meta.set("put_entry_fit", "")                                                           # (como si fuera otra posición)
     assert svc.put_assignments() == {key: "TastyPut"}
     assert svc.put_management() == {key: "tpc"}                                                  # TastyPut: las puts se gestionan con TPC (2026-10-17)
 
@@ -463,13 +465,14 @@ def test_the_exact_opening_date_from_tortuga_beats_the_first_time_the_app_saw_th
     f = tmp_path / "aperturas.json"
     object.__setattr__(svc.settings, "community", svc.settings.community.model_copy(update={"openings_path": str(f)}))
     today = svc.now().date()
-    option = OptionContract("AAPL", today + timedelta(days=30), 90.0, OptionRight.PUT)
+    option = OptionContract("AAPL", today + timedelta(days=30), 75.0, OptionRight.PUT)
     svc.state.positions = [Position("AAPL", -1, -90.0, "Technology", option, 110.0)]
     svc._note_put_opened()                                                                    # sin fichero: hoy, a 30 DTE
-    key = f"AAPL|{option.expiry.isoformat()}|90"
+    key = f"AAPL|{option.expiry.isoformat()}|75"
     assert svc.put_open_dates() == {key: (today, False)} and svc.put_assignments() == {key: "Mensual (TPC)"}
     f.write_text(_json.dumps({"version": 1, "generated_at": "2026-10-15T13:00:00+02:00", "source": "tortuga", "puts": [
-        {"date": (today - timedelta(days=10)).isoformat(), "ticker": "AAPL", "expiry": option.expiry.isoformat(), "strike": 90, "qty": 1}]}), encoding="utf-8")
+        {"date": (today - timedelta(days=10)).isoformat(), "ticker": "AAPL", "expiry": option.expiry.isoformat(), "strike": 75, "qty": 1}]}), encoding="utf-8")
+    svc.meta.set("put_entry_fit", "")                                                         # (lo reconocido con la fecha anterior se descarta)
     assert svc.put_open_dates() == {key: (today - timedelta(days=10), True)}                  # fecha exacta: abierta a 40 DTE
     assert svc.put_assignments() == {key: "TastyPut"}
     page = client.get("/").text

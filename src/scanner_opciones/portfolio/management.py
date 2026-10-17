@@ -57,6 +57,7 @@ class PutStatus:
     opened_exact: bool = False
     margin: Optional[float] = None       # margen comprometido en $ (todos los contratos): what-if guardado (put desnuda) o pérdida máxima (spread)
     margin_exact: bool = False           # False = estimado con el what-if de una put nueva, no con el margen real de IBKR
+    assign_note: str = ""                # cómo se reconoció el perfil de la posición (por los filtros al abrir o a mano)
 
 
 @dataclass(frozen=True)
@@ -178,15 +179,15 @@ def manage_puts(
     positions: Sequence[Position], net_liquidation: Optional[float], today: date,
     prices: dict[str, Optional[float]], cfg: ManagementSettings, profiles: Optional[dict[str, str]] = None,
     assigned: Optional[dict[str, str]] = None, opened: Optional[dict[str, tuple[date, bool]]] = None,
-    margins: Optional[dict[str, float]] = None,
+    margins: Optional[dict[str, float]] = None, notes: Optional[dict[str, str]] = None,
 ) -> ManagementReport:
     """`profiles`: perfil de gestión elegido por put (`put_key`); las que no están usan `cfg.default_profile`.
     `margins`: margen what-if guardado por contrato de cada put desnuda (`put_key`); en un spread el margen es su pérdida máxima."""
     positions = with_spreads(positions)     # cada spread es una sola fila: prima y valor netos, riesgo = ancho
     profiles = profiles or {}
-    assigned, opened, margins = assigned or {}, opened or {}, margins or {}
+    assigned, opened, margins, notes = assigned or {}, opened or {}, margins or {}, notes or {}
     puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile), margins.get(put_key(p))),
-                           assigned=assigned.get(put_key(p), ""), opened=opened.get(put_key(p), (None, False))[0],
+                           assigned=assigned.get(put_key(p), ""), assign_note=notes.get(put_key(p), ""), opened=opened.get(put_key(p), (None, False))[0],
                            opened_exact=opened.get(put_key(p), (None, False))[1])
                    for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))
     weights = ticker_weights(positions, net_liquidation, cfg, profiles)
