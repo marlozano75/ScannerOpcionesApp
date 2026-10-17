@@ -27,6 +27,8 @@
     {{ data.generated_at.strftime('%d/%m/%Y %H:%M') }}. Tortuga las publica <b>un día después</b> (IBKR Flex): cada idea se compara con el precio y
     las cotizaciones de hoy. El «precio al abrir» es el cierre del día de la apertura (aproximado). Son ideas de otros traders, no recomendaciones:
     muchas son valores especulativos que no pasarían tus filtros de calidad. Con el mercado abierto la página se recarga sola cada 5 minutos. Las tres columnas de estrategia dicen cuántos filtros de cada perfil del Scanner cumple hoy la idea (con sus valores por defecto), con las iniciales de cada filtro: en verde los que cumple, en rojo los que no y en gris los que no se pudo comprobar (pasa el ratón para ver el valor). Los técnicos y la calidad de la empresa no se evalúan. Junto al ticker, <span class="tl tl-w">W</span> indica que está en tu watchlist y las iniciales (pasa el ratón para ver el nombre) las fuentes del Universo en las que ya está; En ámbar, la fuente permanente {{ perm_name }}.</p>
+  {% if quoting %}<div class="banner info" id="quoting">Cotizando en directo las ideas fuera de tu watchlist (cadenas, precios y cierres). Algunas saldrán «sin valorar» hasta que termine: la página se recarga sola.</div>
+  <script>setTimeout(function () { location.reload(); }, 8000);</script>{% endif %}
   {% if stale %}<div class="banner err">Los datos tienen {{ (stale / 24)|round|int }} días: la rutina diaria no se ha ejecutado.</div>{% endif %}
   <form method="get" action="/ideas" class="ideas-bar">
     <label class="check"><input type="checkbox" name="solo" value="1" {{ 'checked' if solo }} onchange="this.form.submit()"> Solo tickers de mi watchlist</label>

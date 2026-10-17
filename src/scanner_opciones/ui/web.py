@@ -47,6 +47,7 @@ from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
 log = logging.getLogger(__name__)
+IDEAS_WAIT_SECONDS = 10     # lo que espera la pestaña Ideas a que terminen las cotizaciones en directo antes de mostrarse con lo que haya
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
@@ -649,10 +650,15 @@ def create_app(
     @app.get("/ideas", response_class=HTMLResponse)
     async def ideas(request: Request, solo: int = 0, venc: int = 0, trader: str = "", strategy: str = "", message: str = ""):
         data = service.community()
-        try:
-            await asyncio.wait_for(service.refresh_community_quotes(), timeout=30)
-        except Exception:
-            log.warning("Ideas: no se pudieron cotizar en directo", exc_info=True)
+        quoting = False
+        task = service.community_quotes_task() if data is not None else None
+        if task is not None:      # espera lo razonable; si tarda más, la página sale con lo que hay y se recarga sola cuando termine
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=IDEAS_WAIT_SECONDS)
+            except asyncio.TimeoutError:
+                quoting = True
+            except Exception:
+                log.warning("Ideas: no se pudieron cotizar en directo", exc_info=True)
         everything = service.community_ideas() if data is not None else []
         views = [v for v in everything
                  if (venc or v.status != "expired") and (not solo or v.in_watchlist)
@@ -661,7 +667,7 @@ def create_app(
                       fit_names=[p.name for p in service.settings.scanner.presets] + [STRATEGY_NAME],
                       valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, strategy=strategy,
                       traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale(),
-                      auto_reload=service.market.is_open(service.now()), message=message, groups=message_groups(message),
+                      auto_reload=service.market.is_open(service.now()), quoting=quoting, message=message, groups=message_groups(message),
                       keys=[idea_key(v.idea) for v in views], perm_name=service.settings.community.perm_source_name,
                       lists={t: [(source_initials(n), n) for n in names] for t, names in service.ticker_lists().items()})
 

@@ -11,6 +11,7 @@ from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.models import OptionQuote, VixData
 from scanner_opciones.marketdata import tastytrade as tt
 from scanner_opciones.storage.db import Database
+from tests.integration.test_web import client_and_service  # noqa: F401
 
 NOW = datetime(2026, 10, 17, 12, 0)       # sábado: mercado cerrado
 
@@ -38,7 +39,7 @@ class CountingProvider:
         self.calls.append("prices")
         return {t: 476.0 for t in tickers}
 
-    async def get_daily_closes(self, tickers, days):
+    async def get_daily_closes(self, tickers, days, timeout=20.0):
         self.calls.append("closes")
         return {}
 
@@ -125,3 +126,51 @@ async def test_symbols_without_candles_are_not_asked_again_for_a_while(monkeypat
     assert len(passes) == 1 + tt.CANDLE_RETRIES                             # primera vez: la pasada y sus reintentos
     assert await provider._sdk_fetch_ohlc(["RUTW", "AAPL"], 30, 1.0) == {}
     assert all("RUTW" not in p for p in passes[1 + tt.CANDLE_RETRIES:]) and passes[-1] == ["AAPL"]       # RUTW ya no se pide
+
+
+async def test_the_ideas_quotes_survive_a_short_wait_and_are_stored_in_phases(tmp_path):
+    """Antes la pestaña Ideas cancelaba la cotización a los 30 s: no se guardaba nada y cada visita volvía a pedir las cadenas."""
+    import asyncio
+    svc, provider = make(tmp_path)
+    gate = asyncio.Event()
+
+    async def slow_closes(tickers, days, timeout=20.0):
+        provider.calls.append("closes")
+        await gate.wait()
+        return {"MPC": [(date(2026, 10, 15), 470.0)]}
+
+    provider.get_daily_closes = slow_closes
+    task = svc.community_quotes_task()
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(asyncio.shield(task), 0.3)                    # la página deja de esperar...
+    assert not task.done() and svc.community_quotes_running()               # ...pero la cotización sigue
+    live = svc._community_live
+    assert live is not None and live[2] and live[3]["MPC"].underlying_price == 476.0 and live[4] == {}      # patas y precios ya guardados
+    assert svc.community_quotes_task() is task                              # otra visita no lanza otra
+    gate.set()
+    await svc.wait_idle()
+    assert svc._community_live[4] == {"MPC": [(date(2026, 10, 15), 470.0)]} and provider.calls.count("chain") == 1
+
+
+def test_ideas_page_shows_a_notice_while_the_live_quotes_are_still_running(client_and_service, tmp_path, monkeypatch):
+    import asyncio
+    from scanner_opciones.ui import web
+    client, svc, *_ = client_and_service
+    path = tmp_path / "tortuga.json"
+    path.write_text(ideas_payload(), encoding="utf-8")
+    object.__setattr__(svc.settings, "community", svc.settings.community.model_copy(update={"path": str(path)}))
+    provider = CountingProvider()
+    gate = asyncio.Event()
+
+    async def slow_closes(tickers, days, timeout=20.0):
+        await gate.wait()
+        return {}
+
+    provider.get_daily_closes = slow_closes
+    svc.volatility = provider
+    monkeypatch.setattr(web, "IDEAS_WAIT_SECONDS", 0.2)
+    page = client.get("/ideas").text
+    assert 'id="quoting"' in page and "se recarga sola" in page
+    client.portal.call(gate.set)
+    client.portal.call(svc.wait_idle)
+    assert 'id="quoting"' not in client.get("/ideas").text

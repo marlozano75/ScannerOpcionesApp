@@ -73,6 +73,7 @@ VIX_CACHE = "vix_cache"   # clave de `meta`: último VIX leído (ver `app/vix_ca
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
 SPREAD_SOURCES = "spread_sources"       # clave de `meta`: fuentes del Universo marcadas a mano como aptas para spreads (JSON, lista de nombres)
 SPREAD_UNIVERSE_SYNCED = "spread_universe_synced"   # (obsoleta) marca del antiguo universo para spreads; se vacía en `remove_legacy_spread_universe`
+COMMUNITY_CANDLE_WAIT = 8.0   # segundos que se espera por lote de velas al cotizar las ideas (solo dan el «precio al abrir»; medido: con 20 s tardaban ~85 s)
 RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
@@ -183,6 +184,7 @@ class AppService:
         # cotizaciones en directo de las ideas fuera de lo guardado: (hora, generated_at del JSON, snapshots, fichas, cierres)
         self._community_live: Optional[tuple[datetime, str, dict, dict, dict]] = None
         self._community_live_running = False
+        self._community_live_task: Optional[asyncio.Future] = None
         self.manual_sources: dict[str, list[str]] = self._load_manual()   # fuentes con nombre: tickers escritos a mano
         self._rename_legacy_community_source()
         self.source_excluded: dict[str, set[str]] = self._load_excluded()  # tickers quitados a mano de una fuente de fichero
@@ -1298,6 +1300,9 @@ class AppService:
             tickers = [t for t in legs if t not in watchlist]
             infos: dict[str, TickerInfo] = {}
             closes: dict = {}
+            if not tickers:
+                self._community_live = (now, stamp, snaps, infos, closes)
+                self.state.data_version += 1
             if tickers:
                 try:
                     infos = {t: TickerInfo(t, underlying_price=p, price_at=now) for t, p in (await provider.get_prices(tickers)).items()}
@@ -1308,15 +1313,39 @@ class AppService:
                         infos[t] = replace(infos.get(t) or TickerInfo(t), iv_rank=m.iv_rank, iv_percentile=m.iv_percentile)
                 except Exception as exc:
                     log.warning("Ideas: no se pudo obtener el IV Rank: %s", exc)
+                self._community_live = (now, stamp, snaps, infos, closes)      # ya se pueden valorar; los cierres (lo más lento) llegan después
+                self.state.data_version += 1
                 oldest = min((i.day for i in data.ideas if i.ticker in tickers), default=today)
                 try:
-                    closes = await provider.get_daily_closes(tickers, (today - oldest).days + 7)
+                    closes = await provider.get_daily_closes(tickers, (today - oldest).days + 7, timeout=COMMUNITY_CANDLE_WAIT)
                 except Exception as exc:
                     log.warning("Ideas: no se pudieron obtener los cierres: %s", exc)
-            self._community_live = (now, stamp, snaps, infos, closes)
-            self.state.data_version += 1
+                self._community_live = (now, stamp, snaps, infos, closes)
+                self.state.data_version += 1
         finally:
             self._community_live_running = False
+
+    def community_quotes_task(self) -> Optional[asyncio.Future]:
+        """Lanza en segundo plano la cotización en directo de las ideas (si hace falta) y devuelve la tarea. Sigue aunque la página que la pidió
+        deje de esperar: antes se cancelaba a los 30 s, no se guardaba nada y cada visita volvía a empezar. None si ya hay otra en curso."""
+        if self._community_live_task is not None and not self._community_live_task.done():
+            return self._community_live_task
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
+        async def run() -> None:
+            try:
+                await self.refresh_community_quotes()
+            except Exception:
+                log.warning("Ideas: no se pudieron cotizar en directo", exc_info=True)
+
+        self._community_live_task = self.launch(run())
+        return self._community_live_task
+
+    def community_quotes_running(self) -> bool:
+        return self._community_live_running
 
     def community_stale(self) -> Optional[float]:
         """Horas desde que se generó el JSON si superan `community.stale_hours` (la rutina no ha corrido); None si está al día o no hay."""
