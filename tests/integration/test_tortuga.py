@@ -108,7 +108,7 @@ def make(tmp_path, run=None, run_calls=None, **tortuga):
         "community": {"path": str(tmp_path / "tortuga.json"), "openings_path": str(tmp_path / "aperturas.json")},
         "tortuga": {"radar_path": str(tmp_path / "radar.json"), "prompts_dir": str(tmp_path / "prompts"), **tortuga}})
     (tmp_path / "prompts").mkdir(exist_ok=True)
-    for name in ("aperturas_prompt.md", "comunidad_prompt.md", "universo_bps_prompt.md", "radar_spreads_prompt.md"):
+    for name in ("aperturas_prompt.md", "comunidad_prompt.md", "radar_spreads_prompt.md"):
         (tmp_path / "prompts" / name).write_text("prompt", encoding="utf-8")
     db = Database(tmp_path / "app.db")
     clock = {"now": NOW}

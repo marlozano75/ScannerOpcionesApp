@@ -522,7 +522,7 @@ class CommunitySettings(_Model):
 
 class TortugaSettings(_Model):
     """Rutinas que la propia aplicación lanza con la CLI de Claude (`claude -p`, solo lectura) para leer el conector de Tortuga Trades:
-    comunidad, aperturas propias, universo de spreads y radar de Bull Put Spreads. Sustituyen a las tareas programadas de `scripts/`.
+    comunidad, aperturas propias y radar de Bull Put Spreads. Sustituyen a las tareas programadas de `scripts/`.
     Cada una se ejecuta una vez al día a su hora (hora local) mientras la aplicación está abierta, y también a mano desde la pestaña Tortuga."""
     enabled: bool = True
     command: str = "claude"                  # ejecutable de la CLI de Claude (debe estar en el PATH y con la sesión iniciada)
@@ -533,7 +533,7 @@ class TortugaSettings(_Model):
     radar_path: str = "data/community/radar_spreads.json"
     source_name: str = "TortugaSpreads"       # fuente del Universo con los tickers del radar que cumplen el yield del perfil
     profile: str = "TastyPut"                 # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
-    times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "universo_bps": "11:30", "radar_spreads": "11:45"}
+    times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "radar_spreads": "11:45"}
 
     @model_validator(mode="after")
     def _check(self) -> "TortugaSettings":
@@ -548,25 +548,12 @@ class TortugaSettings(_Model):
 
 
 class SpreadUniverseSettings(_Model):
-    """Universo para bull put spreads (`scripts/actualizar_universo_bps.ps1`, diaria). Sus tickers no pasan por los filtros de calidad de la empresa
-    (en un spread el riesgo está definido): solo por liquidez de opciones y precio. Solo salen en el Scanner como spread, nunca como put desnuda."""
-    source_name: str = "Universo_BPS"            # fuente del Universo que se sustituye con cada JSON nuevo (apta para spreads)
+    """Fuentes del Universo aptas para spreads (la del radar de Tortuga, `tortuga.source_name`, y las que se marcan a mano). Sus tickers no pasan
+    por los filtros de calidad de la empresa (en un spread el riesgo está definido): solo por liquidez de opciones y precio. En el Scanner salen
+    únicamente como spread, nunca como put desnuda."""
     min_option_liquidity: int = Field(3, ge=0, le=5)   # liquidez de opciones mínima de tastytrade (1-5) en las fuentes aptas para spreads
     price_min: float = Field(30, ge=0)           # por debajo, los strikes de 0,5-1 $ dan créditos de céntimos que se comen las comisiones
     price_max: Optional[float] = Field(None, gt=0)
-    path: str = "data/universe/universo_bps.json"
-    seed_path: str = "universo/seed_bps.json"    # núcleo fijo de ETF que el radar no cubre (radar=false) y exclusiones (versionada)
-    history_path: str = "data/universe/bps_history.json"
-    # qué valores del Market Radar de Tortuga son candidatos (los filtros finos del spread los aplica el Scanner)
-    radar_min_liquidity: int = Field(3, ge=0, le=4)    # nota de liquidez del radar (0-4)
-    min_vrp_pp: float = 0                        # VRP (IV30 − RV20, puntos) estrictamente mayor: la IV sobreestima la volatilidad real
-    min_put30_yield_pct: float = Field(20, ge=0)       # acciones: rendimiento anualizado de la put de 30Δ (crédito potencial); los ETF no lo cumplen por IV baja
-    exclude_bearish: bool = True                 # fuera los de tendencia bajista del radar
-    max_expected_move_pct: Optional[float] = Field(25, gt=0)   # movimiento esperado a 30 días máximo (descarta los que se mueven a saltos); None = sin tope
-    entry_days: int = Field(1, ge=1)             # días hábiles seguidos como candidato para entrar
-    exit_days: int = Field(5, ge=1)              # días hábiles seguidos sin serlo para salir
-    max_sector_pct: float = Field(30, gt=0, le=100)    # aviso si un sector (acciones) supera este % del universo
-    stale_days: int = Field(4, ge=1)             # el Scanner avisa si el JSON es más viejo (un fin de semana son 3 días)
 
 
 class Settings(_Model):

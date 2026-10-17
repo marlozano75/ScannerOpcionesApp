@@ -185,17 +185,20 @@ community:
   min_traders: 3             # traders mínimos en 30 días para entrar
   stale_hours: 72            # horas sin rutina a partir de las cuales se avisa
 
-# Universo para bull put spreads: lo mantiene la rutina diaria scripts/actualizar_universo_bps.ps1 (se programa con
-# scripts/programar_universo_bps.ps1). Sus tickers no pasan los filtros de la empresa (solo liquidez de opciones y precio) y en el Scanner
-# solo salen como spread. Los valores por defecto sirven; esto solo documenta lo que se puede cambiar.
+# Tortuga Trades desde la aplicación: la propia app llama una vez al día a la CLI de Claude (`claude -p`, solo lectura) para leer el conector
+# de Tortuga (comunidad, tus aperturas y cierres y el radar de Bull Put Spreads). Hace falta la CLI `claude` con la sesión iniciada.
+# Los valores por defecto sirven; esto solo documenta lo que se puede cambiar.
+# tortuga:
+#   enabled: true
+#   model: sonnet
+#   times: {aperturas: "11:10", comunidad: "11:15", radar_spreads: "11:45"}   # hora local de cada rutina
+#   source_name: TortugaSpreads    # fuente del Universo con los valores del radar que cumplen el yield del perfil (apta para spreads)
+#   profile: TastyPut              # perfil del Scanner cuyo yield del periodo se exige a la put de 30Δ del radar
+# Fuentes aptas para spreads (la de Tortuga y las que marques a mano en el Universo): sus tickers no pasan los filtros de la empresa (solo
+# liquidez de opciones y precio) y en el Scanner solo salen como spread.
 # spread_universe:
-#   source_name: Universo_BPS      # fuente del Universo (apta para spreads)
 #   min_option_liquidity: 3        # liquidez de opciones de tastytrade (1-5)
 #   price_min: 30
-#   entry_days: 1                  # días hábiles seguidos como candidato (VRP>0, tendencia, put 30Δ…) para entrar
-#   exit_days: 5                   # días hábiles seguidos sin serlo para salir
-#   min_put30_yield_pct: 20        # acciones: rendimiento anualizado de la put de 30Δ
-#   max_expected_move_pct: 25      # movimiento esperado a 30 días máximo
 # scanner:
 #   quality:
 #     etf_index_symbols: [SPY, QQQ, IWM, ...]   # ETF e índices: exentos de beneficios, trimestres, deuda y solvencia

@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import tempfile
 from dataclasses import dataclass
 from datetime import datetime, time as dtime
 from pathlib import Path
@@ -21,7 +19,6 @@ from scanner_opciones.portfolio.openings import OpeningsError, parse_openings
 from scanner_opciones.storage.repositories import MetaRepo
 from scanner_opciones.tortuga.claude_runner import ClaudeRunError, ToolCall, extract_json, run_claude, run_claude_calls, tool_names
 from scanner_opciones.tortuga.radar import RadarError, build_radar_document, parse_radar
-from scanner_opciones.universe_bps.data import UniverseBpsError
 
 log = logging.getLogger(__name__)
 STATE_KEY = "tortuga_routines"
@@ -49,8 +46,6 @@ ROUTINES = (
             "fechas de apertura (perfil de cada put en el Panel) y cierres recientes (insignia en Ideas)"),
     Routine("comunidad", "Comunidad de traders", "comunidad_prompt.md", ("get_context", "get_community_screener", "list_public_operations"), 25,
             "columna Comunidad del Scanner, pestaña Ideas y fuente TortugaTrades_Dia"),
-    Routine("universo_bps", "Universo para spreads", "universo_bps_prompt.md", ("get_context", "get_market_radar"), 15,
-            "fuente Universo_BPS (valores aptos para bull put spreads)"),
     Routine("radar_spreads", "Radar de Bull Put Spreads", "radar_spreads_prompt.md", ("get_context", "get_market_radar"), 15,
             "pestaña Tortuga y fuente TortugaSpreads (pasa a la watchlist)", via_calls=True),
 )
@@ -77,16 +72,7 @@ def finish(settings: Settings, key: str, text: str) -> str:
             data = parse_openings(json.loads(text))
             _atomic_write(Path(settings.community.openings_path), text)
             return f"{len(data.opened)} contratos abiertos, {len(data.closes)} cierres"
-        if key == "universo_bps":
-            from scanner_opciones.universe_bps.__main__ import build     # noqa: PLC0415 (import tardío: arrastra el constructor del universo)
-            fd, tmp = tempfile.mkstemp(suffix=".json")
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                    fh.write(text)
-                return build(tmp, settings.spread_universe.path, cfg=settings.spread_universe)
-            finally:
-                Path(tmp).unlink(missing_ok=True)
-    except (CommunityError, OpeningsError, RadarError, UniverseBpsError, ValueError) as exc:
+    except (CommunityError, OpeningsError, RadarError, ValueError) as exc:
         raise RoutineError(str(exc)) from exc
     raise RoutineError(f"rutina desconocida: {key}")
 
