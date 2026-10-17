@@ -77,3 +77,15 @@ def test_service_counts_rows_per_profile_and_merges_the_same_contract(client_and
     assert counts["A"]["put"] >= counts["B"]["put"] > 0 and len(rows) == counts["A"]["put"]
     assert sum(1 for r in rows if r.profiles == ("A", "B")) == counts["B"]["put"]
     assert all(r.kind == "put" for r in rows)
+
+
+def test_mixed_tables_show_credit_over_width_and_a_dash_for_naked_puts(client_and_service):
+    client, svc, gw, _ = client_and_service
+    svc.save_profiles([Profile("Laxo", ("put",), LOOSE, {})], "Laxo")
+    refresh(client)
+    page = client.get("/scanner/todos").text
+    assert ">Crédito/ancho</th>" in page
+    row = re.search(r'<tr><td class="sel">.*?</tr>', page, flags=re.S).group(0)
+    assert "<td>Put</td>" in row and "<td>—</td><td>" in row                     # put desnuda: sin ancho ni crédito/ancho
+    both = client.get("/scanner?submitted=1&mode=both&set=spread&discount=10&dte_min=25&dte_max=35&min_yield=1").text
+    assert ">Crédito/ancho</th>" in both
