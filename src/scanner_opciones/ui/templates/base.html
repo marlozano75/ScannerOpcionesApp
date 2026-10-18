@@ -31,9 +31,11 @@
   .dot { display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:6px; vertical-align:middle; }
   .green{background:var(--green)} .amber{background:var(--amber)} .orange{background:#e87a1e} .red{background:var(--red)} .unknown{background:var(--grey)}
   table { border-collapse:collapse; width:100%; }
-  th,td { padding:6px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  th,td { padding:4px 6px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  td { font-size:12.5px; }
   th:first-child, td:first-child { text-align:left; }
-  th { color:var(--mute); font-weight:600; font-size:12px; }
+  /* cabeceras compactas: saltan de línea (la columna se ajusta al dato, no al título) para que quepan sin barra horizontal */
+  th { color:var(--mute); font-weight:600; font-size:11px; white-space:normal; line-height:1.2; vertical-align:bottom; }
   th.txt, td.txt { text-align:left; }   /* columnas de texto (las cifras van a la derecha) */
   th.wrap, td.wrap { white-space:normal; text-align:left; min-width:230px; max-width:340px; vertical-align:top; line-height:1.35; }   /* texto largo (avisos, estado): salta de línea en vez de salirse de la tarjeta */
   .tscroll { overflow-x:auto; }   /* tablas más anchas que la tarjeta: se desplazan dentro de ella */

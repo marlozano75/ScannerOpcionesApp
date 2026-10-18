@@ -209,7 +209,7 @@ def test_price_reference_selector_defaults_and_columns(client_and_service):
     assert "Precio de venta: bid + 25% del spread" in r.text
     # columnas agrupadas: ticker, sector y precio juntos; yields juntos (el anual destacado y orden por defecto); delta con la IV
     assert '<th class="tk">Ticker</th><th class="txt">Sector</th><th>Precio</th><th>Strike</th>' in r.text
-    assert '<th class="hl" data-sort-default="desc">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th>Yield bid anual</th>' in r.text
+    assert '<th class="hl" data-sort-default="desc">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th title="Yield anual con el bid">Yield bid</th>' in r.text
     assert "<th>Delta</th><th" in r.text and "<th>IV</th><th>IV Rank</th><th>IV Pctl</th>" in r.text and "Dist. σ" not in r.text
     for gone in ("Vence", "Prima ref.", "Yield", "Bid", "Ask", "Last", "Margen ini.", "Yield bid", "Hora precio",
                  "Ex-div (d)", "FCF (M$)", "Actualizado"):
@@ -235,7 +235,7 @@ def test_price_reference_changes_which_contracts_pass(client_and_service):
     assert "contratos cumplen" in client.get(url + "&ref=mid&ref_x=25").text              # 1.00/75 = 1.33 %
     assert "contratos cumplen" in client.get(url + "&ref=bid_plus_spread&ref_x=75").text  # 1.30/75 = 1.73 % con X=75 %
     # la columna «Yield bid anual» se muestra siempre, aunque el filtro use otra referencia
-    assert "<th>Yield bid anual</th>" in client.get(url + "&ref=mid&ref_x=25").text
+    assert ">Yield bid</th>" in client.get(url + "&ref=mid&ref_x=25").text
 
 
 @pytest.mark.parametrize("qs", [
@@ -745,7 +745,7 @@ def test_strike_chart_endpoint_and_link(client_and_service):
     assert client.get("/chart/strike?ticker=AAPL&strike=abc").status_code == 422
     # miniatura de cada fila: imagen SVG propia que se carga al hacerse visible
     page = client.get("/scanner?reset=1").text
-    assert '<img loading="lazy" width="110" height="30" alt="" src="/chart/mini.svg?ticker=AAPL&amp;strike=' in page
+    assert '<img loading="lazy" width="80" height="24" alt="" src="/chart/mini.svg?ticker=AAPL&amp;strike=' in page
     assert "<th data-nosort>Historial</th>" in page
     mini = client.get("/chart/mini.svg?ticker=AAPL&strike=75")
     assert mini.headers["content-type"].startswith("image/svg+xml") and "<path" in mini.text and "stroke-dasharray" in mini.text
@@ -847,7 +847,7 @@ def test_scanner_spread_mode_renders_and_validates(client_and_service):
     assert put.status_code == 200 and 'value="spread"' in put.text and "sec-spread" not in put.text.split("<aside")[1].split("</aside>")[0]
     r = client.get(BASE + "&mode=spread&use_rr=on&rr=25&use_mc=on&mc=20&use_mn=on&mn=2&best_width=on")
     assert r.status_code == 200
-    assert "Retorno/riesgo anual" in r.text and "Mejor ancho por put" in r.text and "Crédito ≥ 20 $" in r.text and "spreads" in r.text
+    assert "R/R anual" in r.text and "Mejor ancho por put" in r.text and "Crédito ≥ 20 $" in r.text and "spreads" in r.text
     assert "Todos los anchos" in client.get(BASE + "&mode=spread&use_rr=on&rr=25").text      # casilla del mejor ancho desmarcada
     # sin ningún valor de los límites (cambio de instrumento) quedan marcados los de config, y el mejor ancho activo
     first = client.get(BASE + "&mode=spread").text
@@ -896,12 +896,12 @@ def test_spread_and_both_tables_have_selection_charts_and_simulation(client_and_
         r = client.get(BASE + f"&mode={mode}" + SPREAD_Q + "&use_ns=on&ns=1")
         assert 'id="scan-results"' in r.text and 'name="sel" value="AAPL|' in r.text, mode
         assert 'class="sortable sticky-tk with-sel"' in r.text and "/chart/mini.svg" in r.text and "Simular seleccionados" in r.text, mode
-        for col in ("Delta comp.", "Pérd. máx. ($)", "Pérd. máx. % NLV", "Breakeven", "Dist. BE", "OI comp.", "Delta vend.", "Cap. (B$)"):
+        for col in ("Δ comp.", "Pérd. $", "Pérd. %NLV", "Breakeven", "Dist. BE", "OI comp.", "Δ vend."):
             assert f">{col}</th>" in r.text, (mode, col)
         head = r.text[r.text.index('id="scan-results"'):]
         head = head[:head.index("</tr>")]
-        order = [head.index(f">{h}</th>") for h in ("Delta vend.", "Delta comp.", "IV", "IV Rank", "Spread vend.", "OI vend.", "OI comp.", "Liq. opc.")]
-        assert order == sorted(order) and head.index("Retorno anual s/ capital" if mode == "both" else "Retorno/riesgo anual") < order[0] < head.index("Breakeven"), mode   # mercado junto al retorno
+        order = [head.index(f">{h}</th>") for h in ("Δ vend.", "Δ comp.", "IV", "IV Rank", "Spread vend.", "OI vend.", "OI comp.", "Liq. opc.")]
+        assert order == sorted(order) and head.index("Retorno anual s/ capital" if mode == "both" else "R/R anual") < order[0] < head.index("Breakeven"), mode   # mercado junto al retorno
         assert 'name="ml_AAPL|' in r.text and 'class="muted">C</span>' in r.text, mode
 
 

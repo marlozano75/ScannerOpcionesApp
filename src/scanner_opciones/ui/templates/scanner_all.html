@@ -5,6 +5,37 @@
   .pf-bar { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin:0 0 10px; }
   .pf-chip { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11.5px; font-weight:600; color:#fff; background:var(--accent); white-space:nowrap; margin-right:3px; }
   .pf-count { font-size:12px; color:var(--mute); }
+  .chart-link { color:inherit; text-decoration:none; border-bottom:1px dotted var(--mute); cursor:pointer; }
+  .chart-link:hover { border-bottom-style:solid; color:var(--accent); }
+  .sh-dialog { border:1px solid var(--line-strong); border-radius:14px; background:var(--panel); color:var(--ink); padding:16px 20px 20px; width:min(820px, 94vw); }
+  .sh-dialog::backdrop { background:rgba(31,45,74,.45); }
+  .sh-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .sh-head h2 { margin:0; }
+  .sh-head button { font-size:22px; line-height:1; padding:2px 10px; background:transparent; color:var(--mute); border:0; cursor:pointer; }
+  .sh-banner { border-radius:8px; padding:8px 12px; margin-bottom:6px; border:1px solid; }
+  .sh-banner.ok { background:#e3f3e8; border-color:#7fc59a; color:#1d6b3f; }
+  .sh-banner.warn { background:#fbeed2; border-color:#e3b85a; color:#8a5a00; }
+  .sh-touch { margin:0 0 8px; padding:6px 12px; border-left:3px solid #e87a1e; background:var(--field); }
+  .sh-legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:var(--mute); margin-bottom:4px; }
+  .sh-legend span::before { content:""; display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--c); margin-right:5px; vertical-align:-1px; }
+  .sh-legend span.dash::before { width:16px; height:0; border-radius:0; background:none; border-top:2px dashed var(--c); vertical-align:3px; }
+  .sh-legend span.ring::before { background:none; border:2px solid var(--c); }
+  .sh-tog { cursor:pointer; color:var(--c); font-weight:700; }
+  .sh-tog input { accent-color:var(--c); vertical-align:-2px; }
+  .sh-svg .sh-ma.off { display:none; }
+  .sh-svg { width:100%; height:auto; color:var(--ink); display:block; }
+  /* todo el ancho de la ventana y letra pequeña: caben más columnas sin desplazar */
+  main { max-width:none; padding:14px 10px 32px; }
+  #scan-results th { font-size:10px; padding:3px 4px; }
+  #scan-results td { font-size:11px; padding:3px 4px; font-variant-numeric:tabular-nums; }
+  #scan-results td.txt { max-width:90px; overflow:hidden; text-overflow:ellipsis; }
+  #scan-results td input[type=number] { font-size:11px; padding:1px 3px; width:44px !important; }
+  #scan-results .pf-chip { font-size:10px; padding:0 6px; }
+  /* botones discretos para desplazar la tabla a izquierda y derecha (solo si no cabe) */
+  .hscroll { position:fixed; bottom:18px; right:18px; display:none; gap:6px; z-index:20; opacity:.35; transition:opacity .15s; }
+  .hscroll:hover, .hscroll:focus-within { opacity:1; }
+  .hscroll.on { display:flex; }
+  .hscroll button { width:30px; height:30px; padding:0; border-radius:50%; font-size:16px; line-height:1; cursor:pointer; }
 </style>
 <div class="card">
   <h2>Todos los perfiles en un solo escaneo</h2>
@@ -25,8 +56,8 @@
   <form method="post" action="/simulate" class="table-form">
     <div class="scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
       <tr><th class="sel"></th>{{ cols.lead_head() }}<th class="txt" title="Perfiles cuyos filtros cumple esta fila">Estrategias</th><th>Tipo</th><th>Vendida</th><th>Comprada</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort>Historial</th><th>Desc.</th><th>DTE</th>
-        <th>Ancho</th><th>Crédito</th><th title="Crédito neto / ancho del spread (en una put sola no aplica)">Crédito/ancho</th><th class="hl" data-sort-default="desc">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th>Capital ($)</th><th>Peso NLV si asignado</th>
-        <th>Pérd. máx. ($)</th><th title="Pérdida máxima como % del NLV">Pérd. máx. % NLV</th><th>Breakeven</th><th>Dist. BE</th>{{ cols.extra_head() }}<th data-nosort>Cant.</th></tr>
+        <th>Ancho</th><th>Crédito</th><th title="Crédito neto / ancho del spread (en una put sola no aplica)">Créd/anch</th><th class="hl" data-sort-default="desc">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th>Capital ($)</th><th>Peso NLV si asignado</th>
+        <th title="Pérdida máxima ($)">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th>Breakeven</th><th>Dist. BE</th>{{ cols.extra_head() }}<th data-nosort>Cant.</th></tr>
       {% for m in rows %}{% set r = m.short %}{% set c = r.snapshot.contract %}{% set sp = m.spread %}
         {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ ('|' ~ sp.long.contract.strike if sp else '') %}
         {% set be = sp.breakeven if sp else c.strike - m.credit %}{% set px = r.info.underlying_price if r.info else none %}
@@ -49,4 +80,56 @@
     {% if rows %}<div class="table-actions"><button>Simular seleccionados</button></div>{% endif %}
   </form>
 </div>
+<div class="hscroll" id="hscroll"><button type="button" data-d="-1" title="Desplazar a la izquierda" aria-label="Desplazar a la izquierda">‹</button><button type="button" data-d="1" title="Desplazar a la derecha" aria-label="Desplazar a la derecha">›</button></div>
+<dialog id="strike-dialog" class="sh-dialog">
+  <div class="sh-head"><h2 id="strike-title">Historial de cierres</h2><button type="button" id="strike-close" aria-label="Cerrar">×</button></div>
+  <div id="strike-body"></div>
+</dialog>
+<script>
+  // Gráfico del strike: igual que en el Scanner
+  (function () {
+    const dlg = document.getElementById('strike-dialog');
+    if (!dlg) return;
+    const body = document.getElementById('strike-body'), title = document.getElementById('strike-title');
+    document.addEventListener('click', function (e) {
+      const a = e.target.closest('a.chart-link');
+      if (!a) return;
+      e.preventDefault();
+      title.textContent = a.dataset.ticker + ' · strike $' + Number(a.dataset.strike).toLocaleString('en-US');
+      body.innerHTML = '<p class="muted">Cargando…</p>';
+      if (!dlg.open) dlg.showModal();
+      fetch('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike))
+        .then(function (r) { return r.text(); })
+        .then(function (html) { body.innerHTML = html; applyMa(); })
+        .catch(function () { body.innerHTML = '<p class="muted">No se pudo cargar el gráfico.</p>'; });
+    });
+    const maOff = function () { try { return JSON.parse(sessionStorage.getItem('strike-ma-off') || '[]'); } catch (e) { return []; } };
+    function applyMa() {
+      const off = maOff();
+      body.querySelectorAll('input[data-ma]').forEach(function (c) {
+        c.checked = off.indexOf(c.dataset.ma) < 0;
+        body.querySelectorAll('.sh-ma.' + c.dataset.ma).forEach(function (g) { g.classList.toggle('off', !c.checked); });
+      });
+    }
+    body.addEventListener('change', function (e) {
+      const c = e.target.closest('input[data-ma]');
+      if (!c) return;
+      const off = maOff().filter(function (k) { return k !== c.dataset.ma; });
+      if (!c.checked) off.push(c.dataset.ma);
+      try { sessionStorage.setItem('strike-ma-off', JSON.stringify(off)); } catch (err) { /* sin almacenamiento */ }
+      applyMa();
+    });
+    document.getElementById('strike-close').addEventListener('click', function () { dlg.close(); });
+    dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });
+  })();
+  (function () {
+    const box = document.querySelector('.scroll'), bar = document.getElementById('hscroll');
+    if (!box || !bar) return;
+    function sync() { bar.classList.toggle('on', box.scrollWidth > box.clientWidth + 4); }
+    bar.querySelectorAll('button').forEach(function (b) {
+      b.addEventListener('click', function () { box.scrollBy({ left: parseInt(b.dataset.d, 10) * box.clientWidth * 0.7, behavior: 'smooth' }); });
+    });
+    window.addEventListener('resize', sync); sync();
+  })();
+</script>
 {% endblock %}

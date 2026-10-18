@@ -77,11 +77,11 @@ async def test_stale_data_is_reported_after_the_configured_hours(tmp_path):
 def test_the_scanner_shows_how_many_traders_sell_puts_on_each_ticker(client_and_service, tmp_path):
     client, svc, gw, _ = client_and_service
     refresh(client)
-    assert "<th title=\"Traders de la comunidad" in client.get(BASE).text           # la columna está siempre; sin datos sale «—»
+    assert "<th title=\"Traders de la comunidad" not in client.get(BASE).text           # la columna se retiró del Scanner
     path = tmp_path / "tortuga.json"
     write(path, payload(tickers=[{"ticker": "AAPL", "month_traders": 9, "month_operations": 12, "week_traders": 3}]))
     object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
-    assert "<td data-sort=\"9\">9 (3)</td>" in client.get(BASE).text
+    assert "<td data-sort=\"9\">9 (3)</td>" not in client.get(BASE).text
 
 
 def test_the_scanner_warns_when_the_daily_routine_has_not_run(client_and_service, tmp_path):

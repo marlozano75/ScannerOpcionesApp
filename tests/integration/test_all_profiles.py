@@ -84,8 +84,8 @@ def test_mixed_tables_show_credit_over_width_and_a_dash_for_naked_puts(client_an
     svc.save_profiles([Profile("Laxo", ("put",), LOOSE, {})], "Laxo")
     refresh(client)
     page = client.get("/scanner/todos").text
-    assert ">Crédito/ancho</th>" in page
+    assert ">Créd/anch</th>" in page
     row = re.search(r'<tr><td class="sel">.*?</tr>', page, flags=re.S).group(0)
     assert "<td>Put</td>" in row and "<td>—</td><td>" in row                     # put desnuda: sin ancho ni crédito/ancho
     both = client.get("/scanner?submitted=1&mode=both&set=spread&discount=10&dte_min=25&dte_max=35&min_yield=1").text
-    assert ">Crédito/ancho</th>" in both
+    assert ">Créd/anch</th>" in both

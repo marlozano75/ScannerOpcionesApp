@@ -186,7 +186,7 @@ async def test_scanner_table_shows_the_quality_columns():
     base = "/scanner?submitted=1&discount=1&dte_min=1&dte_max=45&min_yield=0&ref=bid"
     with make_client(svc) as client:
         page = client.get(base).text
-    for header in ("EPS 12 m", "Trim. +", "Cap. (B$)", "Liq. opc.", "Resultados"):
+    for header in ("EPS 12 m", "Trim. +", "Liq. opc.", "Result."):
         assert header in page
     assert "3/4" in page and str(TODAY + timedelta(days=10)) in page
     assert "Resultados antes del vencimiento" in page            # la fecha cae antes del vencimiento de los contratos: se marca

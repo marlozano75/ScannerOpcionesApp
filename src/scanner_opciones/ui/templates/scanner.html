@@ -178,12 +178,13 @@
   .results > .scroll { flex:none; max-height:max(460px, calc(100vh - 190px)); overflow:auto; }
   #scan-results tr:first-child th { position:sticky; top:0; z-index:2; background:var(--panel); box-shadow:inset 0 -1px 0 var(--line-strong); }
   #scan-results tr:first-child th.tk, #scan-results tr:first-child th.sel { z-index:3; }
-  #scan-results td { padding:5px 10px; font-size:13px; font-variant-numeric:tabular-nums; }
+  #scan-results td { padding:4px 5px; font-size:12px; font-variant-numeric:tabular-nums; }
+  #scan-results td.txt { max-width:96px; overflow:hidden; text-overflow:ellipsis; }   /* sector largo: se corta con «…» (el título no cambia) */
   #scan-results td input[type=number] { padding:2px 6px; font-size:13px; border-radius:5px; }
   #scan-results tr:hover td { background:var(--card); }
   /* la columna que decide la venta: Yield anual */
   #scan-results th.hl { color:var(--ink); }
-  #scan-results td.hl { font-weight:700; font-size:14px; background:#ece6d4; box-shadow:inset 1px 0 0 var(--line-strong), inset -1px 0 0 var(--line-strong); }
+  #scan-results td.hl { font-weight:700; font-size:13px; background:#ece6d4; box-shadow:inset 1px 0 0 var(--line-strong), inset -1px 0 0 var(--line-strong); }
   #scan-results tr:hover td.hl { background:#e3dcc6; }
   .table-actions { display:flex; align-items:center; gap:12px; padding:10px 0 12px; font-size:13px; color:var(--mute); }
   .empty { padding:40px 20px; text-align:center; color:var(--mute); }
@@ -458,7 +459,7 @@
       {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
       {% for w in warnings %}<div class="banner info closable" data-warning><span>{{ w }}</span><button type="button" class="close" title="Quitar el aviso" aria-label="Quitar el aviso">×</button></div>{% endfor %}
       {% if criteria %}
-      <details class="viz-box" id="viz-box" data-url="/scanner/impact" open>
+      <details class="viz-box" id="viz-box" data-url="/scanner/impact">
         <summary>¿Cuánto descarta cada filtro? <span class="muted">(ver lo restrictiva que es la selección)</span></summary>
         <div id="impact-body" class="muted">Calculando…</div>
       </details>
@@ -475,8 +476,8 @@
     <form method="post" action="/simulate" class="table-form">
       <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
         <tr><th class="sel"></th>{{ cols.lead_head() }}<th>Tipo</th><th>Vendida</th><th>Comprada</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort>Historial</th><th>Desc.</th><th>DTE</th>
-          <th>Ancho</th><th>Crédito</th><th title="Crédito neto / ancho del spread (en una put sola no aplica)">Crédito/ancho</th><th class="hl" data-sort-default="desc">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th>Capital ($)</th><th>Peso NLV si asignado</th>
-          <th>Pérd. máx. ($)</th><th title="Pérdida máxima como % del NLV">Pérd. máx. % NLV</th><th>Breakeven</th><th>Dist. BE</th>{{ cols.extra_head() }}<th>Por qué spread</th><th data-nosort>Cant.</th></tr>
+          <th>Ancho</th><th>Crédito</th><th title="Crédito neto / ancho del spread (en una put sola no aplica)">Créd/anch</th><th class="hl" data-sort-default="desc">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th>Capital ($)</th><th>Peso NLV si asignado</th>
+          <th title="Pérdida máxima ($)">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th>Breakeven</th><th>Dist. BE</th>{{ cols.extra_head() }}<th>Por qué spread</th><th data-nosort>Cant.</th></tr>
         {% for m in out.mixed %}{% set r = m.short %}{% set c = r.snapshot.contract %}{% set sp = m.spread %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ ('|' ~ sp.long.contract.strike if sp else '') %}
           {% set be = sp.breakeven if sp else c.strike - m.credit %}{% set px = r.info.underlying_price if r.info else none %}
@@ -736,11 +737,11 @@
     });
     load();
   })();
-  // Panel «¿Cuánto descarta cada filtro?»: se calcula al abrirlo (abierto por defecto, salvo que se haya cerrado)
+  // Panel «¿Cuánto descarta cada filtro?»: se calcula al abrirlo (cerrado por defecto, salvo que se haya abierto)
   (function () {
     const box = document.getElementById('viz-box');
     if (!box) return;
-    try { if (sessionStorage.getItem('viz-open') === '0') box.open = false; } catch (e) { /* sin almacenamiento */ }
+    try { if (sessionStorage.getItem('viz-open') === '1') box.open = true; } catch (e) { /* sin almacenamiento */ }
     let loaded = false;
     function load() {
       if (loaded || !box.open) return;

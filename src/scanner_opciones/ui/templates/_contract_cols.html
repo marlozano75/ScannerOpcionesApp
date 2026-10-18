@@ -11,16 +11,15 @@
 {%- endmacro %}
 
 {% macro extra_head() -%}
-<th title="Traders de la comunidad de Tortuga que han vendido puts o spreads de puts en este valor en los últimos 30 días (entre paréntesis, en los últimos 7). Informativo: los trades llegan con un día de retraso">Comunidad</th>
 <th title="Señales técnicas que se cumplen hoy de las medibles (informativo, no filtra): precio sobre MA200, MA50 &gt; MA200, RSI rebotando, Bollinger %B bajo, precio cerca de la MA50 o del soporte y strike en el soporte. Pasa el ratón por la celda para ver el detalle">Técnicos</th>
-<th>Resultados</th><th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Pasivo/Patr.</th>
+<th title="Próximos resultados">Result.</th><th>EPS 12 m</th><th>Trim. +</th><th title="Pasivo / patrimonio">Pas/Pat</th>
 {%- endmacro %}
 
 {% macro head() -%}
 {{ lead_head() }}<th>Strike</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort>Historial</th><th>Desc.</th><th>DTE</th>
-<th class="hl" data-sort-default="desc">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th>Yield bid anual</th>
+<th class="hl" data-sort-default="desc">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th title="Yield anual con el bid">Yield bid</th>
 {{ vol_head() }}
-<th>+Peso sector</th><th>Peso semana</th><th>% cartera si asignado</th>
+<th title="Peso del sector tras la venta">+Sector</th><th title="Peso de la semana de vencimiento">Semana</th><th title="% de la cartera si te asignan">% cart. asig.</th>
 {%- endmacro %}
 
 {% macro own_badge(ticker, expiry, strike) -%}{% set q = own_qty(owned, ticker, expiry, strike) -%}
@@ -32,7 +31,7 @@
 {%- endmacro %}
 
 {% macro mini_cell(r) -%}{% set c = r.snapshot.contract -%}
-<td class="mini"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el gráfico grande"><img loading="lazy" width="110" height="30" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ c.strike }}"></a></td>
+<td class="mini"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el gráfico grande"><img loading="lazy" width="80" height="24" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ c.strike }}"></a></td>
 {%- endmacro %}
 
 {% macro vol_cells(r, community={}) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
@@ -43,12 +42,10 @@
 {%- endmacro %}
 
 {% macro extra_cells(r, community={}) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
-{%- set cm = community.get(c.ticker) %}<td{% if cm %} data-sort="{{ cm[0] }}"{% endif %}>{{ cm[0] ~ ' (' ~ cm[1] ~ ')' if cm else '—' }}</td>
 {%- set tc = techs.get((c.ticker, c.strike)) if techs else none %}<td{% if tc and tc.total %} data-sort="{{ tc.passed / tc.total }}" title="{{ tc.detail }}"{% endif %}>{{ tc.passed ~ '/' ~ tc.total if tc and tc.total else '—' }}</td>
 <td{% if i and i.next_earnings and i.next_earnings >= s.updated_at.date() and i.next_earnings <= c.expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% elif i and i.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(i.eps_surprise_pct) }} %"{% endif %}>{{ i.next_earnings if i and i.next_earnings else '—' }}</td>
 <td>{{ i.eps_ttm|num if i and i.eps_ttm is not none else '—' }}</td>
 <td>{{ i.positive_quarters ~ '/' ~ i.reported_quarters if i and i.positive_quarters is not none else '—' }}</td>
-<td>{{ (i.market_cap / 1e9)|num if i and i.market_cap else '—' }}</td>
 <td>{{ i.liabilities_to_equity|num if i and i.liabilities_to_equity is not none else '—' }}</td>
 {%- endmacro %}
 
@@ -64,11 +61,11 @@
 {# ---- Spreads (modos «Spread» y «Ambos»): las mismas columnas que las puts y, además, lo propio del spread ---- #}
 {% macro spread_head() -%}
 {{ lead_head() }}<th>Vendida</th><th>Comprada</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort>Historial</th><th>Desc.</th><th>DTE</th>
-<th title="Strike vendido − strike comprado">Ancho</th><th title="Crédito neto por acción: precio de venta de referencia − ask de la comprada">Crédito</th><th title="Crédito / ancho">Crédito/ancho</th>
-<th class="hl" data-sort-default="desc" title="Retorno sobre riesgo anualizado">Retorno/riesgo anual</th><th title="Crédito / pérdida máxima por acción, hasta el vencimiento, sin anualizar">Retorno/riesgo</th>
+<th title="Strike vendido − strike comprado">Ancho</th><th title="Crédito neto por acción: precio de venta de referencia − ask de la comprada">Crédito</th><th title="Crédito / ancho">Créd/anch</th>
+<th class="hl" data-sort-default="desc" title="Retorno sobre riesgo anualizado">R/R anual</th><th title="Crédito / pérdida máxima por acción, hasta el vencimiento, sin anualizar (retorno/riesgo)">R/R</th>
 {{ mkt_head() }}
-<th title="(ancho − crédito) × multiplicador">Pérd. máx. ($)</th><th title="Pérdida máxima como % del NLV">Pérd. máx. % NLV</th><th title="Strike vendido − crédito">Breakeven</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>
-{{ extra_head() }}<th>% cartera si asignado</th>
+<th title="(ancho − crédito) × multiplicador">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Strike vendido − crédito">Breakeven</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>
+{{ extra_head() }}<th title="% de la cartera si te asignan">% cart. asig.</th>
 {%- endmacro %}
 
 {% macro spread_core(sp, rmax=0, nlv=none) -%}
@@ -88,7 +85,7 @@
 
 {# Bloque de mercado de un spread (junto al retorno): las dos deltas, la IV, el IV Rank, los spreads bid/ask, bid size, OI y liquidez #}
 {% macro mkt_head() -%}
-<th>Delta vend.</th><th>Delta comp.</th><th>IV</th><th>IV Rank</th><th>IV Pctl</th><th>Spread vend.</th><th>Spread comp.</th><th>Bid size vend.</th><th>OI vend.</th><th>OI comp.</th><th>Liq. opc.</th>
+<th title="Delta de la vendida">Δ vend.</th><th title="Delta de la comprada">Δ comp.</th><th>IV</th><th>IV Rank</th><th>IV Pctl</th><th>Spread vend.</th><th>Spread comp.</th><th title="Bid size de la vendida">Bid sz</th><th>OI vend.</th><th>OI comp.</th><th>Liq. opc.</th>
 {%- endmacro %}
 
 {% macro mkt_cells(r, l=none) -%}{% set s = r.snapshot %}{% set i = r.info -%}
