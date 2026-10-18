@@ -79,6 +79,7 @@ PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posici
 SPREAD_SOURCES = "spread_sources"       # clave de `meta`: fuentes del Universo marcadas a mano como aptas para spreads (JSON, lista de nombres)
 SPREAD_UNIVERSE_SYNCED = "spread_universe_synced"   # (obsoleta) marca del antiguo universo para spreads; se vacía en `remove_legacy_spread_universe`
 COMMUNITY_CANDLE_WAIT = 8.0   # segundos que se espera por lote de velas al cotizar las ideas (solo dan el «precio al abrir»; medido: con 20 s tardaban ~85 s)
+POSITION_HISTORY_RETRY_HOURS = 6   # un subyacente de la cartera sin velas en tastytrade no se vuelve a pedir antes
 RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 COMMUNITY_LIVE = "community_live"   # clave de `meta`: última cotización en directo de las ideas (pickle en base64)
@@ -174,6 +175,8 @@ class AppService:
         self._yaml_scanner = (settings.scanner.presets, settings.scanner.strategy, settings.scanner.spreads)   # los de config.yaml, para restaurarlos
         self._load_scanner_config()
         self._load_portfolio()
+        self._pos_history_running = False
+        self._pos_history_tried: dict[str, datetime] = {}      # ticker de una posición → última vez que se pidió su histórico (no se repite cada ciclo)
         self._load_vix()
         # ficheros del universo (RankedStocks, HelloStocks): nombre -> (hora de carga, fuentes); en memoria y en disco
         self.universe_files: dict[str, tuple[datetime, tuple[Source, ...]]] = {}
@@ -882,7 +885,7 @@ class AppService:
         removed = {
             "contracts": self.contracts.purge_except(keep),
             "ticker_info": self.ticker_info.purge_except(keep),
-            "daily_bars": self.bars.purge_except(keep),
+            "daily_bars": self.bars.purge_except(self.history_scope()),
             "quality": self.quality.purge_except(self.quality_scope()),
             "filing_alerts": self.filing_alerts.purge_except(self.quality_scope()),
             "analyst_changes": self.analyst_changes.purge_except(self.quality_scope()),
@@ -963,7 +966,7 @@ class AppService:
         interrumpe la actualización diaria: los filtros técnicos avisan de que falta histórico."""
         self.state.activity = "Descargando histórico de cierres"
         try:
-            await self.daily.update_history(self.watchlist.list())
+            await self.daily.update_history(self.history_scope())
             self.record_today_prices()
         except Exception:
             log.exception("No se pudo actualizar el histórico de cierres")
@@ -1785,6 +1788,43 @@ class AppService:
                 saved += 1
         return saved
 
+    def position_tickers(self) -> list[str]:
+        """Subyacentes de las opciones de la cartera con el símbolo de la app (IBKR escribe la clase con espacio: `BRK B` → `BRK-B`)."""
+        return sorted({p.ticker.replace(" ", "-") for p in self.state.positions if p.option is not None})
+
+    def history_scope(self) -> list[str]:
+        """Tickers de los que se guarda el histórico de cierres: la watchlist y los subyacentes de las opciones de la cartera (para los
+        gráficos del Panel, aunque no estén en la watchlist)."""
+        return sorted({*self.watchlist.list(), *self.position_tickers()})
+
+    def _history_for_positions(self) -> None:
+        """Pide en segundo plano el histórico de los subyacentes de la cartera que aún no lo tienen (los que no están en la watchlist no se
+        descargaban). Un ticker sin velas en tastytrade no se vuelve a pedir hasta pasadas `POSITION_HISTORY_RETRY_HOURS` horas."""
+        if self._pos_history_running or self.daily.candles is None:
+            return
+        have, now = self.bars.last_days(self.position_tickers()), self.now()
+        missing = [t for t in self.position_tickers() if t not in have
+                   and (t not in self._pos_history_tried or (now - self._pos_history_tried[t]).total_seconds() >= POSITION_HISTORY_RETRY_HOURS * 3600)]
+        if not missing:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._pos_history_running = True
+        self._pos_history_tried.update({t: now for t in missing})
+
+        async def run() -> None:
+            try:
+                await self.daily.update_history(missing)
+                self.state.data_version += 1
+            except Exception:
+                log.exception("No se pudo descargar el histórico de los subyacentes de la cartera")
+            finally:
+                self._pos_history_running = False
+
+        self.launch(run())
+
     def history_coverage(self) -> tuple[int, int]:
         """(tickers de la watchlist con histórico de cierres, tickers de la watchlist)."""
         tickers = self.watchlist.list()
@@ -1962,6 +2002,7 @@ class AppService:
             self.state.account = await asyncio.wait_for(self.gateway.get_account_summary(), timeout=STEP_TIMEOUT_SECONDS)
             self.state.positions = await asyncio.wait_for(self.gateway.get_positions(), timeout=STEP_TIMEOUT_SECONDS)
             self._note_put_opened()
+            self._history_for_positions()
             self.state.risk = build_risk_status(self.state.account, self.settings.risk.cushion_thresholds)
             self.state.errors.pop("portfolio", None)
             self.meta.set(PORTFOLIO_CACHE, portfolio_cache.dump(

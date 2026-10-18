@@ -635,10 +635,11 @@ def create_app(
         by_ticker: dict[str, list] = {}
         for s in mgmt.puts:
             by_ticker.setdefault(s.ticker, []).append(s)
-        closes = service.bars.all_closes(set(by_ticker)) if by_ticker else {}
-        minis = {t: position_mini(closes.get(t, []), puts, service.settings.management, today, service.settings.management.chart_weeks,
+        key_of = lambda t: t.replace(" ", "-")                      # IBKR escribe la clase con espacio (BRK B); el histórico, con guion      # noqa: E731
+        closes = service.bars.all_closes({key_of(t) for t in by_ticker}) if by_ticker else {}
+        minis = {t: position_mini(closes.get(key_of(t), []), puts, service.settings.management, today, service.settings.management.chart_weeks,
                                   puts[0].underlying_price) for t, puts in by_ticker.items()}
-        pos_charts = [dict(ticker=t, chart=position_chart(closes.get(t, []), puts, service.settings.management, today,
+        pos_charts = [dict(ticker=t, chart=position_chart(closes.get(key_of(t), []), puts, service.settings.management, today,
                                                           service.settings.management.chart_weeks, puts[0].underlying_price),
                            plans=[(s, exit_plan(s, service.settings.management, today)) for s in puts])
                       for t, puts in sorted(by_ticker.items())]

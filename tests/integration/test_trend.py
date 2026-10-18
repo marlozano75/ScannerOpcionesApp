@@ -236,3 +236,27 @@ async def test_start_still_completes_the_history_and_refreshes_with_it_available
     await svc.start()
     await svc.wait_idle()
     assert svc.history_coverage() == (1, 1) and svc._tasty_done
+
+
+async def test_history_of_the_option_positions_outside_the_watchlist_is_downloaded_and_kept():
+    """Los gráficos del Panel necesitan los cierres de los subyacentes de la cartera aunque no estén en la watchlist (y la limpieza no los borra)."""
+    from scanner_opciones.domain.enums import OptionRight
+    from scanner_opciones.domain.models import OptionContract, Position
+
+    candles = FakeCandles({"AAPL": bars([100.0] * 30), "MARA": bars([20.0] * 30), "BRK-B": bars([450.0] * 30)})
+    svc, gw = await service_with(candles)
+    exp = TODAY + timedelta(days=30)
+    svc.state.positions = [Position("MARA", -1, -50.0, "Tech", OptionContract("MARA", exp, 15.0, OptionRight.PUT)),
+                           Position("BRK B", -1, -90.0, "Fin", OptionContract("BRK B", exp, 400.0, OptionRight.PUT)),
+                           Position("AAPL", 100, 10_000.0, "Tech")]                       # acciones (sin opción): no cuentan
+    assert svc.position_tickers() == ["BRK-B", "MARA"] and svc.history_scope() == ["AAPL", "BRK-B", "MARA"]
+    svc._history_for_positions()
+    await svc.wait_idle()
+    assert set(svc.bars.last_days(["AAPL", "MARA", "BRK-B"])) == {"MARA", "BRK-B"}          # AAPL se descarga con la actualización diaria
+    calls = len(candles.calls)
+    svc._history_for_positions()                                                          # ya los tiene: no se vuelve a pedir
+    await svc.wait_idle()
+    assert len(candles.calls) == calls
+    assert svc.cleanup_orphans()["daily_bars"] == 0 and "MARA" in svc.bars.last_days(["MARA"])      # la limpieza respeta la cartera
+    svc.state.positions = []
+    assert svc.cleanup_orphans()["daily_bars"] == 60 and not svc.bars.last_days(["MARA", "BRK-B"])   # sin la posición (2 tickers × 30 días) ya no hacen falta
