@@ -2,7 +2,7 @@
    yields, delta con la volatilidad, liquidez del contrato, calidad de la empresa y cartera.
    «Yield anual» es la columna destacada (`hl`) y la que ordena por defecto. El vencimiento (día/mes) va junto al strike. #}
 {% macro lead_head() -%}
-<th class="tk" title="Símbolo del subyacente; púlsalo para ver el historial de cierres frente al strike">Ticker</th><th class="txt" title="Sector de la empresa">Sector</th><th title="Precio actual del subyacente">Precio</th>
+<th class="tk" title="Símbolo del subyacente">Ticker</th><th class="txt" title="Sector de la empresa">Sector</th><th title="Precio actual del subyacente">Precio</th>
 {%- endmacro %}
 
 {% macro vol_head(sold=false) -%}{% set v = ' vend.' if sold else '' -%}
@@ -16,7 +16,7 @@
 {%- endmacro %}
 
 {% macro head() -%}
-{{ lead_head() }}<th title="Strike de la put vendida">Strike</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike; pulsa el ticker para ampliarla">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
+{{ lead_head() }}<th title="Strike de la put vendida">Strike</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
 <th class="hl" data-sort-default="desc" title="Prima / strike anualizada, con el precio de venta de referencia elegido">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th title="Yield anual con el bid">Yield bid</th>
 {{ vol_head() }}
 <th title="Peso del sector tras la venta">+Sector</th><th title="Peso de la semana de vencimiento">Semana</th><th title="% de la cartera si te asignan">% cart. asig.</th>
@@ -27,7 +27,7 @@
 {%- endmacro %}
 
 {% macro lead_cells(r) -%}{% set c = r.snapshot.contract %}{% set i = r.info -%}
-<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="{{ tk_title(company_names, c.ticker, 'Ver el historial de cierres frente al strike y el último toque') }}">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
+<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="{{ tk_title(company_names, c.ticker) }}">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
 {%- endmacro %}
 
 {% macro mini_cell(r) -%}{% set c = r.snapshot.contract -%}
@@ -60,7 +60,7 @@
 
 {# ---- Spreads (modos «Spread» y «Ambos»): las mismas columnas que las puts y, además, lo propio del spread ---- #}
 {% macro spread_head() -%}
-{{ lead_head() }}<th title="Strike de la put vendida / strike de la put comprada (la cobertura del spread)">Vend./Comp.</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike; pulsa el ticker para ampliarla">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
+{{ lead_head() }}<th title="Strike de la put vendida / strike de la put comprada (la cobertura del spread)">Vend./Comp.</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
 <th title="Strike vendido − strike comprado">Ancho</th><th title="Crédito neto por acción: precio de venta de referencia − ask de la comprada">Créd.</th><th title="Crédito / ancho">Cred/A</th>
 <th class="hl" data-sort-default="desc" title="Retorno sobre riesgo anualizado">R/R anual</th><th title="Crédito / pérdida máxima por acción, hasta el vencimiento, sin anualizar (retorno/riesgo)">R/R</th>
 {{ mkt_head() }}
