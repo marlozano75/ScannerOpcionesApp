@@ -82,3 +82,16 @@ def test_delayed_calendar_shifts_open_and_close_by_the_delay():
     assert cal.last_close(ny(2026, 10, 1, 16, 10)) == ny(2026, 9, 30, 16, 15)   # aún llegan datos del día
     assert cal.last_close(ny(2026, 10, 1, 16, 15)) == ny(2026, 10, 1, 16, 15)
     assert cal.next_open(ny(2026, 10, 1, 4, 0)) == ny(2026, 10, 1, 9, 45)
+
+
+def test_quiet_since_only_on_non_session_days_after_the_last_close():
+    fri_after, sat, sun = ny(2026, 10, 23, 17), ny(2026, 10, 24, 12), ny(2026, 10, 25, 12)
+    assert CAL.quiet_since(fri_after, sun)                                  # domingo y ya se consultó tras el cierre del viernes
+    assert CAL.quiet_since(fri_after, sat)
+    assert not CAL.quiet_since(ny(2026, 10, 23, 10), sat)                   # la última consulta es del viernes antes del cierre: falta lo de la tarde
+    assert not CAL.quiet_since(fri_after, ny(2026, 10, 26, 10))             # lunes: hay sesión
+    assert not CAL.quiet_since(None, sun)                                   # nunca consultado
+    assert not CAL.quiet_since(fri_after, sun, settle_hours=12)             # con 12 h de margen, el viernes a las 17:00 aún no cuenta (cierra a las 04:00 del sábado)
+    assert CAL.quiet_since(ny(2026, 10, 24, 5), sun, settle_hours=12)
+    assert not CAL.quiet_since(ny(2026, 11, 25, 10), ny(2026, 11, 26, 20))           # Acción de Gracias: la última consulta es del miércoles antes del cierre
+    assert CAL.quiet_since(ny(2026, 11, 25, 17), ny(2026, 11, 26, 20))                # ...y con la del miércoles tras el cierre ya no hay nada nuevo

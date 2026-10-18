@@ -15,6 +15,7 @@ from scanner_opciones.domain.errors import (
     BrokerDisconnectedError, BrokerError, FinancialsError, UnsupportedTickerError, VolatilityError,
 )
 from scanner_opciones.domain.models import TickerInfo
+from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.price_history import update_history
@@ -87,6 +88,7 @@ class DailyUpdater:
         self.contracts = contracts
         self.settings = settings
         self.now = now
+        self.market = MarketCalendar.from_settings(settings.market)
 
     async def run_pending(self, on_progress=None, since: Optional[date] = None) -> DailyUpdateReport:
         """Actualiza los tickers que no se han actualizado hoy (incluye los añadidos después). `since` sustituye a «hoy» como
@@ -353,7 +355,8 @@ class DailyUpdater:
             return 0
         now, cfg = self.now(), self.settings.edgar
         known = self.filing_alerts.all()
-        stale = [t for t in tickers if t not in known or (now - known[t][0]).total_seconds() >= cfg.alerts_refresh_hours * 3600]
+        stale = [t for t in tickers if t not in known or ((now - known[t][0]).total_seconds() >= cfg.alerts_refresh_hours * 3600
+                                                          and not self.market.quiet_since(known[t][0], now, cfg.settle_hours))]
         if not stale:
             return 0
         started, done = time.monotonic(), 0
@@ -375,7 +378,8 @@ class DailyUpdater:
             return 0
         now = self.now()
         known = self.analyst_changes.all()
-        stale = [t for t in tickers if t not in known or (now - known[t][0]).total_seconds() >= cfg.refresh_hours * 3600]
+        stale = [t for t in tickers if t not in known or ((now - known[t][0]).total_seconds() >= cfg.refresh_hours * 3600
+                                                          and not self.market.quiet_since(known[t][0], now, cfg.settle_hours))]
         if not stale:
             return 0
         started, done = time.monotonic(), 0

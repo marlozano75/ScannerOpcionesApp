@@ -1,7 +1,7 @@
 """Tortuga desde la aplicación: radar de Bull Put Spreads, rutinas que lanzan la CLI de Claude (simulada) y fuente TortugaSpreads."""
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -15,7 +15,7 @@ from scanner_opciones.tortuga.radar import RadarError, build_radar_document, par
 from scanner_opciones.tortuga.routines import RoutineRunner
 from tests.integration.test_web import client_and_service  # noqa: F401
 
-NOW = datetime(2026, 10, 17, 12, 0)
+NOW = datetime(2026, 10, 19, 12, 0)
 
 
 def row(symbol, strike=440.0, mid=15.0, sector="Energy", **over):
@@ -180,16 +180,16 @@ async def test_routine_writes_the_file_only_when_the_answer_is_valid(tmp_path):
 
 async def test_due_routines_follow_the_schedule_and_back_off_after_a_failure(tmp_path):
     svc, runner, clock = make(tmp_path, fake_claude({}), retry_minutes=60)
-    clock["now"] = datetime(2026, 10, 17, 10, 0)
+    clock["now"] = datetime(2026, 10, 19, 10, 0)
     def daily():
         return [r.key for r in runner.due() if r.key != "radar_spreads"]            # el radar va por intervalo, no por hora
 
     assert daily() == []                                                            # antes de la primera hora (11:10)
-    clock["now"] = datetime(2026, 10, 17, 11, 20)
+    clock["now"] = datetime(2026, 10, 19, 11, 20)
     assert daily() == ["aperturas", "comunidad"]
     await runner.run_one("aperturas")                                               # falla: no hay respuesta simulada
     assert daily() == ["comunidad"]                           # no se reintenta enseguida
-    clock["now"] = datetime(2026, 10, 17, 12, 30)
+    clock["now"] = datetime(2026, 10, 19, 12, 30)
     assert "aperturas" in [r.key for r in runner.due()]                             # pasada la hora de espera, sí
 
 async def test_radar_repeats_only_while_the_market_is_open_plus_one_pass_for_the_last_close(tmp_path):
@@ -258,7 +258,7 @@ async def test_without_a_runner_nothing_external_is_ever_launched(tmp_path):
 
 
 async def test_background_launch_runs_what_is_due_and_then_syncs_the_radar(tmp_path):
-    clock_now = datetime(2026, 10, 17, 11, 50)
+    clock_now = datetime(2026, 10, 19, 11, 50)
     svc, runner, clock = make(tmp_path, run_calls=fake_calls(zone_calls({"sell_premium": [row("MPC")]})))
     clock["now"] = clock_now
     assert svc.tortuga_in_background() is True and svc.tortuga_in_background() is False              # no se solapa consigo misma
@@ -311,3 +311,26 @@ async def test_the_radar_fills_a_source_for_spreads_and_another_for_puts(tmp_pat
     await svc.wait_idle()
     assert "TortugaPuts" not in svc.spread_source_names() and not svc.is_renamable_source("TortugaPuts")      # la de puts NO es apta para spreads
     assert await svc.sync_radar_source() is None
+
+
+async def test_daily_tortuga_routines_only_run_on_business_days_at_their_time(tmp_path):
+    from zoneinfo import ZoneInfo
+    mad = ZoneInfo("Europe/Madrid")                                                  # la hora de las rutinas es la local; el calendario, el de Nueva York
+    svc, _, clock = make(tmp_path)
+    runner = RoutineRunner(svc.settings, MetaRepo(svc.watchlist.db), lambda: clock["now"], fake_claude({"*": "{}"}), tmp_path, fake_calls([]))
+    daily = lambda: [r.key for r in runner.due() if r.key != "radar_spreads"]        # noqa: E731
+    at = lambda d, h, m: datetime(2026, 10, d, h, m, tzinfo=mad)                     # noqa: E731
+    for key, m in (("aperturas", 10), ("comunidad", 15)):
+        runner._save(key, last_ok=at(23, 11, m).isoformat())                         # viernes 11:10 / 11:15
+    for d in (24, 25):                                                               # sábado y domingo, a cualquier hora: nada
+        for h in (11, 15, 20):
+            clock["now"] = at(d, h, 30)
+            assert daily() == []
+    clock["now"] = at(26, 10, 59)                                                    # lunes antes de su hora: todavía no
+    assert daily() == []
+    clock["now"] = at(26, 11, 20)                                                    # lunes a las 11:20: toca, como el 1.er día hábil
+    assert daily() == ["aperturas", "comunidad"]
+    from scanner_opciones.config.settings import MarketSettings
+    holiday = svc.settings.model_copy(update={"market": MarketSettings(holidays=[date(2026, 10, 26)])})
+    runner = RoutineRunner(holiday, MetaRepo(svc.watchlist.db), lambda: clock["now"], fake_claude({"*": "{}"}), tmp_path, fake_calls([]))
+    assert daily() == []                                                             # un lunes festivo se salta igual

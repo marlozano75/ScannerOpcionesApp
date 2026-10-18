@@ -2,7 +2,7 @@
 
 Cada rutina pide a la CLI de Claude (solo herramientas de lectura del conector) un JSON, lo valida con el mismo código que usa después la
 aplicación y SOLO entonces sustituye el fichero bueno (el anterior se conserva si algo falla). El estado de cada una (última vez que salió
-bien, último intento, error) se guarda en `meta` para que sobreviva a un reinicio. Una rutina toca a su hora local una vez al día y,
+bien, último intento, error) se guarda en `meta` para que sobreviva a un reinicio. Una rutina toca a su hora local una vez al día, solo en días hábiles (fin de semana y festivo esperan al siguiente, a su hora), y,
 tras un fallo, no se reintenta hasta pasados `tortuga.retry_minutes`. Las de `tortuga.intervals` (radar) se repiten solo con el mercado
 abierto y hacen una pasada más cuando se abre la app con el mercado cerrado si les falta la foto del último cierre."""
 from __future__ import annotations
@@ -130,6 +130,8 @@ class RoutineRunner:
             st = state.get(r.key, {})
             ok = _parse(st.get("last_ok"))
             if ok is not None and ok.date() == now.date():
+                continue
+            if not self.market.is_session_day_now(now):                   # fin de semana o festivo: hasta el siguiente día hábil, a su hora
                 continue
             tried = _parse(st.get("last_try"))
             if tried is not None and (now - tried).total_seconds() < cfg.retry_minutes * 60:

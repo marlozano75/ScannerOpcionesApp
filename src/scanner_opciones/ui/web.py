@@ -642,7 +642,7 @@ def create_app(
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", pos_charts=pos_charts, minis=minis, pc_index={pc["ticker"]: n for n, pc in enumerate(pos_charts, 1)}, profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index={pc["ticker"]: n for n, pc in enumerate(pos_charts, 1)}, profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 

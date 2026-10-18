@@ -124,3 +124,27 @@ def test_ticker_tooltip_shows_the_full_company_name_first():
     names = {"BRKB": "Berkshire Hathaway Inc. Class B", "QQQ": "Invesco QQQ Trust"}
     assert tk_title(names, "BRK-B", "Ver el historial") == "Berkshire Hathaway Inc. Class B\nVer el historial"
     assert tk_title(names, "QQQ") == "Invesco QQQ Trust" and tk_title(names, "ZZZ", "solo esto") == "solo esto" and tk_title(None, "QQQ") == ""
+
+
+async def test_analysts_and_sec_alerts_are_not_requeried_on_weekends_once_the_friday_close_is_covered():
+    from zoneinfo import ZoneInfo
+    from scanner_opciones.app.service import AppService
+    from scanner_opciones.broker.fake_gateway import FakeGateway
+    from scanner_opciones.marketdata.financials import FakeFinancials
+
+    class SecFake(FakeFinancials):
+        async def get_filing_alerts(self, tickers, days):
+            self.calls.append(("alerts", tuple(tickers)))
+            return {t: [] for t in tickers}
+
+    ny = ZoneInfo("America/New_York")
+    now = [datetime(2026, 10, 23, 23, 0, tzinfo=ny)]                              # viernes tras el cierre y tras la última hora de presentaciones de la SEC (22:00)
+    analysts, sec = FakeAnalysts({}), SecFake()
+    svc = AppService(FakeGateway(), Database(), Settings(), lambda: now[0], analysts=analysts, financials=sec)
+    assert await svc.daily.update_analysts(["AAPL"]) == 1 and await svc.daily.update_filing_alerts(["AAPL"]) == 1
+    now[0] = datetime(2026, 10, 25, 12, 0, tzinfo=ny)                             # domingo, 37 h después (más que cualquier intervalo)
+    assert await svc.daily.update_analysts(["AAPL"]) == 0 and await svc.daily.update_filing_alerts(["AAPL"]) == 0
+    assert len(analysts.calls) == 1 and [c for c in sec.calls if c[0] == "alerts"] == [("alerts", ("AAPL",))]
+    assert await svc.daily.update_analysts(["KO"]) == 1                           # un ticker nunca consultado sí se pide
+    now[0] = datetime(2026, 10, 26, 10, 0, tzinfo=ny)                             # lunes: vuelve a tocar
+    assert await svc.daily.update_analysts(["AAPL"]) == 1 and await svc.daily.update_filing_alerts(["AAPL"]) == 1

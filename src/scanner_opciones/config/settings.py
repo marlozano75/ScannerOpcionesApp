@@ -444,6 +444,9 @@ class EdgarSettings(_Model):
     """SEC EDGAR (balance y flujos de caja): la SEC exige un contacto en el User-Agent; sin él la función queda apagada."""
     contact: str = ""                                    # tu correo (o nombre y correo): se envía a la SEC en el User-Agent
     refresh_days: int = Field(14, ge=1)                  # cada cuántos días se consulta de nuevo (los informes son trimestrales)
+    # horas tras el cierre del último día hábil hasta las que aún pueden llegar presentaciones (EDGAR recibe hasta las 22:00 de Nueva York): las alertas
+    # (8-K, NT) no se consultan en fin de semana ni festivo si la última consulta es posterior
+    settle_hours: float = Field(6, ge=0)
     requests_per_second: float = Field(5, gt=0, le=10)   # la SEC permite 10 como máximo
     alerts_window_days: int = Field(90, ge=1)            # alertas de 8-K / retrasos de los últimos N días (⚠ junto al ticker)
     alerts_refresh_hours: float = Field(12, gt=0)        # cada cuántas horas se vuelven a consultar las presentaciones
@@ -454,6 +457,7 @@ class AnalystSettings(_Model):
     enabled: bool = True
     window_days: int = Field(30, ge=1)                   # cambios de los últimos N días
     refresh_hours: float = Field(20, gt=0)               # cada cuántas horas se vuelven a consultar
+    settle_hours: float = Field(0, ge=0)                 # como `edgar.settle_hours`: sin consulta en fin de semana ni festivo si la última es posterior al cierre
     concurrency: int = Field(4, ge=1, le=16)             # peticiones a Yahoo a la vez
 
 
@@ -544,7 +548,7 @@ class CommunitySettings(_Model):
 class TortugaSettings(_Model):
     """Rutinas que la propia aplicación lanza con la CLI de Claude (`claude -p`, solo lectura) para leer el conector de Tortuga Trades:
     comunidad, aperturas propias y radar de Bull Put Spreads. Sustituyen a las tareas programadas de `scripts/`.
-    Cada una se ejecuta una vez al día a su hora (hora local) mientras la aplicación está abierta, y también a mano desde la pestaña Tortuga."""
+    Cada una se ejecuta una vez al día a su hora (hora local) mientras la aplicación está abierta y solo en días hábiles (fin de semana y festivo esperan al siguiente), y también a mano desde la pestaña Tortuga."""
     enabled: bool = True
     command: str = "claude"                  # ejecutable de la CLI de Claude (debe estar en el PATH y con la sesión iniciada)
     model: str = "sonnet"

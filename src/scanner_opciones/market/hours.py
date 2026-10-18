@@ -56,6 +56,18 @@ class MarketCalendar:
                 day -= timedelta(days=1)
         return datetime.combine(day, self.close, tzinfo=self.tz) + self._delay
 
+    def is_session_day_now(self, now: datetime) -> bool:
+        """¿Hoy (en la zona del mercado) hay sesión? False en fin de semana y festivo."""
+        return self._is_session_day(self._local(now).date())
+
+    def quiet_since(self, last: Optional[datetime], now: datetime, settle_hours: float = 0.0) -> bool:
+        """¿Hoy no hay sesión (fin de semana o festivo) y `last` ya es posterior al último cierre más `settle_hours`? Entonces una consulta de datos
+        que solo cambian en días hábiles (presentaciones de la SEC, ratings, trades publicados con un día de retraso) no puede encontrar nada nuevo.
+        Sin `last` (nunca se consultó) es False. Un `datetime` naive es hora local del sistema."""
+        if last is None or self._is_session_day(self._local(now).date()):
+            return False
+        return last.astimezone() >= self.last_close(now) + timedelta(hours=settle_hours)
+
     def next_open(self, now: datetime) -> datetime:
         """Próxima apertura (aware, en la zona del mercado); la de hoy si aún no ha abierto."""
         local = self._local(now)
