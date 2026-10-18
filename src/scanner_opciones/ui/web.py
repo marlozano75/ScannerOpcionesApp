@@ -30,6 +30,7 @@ from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.portfolio.management import manage_puts
+from scanner_opciones.ui.position_charts import exit_plan, position_chart
 from scanner_opciones.scanner.engine import ScanOutput
 from scanner_opciones.tortuga.radar import passes as radar_passes
 from scanner_opciones.tortuga.routines import ROUTINES
@@ -624,13 +625,22 @@ def create_app(
                            {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
                            service.put_management(), service.put_assignments(), service.put_open_dates(), service.put_margins(),
                            service.put_assignment_notes())
+        today = service.now().date()
+        by_ticker: dict[str, list] = {}
+        for s in mgmt.puts:
+            by_ticker.setdefault(s.ticker, []).append(s)
+        closes = service.bars.all_closes(set(by_ticker)) if by_ticker else {}
+        pos_charts = [dict(ticker=t, chart=position_chart(closes.get(t, []), puts, service.settings.management, today,
+                                                          service.settings.management.chart_weeks, puts[0].underlying_price),
+                           plans=[(s, exit_plan(s, service.settings.management, today)) for s in puts])
+                      for t, puts in sorted(by_ticker.items())]
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
             cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", pos_charts=pos_charts, profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 

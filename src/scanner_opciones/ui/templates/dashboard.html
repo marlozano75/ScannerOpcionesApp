@@ -48,6 +48,20 @@
     {% endfor %}
   </table>
   </div>
+  <h3 style="margin:14px 0 6px;font-size:14px">Evolución por ticker</h3>
+  <p class="muted" style="margin:0 0 8px;font-size:12px">Cierres diarios de las últimas {{ mgmt_cfg.chart_weeks }} semanas, el strike (rojo) o la pareja del spread (gris discontinuo), el vencimiento (línea vertical) y,
+    la fecha de {{ mgmt_cfg.review_dte }} DTE (zona ámbar) con los días que faltan: en las puts gestionadas con Tastytrade es cuando toca revisarlas; con TPC se mantiene hasta el vencimiento y es solo una referencia.</p>
+  <div class="vgrid">
+    {% for pc in pos_charts %}
+    <div class="vcard">
+      <p class="vt" title="{{ tk_title(company_names, pc.ticker) }}">{{ pc.ticker }}{{ sec_flag(sec_alerts, pc.ticker) }}{{ analyst_flag(analyst_alerts, pc.ticker) }}</p>
+      {{ pc.chart }}
+      <ul class="vs" style="margin:6px 0 0;padding-left:16px">
+        {% for s, plan in pc.plans %}<li>{{ s.contracts }} × {{ s.strike|num }}{% if s.long_strike is not none %}/{{ s.long_strike|num }}{% endif %} · venc. {{ s.expiry.strftime('%d/%m') }} ({{ s.dte }} d) · {{ plan.text }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
   <h3 style="margin:14px 0 6px;font-size:14px">Peso por acción si te asignan</h3>
   <table class="sortable">
     <tr><th>Ticker</th><th>Contratos</th><th>Acciones que tienes</th><th>Compra si te asignan</th><th>Total</th><th>% del NLV</th></tr>

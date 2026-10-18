@@ -501,6 +501,7 @@ class ManagementSettings(_Model):
     take_profit_pct: float = Field(50, gt=0, le=100)    # recoger beneficios al capturar este % de la prima cobrada
     take_profit_max_pct: float = Field(65, gt=0, le=100)  # techo del rango de tastytrade (50–65 %): por encima, no esperar más
     review_dte: int = Field(21, ge=0)                   # a este DTE, si no se ha llegado al objetivo: cerrar o rolar
+    chart_weeks: int = Field(10, ge=2, le=52)           # semanas de cierres diarios de los gráficos por ticker del Panel
     spread_stop_value_multiple: float = Field(2.0, gt=1)  # spreads (perfil Tastytrade): aviso de stop cuando el spread vale N veces el crédito cobrado (pérdida ≈ 1 × crédito)
     pin_dte: int = Field(5, ge=0)                       # spreads: riesgo de pin / asignación en los últimos N días...
     pin_buffer_pct: float = Field(2.0, ge=0)            # ...si el precio está a menos de este % por encima del strike vendido (o por debajo)
