@@ -43,6 +43,8 @@ class YahooAnalysts:
             import yfinance
         except ImportError as exc:
             raise AnalystError("Falta la librería yfinance (pip install yfinance)") from exc
+        # yfinance escribe en su log como ERROR cada «404: sin datos» (ETF, índices, valores retirados: no tienen analistas) y no es un fallo
+        logging.getLogger("yfinance").setLevel(logging.CRITICAL)
         sem = asyncio.Semaphore(self.concurrency)
         out: dict[str, list[AnalystChange]] = {}
         failures = 0
