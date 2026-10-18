@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import time
 import asyncio
+import base64
 import json
+import pickle
 import logging
 import re
 from dataclasses import dataclass, field, replace
@@ -76,6 +78,7 @@ SPREAD_UNIVERSE_SYNCED = "spread_universe_synced"   # (obsoleta) marca del antig
 COMMUNITY_CANDLE_WAIT = 8.0   # segundos que se espera por lote de velas al cotizar las ideas (solo dan el «precio al abrir»; medido: con 20 s tardaban ~85 s)
 RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
+COMMUNITY_LIVE = "community_live"   # clave de `meta`: última cotización en directo de las ideas (pickle en base64)
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
 SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
 PUT_OPENED = "put_opened"   # clave de `meta`: día en que la app vio por primera vez cada put vendida (JSON {put_key: AAAA-MM-DD})
@@ -182,7 +185,7 @@ class AppService:
         self._radar_error: Optional[str] = None
         self._radar_syncing = False
         # cotizaciones en directo de las ideas fuera de lo guardado: (hora, generated_at del JSON, snapshots, fichas, cierres)
-        self._community_live: Optional[tuple[datetime, str, dict, dict, dict]] = None
+        self._community_live: Optional[tuple[datetime, str, dict, dict, dict]] = self._load_community_live()   # sobrevive al reinicio
         self._community_live_running = False
         self._community_live_task: Optional[asyncio.Future] = None
         self.manual_sources: dict[str, list[str]] = self._load_manual()   # fuentes con nombre: tickers escritos a mano
@@ -1303,6 +1306,7 @@ class AppService:
                     legs.setdefault(idea.ticker, set()).add((idea.expiry, round(float(strike), 4)))
         if not legs:
             self._community_live = (now, stamp, {}, {}, {})
+            self._save_community_live()
             return
         self._community_live_running = True
         try:
@@ -1338,6 +1342,7 @@ class AppService:
             closes: dict = {}
             if not tickers:
                 self._community_live = (now, stamp, snaps, infos, closes)
+                self._save_community_live()
                 self.state.data_version += 1
             if tickers:
                 try:
@@ -1357,9 +1362,31 @@ class AppService:
                 except Exception as exc:
                     log.warning("Ideas: no se pudieron obtener los cierres: %s", exc)
                 self._community_live = (now, stamp, snaps, infos, closes)
+                self._save_community_live()
                 self.state.data_version += 1
         finally:
             self._community_live_running = False
+
+    def _load_community_live(self):
+        """Cotización en directo de las ideas guardada en la última ejecución (con el mercado cerrado no cambia: evita volver a pedir
+        decenas de cadenas a tastytrade en cada arranque). Cualquier fallo al leerla (versión de la app distinta…) la descarta."""
+        try:
+            raw = self.meta.get(COMMUNITY_LIVE)
+            if not raw:
+                return None
+            live = pickle.loads(base64.b64decode(raw))
+            if isinstance(live, tuple) and len(live) == 5 and isinstance(live[0], datetime) and isinstance(live[1], str):
+                return live
+        except Exception:
+            log.info("Ideas: se descarta la cotización guardada (no se pudo leer)")
+        return None
+
+    def _save_community_live(self) -> None:
+        """Guarda la cotización de las ideas YA completa (con los cierres); una parcial se perdería a medias al reiniciar."""
+        try:
+            self.meta.set(COMMUNITY_LIVE, base64.b64encode(pickle.dumps(self._community_live)).decode("ascii"))
+        except Exception:
+            log.warning("Ideas: no se pudo guardar la cotización en directo", exc_info=True)
 
     def community_quotes_task(self) -> Optional[asyncio.Future]:
         """Lanza en segundo plano la cotización en directo de las ideas (si hace falta) y devuelve la tarea. Sigue aunque la página que la pidió

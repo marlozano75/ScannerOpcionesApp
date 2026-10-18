@@ -174,3 +174,17 @@ def test_ideas_page_shows_a_notice_while_the_live_quotes_are_still_running(clien
     client.portal.call(gate.set)
     client.portal.call(svc.wait_idle)
     assert 'id="quoting"' not in client.get("/ideas").text
+
+
+async def test_the_quotes_of_the_ideas_survive_a_restart_when_the_market_is_closed(tmp_path):
+    first, provider = make(tmp_path)
+    await first.refresh_community_quotes()
+    assert provider.calls
+    settings = Settings.model_validate({"community": {"path": str(tmp_path / "tortuga.json")}})
+    gw = FakeGateway()
+    gw.connected = True
+    again = CountingProvider()
+    second = AppService(gw, Database(tmp_path / "app.db"), settings, lambda: NOW, volatility=again)   # reinicio: misma base de datos
+    await second.refresh_community_quotes()
+    assert again.calls == []                                                # reutiliza la cotización guardada tras el cierre
+    assert second._community_live is not None and second._community_live[2]   # con las patas cotizadas
