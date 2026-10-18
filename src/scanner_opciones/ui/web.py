@@ -698,17 +698,18 @@ def create_app(
 
     # ---- Tortuga: radar de Bull Put Spreads y rutinas -------------------------------------------
     @app.get("/tortuga", response_class=HTMLResponse)
-    async def tortuga(request: Request, cumple: int = 0, solo: int = 0, message: str = ""):
+    async def tortuga(request: Request, cumple: int = 0, solo: int = 0, tipo: str = "", message: str = ""):
         data = service.radar_spreads()
         minimum = service.radar_min_yield()
         watch = set(service.watchlist.list())
         held = {norm_ticker(p.ticker) for p in service.state.positions}
         items = [dict(row=r, ok=radar_passes(r, minimum), wl=r.ticker in watch, held=norm_ticker(r.ticker) in held)
                  for r in (data.rows if data else ())]
-        shown = [i for i in items if (not cumple or i["ok"]) and (not solo or i["wl"])]
+        tipo = tipo if tipo in ("spread", "put") else ""
+        shown = [i for i in items if (not cumple or i["ok"]) and (not solo or i["wl"]) and (not tipo or i["row"].kind == tipo)]
         runner = service.tortuga
         return render(request, "tortuga.html", data=data, items=shown, total=len(items), passing=sum(1 for i in items if i["ok"]),
-                      minimum=minimum, cumple=cumple, solo=solo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
+                      minimum=minimum, cumple=cumple, solo=solo, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
                       routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,
                       enabled=runner is not None and service.settings.tortuga.enabled, busy_routines=service._tortuga_busy,
                       age_days=(service.now().date() - data.as_of).days if data and data.as_of else None)

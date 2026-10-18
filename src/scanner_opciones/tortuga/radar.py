@@ -63,6 +63,7 @@ class RadarRow:
     earnings_before_expiry: Optional[bool] = None
     zone: Optional[str] = None
     strategy: Optional[str] = None
+    strategy_key: Optional[str] = None      # clave del motor del radar (bullPutSpread, ventaPut...)
     score: Optional[float] = None
     signal: Optional[str] = None
     liquidity_stars: Optional[float] = None
@@ -81,6 +82,16 @@ class RadarRow:
     put_yield_annual_pct: Optional[float] = None
     put_expiry: Optional[date] = None
     put_dte: Optional[int] = None
+
+    @property
+    def kind(self) -> str:
+        """`spread` (Bull Put Spread), `put` (venta de put, «Venta de PUT») u `other`."""
+        text = f"{self.strategy_key or ''} {self.strategy or ''}".lower().replace(" ", "")
+        if "bullputspread" in text:
+            return "spread"
+        if "ventaput" in text or "shortput" in text:
+            return "put"
+        return "other"
 
     @property
     def put_yield_period_pct(self) -> Optional[float]:
@@ -119,7 +130,7 @@ def _parse_row(item: Mapping) -> RadarRow:
         expected_move_pct=_num(item.get("expected_move_30d_pct")), rsi14=_num(item.get("rsi14")), trend=item.get("trend"),
         earnings_date=_day(earn.get("date")), earnings_days=_opt_int(earn.get("days_to")),
         earnings_before_expiry=earn.get("before_target_expiry") if isinstance(earn.get("before_target_expiry"), bool) else None,
-        zone=item.get("zone"), strategy=top.get("name"), score=_num(top.get("score")), signal=item.get("signal") or top.get("signal"),
+        zone=item.get("zone"), strategy=top.get("name"), strategy_key=top.get("key"), score=_num(top.get("score")), signal=item.get("signal") or top.get("signal"),
         liquidity_stars=_num(liq.get("stars")), liquidity_spread_pct=_num(liq.get("spread_pct")), option_volume=_num(liq.get("option_volume")),
         volume_ratio=_num(liq.get("volume_ratio_20")), total_oi=_num(liq.get("total_oi")), put_call_oi=_num(liq.get("put_call_oi")),
         put_call_volume=_num(liq.get("put_call_volume")), put_wall=_num(levels.get("put_wall")), call_wall=_num(levels.get("call_wall")),
@@ -175,21 +186,21 @@ def load_radar(path: "str | Path") -> RadarData:
 # La herramienta corta cada respuesta en ~41 filas aunque se pida limit=100 (medido el 2026-10-17: matched=45, filas=41), y no tiene paginación.
 # Por eso, si la lista entera no cabe, se pide por tramos de precio (todo valor tiene precio, así que los tramos lo cubren entero), partiendo
 # solo los tramos que sigan recortados (lo decide el prompt, `scripts/radar_spreads_prompt.md`), y se comprueba contra el total.
+# Se leen dos estrategias propuestas por el motor del radar: Bull Put Spread y venta de put (`short_put`: «Venta de PUT»; 6 valores el 2026-10-18).
 COUNT_ARGS = {"strategy", "limit", "sort"}      # una llamada con solo estos argumentos no lleva ningún filtro: su `matched` es el total
+STRATEGIES = ("bull_put_spread", "short_put")
 
 
 def build_radar_document(calls: list, now: datetime) -> dict:
-    """Documento de la versión 1 a partir de las llamadas a `get_market_radar` con `strategy=bull_put_spread`, con lo que la herramienta
-    devolvió: una llamada SIN filtros (de ahí sale el total `matched`; si no viene recortada ya es la lista entera) y, si hace falta, las de
-    los tramos de precio. Las respuestas recortadas aportan sus filas (son reales), pero se rechaza todo si, juntas y sin duplicados, no suman
-    exactamente el total."""
-    rows: list[dict] = []
-    seen: set[str] = set()
-    total: Optional[int] = None
+    """Documento de la versión 1 a partir de las llamadas a `get_market_radar` de cada estrategia de `STRATEGIES`, con lo que la herramienta
+    devolvió: por estrategia, una llamada SIN filtros (de ahí sale el total `matched`; si no viene recortada ya es la lista entera) y, si hace
+    falta, las de los tramos de precio. Las respuestas recortadas aportan sus filas (son reales), pero se rechaza todo si, por estrategia, las filas
+    sin duplicados no suman exactamente el total."""
+    groups: dict[str, dict] = {s: {"rows": {}, "total": None} for s in STRATEGIES}
     as_of = None
     for call in calls:
         args = getattr(call, "input", None) or {}
-        if getattr(call, "name", "") != "get_market_radar" or args.get("symbol"):
+        if getattr(call, "name", "") != "get_market_radar" or args.get("symbol") or args.get("strategy") not in groups:
             continue
         try:
             result = json.loads(call.output)
@@ -198,20 +209,25 @@ def build_radar_document(calls: list, now: datetime) -> dict:
         if not isinstance(result, dict) or not isinstance(result.get("rows"), list):
             continue
         as_of = as_of or result.get("as_of")
+        group = groups[args["strategy"]]
         if not set(args) - COUNT_ARGS:
-            total = _opt_int(result.get("matched"))          # la llamada sin filtros: da el total
+            group["total"] = _opt_int(result.get("matched"))          # la llamada sin filtros: da el total
         for item in result["rows"]:
             sym = str(item.get("symbol", "")).upper() if isinstance(item, dict) else ""
-            if sym and sym not in seen:
-                seen.add(sym)
-                rows.append(item)
-    if total is None:
-        raise RadarError("falta la llamada de recuento del radar")
-    if len(rows) != total:
-        raise RadarError(f"el radar suma {len(rows)} valores y debería haber {total}: respuesta recortada o faltan tramos de precio")
-    rows.sort(key=lambda r: -(_num(r.get("iv_rank")) or -1))
+            if sym:
+                group["rows"].setdefault(sym, item)
+    rows: dict[str, dict] = {}
+    for strategy, group in groups.items():
+        if group["total"] is None:
+            raise RadarError(f"falta la llamada de recuento del radar ({strategy})")
+        if len(group["rows"]) != group["total"]:
+            raise RadarError(f"el radar ({strategy}) suma {len(group['rows'])} valores y debería haber {group['total']}: "
+                             "respuesta recortada o faltan tramos de precio")
+        for sym, item in group["rows"].items():
+            rows.setdefault(sym, item)
+    ordered = sorted(rows.values(), key=lambda r: -(_num(r.get("iv_rank")) or -1))
     return {"version": VERSION, "generated_at": now.astimezone().isoformat(timespec="seconds"), "source": "tortuga-market-radar",
-            "as_of": as_of, "matched": len(rows), "returned": len(rows), "rows": rows}
+            "as_of": as_of, "matched": len(ordered), "returned": len(ordered), "rows": ordered}
 
 
 def passes(row: RadarRow, min_yield_pct: float) -> bool:

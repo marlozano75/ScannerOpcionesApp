@@ -63,7 +63,7 @@ def test_extract_json_ignores_the_text_around_it():
         extract_json("FAILED")
 
 
-def zone_calls(rows_by_zone, total=None, **over):
+def zone_calls(rows_by_zone, total=None, puts=None, **over):
     """Las llamadas a get_market_radar como las devuelve la CLI: la de recuento y una por tramo de precio."""
     every = [r for rows in rows_by_zone.values() for r in rows]
     n = len({r["symbol"] for r in every}) if total is None else total
@@ -72,6 +72,9 @@ def zone_calls(rows_by_zone, total=None, **over):
     for zone, rows in rows_by_zone.items():
         body = {"as_of": "2026-10-16", "matched": len(rows), "returned": len(rows), "truncated": False, "rows": rows, **over}
         out.append(ToolCall("get_market_radar", {"strategy": "bull_put_spread", "price_min": 0, "price_max": 20, "limit": 100, "tag": zone}, json.dumps(body)))
+    puts = puts or []
+    out.append(ToolCall("get_market_radar", {"strategy": "short_put", "sort": "iv_rank", "limit": 100},
+                        json.dumps({"as_of": "2026-10-16", "matched": len(puts), "returned": len(puts), "truncated": False, "rows": puts})))
     return out
 
 
@@ -93,14 +96,22 @@ def call(args, rows, matched=None):
     return ToolCall("get_market_radar", {"strategy": "bull_put_spread", "sort": "iv_rank", "limit": 100, **args}, json.dumps(body))
 
 
+def empty_puts():
+    return call({"strategy": "short_put"}, [])
+
+
+def put_row(symbol, **over):
+    return row(symbol, top_strategy={"key": "ventaPut", "name": "Venta de PUT", "score": 75, "signal": "favorable"}, **over)
+
+
 def test_radar_needs_a_single_call_when_it_fits_and_splits_only_the_cut_ranges():
     rows = [row(f"T{i}", iv_rank=90 - i) for i in range(6)]
-    assert len(build_radar_document([call({}, rows)], NOW)["rows"]) == 6                           # una sola llamada sin filtros, completa
+    assert len(build_radar_document([call({}, rows), empty_puts()], NOW)["rows"]) == 6                           # una sola llamada sin filtros, completa
     cut = call({}, rows[:3], matched=6)                                                             # recortada: 3 de 6
     halves = [call({"price_min": 0, "price_max": 50}, rows[:4]), call({"price_min": 50}, rows[4:])]
-    assert [r["symbol"] for r in build_radar_document([cut, *halves], NOW)["rows"]] == ["T0", "T1", "T2", "T3", "T4", "T5"]
+    assert [r["symbol"] for r in build_radar_document([cut, *halves, empty_puts()], NOW)["rows"]] == ["T0", "T1", "T2", "T3", "T4", "T5"]
     with pytest.raises(RadarError, match="debería haber 6"):
-        build_radar_document([cut, halves[0]], NOW)                                                 # falta el tramo de 50 $ para arriba
+        build_radar_document([cut, halves[0], empty_puts()], NOW)                                                 # falta el tramo de 50 $ para arriba
 
 
 def test_tool_calls_are_read_from_the_stream_without_the_model_copying_anything():
@@ -271,3 +282,32 @@ def test_tortuga_page_renders_rows_routines_and_manual_launch(client_and_service
     r = client.post("/tortuga/run", data={"key": "nope"})
     assert r.status_code == 400
     assert client.post("/tortuga/run", data={"key": "all"}, follow_redirects=False).status_code == 303
+
+
+def test_the_radar_reads_both_strategies_and_labels_each_row_with_its_kind():
+    spreads = [row("MPC", iv_rank=97), row("PSX", iv_rank=80)]
+    puts = [put_row("NTAP", iv_rank=64), put_row("XLE", iv_rank=56, sector="ETF")]
+    d = build_radar_document(zone_calls({"z": spreads}, puts=puts), NOW)
+    data = parse_radar(d)
+    assert [r.ticker for r in data.rows] == ["MPC", "PSX", "NTAP", "XLE"]
+    assert [r.kind for r in data.rows] == ["spread", "spread", "put", "put"] and data.rows[2].strategy_key == "ventaPut"
+    calls = zone_calls({"z": spreads}, puts=puts)
+    with pytest.raises(RadarError, match="short_put"):
+        build_radar_document(calls[:-1], NOW)                                                     # falta la estrategia de venta de put
+    calls[-1] = ToolCall("get_market_radar", {"strategy": "short_put", "limit": 100, "sort": "iv_rank"},
+                         json.dumps({"as_of": "2026-10-16", "matched": 9, "rows": puts}))        # recortada: 2 de 9
+    with pytest.raises(RadarError, match=r"debería haber 9"):
+        build_radar_document(calls, NOW)
+
+
+async def test_the_radar_fills_a_source_for_spreads_and_another_for_puts(tmp_path):
+    svc, runner, _ = make(tmp_path)
+    rows = [row("MPC"), put_row("PSX", strike=275, mid=6.7), put_row("XYZ", strike=100, mid=0.2)]        # el último no llega al yield
+    (tmp_path / "radar.json").write_text(json.dumps(doc(rows)), encoding="utf-8")
+    assert svc.radar_passing("spread") == ["MPC"] and svc.radar_passing("put") == ["PSX"] and svc.radar_passing() == ["MPC", "PSX"]
+    res = await svc.sync_radar_source()
+    assert svc.manual_sources["TortugaSpreads"] == ["MPC"] and svc.manual_sources["TortugaPuts"] == ["PSX"]
+    assert res["added"] == ["MPC"] and res["puts"]["added"] == ["PSX"]
+    await svc.wait_idle()
+    assert "TortugaPuts" not in svc.spread_source_names() and not svc.is_renamable_source("TortugaPuts")      # la de puts NO es apta para spreads
+    assert await svc.sync_radar_source() is None

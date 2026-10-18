@@ -10,18 +10,21 @@
   .tr-err { color:#b3361b; }
 </style>
 <div class="card">
-  <h2>Tortuga · Bull Put Spreads del Market Radar</h2>
+  <h2>Tortuga · Market Radar: Bull Put Spreads y venta de puts</h2>
   {% if not data %}
   <p class="muted">Todavía no hay datos del radar. {% if enabled %}La aplicación los pide sola cada {{ cfg.intervals.get('radar_spreads') }} minutos mientras está abierta con el mercado abierto (y una vez tras el cierre); también puedes lanzarlos a mano abajo.{% else %}Las rutinas de Tortuga están desactivadas (<code>tortuga.enabled</code>) o falta el lanzador.{% endif %}</p>
   {% else %}
-  <p class="muted" style="margin-top:0">Valores del Market Radar de Tortuga cuya estrategia propuesta es <b>Bull Put Spread</b>, con los datos del {{ data.as_of.strftime('%d/%m/%Y') if data.as_of else '—' }}{% if age_days and age_days > 3 %} <b class="tr-err">(hace {{ age_days }} días: la rutina no se ha ejecutado)</b>{% endif %}.
+  <p class="muted" style="margin-top:0">Valores del Market Radar de Tortuga cuya estrategia propuesta es <b>Bull Put Spread</b> o <b>venta de put</b>, con los datos del {{ data.as_of.strftime('%d/%m/%Y') if data.as_of else '—' }}{% if age_days and age_days > 3 %} <b class="tr-err">(hace {{ age_days }} días: la rutina no se ha ejecutado)</b>{% endif %}.
     El radar de Tortuga se refresca durante la sesión (precio e IV cada ~15 min, primas en pasadas de ~10 min; el OI es el del cierre anterior) y la aplicación lo relee cada {{ cfg.intervals.get('radar_spreads') }} minutos con el mercado abierto y una vez más tras el cierre (también al abrirla fuera de sesión si le falta esa foto). La lista no trae los strikes del spread que propone (solo su ficha, una por valor), así que se muestra la
     <b>put de 30Δ</b> de referencia: ✓ indica que su prima cubre al menos el <b>{{ minimum|num(2) }} % del strike hasta el vencimiento</b>, el yield del periodo del perfil «{{ cfg.profile }}».
-    Los ✓ forman la fuente <b>{{ cfg.source_name }}</b> del Universo y pasan a tu watchlist (solo se añaden, nunca se quitan).
+    Los ✓ forman dos fuentes del Universo según la estrategia que propone Tortuga, y pasan a tu watchlist (solo se añaden, nunca se quitan):
+    <b>{{ cfg.source_name }}</b> (Bull Put Spread, apta para spreads) y <b>{{ cfg.puts_source_name }}</b> (venta de put; como cualquier otra fuente, sus valores pasan por la calidad mínima de las puts).
     Con <span class="tl tl-w" style="background:#dff3e6;color:#1d6b3f;padding:0 4px;border-radius:7px;font-size:10px;font-weight:700">W</span> los que ya están en tu watchlist y <span class="own">EN CARTERA</span> los que tienes en posiciones.
     Es información de otro motor, no una recomendación: compruébalo con los filtros del Scanner (modo Spread).</p>
   <form method="get" action="/tortuga" class="tr-bar">
     <label class="check"><input type="checkbox" name="cumple" value="1" {{ 'checked' if cumple }} onchange="this.form.submit()"> Solo los que cumplen el yield (✓)</label>
+    <label>Estrategia <select name="tipo" onchange="this.form.submit()"><option value="">Todas</option>
+      <option value="spread" {{ 'selected' if tipo == 'spread' }}>Bull Put Spread</option><option value="put" {{ 'selected' if tipo == 'put' }}>Venta de put</option></select></label>
     <label class="check"><input type="checkbox" name="solo" value="1" {{ 'checked' if solo }} onchange="this.form.submit()"> Solo los de mi watchlist</label>
     <span class="muted">{{ items|length }} de {{ total }} · {{ passing }} cumplen</span>
   </form>

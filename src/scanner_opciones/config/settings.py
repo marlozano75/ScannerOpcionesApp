@@ -551,7 +551,10 @@ class TortugaSettings(_Model):
     retry_minutes: int = Field(120, ge=1)     # tras un fallo no se reintenta hasta pasado este tiempo
     prompts_dir: str = "scripts"              # carpeta de los *_prompt.md
     radar_path: str = "data/community/radar_spreads.json"
-    source_name: str = "TortugaSpreads"       # fuente del Universo con los tickers del radar que cumplen el yield del perfil
+    source_name: str = "TortugaSpreads"       # fuente del Universo con los tickers del radar (Bull Put Spread) que cumplen el yield del perfil
+    # fuente con los del radar cuya estrategia propuesta es la venta de put: NO es apta para spreads, así que en el Universo se le aplica la
+    # barra de calidad de la empresa (y en el Scanner la calidad mínima de las puts)
+    puts_source_name: str = "TortugaPuts"
     profile: str = "TastyPut"                 # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
     times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "radar_spreads": "11:45"}
     # rutinas que se repiten cada N minutos mientras la aplicación está abierta y el mercado abierto (más una pasada tras el cierre; en vez de una vez al día a su hora de `times`): el radar de

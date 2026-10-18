@@ -48,7 +48,7 @@ ROUTINES = (
             "fechas de apertura (perfil de cada put en el Panel) y cierres recientes (insignia en Ideas)"),
     Routine("comunidad", "Comunidad de traders", "comunidad_prompt.md", ("get_context", "get_community_screener", "list_public_operations"), 25,
             "columna Comunidad del Scanner, pestaña Ideas y fuente TortugaTrades_Dia"),
-    Routine("radar_spreads", "Radar de Bull Put Spreads", "radar_spreads_prompt.md", ("get_context", "get_market_radar"), 15,
+    Routine("radar_spreads", "Radar de Bull Put Spreads", "radar_spreads_prompt.md", ("get_context", "get_market_radar"), 30,
             "pestaña Tortuga y fuente TortugaSpreads (pasa a la watchlist)", via_calls=True),
 )
 BY_KEY = {r.key: r for r in ROUTINES}
@@ -89,7 +89,8 @@ def finish_calls(settings: Settings, key: str, calls: list[ToolCall], now: datet
     except (RadarError, ValueError) as exc:
         raise RoutineError(str(exc)) from exc
     _atomic_write(Path(settings.tortuga.radar_path), json.dumps(doc, ensure_ascii=False))
-    return f"{len(data.rows)} valores con Bull Put Spread"
+    spreads = sum(1 for r in data.rows if r.kind == "spread")
+    return f"{len(data.rows)} valores ({spreads} Bull Put Spread, {len(data.rows) - spreads} venta de put)"
 
 
 class RoutineRunner:

@@ -194,6 +194,7 @@ community:
 #   times: {aperturas: "11:10", comunidad: "11:15", radar_spreads: "11:45"}   # hora local de cada rutina
 #   intervals: {radar_spreads: 30}   # rutinas que se repiten cada N minutos mientras la app está abierta y el mercado abierto (más una pasada tras el cierre)
 #   source_name: TortugaSpreads    # fuente del Universo con los valores del radar que cumplen el yield del perfil (apta para spreads)
+#   puts_source_name: TortugaPuts  # fuente con los del radar cuya estrategia propuesta es la venta de put (no apta para spreads)
 #   profile: TastyPut              # perfil del Scanner cuyo yield del periodo se exige a la put de 30Δ del radar
 # Fuentes aptas para spreads (la de Tortuga y las que marques a mano en el Universo): sus tickers no pasan los filtros de la empresa (solo
 # liquidez de opciones y precio) y en el Scanner solo salen como spread.

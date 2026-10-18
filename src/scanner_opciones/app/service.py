@@ -390,7 +390,8 @@ class AppService:
 
     def is_renamable_source(self, name: str) -> bool:
         """Fuente manual escrita por el usuario (no las que rellena la aplicación: comunidad y radar de Tortuga)."""
-        managed = {self.settings.community.source_name, self.settings.community.perm_source_name, self.settings.tortuga.source_name}
+        managed = {self.settings.community.source_name, self.settings.community.perm_source_name, self.settings.tortuga.source_name,
+                   self.settings.tortuga.puts_source_name}
         return name in self.manual_sources and name not in managed
 
     def rename_manual_source(self, old: str, new: str) -> str:
@@ -398,7 +399,8 @@ class AppService:
         renombrar las que gestiona la propia aplicación (comunidad y radar de Tortuga) ni las de ficheros. Devuelve el nombre final."""
         if old not in self.manual_sources:
             raise WatchlistError(f"«{old}» no es una fuente manual: solo se renombran las que escribiste a mano")
-        managed = {self.settings.community.source_name, self.settings.community.perm_source_name, self.settings.tortuga.source_name}
+        managed = {self.settings.community.source_name, self.settings.community.perm_source_name, self.settings.tortuga.source_name,
+                   self.settings.tortuga.puts_source_name}
         if not self.is_renamable_source(old):
             raise WatchlistError(f"«{old}» la rellena la aplicación sola: no se puede renombrar")
         name = " ".join(new.split())
@@ -1286,12 +1288,13 @@ class AppService:
                     return value
         return self.settings.scanner.strategy.min_yield_pct
 
-    def radar_passing(self) -> list[str]:
+    def radar_passing(self, kind: Optional[str] = None) -> list[str]:
+        """Tickers del radar cuya put de 30Δ rinde el yield del perfil; `kind` = `spread` o `put` limita a esa estrategia propuesta."""
         data = self.radar_spreads()
         if data is None:
             return []
         minimum = self.radar_min_yield()
-        return [r.ticker for r in data.rows if radar_passes(r, minimum)]
+        return [r.ticker for r in data.rows if radar_passes(r, minimum) and (kind is None or r.kind == kind)]
 
     def sync_radar_in_background(self) -> None:
         if self._radar_syncing or self.radar_spreads() is None:
@@ -1313,29 +1316,41 @@ class AppService:
         self.launch(run())
 
     async def sync_radar_source(self) -> Optional[dict]:
-        """La fuente del Universo `tortuga.source_name` pasa a ser los valores del radar cuya put de 30Δ rinde en el periodo al menos el
-        yield del perfil, y esos tickers se añaden a la watchlist (con su actualización diaria en segundo plano). Solo AÑADE a la
-        watchlist: nunca quita nada. No hace nada si ese JSON (con ese umbral) ya se volcó."""
+        """Las fuentes del Universo del radar de Tortuga pasan a ser los valores cuya put de 30Δ rinde en el periodo al menos el yield del
+        perfil: `tortuga.source_name` con los de estrategia propuesta Bull Put Spread y `tortuga.puts_source_name` con los de venta de put.
+        Los tickers nuevos se añaden a la watchlist (con su actualización diaria en segundo plano). Solo AÑADE a la watchlist: nunca quita nada.
+        No repite una fuente si ese JSON (con ese umbral) ya se volcó. Devuelve el resultado de la de spreads (y el de puts en `puts`)."""
         cfg = self.settings.tortuga
         data = self.radar_spreads()
         if data is None:
             return None
-        stamp = f"{data.generated_at.isoformat()}|{self.radar_min_yield():g}"
-        if self.meta.get(RADAR_SYNCED) == stamp and cfg.source_name in self.manual_sources:
+        spreads = await self._sync_radar_kind("spread", cfg.source_name, RADAR_SYNCED, data)
+        puts = await self._sync_radar_kind("put", cfg.puts_source_name, RADAR_SYNCED + "_puts", data)
+        if spreads is None and puts is None:
             return None
-        parsed = parse_tokens(self.radar_passing())
+        result = dict(spreads or {})
+        if puts is not None:
+            result["puts"] = puts
+        return result
+
+    async def _sync_radar_kind(self, kind: str, source: str, stamp_key: str, data: RadarData) -> Optional[dict]:
+        cfg = self.settings.tortuga
+        stamp = f"{data.generated_at.isoformat()}|{self.radar_min_yield():g}"
+        if self.meta.get(stamp_key) == stamp and source in self.manual_sources:
+            return None
+        parsed = parse_tokens(self.radar_passing(kind))
         if not parsed.tickers:
-            log.info("Radar de Tortuga: ningún valor llega al yield del perfil «%s»; la fuente «%s» no cambia", cfg.profile, cfg.source_name)
+            log.info("Radar de Tortuga: ningún valor (%s) llega al yield del perfil «%s»; la fuente «%s» no cambia", kind, cfg.profile, source)
             return None
         try:
-            result = await self.add_manual_tickers(parsed, cfg.source_name, replace_source=True)
+            result = await self.add_manual_tickers(parsed, source, replace_source=True)
         except WatchlistError as exc:
-            log.warning("Radar de Tortuga: no se pudo actualizar la fuente «%s»: %s", cfg.source_name, exc)
+            log.warning("Radar de Tortuga: no se pudo actualizar la fuente «%s»: %s", source, exc)
             return None
         if result["added"]:
             new = await self.add_watchlist(parse_tokens(list(result["added"])), background=True)
             result["watchlist_new"] = new
-        self.meta.set(RADAR_SYNCED, stamp)
+        self.meta.set(stamp_key, stamp)
         self.state.data_version += 1
         return result
 
