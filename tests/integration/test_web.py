@@ -180,8 +180,8 @@ def test_scanner_shows_desc_and_bid_size_columns(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     r = client.get("/scanner?reset=1")
-    assert "<th>Desc.</th>" in r.text and "<th>Dist.</th>" not in r.text
-    assert "<th>Bid size</th>" in r.text
+    assert '<th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th>' in r.text and "<th>Dist.</th>" not in r.text
+    assert re.search(r"<th[^>]*>Bid size</th>", r.text)
 
 
 def test_watchlist_and_scanner_tables_are_sortable(client_and_service):
@@ -192,7 +192,7 @@ def test_watchlist_and_scanner_tables_are_sortable(client_and_service):
     assert "SortableTables.init" in wl and "function sortRows" in wl          # script incluido en la página
     sc = client.get("/scanner?reset=1").text
     assert 'class="sortable sticky-tk with-sel" id="scan-results"' in sc
-    assert "<th data-nosort>Cant.</th>" in sc                                # la columna de cantidad no ordena
+    assert '<th data-nosort title="Número de contratos a simular (1–9)">Cant.</th>' in sc                                # la columna de cantidad no ordena
     assert "th[aria-sort=descending]::after" in sc and "\\25BC" in sc     # indicador de dirección
     # las tablas del panel no se ordenan
     assert 'class="sortable"' not in client.get("/").text
@@ -208,13 +208,13 @@ def test_price_reference_selector_defaults_and_columns(client_and_service):
     assert 'value="bid_plus_spread" selected' in r.text and 'name="ref_x" id="ref_x" size="5" value="25"' in r.text
     assert "Precio de venta: bid + 25% del spread" in r.text
     # columnas agrupadas: ticker, sector y precio juntos; yields juntos (el anual destacado y orden por defecto); delta con la IV
-    assert '<th class="tk">Ticker</th><th class="txt">Sector</th><th>Precio</th><th>Strike</th>' in r.text
-    assert '<th class="hl" data-sort-default="desc">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th title="Yield anual con el bid">Yield bid</th>' in r.text
-    assert "<th>Delta</th><th" in r.text and "<th>IV</th><th>IV Rank</th><th>IV Pctl</th>" in r.text and "Dist. σ" not in r.text
+    assert re.search(r'<th class="tk"[^>]*>Ticker</th><th class="txt"[^>]*>Sector</th><th[^>]*>Precio</th><th[^>]*>Strike</th>', r.text)
+    assert re.search(r'<th class="hl" data-sort-default="desc"[^>]*>Yield anual</th>', r.text) and '<th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th title="Yield anual con el bid">Yield bid</th>' in r.text
+    assert re.search(r"<th[^>]*>Delta</th><th", r.text) and re.search(r"<th[^>]*>IV</th><th[^>]*>IV Rank</th><th[^>]*>IV Pctl</th>", r.text) and "Dist. σ" not in r.text
     for gone in ("Vence", "Prima ref.", "Yield", "Bid", "Ask", "Last", "Margen ini.", "Yield bid", "Hora precio",
                  "Ex-div (d)", "FCF (M$)", "Actualizado"):
         assert f"<th>{gone}</th>" not in r.text
-    assert ">Técnicos</th>" in r.text and "{{" not in r.text          # contador de señales técnicas (informativo)
+    assert ">Téc.</th>" in r.text and "{{" not in r.text          # contador de señales técnicas (informativo)
     assert 'id="ref_x_label" hidden' not in r.text                    # X visible con «Bid + X % del spread»
     mid = client.get(BASE + "&ref=mid&ref_x=25")
     assert "Precio de venta: mid (media bid/ask)" in mid.text and 'id="ref_x_label" hidden' in mid.text
@@ -280,7 +280,7 @@ def test_ticker_column_is_sticky_in_scanner(client_and_service):
     refresh(client)
     scanner = client.get("/scanner?reset=1").text
     assert 'class="sortable sticky-tk with-sel" id="scan-results"' in scanner
-    assert '<th class="tk">Ticker</th>' in scanner and '<td class="tk" data-sort="AAPL"><a href="#" class="chart-link" data-ticker="AAPL"' in scanner
+    assert re.search(r'<th class="tk"[^>]*>Ticker</th>', scanner) and '<td class="tk" data-sort="AAPL"><a href="#" class="chart-link" data-ticker="AAPL"' in scanner
     assert '<th class="sel"></th>' in scanner and '<td class="sel"><input type="checkbox"' in scanner   # casilla también fija
     assert "table.sticky-tk .tk { left:0;" in scanner and "position:sticky" in scanner
 
@@ -746,7 +746,7 @@ def test_strike_chart_endpoint_and_link(client_and_service):
     # miniatura de cada fila: imagen SVG propia que se carga al hacerse visible
     page = client.get("/scanner?reset=1").text
     assert '<img loading="lazy" width="80" height="24" alt="" src="/chart/mini.svg?ticker=AAPL&amp;strike=' in page
-    assert "<th data-nosort>Historial</th>" in page
+    assert re.search(r"<th data-nosort[^>]*>Historial</th>", page)
     mini = client.get("/chart/mini.svg?ticker=AAPL&strike=75")
     assert mini.headers["content-type"].startswith("image/svg+xml") and "<path" in mini.text and "stroke-dasharray" in mini.text
     assert "<path" not in client.get("/chart/mini.svg?ticker=NOPE&strike=75").text     # sin histórico: solo un guion
