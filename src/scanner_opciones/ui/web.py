@@ -73,6 +73,15 @@ def sec_flag(alerts, ticker):
 TEMPLATES.env.globals["sec_flag"] = sec_flag
 
 
+def tk_title(names, ticker, extra=""):
+    """Texto al pasar el ratón por un ticker: el nombre completo de la acción o ETF (si se conoce) y, debajo, `extra`."""
+    name = (names or {}).get(norm_ticker(ticker), "")
+    return "\n".join(p for p in (name, extra) if p)
+
+
+TEMPLATES.env.globals["tk_title"] = tk_title
+
+
 def analyst_flag(changes, ticker):
     """▼ (bajadas de rating) o ▲ (subidas) de analistas en los últimos días junto al ticker; el detalle de cada cambio sale al pasar el ratón."""
     items = (changes or {}).get(norm_ticker(ticker))
@@ -598,7 +607,7 @@ def create_app(
             pacing_wait=service.pacing_wait_seconds() if service.busy else 0,
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()), path=request.url.path,
-            excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(), analyst_alerts=service.analyst_map(),
+            excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(), analyst_alerts=service.analyst_map(), company_names=service.company_name_map(),
         )
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 

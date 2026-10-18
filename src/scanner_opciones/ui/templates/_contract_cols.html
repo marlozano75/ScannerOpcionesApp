@@ -27,7 +27,7 @@
 {%- endmacro %}
 
 {% macro lead_cells(r) -%}{% set c = r.snapshot.contract %}{% set i = r.info -%}
-<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="Ver el historial de cierres frente al strike y el último toque">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
+<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" title="{{ tk_title(company_names, c.ticker, 'Ver el historial de cierres frente al strike y el último toque') }}">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
 {%- endmacro %}
 
 {% macro mini_cell(r) -%}{% set c = r.snapshot.contract -%}
@@ -85,11 +85,10 @@
 
 {# Bloque de mercado de un spread (junto al retorno): las dos deltas, la IV, el IV Rank, los spreads bid/ask, bid size, OI y liquidez #}
 {% macro mkt_head() -%}
-<th title="Delta de la vendida">Δ vend.</th><th title="Delta de la comprada">Δ comp.</th><th title="Volatilidad implícita del contrato">IV</th><th title="IV Rank del subyacente: posición de su IV actual dentro del rango de 52 semanas">IV Rank</th><th title="IV Percentile del subyacente: % de días del último año con IV menor que la actual">IV Pctl</th><th title="Spread bid/ask de la put vendida, en % del mid">Spread vend.</th><th title="Spread bid/ask de la put comprada, en % del mid">Spread comp.</th><th title="Bid size de la vendida">Bid sz</th><th title="Open interest de la put vendida">OI vend.</th><th title="Open interest de la put comprada">OI comp.</th><th title="Liquidez de las opciones del subyacente según tastytrade (1 = baja, 5 = alta)">Liq. opc.</th>
+<th title="Delta de la vendida">Δ vend.</th><th title="Delta de la comprada">Δ comp.</th><th title="Volatilidad implícita del contrato">IV</th><th title="IV Rank del subyacente: posición de su IV actual dentro del rango de 52 semanas">IV Rank</th><th title="IV Percentile del subyacente: % de días del último año con IV menor que la actual">IV Pctl</th><th title="Spread bid/ask de la put vendida, en % del mid">Spread vend.</th><th title="Spread bid/ask de la put comprada, en % del mid">Spread comp.</th><th title="Open interest de la put vendida">OI vend.</th><th title="Open interest de la put comprada">OI comp.</th>
 {%- endmacro %}
 
 {% macro mkt_cells(r, l=none) -%}{% set s = r.snapshot %}{% set i = r.info -%}
 <td>{{ s.delta|num }}</td><td>{{ l.delta|num if l else '—' }}</td><td>{{ (s.iv * 100)|pct if s.iv is not none else '—' }}</td><td class="cb"{% if s.iv_rank is not none %} style="--p:{{ s.iv_rank|round(0)|int }}%"{% endif %}>{{ s.iv_rank|pct(0) }}</td><td class="cb"{% if s.iv_percentile is not none %} style="--p:{{ s.iv_percentile|round(0)|int }}%"{% endif %}>{{ s.iv_percentile|pct(0) }}</td>
-<td>{{ s.spread_pct|pct }}</td><td>{{ l.spread_pct|pct if l else '—' }}</td><td>{{ s.bid_size if s.bid_size is not none else '—' }}</td><td>{{ s.open_interest if s.open_interest is not none else '—' }}</td><td>{{ l.open_interest if l and l.open_interest is not none else '—' }}</td>
-<td>{{ i.option_liquidity if i and i.option_liquidity is not none else '—' }}</td>
+<td>{{ s.spread_pct|pct }}</td><td>{{ l.spread_pct|pct if l else '—' }}</td><td>{{ s.open_interest if s.open_interest is not none else '—' }}</td><td>{{ l.open_interest if l and l.open_interest is not none else '—' }}</td>
 {%- endmacro %}

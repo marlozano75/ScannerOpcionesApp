@@ -177,6 +177,7 @@ class AppService:
         self.universe_files: dict[str, tuple[datetime, tuple[Source, ...]]] = {}
         self.volatility = volatility
         self.names = names
+        self.universe_info_asked: set[str] = set()      # tickers cuyo nombre ya se pidió a tastytrade en esta ejecución
         self.universe_info: dict[str, dict[str, str]] = self._load_info()   # nombre/sector que ninguna fuente trae
         self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
         self._community: Optional[tuple[float, CommunityData]] = None    # (mtime del JSON, datos) de la comunidad de Tortuga
@@ -818,6 +819,41 @@ class AppService:
                 out[norm_ticker(ticker)] = recent
         return out
 
+    def company_name_map(self) -> dict[str, str]:
+        """{ticker normalizado: nombre completo de la acción o ETF} para el tooltip de los tickers: el que traen las fuentes del Universo y
+        el completado con tastytrade (`universe_info`)."""
+        def build() -> dict[str, str]:
+            return {norm_ticker(t): name for t, (name, _) in self.universe_identity().items() if name}
+        return self._memo("company_names", build)
+
+    async def fill_company_names(self, tickers) -> int:
+        """Pide a tastytrade el nombre de los tickers (watchlist, posiciones...) que ninguna fuente nombra; se guarda en `universe_info`
+        y no se vuelve a pedir. Un fallo del proveedor lo deja para otra vez."""
+        if self.names is None:
+            return 0
+        known = self.company_name_map()
+        raw = {}
+        for t in tickers:
+            if norm_ticker(t) not in known and clean_ticker(t) not in self.universe_info_asked:
+                raw[clean_ticker(t)] = t
+        if not raw:
+            return 0
+        try:
+            found = await self.names.get_company_names(list(raw.values()))
+        except Exception as exc:
+            log.warning("No se pudieron obtener los nombres de las empresas: %s", exc)
+            return 0
+        self.universe_info_asked.update(raw)           # lo que tastytrade no nombra no se vuelve a pedir en esta ejecución
+        added = 0
+        for ticker, text in found.items():
+            if text:
+                self.universe_info.setdefault(clean_ticker(ticker), {})["name"] = text
+                added += 1
+        if added:
+            self.meta.set("universe_info", json.dumps(self.universe_info))
+            self.state.data_version += 1
+        return added
+
     def quality_scope(self) -> list[str]:
         """Tickers de los que se guardan datos de calidad: la watchlist y todo el Universo (ficheros y manuales), para
         poder filtrar ANTES de decidir qué entra en la watchlist."""
@@ -986,7 +1022,7 @@ class AppService:
 
     def update_financials_in_background(self) -> None:
         """Lanza la consulta a SEC EDGAR (la primera vez dura minutos) sin esperar y sin solaparse consigo misma."""
-        if (self.daily.financials is None and self.daily.analysts is None) or self._financials_running:
+        if (self.daily.financials is None and self.daily.analysts is None and self.names is None) or self._financials_running:
             return
         self._financials_running = True
 
@@ -994,6 +1030,7 @@ class AppService:
             try:
                 changed = await self.daily.update_financials(self.quality_scope()) if self.daily.financials is not None else 0
                 scope = sorted({*self.quality_scope(), *(p.ticker for p in self.state.positions)})
+                await self.fill_company_names(scope)
                 alerts = await self.daily.update_filing_alerts(scope)
                 analysts = await self.daily.update_analysts(scope)
                 if alerts or analysts or changed:

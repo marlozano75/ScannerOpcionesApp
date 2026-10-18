@@ -117,3 +117,10 @@ async def test_daily_updater_queries_only_stale_tickers_and_keeps_what_it_has_wh
     assert "AAPL" in svc.analyst_map()
     now[0] += timedelta(days=31)
     assert svc.analyst_map() == {}                                                  # fuera de la ventana: ya no se marca
+
+
+def test_ticker_tooltip_shows_the_full_company_name_first():
+    from scanner_opciones.ui.web import tk_title
+    names = {"BRKB": "Berkshire Hathaway Inc. Class B", "QQQ": "Invesco QQQ Trust"}
+    assert tk_title(names, "BRK-B", "Ver el historial") == "Berkshire Hathaway Inc. Class B\nVer el historial"
+    assert tk_title(names, "QQQ") == "Invesco QQQ Trust" and tk_title(names, "ZZZ", "solo esto") == "solo esto" and tk_title(None, "QQQ") == ""

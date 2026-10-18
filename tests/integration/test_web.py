@@ -918,7 +918,8 @@ def test_spread_and_both_tables_have_selection_charts_and_simulation(client_and_
             assert f">{col}</th>" in r.text, (mode, col)
         head = r.text[r.text.index('id="scan-results"'):]
         head = head[:head.index("</tr>")]
-        order = [head.index(f">{h}</th>") for h in ("Δ vend.", "Δ comp.", "IV", "IV Rank", "Spread vend.", "OI vend.", "OI comp.", "Liq. opc.")]
+        order = [head.index(f">{h}</th>") for h in ("Δ vend.", "Δ comp.", "IV", "IV Rank", "Spread vend.", "OI vend.", "OI comp.")]
+        assert ">Liq. opc.</th>" not in head and ">Bid sz</th>" not in head, mode                 # las tablas de spread no llevan liquidez de opciones ni bid size
         assert order == sorted(order) and head.index("Retorno anual s/ capital" if mode == "both" else "R/R anual") < order[0] < head.index("BrEv"), mode   # mercado junto al retorno
         assert 'name="ml_AAPL|' in r.text and 'class="muted">/</span>' in r.text, mode
 
