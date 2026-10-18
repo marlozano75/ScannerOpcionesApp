@@ -60,7 +60,7 @@
 
 {# ---- Spreads (modos «Spread» y «Ambos»): las mismas columnas que las puts y, además, lo propio del spread ---- #}
 {% macro spread_head() -%}
-{{ lead_head() }}<th title="Strike de la put vendida">Vendida</th><th title="Strike de la put comprada (la cobertura del spread)">Comprada</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike; pulsa el ticker para ampliarla">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
+{{ lead_head() }}<th title="Strike de la put vendida / strike de la put comprada (la cobertura del spread)">Vend./Comp.</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike; pulsa el ticker para ampliarla">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
 <th title="Strike vendido − strike comprado">Ancho</th><th title="Crédito neto por acción: precio de venta de referencia − ask de la comprada">Créd.</th><th title="Crédito / ancho">Cred/A</th>
 <th class="hl" data-sort-default="desc" title="Retorno sobre riesgo anualizado">R/R anual</th><th title="Crédito / pérdida máxima por acción, hasta el vencimiento, sin anualizar (retorno/riesgo)">R/R</th>
 {{ mkt_head() }}
@@ -77,7 +77,7 @@
 
 {% macro spread_cells(sp, rmax=0, community={}, nlv=none) -%}{% set r = sp.short %}{% set c = r.snapshot.contract %}{% set l = sp.long -%}
 {{ lead_cells(r) }}
-<td data-sort="{{ c.strike }}">{{ c.strike|num }} <span class="muted">V</span></td><td data-sort="{{ l.contract.strike }}">{{ l.contract.strike|num }} <span class="muted">C</span></td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ mini_cell(r) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+<td data-sort="{{ c.strike }}">{{ c.strike|num }} <span class="muted">/</span> {{ l.contract.strike|num }}</td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ mini_cell(r) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
 {{ spread_core(sp, rmax, nlv) }}
 {{ extra_cells(r, community) }}
 <td>{{ sp.assignment_pct_of_portfolio|pct }}</td>
