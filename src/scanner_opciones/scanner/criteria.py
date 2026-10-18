@@ -160,6 +160,8 @@ class ScanCriteria:
     spread_widths: tuple[float, ...] = ()
     best_width: bool = False                       # una sola fila por put vendida: el ancho con mejor retorno anualizado sobre riesgo
     min_credit_width_pct: Optional[float] = None   # crédito neto / ancho mínimo (%)
+    max_credit_width_pct: Optional[float] = None   # ... y máximo (%)
+    max_long_abs_delta: Optional[float] = None     # |delta| máximo de la put comprada (sin delta no pasa)
     min_long_oi: Optional[int] = None              # liquidez de la pata comprada: OI mínimo
     max_combo_spread_pct: Optional[float] = None   # spread bid/ask del combo (vendida − comprada) / crédito máximo (%)
     max_long_spread_pct: Optional[float] = None    # ... y spread bid/ask máximo (%); sin bid no pasa

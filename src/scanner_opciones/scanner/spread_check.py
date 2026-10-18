@@ -21,8 +21,10 @@ EPS = 1e-6
 COLUMNS: tuple[tuple[str, str], ...] = (
     ("long", "Pata comprada"),
     ("long_oi", "OI comprada"),
+    ("long_delta", "Δ comprada"),
     ("long_spread", "Spread comprada (%)"),
     ("credit", "Crédito ($/contrato)"),
+    ("cw", "Crédito / ancho (%)"),
     ("combo", "Spread combo / crédito (%)"),
     ("ror", "Retorno/riesgo (%)"),
     ("loss", "Pérdida máx. (% NLV)"),
@@ -74,27 +76,33 @@ def _evaluate(r, long: Optional[ContractSnapshot], width: float, criteria: ScanC
     checks: dict[str, Check] = {}
     if long is None or long.ask is None or long.ask <= 0 or mid_price(long.bid, long.ask) is None:
         checks["long"] = Check(f"{sc.strike - width:g} · no existe" if long is None else f"{long.contract.strike:g} · sin ask", False)
-        for key in ("long_oi", "long_spread", "credit", "combo", "ror", "loss"):
+        for key in ("long_oi", "long_delta", "long_spread", "credit", "cw", "combo", "ror", "loss"):
             checks[key] = Check("—", None)
         return checks, -1e9
     checks["long"] = Check(f"{long.contract.strike:g}", True)
     checks["long_oi"] = _cmp(float(long.open_interest or 0), criteria.min_long_oi, str(long.open_interest if long.open_interest is not None else "—"), False)
+    delta = abs(long.delta) if long.delta is not None else None
+    checks["long_delta"] = _cmp(delta, criteria.max_long_abs_delta, f"{delta:.2f}" if delta is not None else "sin dato", True)
     long_spread = _spread_of(long.bid, long.ask)
     checks["long_spread"] = _cmp(long_spread, criteria.max_long_spread_pct, _pct(long_spread) if long_spread is not None else "sin bid", True)
     sell = r.reference_price
     if sell is None:
-        for key in ("credit", "combo", "ror", "loss"):
+        for key in ("credit", "cw", "combo", "ror", "loss"):
             checks[key] = Check("—", False)
         return checks, -1e9
     credit = sell - long.ask
     max_loss_ps = width - credit
     if credit <= EPS or max_loss_ps <= EPS:
         checks["credit"] = Check(f"{credit * sc.multiplier:.0f}", False)
+        checks["cw"] = Check("—", False)
         checks["combo"] = Check("—", None)
         checks["ror"] = Check("—", False)
         checks["loss"] = Check("—", None)
         return checks, -1e9
     checks["credit"] = _cmp(credit * sc.multiplier, criteria.min_spread_credit, f"{credit * sc.multiplier:.0f}", False)
+    cw = credit / width * 100
+    low, high = _cmp(cw, criteria.min_credit_width_pct, _pct(cw), False), _cmp(cw, criteria.max_credit_width_pct, _pct(cw), True)
+    checks["cw"] = Check(_pct(cw), None if low.ok is None and high.ok is None else (low.ok is not False and high.ok is not False))
     combo = combo_spread_pct(s, long, credit)
     checks["combo"] = _cmp(combo, criteria.max_combo_spread_pct, _pct(combo) if combo != float("inf") else "—", True)
     ror = credit / max_loss_ps * 100
@@ -102,9 +110,6 @@ def _evaluate(r, long: Optional[ContractSnapshot], width: float, criteria: ScanC
     loss_pct = max_loss_ps * sc.multiplier / nlv_usd * 100 if nlv_usd else None
     checks["loss"] = (_cmp(loss_pct, criteria.max_loss_nlv_pct, _pct(loss_pct), True) if loss_pct is not None
                       else Check("sin NLV", None))
-    # el crédito/ancho mínimo ya no sale del formulario, pero el criterio puede traerlo
-    if criteria.min_credit_width_pct is not None and credit / width * 100 < criteria.min_credit_width_pct - EPS:
-        checks["ror"] = Check(checks["ror"].text, False)
     return checks, ror
 
 

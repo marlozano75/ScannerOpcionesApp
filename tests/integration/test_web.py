@@ -932,3 +932,35 @@ def test_simulate_a_spread_adds_its_width_as_nominal_and_its_max_loss_as_margin(
     r = client.post("/simulate", data={"sel": key, f"qty_{key}": "2", f"ml_{key}": "380"})
     assert r.status_code == 200 and "spread 80.00 V / 75.00 C" in r.text
     assert "760" in r.text                                                 # margen: pérdida máxima 380 × 2
+
+
+def _set_long_delta(svc, delta):
+    from dataclasses import replace
+    snap = next(s for s in svc.snapshots.all() if s.contract.strike == 75.0)
+    svc.snapshots.upsert(replace(snap, delta=delta))
+
+
+def test_sosnoff_filters_long_delta_credit_over_width_and_fixed_widths(client_and_service):
+    """Criterios de Sosnoff en el juego de Spread: delta de la comprada, crédito entre el 30 y el 35 % del ancho y anchos fijos (5 o 10 $)."""
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    _make_spread_possible(svc)                                   # vendida 80 a 3,0/3,2 y comprada 75 a 1,0/1,2 (ask): crédito ≈ 1,85 sobre ancho 5 = 37 %
+    q = BASE + "&mode=spread" + SPREAD_Q
+    has = lambda extra: 'name="sel" value="AAPL|' in client.get(q + extra).text         # noqa: E731
+    page = client.get(q).text
+    assert "Aplicar criterios de Sosnoff" in page and 'data-dmin="0.16"' in page and 'data-dmax="0.2"' in page and "Δ comprada" in page   # desmarcados: aparecen en «Desactivados»
+    assert has("")                                                                      # sin los criterios sale
+    _set_long_delta(svc, None)
+    assert not has("&use_ld=on&ld=0.10")                                                # sin delta de la comprada no se puede comprobar: no pasa
+    _set_long_delta(svc, -0.08)
+    assert has("&use_ld=on&ld=0.10") and not has("&use_ld=on&ld=0.05")                  # |−0,08| ≤ 0,10 y > 0,05
+    assert "Δ comprada ≤ 0.10" in client.get(q + "&use_ld=on&ld=0.10").text
+    assert has("&use_cw=on&cw=30&cwx=40") and not has("&use_cw=on&cw=30&cwx=35")        # 37 % fuera de 30–35
+    assert not has("&use_cw=on&cw=40") and has("&use_cw=on&cw=30&cwx=") and not has("&use_cw=on&cw=30")      # caja del máximo vacía = sin tope; si no viaja, rige el 35 % de la config
+    assert has("&use_wd=on&wd=5,10") and not has("&use_wd=on&wd=10")                    # solo existe la comprada a 5 $
+    for bad in ("&use_ld=on&ld=abc", "&use_ld=on&ld=2", "&use_cw=on&cw=0", "&use_cw=on&cw=30&cwx=20", "&use_cw=on&cw=30&cwx=100",
+                "&use_wd=on&wd=abc", "&use_wd=on&wd="):
+        assert "Parámetro no válido" in client.get(q + bad).text, bad
+    # el panel «Revisión de spreads» enseña las columnas nuevas
+    frag = client.get("/scanner/spread-check?" + q.split("?")[1] + "&use_ld=on&ld=0.05&use_cw=on&cw=30&cwx=35")
+    assert frag.status_code == 200 and ("Δ comprada" in frag.text or "no se descarta ninguna" in frag.text or "Ninguna put vendida" in frag.text)

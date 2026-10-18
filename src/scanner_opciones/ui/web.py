@@ -355,6 +355,12 @@ SPREAD_FIELDS = (    # valores iniciales del modo Spread del Scanner (`scanner.s
     ("min_long_oi", "OI mín. de la pata comprada", "int"),
     ("max_long_spread_pct", "Spread bid/ask máx. de la pata comprada (%)", "float"),
     ("max_loss_nlv_pct", "Pérdida máxima (% del NLV)", "float"),
+    ("max_long_abs_delta", "Sosnoff: |delta| máx. de la put comprada", "float"),
+    ("min_credit_width_pct", "Sosnoff: crédito / ancho mín. (%)", "float"),
+    ("max_credit_width_pct", "Sosnoff: crédito / ancho máx. (%, vacío = sin tope)", "ofloat"),
+    ("fixed_widths", "Sosnoff: anchos fijos ($, separados por comas)", "floats"),
+    ("sosnoff_delta_min", "Sosnoff: |delta| mín. de la put vendida (botón «Aplicar»)", "float"),
+    ("sosnoff_delta_max", "Sosnoff: |delta| máx. de la put vendida (botón «Aplicar»)", "float"),
     ("max_naked_strike", "Strike máximo de la put desnuda en «Ambos» ($)", "float"),
     ("usd_per_base", "Dólares por unidad de moneda base (vacío = el de IBKR)", "ofloat"),
 )
@@ -1067,7 +1073,11 @@ def create_app(
         form.update(mode="put", set=set_name, best_width=True,
                     use_rr=True, rr=_fmt(sp.min_return_on_risk_pct), use_mc=True, mc=_fmt(sp.min_credit_usd),
                     use_cs=True, cs=_fmt(sp.max_combo_spread_pct), use_lo=True, lo=_fmt(sp.min_long_oi), use_ls=True, ls=_fmt(sp.max_long_spread_pct),
-                    use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_ns=True, ns=_fmt(sp.max_naked_strike))
+                    use_mn=True, mn=_fmt(sp.max_loss_nlv_pct), use_ns=True, ns=_fmt(sp.max_naked_strike),
+                    # criterios de Sosnoff: empiezan desmarcados (se marcan a mano o con el botón «Aplicar criterios de Sosnoff»)
+                    use_ld=False, ld=_fmt(sp.max_long_abs_delta), use_cw=False, cw=_fmt(sp.min_credit_width_pct),
+                    cwx=_fmt(sp.max_credit_width_pct) if sp.max_credit_width_pct is not None else "",
+                    use_wd=False, wd=", ".join(_fmt(w) for w in sp.fixed_widths))
 
         criteria, error, warnings = None, None, []
         try:
@@ -1076,15 +1086,15 @@ def create_app(
                 form["mode"] = qp.get("mode", "put")
                 if form["mode"] not in ("put", "spread", "both"):
                     raise ValueError("modo desconocido")
-                if any(key in qp for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ns")):   # bloque visible: lo enviado manda
+                if any(key in qp for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ns", "ld", "cw", "wd")):   # bloque visible: lo enviado manda
                     form["best_width"] = "best_width" in qp
                 # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
                 # de instrumento) los límites conservan sus valores marcados por defecto
-                for shown_keys in (("rr", "mc", "ss", "cs", "lo", "ls", "mn"), ("ns",)):
+                for shown_keys in (("rr", "mc", "ss", "cs", "lo", "ls", "mn"), ("ns",), ("ld", "cw", "wd")):
                     if any(key in qp for key in shown_keys):
                         for key in shown_keys:
                             form[f"use_{key}"] = f"use_{key}" in qp
-                for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ns"):
+                for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ns", "ld", "cw", "cwx", "wd"):
                     if key in qp:
                         form[key] = qp.get(key, "").strip()
                 for key in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -1222,6 +1232,23 @@ def create_app(
                         overrides[field_name] = _required(form[key], float, label)
                         if overrides[field_name] <= 0 or (upper is not None and overrides[field_name] >= upper):
                             raise ValueError(f"{label} fuera de rango")
+                if form["use_ld"]:
+                    overrides["max_long_abs_delta"] = _required(form["ld"], float, "|Delta| máx. de la put comprada")
+                    if not (0 < overrides["max_long_abs_delta"] <= 1):
+                        raise ValueError("|Delta| máx. de la put comprada debe estar entre 0 y 1")
+                if form["use_cw"]:
+                    overrides["min_credit_width_pct"] = _required(form["cw"], float, "Crédito / ancho mín. (%)")
+                    if not (0 < overrides["min_credit_width_pct"] < 100):
+                        raise ValueError("Crédito / ancho mín. (%) fuera de rango")
+                    if form["cwx"]:
+                        overrides["max_credit_width_pct"] = _required(form["cwx"], float, "Crédito / ancho máx. (%)")
+                        if not (overrides["min_credit_width_pct"] <= overrides["max_credit_width_pct"] < 100):
+                            raise ValueError("Crédito / ancho máx. (%) tiene que estar entre el mínimo y 100")
+                if form["use_wd"]:
+                    widths = tuple(sorted({_required(part, float, "Anchos fijos ($)") for part in form["wd"].replace(";", ",").split(",") if part.strip()}))
+                    if not widths or any(w <= 0 for w in widths):
+                        raise ValueError("Anchos fijos ($): indica al menos un ancho positivo")
+                    overrides["spread_widths"] = widths
                 if form["mode"] == "both":
                     if not form["use_ns"]:
                         raise ValueError("en el modo «Ambos» marca el strike máximo de la put desnuda")
@@ -1483,6 +1510,7 @@ def create_app(
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
                       candidates=service.settings.scanner.candidates,
                       margin=service.settings.scanner.catalog_margin_pct,
+                      sosnoff=dict(dmin=_fmt(service.settings.scanner.spreads.sosnoff_delta_min), dmax=_fmt(service.settings.scanner.spreads.sosnoff_delta_max)),
                       ma_hidden=unavailable_ma_fields(
                           frame_shown, service.settings.trend.history_days, service.settings.scanner.technical.ma_slope_candles),
                       tech_opts=dict(

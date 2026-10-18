@@ -170,6 +170,14 @@ class SpreadSettings(_Model):
     max_long_spread_pct: float = Field(25, gt=0)     # spread bid/ask máximo de la pata comprada (%); sin bid no pasa
     max_combo_spread_pct: float = Field(15, gt=0)    # spread bid/ask del combo (vendida − comprada) máximo, en % del crédito: con un combo ancho el crédito es incierto
     min_credit_usd: float = Field(30, gt=0)          # crédito neto mínimo por spread, en $ por contrato (descarta spreads de céntimos)
+    # criterios de Tom Sosnoff (tastylive): vendida a 16-20 Δ (el filtro de delta de la put vendida), comprada lo más alejada posible (≈ 10 Δ) o con un
+    # ancho fijo de 5 o 10 $, y crédito neto del 30-35 % del ancho. Cada uno se marca aparte en el juego de filtros de Spread (empiezan desmarcados)
+    max_long_abs_delta: float = Field(0.10, gt=0, le=1)       # |delta| máximo de la put comprada
+    min_credit_width_pct: float = Field(30, gt=0, lt=100)     # crédito neto / ancho mínimo (%)
+    max_credit_width_pct: Optional[float] = Field(35, gt=0, lt=100)   # ... y máximo (%; vacío = sin tope)
+    fixed_widths: tuple[float, ...] = (5.0, 10.0)             # anchos permitidos cuando se marca «Anchos fijos» (en lugar de probarlos todos)
+    sosnoff_delta_min: float = Field(0.16, gt=0, le=1)        # |delta| de la put vendida que carga el botón «Aplicar criterios de Sosnoff»
+    sosnoff_delta_max: float = Field(0.20, gt=0, le=1)
     # modo «Ambos»: la put desnuda solo se ofrece si cabe en este límite; si no, sale el spread
     max_naked_strike: float = Field(100, gt=0)       # strike máximo de la put desnuda ($)
     max_loss_nlv_pct: float = Field(2, gt=0, le=100)  # pérdida máxima del spread como % del NLV
@@ -179,6 +187,12 @@ class SpreadSettings(_Model):
     def _check(self) -> "SpreadSettings":
         if not self.width_options or any(w <= 0 for w in self.width_options):
             raise ValueError("width_options debe tener anchos positivos")
+        if not self.fixed_widths or any(w <= 0 for w in self.fixed_widths):
+            raise ValueError("fixed_widths debe tener anchos positivos")
+        if self.max_credit_width_pct is not None and self.max_credit_width_pct < self.min_credit_width_pct:
+            raise ValueError("max_credit_width_pct no puede ser menor que min_credit_width_pct")
+        if self.sosnoff_delta_max < self.sosnoff_delta_min:
+            raise ValueError("sosnoff_delta_max no puede ser menor que sosnoff_delta_min")
         return self
 
 

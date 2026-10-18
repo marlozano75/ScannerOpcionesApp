@@ -161,6 +161,8 @@ def build_spreads(
                 continue
             if criteria.min_long_oi is not None and (long.open_interest or 0) < criteria.min_long_oi:
                 continue
+            if criteria.max_long_abs_delta is not None and (long.delta is None or abs(long.delta) > criteria.max_long_abs_delta + EPS):
+                continue
             if criteria.max_long_spread_pct is not None:   # un ask sin bid no es un mercado: spread de 200 % o más
                 if long.bid is None or long.bid <= 0 or (long.ask - long.bid) / mid_price(long.bid, long.ask) * 100 > criteria.max_long_spread_pct + EPS:
                     continue
@@ -174,6 +176,8 @@ def build_spreads(
             ror = credit / max_loss_ps * 100
             max_loss = max_loss_ps * sc.multiplier
             if criteria.min_credit_width_pct is not None and credit_width < criteria.min_credit_width_pct - EPS:
+                continue
+            if criteria.max_credit_width_pct is not None and credit_width > criteria.max_credit_width_pct + EPS:
                 continue
             if criteria.min_spread_credit is not None and credit * sc.multiplier < criteria.min_spread_credit - EPS:
                 continue

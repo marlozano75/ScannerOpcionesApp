@@ -59,6 +59,9 @@
   {% if form.use_lo %}{% set _ = spreadf.append('OI comprada ≥ ' ~ form.lo) %}{% endif %}
   {% if form.use_ls %}{% set _ = spreadf.append('Spread comprada ≤ ' ~ form.ls ~ ' %') %}{% endif %}
   {% if form.use_mn %}{% set _ = spreadf.append('Pérdida máx. ≤ ' ~ form.mn ~ ' % NLV') %}{% endif %}
+  {% if form.use_ld %}{% set _ = spreadf.append('Δ comprada ≤ ' ~ form.ld) %}{% endif %}
+  {% if form.use_cw %}{% set _ = spreadf.append('Crédito/ancho ' ~ form.cw ~ (('–' ~ form.cwx) if form.cwx else '+') ~ ' %') %}{% endif %}
+  {% if form.use_wd %}{% set _ = spreadf.append('Anchos ' ~ form.wd ~ ' $') %}{% endif %}
   {% if form.mode == 'both' %}
     {% if form.use_ns %}{% set _ = spreadf.append('Put si strike ≤ ' ~ form.ns) %}{% endif %}
   {% endif %}
@@ -85,7 +88,7 @@
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto) #}
 {% set offs = [] %}
 {% if form.set == 'spread' %}
-  {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_cs', 'Spread combo'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
+  {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_cs', 'Spread combo'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV'), ('use_ld', 'Δ comprada'), ('use_cw', 'Crédito/ancho'), ('use_wd', 'Anchos fijos')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
   {% if form.mode == 'both' %}{% for use, label in (('use_ns', 'Strike máx. put'),) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}{% endif %}
 {% endif %}
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-delta'), ('use_ivhv', 'IV/HV', 'sec-iv'),
@@ -238,6 +241,14 @@
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
+        <p class="note" style="margin:8px 0 2px"><b>Criterios de Sosnoff</b> (tastylive): vendida a 16–20 Δ (filtro de delta de más abajo), comprada lo más alejada posible (≈ 10 Δ) o con un ancho fijo de 5–10 $, y crédito del 30–35 % del ancho.
+          <button type="button" id="sosnoff-apply" data-dmin="{{ sosnoff.dmin }}" data-dmax="{{ sosnoff.dmax }}" title="Marca la delta de la vendida, la delta de la comprada y el crédito/ancho con los valores de Sosnoff y escanea">Aplicar criterios de Sosnoff</button></p>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ld" {{ 'checked' if form.use_ld }}> |Delta| máx. de la put comprada</span>
+          <input name="ld" value="{{ form.ld }}" inputmode="decimal"></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_cw" {{ 'checked' if form.use_cw }}> Crédito / ancho (%): mín. y máx. (vacío = sin tope)</span>
+          <input name="cw" value="{{ form.cw }}" inputmode="decimal" style="width:64px"> <input name="cwx" value="{{ form.cwx }}" inputmode="decimal" style="width:64px"></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_wd" {{ 'checked' if form.use_wd }}> Solo estos anchos ($, separados por comas)</span>
+          <input name="wd" value="{{ form.wd }}" style="width:110px"></label>
         {% if form.mode == 'both' %}
         <p class="note"><b>Límite de la put desnuda</b>: si su strike supera el máximo, esa put sale como spread (con el motivo). La lista se ordena por retorno anualizado sobre capital: margen what-if (put) o pérdida máxima (spread).</p>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ns" {{ 'checked' if form.use_ns }}> Strike máximo de la put ($)</span>
@@ -709,6 +720,17 @@
     });
   })();
   // X solo se muestra con «Bid + X % del spread»
+  (function () {   // «Aplicar criterios de Sosnoff»: delta de la vendida, delta de la comprada y crédito/ancho con sus valores, y escanea
+    var btn = document.getElementById('sosnoff-apply'); if (!btn) return;
+    btn.addEventListener('click', function () {
+      var f = document.getElementById('scan-form'), el = f.elements;
+      function on(n) { if (el[n]) el[n].checked = true; }
+      on('use_delta'); on('use_ld'); on('use_cw');
+      if (el.delta_min) el.delta_min.value = btn.dataset.dmin;
+      if (el.delta_max) el.delta_max.value = btn.dataset.dmax;
+      f.submit();
+    });
+  })();
   document.getElementById('ref').addEventListener('change', function () {
     document.getElementById('ref_x_label').hidden = (this.value !== 'bid_plus_spread');
   });
