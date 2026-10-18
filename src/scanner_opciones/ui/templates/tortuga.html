@@ -35,7 +35,7 @@
       <th title="Nota de liquidez de opciones (0-4)">Liq.</th><th>Spread %</th><th>Vol. opc.</th><th title="Volumen de hoy / media de 20 sesiones">Vol. rel.</th><th>OI total</th><th>P/C OI</th><th>P/C vol.</th>
       <th>Muro put</th><th>Muro call</th><th>Max pain</th></tr>
     {% for i in items %}{% set r = i.row %}
-    <tr><td class="tk"><b>{{ r.ticker }}</b>{{ sec_flag(sec_alerts, r.ticker) }}{% if i.wl %} <span class="tl tl-w" title="Está en tu watchlist" style="background:#dff3e6;color:#1d6b3f;padding:0 4px;border-radius:7px;font-size:10px;font-weight:700">W</span>{% endif %}{% if i.held %} <span class="own" title="Tienes posiciones en este valor">EN CARTERA</span>{% endif %}</td>
+    <tr><td class="tk"><b>{{ r.ticker }}</b>{{ sec_flag(sec_alerts, r.ticker) }}{{ analyst_flag(analyst_alerts, r.ticker) }}{% if i.wl %} <span class="tl tl-w" title="Está en tu watchlist" style="background:#dff3e6;color:#1d6b3f;padding:0 4px;border-radius:7px;font-size:10px;font-weight:700">W</span>{% endif %}{% if i.held %} <span class="own" title="Tienes posiciones en este valor">EN CARTERA</span>{% endif %}</td>
       <td data-sort="{{ 1 if i.ok else 0 }}" class="{{ 'tr-ok' if i.ok else 'tr-ko' }}">{{ '✓' if i.ok else '·' }}</td>
       <td class="txt">{{ r.sector or '—' }}</td><td>{{ n(r.price) }}</td><td>{{ n(r.change_pct) }}</td>
       <td>{{ n(r.put_strike) }}</td><td{% if r.put_expiry %} data-sort="{{ r.put_expiry.toordinal() }}"{% endif %}>{{ r.put_expiry.strftime('%d/%m') if r.put_expiry else '—' }}</td><td>{{ r.put_dte if r.put_dte is not none else '—' }}</td><td>{{ n(r.put_mid) }}</td><td>{{ n(r.put_delta) }}</td><td>{{ n(r.distance_pct, 1) }}</td>

@@ -437,6 +437,14 @@ class EdgarSettings(_Model):
     alerts_refresh_hours: float = Field(12, gt=0)        # cada cuántas horas se vuelven a consultar las presentaciones
 
 
+class AnalystSettings(_Model):
+    """Cambios de valoración de analistas (Yahoo Finance, gratuito y no oficial): ▼/▲ junto al ticker. Solo informa, no filtra."""
+    enabled: bool = True
+    window_days: int = Field(30, ge=1)                   # cambios de los últimos N días
+    refresh_hours: float = Field(20, gt=0)               # cada cuántas horas se vuelven a consultar
+    concurrency: int = Field(4, ge=1, le=16)             # peticiones a Yahoo a la vez
+
+
 class TrendSettings(_Model):
     """Histórico de cierres diarios de tastytrade (DXLink) en el que se basan los filtros técnicos del scanner."""
     history_days: int = Field(1400, ge=30)          # días naturales de cierres que se guardan (~3,8 años: lo máximo que da tastytrade)
@@ -567,6 +575,7 @@ class Settings(_Model):
     tastytrade: TastytradeSettings = TastytradeSettings()
     market_data: MarketDataSettings = MarketDataSettings()
     edgar: EdgarSettings = EdgarSettings()
+    analysts: AnalystSettings = AnalystSettings()
     trend: TrendSettings = TrendSettings()
     storage: StorageSettings = StorageSettings()
     logging: LoggingSettings = LoggingSettings()

@@ -183,6 +183,14 @@ MIGRATIONS: list[str] = [
         alerts TEXT NOT NULL
     );
     """,
+    # v24: cambios de valoración de analistas (Yahoo Finance) por ticker, en JSON
+    """
+    CREATE TABLE analyst_changes (
+        ticker TEXT PRIMARY KEY,
+        checked_at TEXT NOT NULL,
+        changes TEXT NOT NULL
+    );
+    """,
 ]
 
 

@@ -19,6 +19,7 @@ dependencies = [
     "python-multipart>=0.0.9",
     "tzdata>=2024.1",   # base de zonas horarias (Windows no la trae)
     "httpx>=0.27",      # SEC EDGAR (balance y flujo de caja)
+    "yfinance>=0.2.40", # cambios de valoración de analistas (Yahoo Finance, no oficial)
 ]
 
 [project.optional-dependencies]

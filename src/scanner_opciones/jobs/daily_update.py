@@ -18,12 +18,13 @@ from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.price_history import update_history
+from scanner_opciones.marketdata.analysts import AnalystError, AnalystProvider
 from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
 from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider, resolve_eps
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.storage.repositories import (
-    QualityRepo, FilingAlertRepo,
+    QualityRepo, FilingAlertRepo, AnalystRepo,
     BarRepo, ContractRepo, MetaRepo, TickerInfoRepo, WatchlistRepo,
 )
 
@@ -66,11 +67,14 @@ class DailyUpdater:
         syncer: Optional[ContractSyncer] = None,
         fundamentals: Optional[FundamentalsProvider] = None,
         financials: Optional[FinancialsProvider] = None,
+        analysts: Optional[AnalystProvider] = None,
     ) -> None:
         self.fundamentals = fundamentals
         self.financials = financials
         self.quality = QualityRepo(ticker_info.db)
         self.filing_alerts = FilingAlertRepo(ticker_info.db)
+        self.analysts = analysts
+        self.analyst_changes = AnalystRepo(ticker_info.db)
         self.meta = MetaRepo(ticker_info.db)
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
@@ -361,6 +365,28 @@ class DailyUpdater:
                 break
             done += self.filing_alerts.save(found, now)
         log.info("Alertas de la SEC: %d de %d tickers consultados en %.1f s", done, len(stale), time.monotonic() - started)
+        return done
+
+    async def update_analysts(self, tickers: list[str]) -> int:
+        """Cambios de valoración de analistas (Yahoo) de los tickers cuya consulta tiene más de `analysts.refresh_hours` horas o no existe.
+        Devuelve cuántos tickers consultó. Si Yahoo falla se conserva lo guardado y se reintenta en la siguiente pasada."""
+        cfg = self.settings.analysts
+        if not tickers or self.analysts is None or not cfg.enabled:
+            return 0
+        now = self.now()
+        known = self.analyst_changes.all()
+        stale = [t for t in tickers if t not in known or (now - known[t][0]).total_seconds() >= cfg.refresh_hours * 3600]
+        if not stale:
+            return 0
+        started, done = time.monotonic(), 0
+        for k in range(0, len(stale), 100):
+            try:
+                found = await self.analysts.get_analyst_changes(stale[k:k + 100], cfg.window_days)
+            except AnalystError as exc:
+                log.warning("Analistas (Yahoo) no disponibles, se conservan los guardados: %s", exc)
+                break
+            done += self.analyst_changes.save(found, now)
+        log.info("Analistas (Yahoo): %d de %d tickers consultados en %.1f s", done, len(stale), time.monotonic() - started)
         return done
 
     async def update_history(self, tickers: list[str]) -> int:

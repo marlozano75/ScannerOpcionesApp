@@ -7,6 +7,7 @@ from typing import Iterable, Optional, Sequence
 
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, TickerInfo
+from scanner_opciones.marketdata.analysts import AnalystChange
 from scanner_opciones.marketdata.filings import FilingAlert
 from scanner_opciones.storage.db import Database
 
@@ -221,6 +222,35 @@ class FilingAlertRepo:
                 return self.db.conn.execute("DELETE FROM filing_alerts").rowcount
             marks = ",".join("?" * len(keep))
             return self.db.conn.execute(f"DELETE FROM filing_alerts WHERE ticker NOT IN ({marks})", keep).rowcount
+
+
+class AnalystRepo:
+    """Cambios de valoración de analistas por ticker (lista vacía = consultado y sin cambios en la ventana)."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def save(self, found: dict[str, list[AnalystChange]], checked_at: datetime) -> int:
+        rows = [(t, checked_at.isoformat(), json.dumps([c.to_json() for c in changes])) for t, changes in found.items()]
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO analyst_changes (ticker, checked_at, changes) VALUES (?, ?, ?) "
+                "ON CONFLICT(ticker) DO UPDATE SET checked_at = excluded.checked_at, changes = excluded.changes", rows)
+        return len(rows)
+
+    def all(self) -> dict[str, tuple[datetime, list[AnalystChange]]]:
+        out = {}
+        for r in self.db.conn.execute("SELECT ticker, checked_at, changes FROM analyst_changes"):
+            out[r["ticker"]] = (datetime.fromisoformat(r["checked_at"]), [AnalystChange.from_json(c) for c in json.loads(r["changes"])])
+        return out
+
+    def purge_except(self, keep: Iterable[str]) -> int:
+        keep = list(keep)
+        with self.db.conn:
+            if not keep:
+                return self.db.conn.execute("DELETE FROM analyst_changes").rowcount
+            marks = ",".join("?" * len(keep))
+            return self.db.conn.execute(f"DELETE FROM analyst_changes WHERE ticker NOT IN ({marks})", keep).rowcount
 
 
 class QualityRepo:

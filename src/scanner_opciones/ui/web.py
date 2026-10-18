@@ -19,6 +19,7 @@ from markupsafe import Markup, escape
 from pydantic import ValidationError
 
 from scanner_opciones.app.service import SCANNER_USER_CONFIG, AppService, SelectedContract, norm_ticker
+from scanner_opciones.marketdata.analysts import summary
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
@@ -70,6 +71,20 @@ def sec_flag(alerts, ticker):
 
 
 TEMPLATES.env.globals["sec_flag"] = sec_flag
+
+
+def analyst_flag(changes, ticker):
+    """▼ (bajadas de rating) o ▲ (subidas) de analistas en los últimos días junto al ticker; el detalle de cada cambio sale al pasar el ratón."""
+    items = (changes or {}).get(norm_ticker(ticker))
+    if not items:
+        return ""
+    mark, css, short = summary(items)
+    lines = [c.text for c in items[:12]] + ([f"… y {len(items) - 12} más"] if len(items) > 12 else [])
+    tip = "\n".join([f"Analistas, últimos días: {short}", *lines])
+    return Markup(f' <span class="an {css}" title="{escape(tip)}">{mark}</span>')
+
+
+TEMPLATES.env.globals["analyst_flag"] = analyst_flag
 LIGHT_LABEL = {
     TrafficLight.GREEN: "Normal / Holgado",
     TrafficLight.AMBER: "Preocupación",
@@ -582,7 +597,7 @@ def create_app(
             pacing_wait=service.pacing_wait_seconds() if service.busy else 0,
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()), path=request.url.path,
-            excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(),
+            excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(), analyst_alerts=service.analyst_map(),
         )
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 

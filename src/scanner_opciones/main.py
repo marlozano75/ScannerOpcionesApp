@@ -23,6 +23,7 @@ from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.errors import ConfigError
 from scanner_opciones.jobs.scheduler import PeriodicRunner
 from scanner_opciones.marketdata.edgar import EdgarFinancialsProvider
+from scanner_opciones.marketdata.yahoo import YahooAnalysts
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import MetaRepo
@@ -61,6 +62,7 @@ def build_app(settings: Settings):
 
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty,
                          fundamentals=tasty, financials=financials, names=tasty,
+                         analysts=YahooAnalysts(settings.analysts.concurrency) if settings.analysts.enabled else None,
                          tortuga=RoutineRunner(settings, MetaRepo(db)))
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     account_runner = PeriodicRunner(

@@ -53,6 +53,7 @@ from scanner_opciones.storage.repositories import (
     BarRepo, ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 from scanner_opciones.domain.models import TickerInfo
+from scanner_opciones.marketdata.analysts import AnalystChange, AnalystProvider
 from scanner_opciones.marketdata.filings import FilingAlert
 from scanner_opciones.tortuga.radar import RadarData, RadarError, load_radar, passes as radar_passes
 from scanner_opciones.tortuga.routines import BY_KEY as TORTUGA_ROUTINES, RoutineRunner
@@ -140,6 +141,7 @@ class AppService:
         financials: Optional[FinancialsProvider] = None,
         names: Optional[CompanyNameProvider] = None,
         tortuga: Optional[RoutineRunner] = None,
+        analysts: Optional[AnalystProvider] = None,
     ) -> None:
         self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
@@ -155,8 +157,9 @@ class AppService:
         self.bars = BarRepo(db)
         syncer = ContractSyncer(gateway, self.contracts, settings)  # comparte la cadena en caché
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.contracts, settings,
-                                  now, volatility, prices, candles, self.bars, syncer, fundamentals, financials)
+                                  now, volatility, prices, candles, self.bars, syncer, fundamentals, financials, analysts)
         self.filing_alerts = self.daily.filing_alerts
+        self.analyst_changes = self.daily.analyst_changes
         self.refresh_job = RefreshJob(
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
             volatility, prices, syncer, self.market,
@@ -805,6 +808,16 @@ class AppService:
                 out[norm_ticker(ticker)] = recent
         return out
 
+    def analyst_map(self) -> dict[str, list[AnalystChange]]:
+        """Cambios de valoración de analistas vigentes por ticker normalizado (`norm_ticker`): solo los que tienen alguno dentro de la ventana."""
+        today, window = self.now().date(), self.settings.analysts.window_days
+        out: dict[str, list[AnalystChange]] = {}
+        for ticker, (_, changes) in self.analyst_changes.all().items():
+            recent = [c for c in changes if 0 <= (today - c.day).days <= window]
+            if recent:
+                out[norm_ticker(ticker)] = recent
+        return out
+
     def quality_scope(self) -> list[str]:
         """Tickers de los que se guardan datos de calidad: la watchlist y todo el Universo (ficheros y manuales), para
         poder filtrar ANTES de decidir qué entra en la watchlist."""
@@ -832,6 +845,7 @@ class AppService:
             "daily_bars": self.bars.purge_except(keep),
             "quality": self.quality.purge_except(self.quality_scope()),
             "filing_alerts": self.filing_alerts.purge_except(self.quality_scope()),
+            "analyst_changes": self.analyst_changes.purge_except(self.quality_scope()),
         }
         if any(removed.values()):
             log.info("Limpieza de tickers fuera de la watchlist: %s", removed)
@@ -972,15 +986,17 @@ class AppService:
 
     def update_financials_in_background(self) -> None:
         """Lanza la consulta a SEC EDGAR (la primera vez dura minutos) sin esperar y sin solaparse consigo misma."""
-        if self.daily.financials is None or self._financials_running:
+        if (self.daily.financials is None and self.daily.analysts is None) or self._financials_running:
             return
         self._financials_running = True
 
         async def run() -> None:
             try:
-                changed = await self.daily.update_financials(self.quality_scope())
+                changed = await self.daily.update_financials(self.quality_scope()) if self.daily.financials is not None else 0
                 scope = sorted({*self.quality_scope(), *(p.ticker for p in self.state.positions)})
-                if await self.daily.update_filing_alerts(scope) or changed:
+                alerts = await self.daily.update_filing_alerts(scope)
+                analysts = await self.daily.update_analysts(scope)
+                if alerts or analysts or changed:
                     self.state.data_version += 1
             except Exception:
                 log.exception("No se pudieron actualizar el balance y el flujo de caja")
