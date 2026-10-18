@@ -30,6 +30,11 @@ def test_long_term_uptrend_needs_price_over_a_rising_average():
     rising = [float(i) for i in range(1, 260)]
     assert long_term_uptrend(rising, 200, 20)[0] is True
     assert long_term_uptrend(rising[:150], 200, 20)[0] is None                                # sin histórico
+    ok, why = long_term_uptrend(rising[:150], 200, 20, fallback_n=100)
+    assert ok is True and "media de 100 en vez de 200" in why                                 # histórico corto: respaldo con la SMA100
+    assert long_term_uptrend(rising[:120], 200, 20, fallback_n=100)[0] is True
+    assert long_term_uptrend(rising[:119], 200, 20, fallback_n=100)[0] is None                # hacen falta 100 sesiones más las 20 de la pendiente
+    assert long_term_uptrend(rising[::-1][:150], 200, 20, fallback_n=100)[0] is False
     falling = rising[::-1]
     ok, why = long_term_uptrend(falling, 200, 20)
     assert ok is False and "por debajo" in why

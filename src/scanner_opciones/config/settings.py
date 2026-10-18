@@ -584,6 +584,7 @@ class SpreadUniverseSettings(_Model):
     # cierre sobre su media de `uptrend_ma` sesiones y esa media por encima de la de hace `uptrend_slope_days` sesiones. Sin histórico suficiente no pasa
     require_uptrend: bool = True
     uptrend_ma: int = Field(200, ge=20)
+    uptrend_fallback_ma: int = Field(100, ge=0)   # sin histórico para la media anterior (valores recién cotizados) se usa esta; 0 = no hay respaldo
     uptrend_slope_days: int = Field(20, ge=1)
 
 

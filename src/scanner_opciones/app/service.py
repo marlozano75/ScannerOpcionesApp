@@ -1157,7 +1157,7 @@ class AppService:
         """{ticker: (¿tendencia alcista a largo plazo?, explicación)} con los cierres diarios guardados (None = sin histórico para medirla)."""
         cfg = self.settings.spread_universe
         closes = self.bars.all_closes(set(tickers))
-        return {t: ta.long_term_uptrend([px for _, px in closes.get(t, [])], cfg.uptrend_ma, cfg.uptrend_slope_days) for t in tickers}
+        return {t: ta.long_term_uptrend([px for _, px in closes.get(t, [])], cfg.uptrend_ma, cfg.uptrend_slope_days, cfg.uptrend_fallback_ma) for t in tickers}
 
     def no_spread_reasons(self) -> dict[str, str]:
         """{ticker: motivo} de los que solo podrían ir como spread (no pasan la calidad mínima de las puts) pero no están en tendencia alcista a
