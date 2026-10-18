@@ -669,7 +669,7 @@ def create_app(
     async def watchlist(request: Request, message: str = ""):
         tickers, infos = service.watchlist.list(), service.ticker_info.all()
         return render(request, "watchlist.html", tickers=tickers, infos=infos, message=message, groups=message_groups(message),
-                      ov=page_charts.watchlist_overview(tickers, infos))
+                      ov=page_charts.watchlist_overview(tickers, infos), modes=service.watchlist_modes())
 
     # ---- ideas de la comunidad ---------------------------------------------------------------
     @app.get("/ideas", response_class=HTMLResponse)
@@ -1437,6 +1437,8 @@ def create_app(
             }[c.price_reference]
         if c is not None:
             parsed["warnings"].extend(service.filter_data_gaps(c))
+            if (floor_notice := service.put_floor_notice()) is not None:
+                parsed["warnings"].append(floor_notice)
             if (stale := service.community_stale()) is not None:
                 parsed["warnings"].append(f"Los datos de la comunidad de Tortuga tienen {stale / 24:.0f} días: la rutina diaria no se ha ejecutado "
                                           "(scripts/actualizar_comunidad.ps1).")

@@ -20,6 +20,20 @@ def sma(values: Sequence[float], n: int) -> Optional[float]:
     return sum(values[-n:]) / n
 
 
+def long_term_uptrend(values: Sequence[float], n: int = 200, slope_days: int = 20) -> tuple[Optional[bool], str]:
+    """¿Tendencia alcista a largo plazo? Último cierre sobre la media de `n` sesiones Y esa media por encima de la de hace `slope_days` sesiones.
+    Devuelve (resultado, explicación); resultado None si no hay histórico para medirla."""
+    now, before = sma(values, n), sma(values[:-slope_days], n) if len(values) > slope_days else None
+    if now is None or before is None:
+        return None, f"sin histórico suficiente para la media de {n} sesiones"
+    price = values[-1]
+    if price <= now:
+        return False, f"cierre {price:g} por debajo de la media de {n} ({now:.2f})"
+    if now <= before:
+        return False, f"la media de {n} no sube (hace {slope_days} sesiones {before:.2f}, hoy {now:.2f})"
+    return True, f"cierre {price:g} sobre la media de {n} ({now:.2f}), que sube"
+
+
 def ema(values: Sequence[float], n: int) -> Optional[float]:
     """Media móvil exponencial de periodo `n`, sembrada con la media simple de los `n` primeros cierres."""
     if n <= 0 or len(values) < n:

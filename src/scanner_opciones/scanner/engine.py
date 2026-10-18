@@ -14,7 +14,7 @@ from scanner_opciones.portfolio.diversification import CandidateImpact, candidat
 from scanner_opciones.scanner.criteria import ScanCriteria
 from scanner_opciones.scanner.filters import reject_reason
 from scanner_opciones.scanner.quality import DEFAULT_EXEMPT, quality_reject
-from scanner_opciones.scanner.spreads import build_mixed, build_spreads
+from scanner_opciones.scanner.spreads import build_mixed, build_spreads, only_reason
 from scanner_opciones.scanner.signals import signals_reject
 from scanner_opciones.scanner.technical import TechnicalFilter
 from scanner_opciones.config.settings import TechnicalSettings
@@ -56,9 +56,11 @@ def run_scan(
     atr: Optional[dict[str, float]] = None,
     nlv_usd: Optional[float] = None,
     spread_only: frozenset = frozenset(),
+    no_spread: Optional[dict] = None,
 ) -> ScanOutput:
     """`bars` (cierres diarios por ticker) y `technical` solo hacen falta si `criteria.technical_active`. Los tickers de `spread_only`
-    (solo están en fuentes aptas para spreads) no salen como put desnuda: solo en modo Spread, o su spread en «Ambos»."""
+    (solo están en fuentes aptas para spreads o no tienen la calidad mínima de las puts; si es un dict, ticker → motivo) no salen como put desnuda:
+    solo en modo Spread, o su spread en «Ambos». `no_spread` (ticker → motivo) son los que ni siquiera pueden ir como spread."""
     exempt = exempt_sectors
     naked_min_yield = criteria.min_yield_pct    # en modo «Ambos» solo lo exige la put desnuda
     if criteria.spread_mode:   # el yield sobre el strike no vale para un spread: lo sustituyen crédito/ancho y retorno sobre riesgo
@@ -71,7 +73,11 @@ def run_scan(
         c = snap.contract
         info = infos.get(c.ticker)
         price = info.underlying_price if info else None
-        why = "solo spreads (fuente apta para spreads)" if c.ticker in spread_only and not criteria.spread_mode else None
+        why = None
+        if c.ticker in spread_only and not criteria.spread_mode:
+            why = f"solo spreads ({only_reason(spread_only, c.ticker)})"
+        elif criteria.spread_mode and no_spread and c.ticker in no_spread:
+            why = no_spread[c.ticker]
         if why is None:
             why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info,
                                 (atr or {}).get(c.ticker))

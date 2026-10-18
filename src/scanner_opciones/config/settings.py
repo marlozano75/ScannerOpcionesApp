@@ -280,6 +280,17 @@ DEFAULT_QUALITY_PRESETS = (
 )
 
 
+class PutFloor(_Model):
+    """Calidad mínima que se exige SIEMPRE a una put desnuda, sea cual sea su origen (watchlist, fuentes, radar de Tortuga...). Quien no la
+    cumple solo se escanea como spread (y, para eso, con tendencia alcista a largo plazo: `spread_universe.require_uptrend`). Un dato que falta
+    no cumple; los ETF e índices y los sectores exentos de `QualitySettings` se miden como en el Universo. Sin `edgar.contact` no hay FCF y
+    ese requisito se ignora (si no, ninguna acción pasaría)."""
+    enabled: bool = True
+    require_profitable: bool = True                     # beneficios (EPS) de los últimos 12 meses > 0
+    min_positive_quarters: int = Field(3, ge=0, le=4)   # trimestres con beneficios de los últimos 4 (0 = no se exige)
+    require_positive_fcf: bool = True                   # flujo de caja libre de 12 meses > 0 (las financieras y sectores exentos no se miden)
+
+
 class QualitySettings(_Model):
     """Filtros de calidad de la empresa del scanner (beneficios, trimestres, liquidez, resultados, solvencia)."""
     liquidity_options: list[int] = [2, 3, 4]               # liquidez mínima de las opciones (1-5, de tastytrade)
@@ -290,6 +301,7 @@ class QualitySettings(_Model):
                                                             # de las market metrics (medido: 10:00-10:10 UTC); antes de la siguiente no se piden de nuevo
     thresholds: SolvencyThresholds = SolvencyThresholds()  # umbrales de los filtros de solvencia por grado de exigencia
     manageable_debt: ManageableDebt = ManageableDebt()     # umbrales del filtro «deuda baja o manejable»
+    put_floor: PutFloor = PutFloor()                       # calidad mínima de toda put desnuda del Scanner
     presets: tuple[QualityPreset, ...] = DEFAULT_QUALITY_PRESETS   # botones que rellenan los filtros (ninguno activo por defecto)
     level_labels: dict[str, str] = {"flexible": "Flexible", "standard": "Estándar", "strict": "Estricto"}
     # sectores a los que NO se miden la deuda, la caja ni la solvencia (pasan sin medirse): trozos del nombre del sector
@@ -563,11 +575,16 @@ class TortugaSettings(_Model):
 
 class SpreadUniverseSettings(_Model):
     """Fuentes del Universo aptas para spreads (la del radar de Tortuga, `tortuga.source_name`, y las que se marcan a mano). Sus tickers no pasan
-    por los filtros de calidad de la empresa (en un spread el riesgo está definido): solo por liquidez de opciones y precio. En el Scanner salen
-    únicamente como spread, nunca como put desnuda."""
+    por los filtros de calidad de la empresa (en un spread el riesgo está definido): solo por liquidez de opciones y precio. En el Scanner solo salen como
+    put desnuda si cumplen la calidad mínima de las puts (`scanner.quality.put_floor`); si no, únicamente como spread."""
     min_option_liquidity: int = Field(3, ge=0, le=5)   # liquidez de opciones mínima de tastytrade (1-5) en las fuentes aptas para spreads
     price_min: float = Field(30, ge=0)           # por debajo, los strikes de 0,5-1 $ dan créditos de céntimos que se comen las comisiones
     price_max: Optional[float] = Field(None, gt=0)
+    # un valor que solo puede ir como spread (fuente apta o sin la calidad mínima de las puts) debe estar en tendencia alcista a largo plazo:
+    # cierre sobre su media de `uptrend_ma` sesiones y esa media por encima de la de hace `uptrend_slope_days` sesiones. Sin histórico suficiente no pasa
+    require_uptrend: bool = True
+    uptrend_ma: int = Field(200, ge=20)
+    uptrend_slope_days: int = Field(20, ge=1)
 
 
 class Settings(_Model):

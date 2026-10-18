@@ -73,6 +73,25 @@ def ticker_quality_reject(
     return None
 
 
+def put_floor_reject(
+    info: Optional[TickerInfo], require_profitable: bool, min_positive_quarters: int, require_positive_fcf: bool,
+    exempt_sectors: Sequence[str] = DEFAULT_EXEMPT,
+) -> Optional[str]:
+    """Motivo por el que el ticker no tiene la calidad mínima para vender puts desnudas (beneficios 12 m, trimestres con beneficios y FCF
+    positivo), o None. Mismas reglas que el filtro del Universo: un dato que falta no cumple, el ETF no se mide y los sectores exentos
+    pasan sin medirse el FCF."""
+    fund = is_fund(info, exempt_sectors)
+    if fund:
+        return None
+    if require_profitable and (info is None or info.eps_ttm is None or info.eps_ttm <= 0):
+        return "sin beneficios (EPS 12 m ≤ 0 o sin dato)"
+    if min_positive_quarters and (info is None or info.positive_quarters is None or info.positive_quarters < min_positive_quarters):
+        return f"menos de {min_positive_quarters} de los últimos 4 trimestres con beneficios (o sin dato)"
+    if require_positive_fcf and not is_exempt(info, exempt_sectors) and (info is None or info.fcf_ttm is None or info.fcf_ttm <= 0):
+        return "flujo de caja libre ≤ 0 (o sin dato)"
+    return None
+
+
 def quality_reject(
     info: Optional[TickerInfo], expiry: date, criteria: ScanCriteria, today: date,
     exempt_sectors: Sequence[str] = DEFAULT_EXEMPT,

@@ -41,7 +41,9 @@ from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResul
 from scanner_opciones.scanner import profiles as profiles_mod
 from scanner_opciones.scanner.profiles import Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
+from scanner_opciones.metrics import technical as ta
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
+from scanner_opciones.scanner.quality import put_floor_reject
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.scanner.spreads import build_mixed_sets, build_profile_rows
 from scanner_opciones.scanner.tech_summary import TechSummarizer, TechSummary
@@ -1128,6 +1130,71 @@ class AppService:
             return frozenset(t for t, names in self.ticker_lists().items() if names and all(n in flagged for n in names))
         return self._memo("spread_only", build)
 
+    # ---- Calidad mínima de las puts desnudas ---------------------------------------------------------
+    def put_floor_reasons(self) -> dict[str, str]:
+        """{ticker de la watchlist: motivo} de los que NO tienen la calidad mínima para vender puts desnudas (`scanner.quality.put_floor`: beneficios
+        12 m, trimestres con beneficios y FCF positivo). Un dato que falta cuenta como «no cumple»; sin `edgar.contact` no hay FCF y no se exige."""
+        def build() -> dict[str, str]:
+            floor = self.settings.scanner.quality.put_floor
+            if not floor.enabled:
+                return {}
+            fcf = floor.require_positive_fcf and bool(self.settings.edgar.contact.strip())
+            exempt, infos = self.quality_exempt(), self.ticker_info.all()
+            out = {}
+            for t in self.watchlist.list():
+                why = put_floor_reject(infos.get(t), floor.require_profitable, floor.min_positive_quarters, fcf, exempt)
+                if why:
+                    out[t] = f"sin la calidad mínima para puts: {why}"
+            return out
+        return self._memo("put_floor", build)
+
+    def naked_blocked(self) -> dict[str, str]:
+        """{ticker: motivo} de los que no pueden salir como put desnuda en el Scanner: los que no tienen la calidad mínima de las puts, vengan de
+        donde vengan. Estar solo en una fuente apta para spreads NO basta para bloquear: si cumplen la calidad, pueden salir como put."""
+        return dict(self.put_floor_reasons())
+
+    def _uptrend(self, tickers) -> dict[str, tuple[Optional[bool], str]]:
+        """{ticker: (¿tendencia alcista a largo plazo?, explicación)} con los cierres diarios guardados (None = sin histórico para medirla)."""
+        cfg = self.settings.spread_universe
+        closes = self.bars.all_closes(set(tickers))
+        return {t: ta.long_term_uptrend([px for _, px in closes.get(t, [])], cfg.uptrend_ma, cfg.uptrend_slope_days) for t in tickers}
+
+    def no_spread_reasons(self) -> dict[str, str]:
+        """{ticker: motivo} de los que solo podrían ir como spread (no pasan la calidad mínima de las puts) pero no están en tendencia alcista a
+        largo plazo: tampoco se escanean como spread."""
+        def build() -> dict[str, str]:
+            if not self.settings.spread_universe.require_uptrend:
+                return {}
+            blocked = self.naked_blocked()
+            trend = self._uptrend(blocked)
+            return {t: f"sin tendencia alcista a largo plazo: {trend[t][1]}" for t in blocked if trend[t][0] is not True}
+        return self._memo("no_spread", build)
+
+    def watchlist_modes(self) -> dict[str, dict]:
+        """Por ticker de la watchlist: si pasa la calidad mínima de las puts, su tendencia a largo plazo y qué admite el Scanner
+        (`Put y spread`, `Solo spread` o `Ninguno`)."""
+        tickers = self.watchlist.list()
+        blocked, floor, no_spread = self.naked_blocked(), self.put_floor_reasons(), self.no_spread_reasons()
+        trend = self._uptrend(tickers)
+        out = {}
+        for t in tickers:
+            put_ok = t not in blocked
+            out[t] = {"put_ok": put_ok, "put_reason": "" if put_ok else blocked[t], "quality_ok": t not in floor,
+                      "trend": trend[t][0], "trend_note": trend[t][1],
+                      "mode": "Put y spread" if put_ok else ("Ninguno" if t in no_spread else "Solo spread")}
+        return out
+
+    def put_floor_notice(self) -> Optional[str]:
+        """Aviso del Scanner: cuántos tickers de la watchlist no pasan la calidad mínima de las puts (solo salen como spread)."""
+        floor = self.put_floor_reasons()
+        if not floor:
+            return None
+        total = len(self.watchlist.list())
+        cfg = self.settings.scanner.quality.put_floor
+        sin = f", {len(self.no_spread_reasons())} de los bloqueados tampoco como spread (sin tendencia alcista a largo plazo)" if self.no_spread_reasons() else ""
+        return (f"{len(floor)} de {total} tickers no tienen la calidad mínima para puts (beneficios 12 m, ≥ {cfg.min_positive_quarters} trimestres con beneficios"
+                f"{' y FCF positivo' if cfg.require_positive_fcf else ''}): solo salen como spread{sin}. Se ve en la pestaña Watchlist.")
+
     def quality_exempt(self) -> tuple[str, ...]:
         """Sectores y tickers exentos de los filtros de la empresa: los de `scanner.quality` más los ETF del radar de Tortuga (sector «ETF»)."""
         base = self.settings.scanner.quality.exempt_entries
@@ -1957,7 +2024,7 @@ class AppService:
         return run_scan(
             snapshots, self.infos(criteria), with_spreads(self.state.positions), criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
-            self.quality_exempt(), self._atr(criteria, snapshots), self.nlv_usd(), self.spread_only_tickers(),
+            self.quality_exempt(), self._atr(criteria, snapshots), self.nlv_usd(), self.naked_blocked(), self.no_spread_reasons(),
         )
 
     def scan_both(self, put_criteria: ScanCriteria, spread_criteria: ScanCriteria, include_rejections: bool = False) -> ScanOutput:
@@ -1966,7 +2033,7 @@ class AppService:
         put_out = self.scan(put_criteria.with_filters(spread_mode=False, mixed=False), include_rejections)
         spread_out = self.scan(spread_criteria.with_filters(spread_mode=True, mixed=False), include_rejections)
         mixed = build_mixed_sets(put_out.results, spread_out.results, spread_out.spreads, spread_criteria, with_spreads(self.state.positions),
-                                 self.nlv_usd(), put_criteria.min_yield_pct, self.spread_only_tickers())
+                                 self.nlv_usd(), put_criteria.min_yield_pct, self.naked_blocked())
         return ScanOutput(put_out.results, put_out.rejected_count, {**spread_out.rejections, **put_out.rejections}, spread_out.spreads, mixed)
 
     def scan_profiles(self, sets: list[tuple[str, str, ScanCriteria]]) -> tuple[list, dict[str, dict[str, int]]]:

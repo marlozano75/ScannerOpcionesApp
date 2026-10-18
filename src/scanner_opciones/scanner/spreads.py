@@ -78,6 +78,12 @@ def build_mixed(
     return build_mixed_sets(shorts, shorts, spreads, criteria, positions, nlv_usd, naked_min_yield_pct, spread_only)
 
 
+def only_reason(spread_only, ticker: str) -> str:
+    """Por qué un ticker solo puede ir como spread (`spread_only` puede ser un dict ticker → motivo o un simple conjunto)."""
+    reasons = spread_only if isinstance(spread_only, dict) else {}
+    return reasons.get(ticker) or "fuente apta para spreads"
+
+
 def build_mixed_sets(
     naked_shorts: Sequence, spread_shorts: Sequence, spreads: Sequence[SpreadResult], criteria: ScanCriteria, positions: Sequence,
     nlv_usd: Optional[float], naked_min_yield_pct: float = 0.0, spread_only: frozenset = frozenset(),
@@ -107,7 +113,7 @@ def build_mixed_sets(
         only = c.ticker in spread_only
         if not only and (limit is None or c.strike <= limit):
             continue
-        reason = "solo spread (fuente apta para spreads)" if only else f"strike {c.strike:g} > {limit:g}"
+        reason = f"solo spread ({only_reason(spread_only, c.ticker)})" if only else f"strike {c.strike:g} > {limit:g}"
         for sp in by_short.get(id(r), []):
             w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier) / nlv_usd * 100 if nlv_usd else None
             rows.append(MixedRow("spread", r, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, reason))
