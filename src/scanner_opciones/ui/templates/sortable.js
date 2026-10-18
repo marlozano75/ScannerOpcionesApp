@@ -95,7 +95,7 @@
       if (th.hasAttribute('data-nosort') || th.textContent.trim() === '') return;   // sin título: no ordena
       th.classList.add('sortable-th');
       th.tabIndex = 0;
-      th.title = 'Pulsa para ordenar';
+      th.title = th.title ? th.title + ' (pulsa para ordenar)' : 'Pulsa para ordenar';   // conserva la descripción de la columna
       function toggle() {
         var dir = current && current.col === col
           ? (current.dir === 'desc' ? 'asc' : 'desc')
