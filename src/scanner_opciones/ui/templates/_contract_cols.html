@@ -10,9 +10,9 @@
 <th title="Spread bid/ask{{ v }}, en % del mid">Spread{{ v }}</th><th title="Tamaño del bid{{ v }} (contratos)">Bid size{{ v }}</th><th title="Open interest{{ v }}">OI{{ v }}</th><th title="Liquidez de las opciones del subyacente según tastytrade (1 = baja, 5 = alta)">Liq. opc.</th>{{ extra_head() }}
 {%- endmacro %}
 
-{% macro extra_head() -%}
+{% macro extra_head(pas=true) -%}
 <th title="Señales técnicas que se cumplen hoy de las medibles (informativo, no filtra): precio sobre MA200, MA50 &gt; MA200, RSI rebotando, Bollinger %B bajo, precio cerca de la MA50 o del soporte y strike en el soporte. Pasa el ratón por la celda para ver el detalle">Téc.</th>
-<th title="Próximos resultados (día/mes); en rojo si caen antes del vencimiento">Result.</th><th title="Beneficio por acción de los últimos 12 meses">EPS 12 m</th><th title="Trimestres con beneficios de los últimos 4">Trim. +</th><th title="Pasivo / patrimonio">Pas/Pat</th>
+<th title="Próximos resultados (día/mes); en rojo si caen antes del vencimiento">Result.</th><th title="Beneficio por acción de los últimos 12 meses">EPS 12 m</th><th title="Trimestres con beneficios de los últimos 4">Trim. +</th>{% if pas %}<th title="Pasivo / patrimonio">Pas/Pat</th>{% endif %}
 {%- endmacro %}
 
 {% macro head() -%}
@@ -41,12 +41,12 @@
 {{ extra_cells(r, community) }}
 {%- endmacro %}
 
-{% macro extra_cells(r, community={}) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
+{% macro extra_cells(r, community={}, pas=true) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
 {%- set tc = techs.get((c.ticker, c.strike)) if techs else none %}<td{% if tc and tc.total %} data-sort="{{ tc.passed / tc.total }}" title="{{ tc.detail }}"{% endif %}>{{ tc.passed ~ '/' ~ tc.total if tc and tc.total else '—' }}</td>
 <td{% if i and i.next_earnings and i.next_earnings >= s.updated_at.date() and i.next_earnings <= c.expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% elif i and i.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(i.eps_surprise_pct) }} %"{% endif %}{% if i and i.next_earnings %} data-sort="{{ i.next_earnings }}"{% endif %}>{{ i.next_earnings.strftime('%d/%m') if i and i.next_earnings else '—' }}</td>
 <td>{{ i.eps_ttm|num if i and i.eps_ttm is not none else '—' }}</td>
 <td>{{ i.positive_quarters ~ '/' ~ i.reported_quarters if i and i.positive_quarters is not none else '—' }}</td>
-<td>{{ i.liabilities_to_equity|num if i and i.liabilities_to_equity is not none else '—' }}</td>
+{% if pas %}<td>{{ i.liabilities_to_equity|num if i and i.liabilities_to_equity is not none else '—' }}</td>{% endif %}
 {%- endmacro %}
 
 {% macro cells(r, ymax=0, community={}) -%}{% set s = r.snapshot %}{% set c = s.contract -%}
@@ -65,7 +65,7 @@
 <th class="hl" data-sort-default="desc" title="Retorno sobre riesgo anualizado">R/R anual</th><th title="Crédito / pérdida máxima por acción, hasta el vencimiento, sin anualizar (retorno/riesgo)">R/R</th>
 {{ mkt_head() }}
 <th title="(ancho − crédito) × multiplicador">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Breakeven: strike vendido − crédito">BrEv</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>
-{{ extra_head() }}<th title="% de la cartera si te asignan">% cart. asig.</th>
+{{ extra_head(false) }}<th title="% de la cartera si te asignan">% cart. asig.</th>
 {%- endmacro %}
 
 {% macro spread_core(sp, rmax=0, nlv=none) -%}
@@ -77,9 +77,9 @@
 
 {% macro spread_cells(sp, rmax=0, community={}, nlv=none) -%}{% set r = sp.short %}{% set c = r.snapshot.contract %}{% set l = sp.long -%}
 {{ lead_cells(r) }}
-<td data-sort="{{ c.strike }}">{{ c.strike|num }} <span class="muted">/</span> {{ l.contract.strike|num }}</td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ mini_cell(r) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+<td data-sort="{{ c.strike }}"><span class="k-sold">{{ c.strike|num }}</span> <span class="muted">/</span> <span class="k-long">{{ l.contract.strike|num }}</span></td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ mini_cell(r) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
 {{ spread_core(sp, rmax, nlv) }}
-{{ extra_cells(r, community) }}
+{{ extra_cells(r, community, false) }}
 <td>{{ sp.assignment_pct_of_portfolio|pct }}</td>
 {%- endmacro %}
 

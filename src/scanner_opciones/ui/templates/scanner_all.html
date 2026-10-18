@@ -57,7 +57,7 @@
     <div class="scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
       <tr><th class="sel"></th>{{ cols.lead_head() }}<th class="txt" title="Perfiles cuyos filtros cumple esta fila">Estrategias</th><th title="Put vendida sola o spread de puts">Tipo</th><th title="Strike de la put vendida / strike de la put comprada (la cobertura del spread)">Vend./Comp.</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike; pulsa el ticker para ampliarla">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
         <th title="Strike vendido − strike comprado">Ancho</th><th title="Crédito neto por acción: precio de venta de referencia − ask de la comprada">Créd.</th><th title="Crédito neto / ancho del spread (en una put sola no aplica)">Cred/A</th><th class="hl" data-sort-default="desc" title="Retorno anualizado sobre el capital consumido (margen o pérdida máxima)">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th title="Capital que consume: margen what-if en una put, pérdida máxima en un spread">Capital ($)</th><th title="Nominal de la acción si te asignan (strike × multiplicador) como % del valor liquidativo neto (NLV)">Peso NLV si asignado</th>
-        <th title="Pérdida máxima ($)">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Breakeven: strike vendido − crédito">BrEv</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>{{ cols.extra_head() }}<th data-nosort title="Número de contratos a simular (1–9)">Cant.</th></tr>
+        <th title="Pérdida máxima ($)">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Breakeven: strike vendido − crédito">BrEv</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>{{ cols.extra_head(false) }}<th data-nosort title="Número de contratos a simular (1–9)">Cant.</th></tr>
       {% for m in rows %}{% set r = m.short %}{% set c = r.snapshot.contract %}{% set sp = m.spread %}
         {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ ('|' ~ sp.long.contract.strike if sp else '') %}
         {% set be = sp.breakeven if sp else c.strike - m.credit %}{% set px = r.info.underlying_price if r.info else none %}
@@ -65,14 +65,14 @@
           {{ cols.lead_cells(r) }}
           <td class="txt" data-sort="{{ m.profiles|length }}">{% for n in m.profiles %}<span class="pf-chip" style="background:{{ colors.get(n) or 'var(--accent)' }}">{{ n }}</span>{% endfor %}</td>
           <td>{{ 'Spread' if sp else 'Put' }}</td>
-          <td data-sort="{{ c.strike }}">{{ c.strike|num }}{% if sp %} <span class="muted">/</span> {{ sp.long.contract.strike|num }}{% endif %}</td>
+          <td data-sort="{{ c.strike }}">{% if sp %}<span class="k-sold">{{ c.strike|num }}</span> <span class="muted">/</span> <span class="k-long">{{ sp.long.contract.strike|num }}</span>{% else %}{{ c.strike|num }}{% endif %}</td>
           <td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ cols.mini_cell(r) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
           <td>{{ sp.width|num if sp else '—' }}</td><td>{{ m.credit|num }}</td><td{% if sp %} data-sort="{{ sp.credit_width_pct }}"{% endif %}>{{ sp.credit_width_pct|pct if sp else '—' }}</td>
           <td class="hl cb"{% if rmax and m.return_on_capital_annualized_pct is not none %} style="--p:{{ (100 * m.return_on_capital_annualized_pct / rmax)|round(0)|int }}%"{% endif %}>{{ m.return_on_capital_annualized_pct|pct(0) }}</td>
           {{ cols.mkt_cells(r, sp.long if sp else none) }}
           <td title="{{ 'Pérdida máxima' if sp else 'Margen what-if' }}">{{ m.capital|num(0) if m.capital is not none else '—' }}</td><td>{{ m.weight_pct|pct }}</td>
           <td>{{ sp.max_loss|num(0) if sp else '—' }}</td><td>{{ (sp.max_loss / nlv_usd * 100)|pct if sp and nlv_usd else '—' }}</td><td>{{ be|num }}</td><td>{{ ((px - be) / px * 100)|pct if px else '—' }}</td>
-          {{ cols.extra_cells(r, community) }}
+          {{ cols.extra_cells(r, community, false) }}
           <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px">{% if sp %}<input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}">{% endif %}</td></tr>
       {% else %}<tr><td colspan="60" class="muted empty">Nada cumple los filtros de los perfiles elegidos.</td></tr>{% endfor %}
     </table></div>
