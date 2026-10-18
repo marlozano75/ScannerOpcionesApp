@@ -37,7 +37,7 @@
   <table class="sortable">
     <tr><th>Ticker</th><th>Vencimiento</th><th>DTE</th><th>Strike</th><th>Contratos</th><th>Prima cobrada</th><th>Recomprar a</th><th>Capturado</th><th>Precio</th><th title="Margen que inmoviliza la posición, para decidir qué cerrar si hace falta liberarlo. Spread: su pérdida máxima. Put desnuda: el margen what-if guardado de una put igual (el real de IBKR puede diferir); «—» si nunca se calculó, porque solo se pide para los contratos que pasan el Scanner">Margen ($)</th><th title="Perfil del Scanner al que pertenece la put: se asigna solo por el DTE con el que se abrió (el rango de DTE de cada perfil; lo que no encaja va a Tortuga) y se puede corregir aquí. El perfil decide las reglas de gestión (Tastytrade: recoger al 50 %, revisar a 21 DTE; TPC: mantener hasta el vencimiento)">Perfil</th><th class="wrap">Avisos</th></tr>
     {% for s in mgmt.puts %}
-    <tr><td><b title="{{ tk_title(company_names, s.ticker) }}">{{ s.ticker }}</b>{{ sec_flag(sec_alerts, s.ticker) }}{{ analyst_flag(analyst_alerts, s.ticker) }}</td><td data-sort="{{ s.expiry.isoformat() }}">{{ s.expiry.strftime('%d/%m/%Y') }}</td><td>{{ s.dte }}</td><td{% if s.long_strike is not none %} data-sort="{{ s.strike }}" title="Spread: vendida {{ s.strike|num }} / comprada {{ s.long_strike|num }}"{% endif %}>{{ s.strike|num }}{% if s.long_strike is not none %}/{{ s.long_strike|num }} <span class="muted">spread</span>{% endif %}</td><td>{{ s.contracts }}</td>
+    <tr><td><b title="{{ tk_title(company_names, s.ticker) }}">{{ s.ticker }}</b>{{ sec_flag(sec_alerts, s.ticker) }}{{ analyst_flag(analyst_alerts, s.ticker) }}{% if minis.get(s.ticker) %} <a href="#" class="pos-mini" data-pc="{{ pc_index[s.ticker] }}" aria-label="Ampliar el gráfico de {{ s.ticker }}">{{ minis[s.ticker] }}</a>{% endif %}</td><td data-sort="{{ s.expiry.isoformat() }}">{{ s.expiry.strftime('%d/%m/%Y') }}</td><td>{{ s.dte }}</td><td{% if s.long_strike is not none %} data-sort="{{ s.strike }}" title="Spread: vendida {{ s.strike|num }} / comprada {{ s.long_strike|num }}"{% endif %}>{{ s.strike|num }}{% if s.long_strike is not none %}/{{ s.long_strike|num }} <span class="muted">spread</span>{% endif %}</td><td>{{ s.contracts }}</td>
       <td>{{ s.entry_credit|num if s.entry_credit is not none else '—' }}</td><td>{{ s.current_price|num if s.current_price is not none else '—' }}</td>
       <td{% if s.captured_pct is not none %} data-sort="{{ s.captured_pct }}"{% endif %}>{{ s.captured_pct|pct(0) if s.captured_pct is not none else '—' }}</td>
       <td>{{ s.underlying_price|num if s.underlying_price is not none else '—' }}</td>
@@ -48,19 +48,15 @@
     {% endfor %}
   </table>
   </div>
-  <h3 style="margin:14px 0 6px;font-size:14px">Evolución por ticker</h3>
-  <p class="muted" style="margin:0 0 8px;font-size:12px">Cierres diarios de las últimas {{ mgmt_cfg.chart_weeks }} semanas, el strike (rojo) o la pareja del spread (gris discontinuo), el vencimiento (línea vertical) y,
-    la fecha de {{ mgmt_cfg.review_dte }} DTE (zona ámbar) con los días que faltan: en las puts gestionadas con Tastytrade es cuando toca revisarlas; con TPC se mantiene hasta el vencimiento y es solo una referencia.</p>
-  <div class="vgrid">
-    {% for pc in pos_charts %}
-    <div class="vcard">
-      <p class="vt" title="{{ tk_title(company_names, pc.ticker) }}">{{ pc.ticker }}{{ sec_flag(sec_alerts, pc.ticker) }}{{ analyst_flag(analyst_alerts, pc.ticker) }}</p>
+  <p class="muted" style="margin:8px 0 0;font-size:12px">Pulsa la miniatura junto a cada ticker para ampliar su gráfico: cierres diarios de las últimas {{ mgmt_cfg.chart_weeks }} semanas, strike (rojo) o pareja del spread (gris discontinuo),
+    vencimiento (línea vertical) y la fecha de {{ mgmt_cfg.review_dte }} DTE (zona ámbar): en las puts gestionadas con Tastytrade es cuando toca revisarlas; con TPC se mantiene hasta el vencimiento y es solo una referencia.</p>
+  <div hidden>{% for pc in pos_charts %}
+    <div id="pc-{{ loop.index }}" data-ticker="{{ pc.ticker }}">
       {{ pc.chart }}
       <ul class="vs" style="margin:6px 0 0;padding-left:16px">
         {% for s, plan in pc.plans %}<li>{{ s.contracts }} × {{ s.strike|num }}{% if s.long_strike is not none %}/{{ s.long_strike|num }}{% endif %} · venc. {{ s.expiry.strftime('%d/%m') }} ({{ s.dte }} d) · {{ plan.text }}</li>{% endfor %}
       </ul>
-    </div>
-    {% endfor %}
+    </div>{% endfor %}
   </div>
   <h3 style="margin:14px 0 6px;font-size:14px">Peso por acción si te asignan</h3>
   <table class="sortable">
@@ -74,6 +70,44 @@
     una asignación no debería pasar del {{ mgmt_cfg.warn_position_pct|round|int }}–{{ mgmt_cfg.max_position_pct|round|int }} % del NLV por acción. <b>TPC</b>: mantener hasta el vencimiento, sin recoger al {{ mgmt_cfg.take_profit_pct|round|int }} % ni rolar (si te asignan, reevalúa la tesis y valora vender calls); peso por acción {{ mgmt_cfg.tpc_warn_position_pct|round|int }}–{{ mgmt_cfg.tpc_max_position_pct|round|int }} % del NLV (si todas las puts de la acción son TPC). El perfil se elige por put y se recuerda; sin elegir, se usa «{{ 'TPC' if mgmt_cfg.default_profile == 'tpc' else 'Tastytrade' }}» (<code>management.default_profile</code>). Las puts vendidas con una comprada del mismo vencimiento y strike inferior se tratan como spread (una fila, prima y valor netos; el riesgo y el peso usan su ancho). «Capturado» necesita el coste medio que da TWS (sin él aparece «—»); los pesos no convierten moneda (cuenta EUR, strikes USD).</p>
   {% else %}<p class="muted">No hay puts vendidas abiertas.</p>{% endif %}
 </div>
+
+<div id="pos-overlay" hidden>
+  <div class="pos-box" role="dialog" aria-modal="true" aria-labelledby="pos-title">
+    <div class="pos-head"><h2 id="pos-title"></h2><button type="button" id="pos-close" aria-label="Cerrar">×</button></div>
+    <div id="pos-body"></div>
+  </div>
+</div>
+<style>
+  a.pos-mini { display:inline-block; vertical-align:middle; margin-left:8px; line-height:0; border:1px solid var(--line); border-radius:6px; background:var(--panel); }
+  a.pos-mini:hover { border-color:var(--accent); }
+  #pos-overlay { position:fixed; inset:0; z-index:40; background:rgba(31,45,74,.45); display:flex; align-items:center; justify-content:center; padding:16px; }
+  #pos-overlay[hidden] { display:none; }
+  #pos-overlay .pos-box { background:var(--panel); color:var(--ink); border:1px solid var(--line-strong); border-radius:14px; padding:14px 18px 16px; width:min(760px, 96vw); max-height:92vh; overflow:auto; }
+  #pos-overlay .pos-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  #pos-overlay .pos-head h2 { margin:0; }
+  #pos-overlay .pos-head button { font-size:22px; line-height:1; padding:2px 10px; background:transparent; color:var(--mute); border:0; cursor:pointer; }
+</style>
+<script>
+(function () {
+  var overlay = document.getElementById('pos-overlay'); if (!overlay) return;
+  var body = document.getElementById('pos-body'), title = document.getElementById('pos-title');
+  function close() { overlay.hidden = true; body.textContent = ''; }
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a.pos-mini');
+    if (a) {
+      e.preventDefault();
+      var src = document.getElementById('pc-' + a.getAttribute('data-pc'));
+      if (!src) return;
+      title.textContent = src.getAttribute('data-ticker');
+      body.innerHTML = src.innerHTML;
+      overlay.hidden = false;
+      return;
+    }
+    if (e.target === overlay || (e.target.closest && e.target.closest('#pos-close'))) close();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !overlay.hidden) close(); });
+})();
+</script>
 
 <div class="vgrid">
   <div class="card" style="margin:0">

@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 from scanner_opciones.config.settings import ManagementSettings
 from scanner_opciones.portfolio.management import PutStatus, TASTYTRADE, TPC
-from scanner_opciones.ui.position_charts import exit_plan, position_chart
+from scanner_opciones.ui.position_charts import exit_plan, position_chart, position_mini
 
 TODAY = date(2026, 10, 19)
 CFG = ManagementSettings()
@@ -46,3 +46,9 @@ def test_a_far_expiry_is_marked_with_an_arrow_and_missing_closes_give_a_notice()
     assert "→" in svg
     assert "en zona de revisión" in str(position_chart(closes(), [put(dte=15)], CFG, TODAY, 10))
     assert "Sin cierres" in str(position_chart([], [put()], CFG, TODAY))
+
+
+def test_thumbnail_has_no_text_but_draws_strike_expiry_and_the_review_zone():
+    svg = str(position_mini(closes(), [put(strike=105.0, long_strike=100.0)], CFG, TODAY, 10, 110.0))
+    assert svg.startswith("<svg") and "<text" not in svg and "stroke-dasharray" in svg and 'opacity=".2"' in svg
+    assert str(position_mini([], [put()], CFG, TODAY)) == ""

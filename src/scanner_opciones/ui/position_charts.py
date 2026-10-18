@@ -15,7 +15,7 @@ from scanner_opciones.portfolio.management import TASTYTRADE, PutStatus
 from scanner_opciones.ui.viz import _e, _scale, empty, nice_ticks
 
 W, H = 560, 250
-LEFT, RIGHT, TOP, BOTTOM = 46, 16, 30, 28
+LEFT, RIGHT, TOP, BOTTOM = 46, 16, 52, 28      # TOP deja sitio a 4 filas de etiquetas de fechas
 FUTURE_DAYS = 60            # hasta dónde se dibuja el futuro; un vencimiento más lejano se marca con una flecha en el borde derecho
 SOLD, BOUGHT, EXPIRY, REVIEW = "var(--red)", "var(--grey)", "var(--ink)", "var(--amber)"
 
@@ -119,18 +119,61 @@ def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatu
             marks.append((rd, f"{'revisar' if plan.is_review else f'{cfg.review_dte} DTE'} {rd:%d/%m} · en {plan.days_to_review} d", REVIEW, f"{rd:%d/%m/%Y}|Revisión a {cfg.review_dte} DTE|faltan {plan.days_to_review} días"))
         elif plan.days_to_review is not None and exp >= today:
             marks.append((today, "en zona de revisión" if plan.is_review else f"dentro de {cfg.review_dte} DTE", REVIEW, f"{rd:%d/%m/%Y}|Revisión a {cfg.review_dte} DTE|ya toca (venc. {exp:%d/%m})"))
-    for i, (d, text, color, tip) in enumerate(sorted(marks)):
+    row_ends: list[float] = []                                                         # etiquetas en filas: una cercana a otra va a la fila siguiente
+    for d, text, color, tip in sorted(marks):
         if d < start:
             continue
         beyond = d > end
         x = px(min(d, end))
-        y_text = TOP - 16 + (i % 3) * 11
         anchor = "end" if x > W - 150 else "start"
         dx = -4 if anchor == "end" else 4
+        width = 6.2 * (len(text) + (2 if beyond else 0))
+        left_edge, right_edge = (x - 4 - width, x) if anchor == "end" else (x, x + 4 + width)
+        row = next((r for r, edge in enumerate(row_ends) if left_edge > edge + 4), len(row_ends))
+        row = min(row, 3)
+        if row == len(row_ends):
+            row_ends.append(right_edge)
+        else:
+            row_ends[row] = max(row_ends[row], right_edge)
+        y_text = 4 + row * 12
         dash = "6 4" if color == EXPIRY else "2 3"
         out.append(f'<g tabindex="0" data-tip="{_e(tip)}"><line x1="{x:.1f}" x2="{x:.1f}" y1="{y_text + 3:.1f}" y2="{H - BOTTOM}" stroke="{color}" stroke-width="1.8" '
                    f'stroke-dasharray="{dash}"/><line x1="{x:.1f}" x2="{x:.1f}" y1="{TOP}" y2="{H - BOTTOM}" stroke="transparent" stroke-width="10"/>'
                    f'<text x="{x + dx:.1f}" y="{y_text + 8:.1f}" font-size="10.5" font-weight="700" text-anchor="{anchor}" fill="{"var(--ink)" if color == EXPIRY else "#8a5a00"}" '
                    f'stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(text + (" →" if beyond else ""))}</text></g>')
+    out.append("</svg>")
+    return Markup("".join(out))
+
+
+def position_mini(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatus], cfg: ManagementSettings, today: date, weeks: int = 10,
+                  price: Optional[float] = None) -> Markup:
+    """Miniatura sin textos para la tabla de gestión (mismo dibujo que `position_chart`: precio, strikes, vencimiento y 21 DTE)."""
+    w, h, pad = 112, 34, 2
+    start = today - timedelta(weeks=weeks)
+    bars = sorted((d, p) for d, p in closes if start <= d <= today)
+    if len(bars) < 2 or not puts:
+        return Markup("")
+    end = max(min(max(s.expiry for s in puts), today + timedelta(days=FUTURE_DAYS)), today + timedelta(days=7))
+    span = max((end - start).days, 1)
+    px = lambda d: _scale((d - start).days, 0, span, pad, w - pad)               # noqa: E731
+    levels = [s.strike for s in puts] + [s.long_strike for s in puts if s.long_strike is not None]
+    values = [p for _, p in bars] + levels + ([price] if price else [])
+    lo, hi = min(values), max(values)
+    margin = (hi - lo) * 0.08 or hi * 0.05 or 1.0
+    py = lambda v: _scale(v, lo - margin, hi + margin, h - pad, pad)             # noqa: E731
+    out = [f'<svg class="pos-mini-svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" aria-hidden="true">']
+    reviews = {(exit_plan(s, cfg, today).review_date, s.expiry) for s in puts}
+    for rd, exp in reviews:
+        x0, x1 = px(max(rd, start)), px(min(exp, end))
+        if x1 > x0:
+            out.append(f'<rect x="{x0:.1f}" y="{pad}" width="{x1 - x0:.1f}" height="{h - 2 * pad}" fill="{REVIEW}" opacity=".2"/>')
+    for k in sorted({s.strike for s in puts}):
+        out.append(f'<line x1="{pad}" x2="{w - pad}" y1="{py(k):.1f}" y2="{py(k):.1f}" stroke="{SOLD}" stroke-width="1"/>')
+    for k in sorted({s.long_strike for s in puts if s.long_strike is not None}):
+        out.append(f'<line x1="{pad}" x2="{w - pad}" y1="{py(k):.1f}" y2="{py(k):.1f}" stroke="{BOUGHT}" stroke-width="1" stroke-dasharray="3 2"/>')
+    out.append('<path d="M' + " L".join(f"{px(d):.1f},{py(p):.1f}" for d, p in bars) + '" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linejoin="round"/>')
+    for exp in sorted({s.expiry for s in puts}):
+        x = px(min(exp, end))
+        out.append(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{pad}" y2="{h - pad}" stroke="{EXPIRY}" stroke-width="1.2" stroke-dasharray="3 2"/>')
     out.append("</svg>")
     return Markup("".join(out))
