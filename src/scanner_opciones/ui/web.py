@@ -79,6 +79,7 @@ def analyst_flag(changes, ticker):
     if not items:
         return ""
     mark, css, short = summary(items)
+    items = sorted(items, key=lambda c: c.action != "down")      # las bajadas de rating primero (sorted es estable: siguen de más reciente a más antigua)
     lines = [c.text for c in items[:12]] + ([f"… y {len(items) - 12} más"] if len(items) > 12 else [])
     tip = "\n".join([f"Analistas, últimos días: {short}", *lines])
     return Markup(f' <span class="an {css}" title="{escape(tip)}">{mark}</span>')

@@ -34,15 +34,21 @@ class AnalystChange:
 
     @property
     def text(self) -> str:
-        grade = self.to_grade or "—"
-        if self.action in (UP, DOWN) and self.from_grade:
-            grade = f"{self.from_grade} → {grade}"
-        verb = {UP: "sube a", DOWN: "baja a", INIT: "inicia en"}.get(self.action, "mantiene")
-        out = f"{self.day.strftime('%d/%m/%Y')} · {self.firm}: {verb} {grade}"
+        day = self.day.strftime('%d/%m/%Y')
+        if self.action == DOWN:
+            what = f"BAJA el rating de {self.from_grade or '?'} a {self.to_grade or '?'}"
+        elif self.action == UP:
+            what = f"sube el rating de {self.from_grade or '?'} a {self.to_grade or '?'}"
+        elif self.action == INIT:
+            what = f"inicia cobertura en {self.to_grade or '?'}"
+        else:
+            what = f"mantiene {self.to_grade or '?'}"
+        out = f"{day} · {self.firm}: {what}"
         if self.target_to:
-            out += f" · objetivo {_money(self.target_to)}"
             if self.target_from and self.target_from != self.target_to:
-                out += f" (antes {_money(self.target_from)})"
+                out += f" · objetivo {'sube' if self.target_moved > 0 else 'baja'} de {_money(self.target_from)} a {_money(self.target_to)}"
+            else:
+                out += f" · objetivo {_money(self.target_to)}"
         return out
 
     def to_json(self) -> dict:
@@ -96,7 +102,8 @@ def summary(changes: Sequence[AnalystChange]) -> tuple[str, str, str]:
     up = sum(1 for c in changes if c.action in (UP, INIT))
     cuts = sum(1 for c in changes if c.target_moved < 0)
     if down:
-        return "▼", "an-dn", f"{down} bajada{'s' if down != 1 else ''} de rating"
+        firms = ", ".join(dict.fromkeys(c.firm for c in changes if c.action == DOWN))
+        return "▼", "an-dn", f"{down} bajada{'s' if down != 1 else ''} de rating ({firms})"
     if up:
         return "▲", "an-up", f"{up} subida{'s' if up != 1 else ''} o inicio{'s' if up != 1 else ''} de cobertura"
     if cuts:
