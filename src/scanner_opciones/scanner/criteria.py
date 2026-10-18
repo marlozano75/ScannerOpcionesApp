@@ -199,10 +199,12 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
 
 def strategy_criteria(settings: Settings) -> ScanCriteria:
     """Ventana de la estrategia de venta de puts (rangos de strike y DTE, delta, yield y bid, IV Rank/Percentile): amplía lo que se cotiza
-    (junto a `scanner.initial`) y decide a qué contratos se les pide el margen. Sin filtros que necesiten la ficha del ticker."""
+    (junto a `scanner.initial`) y decide a qué contratos se les pide el margen. Sin filtros que necesiten la ficha del ticker.
+    El DTE máximo es el mayor de la estrategia y de lo que se GUARDA (`scanner.candidates.dte_max`): un vencimiento guardado no puede quedarse sin
+    cotizar (con la estrategia guardada en la base en 30–45 días, subir `candidates.dte_max` a 60 no cotizaba el 46–60; medido el 2026-10-18)."""
     st, fv = settings.scanner.strategy, settings.scanner.filter_values
     return criteria_from_settings(settings).with_filters(
         strike_below_pct_min=st.strike_below_pct_min, strike_below_pct_max=settings.scanner.candidates.strike_below_pct_max,
-        dte_min=st.dte_min, dte_max=st.dte_max, min_yield_pct=st.min_yield_pct,
+        dte_min=st.dte_min, dte_max=max(st.dte_max, settings.scanner.candidates.dte_max), min_yield_pct=st.min_yield_pct,
         min_abs_delta=st.min_abs_delta, max_abs_delta=st.max_abs_delta,
         min_iv_rank=st.min_iv_rank, min_iv_percentile=st.min_iv_percentile)

@@ -86,6 +86,14 @@ def test_the_engine_applies_the_signals_and_the_hard_filters_together():
 
 
 # ---- ventana de la estrategia -------------------------------------------------------------------------------------------
+def test_strategy_window_is_quoted_up_to_the_largest_stored_dte_even_with_a_shorter_saved_strategy():
+    s = Settings.model_validate({"scanner": {"candidates": {"dte_max": 60}, "strategy": {"dte_min": 30, "dte_max": 45}}})
+    c = strategy_criteria(s)
+    assert (c.dte_min, c.dte_max) == (30, 60)                       # lo guardado (60) manda sobre la estrategia (45)
+    s2 = Settings.model_validate({"scanner": {"candidates": {"dte_max": 35}, "strategy": {"dte_min": 30, "dte_max": 45}}})
+    assert strategy_criteria(s2).dte_max == 45                      # la estrategia no se recorta si lo guardado es menor
+
+
 def test_strategy_criteria_is_the_strategy_window():
     s = Settings()
     c = strategy_criteria(s)
