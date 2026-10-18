@@ -896,12 +896,12 @@ def test_spread_and_both_tables_have_selection_charts_and_simulation(client_and_
         r = client.get(BASE + f"&mode={mode}" + SPREAD_Q + "&use_ns=on&ns=1")
         assert 'id="scan-results"' in r.text and 'name="sel" value="AAPL|' in r.text, mode
         assert 'class="sortable sticky-tk with-sel"' in r.text and "/chart/mini.svg" in r.text and "Simular seleccionados" in r.text, mode
-        for col in ("Δ comp.", "Pérd. $", "Pérd. %NLV", "Breakeven", "Dist. BE", "OI comp.", "Δ vend."):
+        for col in ("Δ comp.", "Pérd. $", "Pérd. %NLV", "BrEv", "Dist. BE", "OI comp.", "Δ vend."):
             assert f">{col}</th>" in r.text, (mode, col)
         head = r.text[r.text.index('id="scan-results"'):]
         head = head[:head.index("</tr>")]
         order = [head.index(f">{h}</th>") for h in ("Δ vend.", "Δ comp.", "IV", "IV Rank", "Spread vend.", "OI vend.", "OI comp.", "Liq. opc.")]
-        assert order == sorted(order) and head.index("Retorno anual s/ capital" if mode == "both" else "R/R anual") < order[0] < head.index("Breakeven"), mode   # mercado junto al retorno
+        assert order == sorted(order) and head.index("Retorno anual s/ capital" if mode == "both" else "R/R anual") < order[0] < head.index("BrEv"), mode   # mercado junto al retorno
         assert 'name="ml_AAPL|' in r.text and 'class="muted">C</span>' in r.text, mode
 
 

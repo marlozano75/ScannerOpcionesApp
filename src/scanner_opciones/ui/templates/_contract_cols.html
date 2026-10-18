@@ -43,7 +43,7 @@
 
 {% macro extra_cells(r, community={}) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
 {%- set tc = techs.get((c.ticker, c.strike)) if techs else none %}<td{% if tc and tc.total %} data-sort="{{ tc.passed / tc.total }}" title="{{ tc.detail }}"{% endif %}>{{ tc.passed ~ '/' ~ tc.total if tc and tc.total else '—' }}</td>
-<td{% if i and i.next_earnings and i.next_earnings >= s.updated_at.date() and i.next_earnings <= c.expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% elif i and i.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(i.eps_surprise_pct) }} %"{% endif %}>{{ i.next_earnings if i and i.next_earnings else '—' }}</td>
+<td{% if i and i.next_earnings and i.next_earnings >= s.updated_at.date() and i.next_earnings <= c.expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% elif i and i.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(i.eps_surprise_pct) }} %"{% endif %}{% if i and i.next_earnings %} data-sort="{{ i.next_earnings }}"{% endif %}>{{ i.next_earnings.strftime('%d/%m') if i and i.next_earnings else '—' }}</td>
 <td>{{ i.eps_ttm|num if i and i.eps_ttm is not none else '—' }}</td>
 <td>{{ i.positive_quarters ~ '/' ~ i.reported_quarters if i and i.positive_quarters is not none else '—' }}</td>
 <td>{{ i.liabilities_to_equity|num if i and i.liabilities_to_equity is not none else '—' }}</td>
@@ -61,10 +61,10 @@
 {# ---- Spreads (modos «Spread» y «Ambos»): las mismas columnas que las puts y, además, lo propio del spread ---- #}
 {% macro spread_head() -%}
 {{ lead_head() }}<th>Vendida</th><th>Comprada</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort>Historial</th><th>Desc.</th><th>DTE</th>
-<th title="Strike vendido − strike comprado">Ancho</th><th title="Crédito neto por acción: precio de venta de referencia − ask de la comprada">Crédito</th><th title="Crédito / ancho">Créd/anch</th>
+<th title="Strike vendido − strike comprado">Ancho</th><th title="Crédito neto por acción: precio de venta de referencia − ask de la comprada">Crédito</th><th title="Crédito / ancho">Cred/A</th>
 <th class="hl" data-sort-default="desc" title="Retorno sobre riesgo anualizado">R/R anual</th><th title="Crédito / pérdida máxima por acción, hasta el vencimiento, sin anualizar (retorno/riesgo)">R/R</th>
 {{ mkt_head() }}
-<th title="(ancho − crédito) × multiplicador">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Strike vendido − crédito">Breakeven</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>
+<th title="(ancho − crédito) × multiplicador">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Breakeven: strike vendido − crédito">BrEv</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>
 {{ extra_head() }}<th title="% de la cartera si te asignan">% cart. asig.</th>
 {%- endmacro %}
 

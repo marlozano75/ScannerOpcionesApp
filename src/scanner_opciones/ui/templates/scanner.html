@@ -476,8 +476,8 @@
     <form method="post" action="/simulate" class="table-form">
       <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
         <tr><th class="sel"></th>{{ cols.lead_head() }}<th>Tipo</th><th>Vendida</th><th>Comprada</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort>Historial</th><th>Desc.</th><th>DTE</th>
-          <th>Ancho</th><th>Crédito</th><th title="Crédito neto / ancho del spread (en una put sola no aplica)">Créd/anch</th><th class="hl" data-sort-default="desc">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th>Capital ($)</th><th>Peso NLV si asignado</th>
-          <th title="Pérdida máxima ($)">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th>Breakeven</th><th>Dist. BE</th>{{ cols.extra_head() }}<th>Por qué spread</th><th data-nosort>Cant.</th></tr>
+          <th>Ancho</th><th>Crédito</th><th title="Crédito neto / ancho del spread (en una put sola no aplica)">Cred/A</th><th class="hl" data-sort-default="desc">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th>Capital ($)</th><th>Peso NLV si asignado</th>
+          <th title="Pérdida máxima ($)">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Breakeven: strike vendido − crédito">BrEv</th><th>Dist. BE</th>{{ cols.extra_head() }}<th>Por qué spread</th><th data-nosort>Cant.</th></tr>
         {% for m in out.mixed %}{% set r = m.short %}{% set c = r.snapshot.contract %}{% set sp = m.spread %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ ('|' ~ sp.long.contract.strike if sp else '') %}
           {% set be = sp.breakeven if sp else c.strike - m.credit %}{% set px = r.info.underlying_price if r.info else none %}
@@ -494,7 +494,7 @@
             <td>{{ sp.max_loss|num(0) if sp else '—' }}</td><td>{{ (sp.max_loss / nlv_usd * 100)|pct if sp and nlv_usd else '—' }}</td><td>{{ be|num }}</td><td>{{ ((px - be) / px * 100)|pct if px else '—' }}</td>
             {{ cols.extra_cells(r, community) }}
             <td class="txt muted">{{ m.why_spread }}</td>
-            <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px">{% if sp %}<input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}">{% endif %}</td></tr>
+            <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px">{% if sp %}<input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}">{% endif %}</td></tr>
         {% else %}<tr><td colspan="60" class="muted empty">Nada cumple los criterios.</td></tr>{% endfor %}
       </table></div>
       {% if out.mixed %}<div class="table-actions"><button id="simulate-btn">Simular seleccionados</button><span id="sel-count">Ninguno seleccionado</span></div>{% endif %}
@@ -508,7 +508,7 @@
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ '|' ~ sp.long.contract.strike %}
           <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
             {{ cols.spread_cells(sp, rmax, community, nlv_usd) }}
-            <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px"><input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}"></td></tr>
+            <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px"><input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}"></td></tr>
         {% else %}<tr><td colspan="60" class="muted empty">Ningún spread cumple los criterios{% if out.results %} ({{ out.results|length }} puts vendidas pasan los filtros, pero ninguna tiene pata comprada cotizada a ese ancho o cumple crédito/riesgo){% endif %}.</td></tr>{% endfor %}
       </table></div>
       {% if out.spreads %}<div class="table-actions"><button id="simulate-btn">Simular seleccionados</button><span id="sel-count">Ninguno seleccionado</span></div>{% endif %}
@@ -521,7 +521,7 @@
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
           <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
             {{ cols.cells(r, yield_max, community) }}
-            <td><input name="qty_{{ key }}" type="number" min="1" value="1" style="width:56px"></td></tr>
+            <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px"></td></tr>
         {% else %}<tr><td colspan="40" class="muted empty">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
       </table></div>
       {% if out.results %}<div class="table-actions"><button id="simulate-btn">Simular seleccionados</button><span id="sel-count">Ninguno seleccionado</span></div>{% endif %}
