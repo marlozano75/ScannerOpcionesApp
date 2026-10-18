@@ -379,6 +379,40 @@ class AppService:
             raise WatchlistError(f"«{name}» ya es una fuente de un fichero: elige otro nombre")
         return next((n for n in self.manual_sources if n.casefold() == name.casefold()), name)
 
+    def is_renamable_source(self, name: str) -> bool:
+        """Fuente manual escrita por el usuario (no las que rellena la aplicación: comunidad y radar de Tortuga)."""
+        managed = {self.settings.community.source_name, self.settings.community.perm_source_name, self.settings.tortuga.source_name}
+        return name in self.manual_sources and name not in managed
+
+    def rename_manual_source(self, old: str, new: str) -> str:
+        """Cambia el nombre de una fuente manual (conserva su posición, sus tickers y su marca de apta para spreads). No se pueden
+        renombrar las que gestiona la propia aplicación (comunidad y radar de Tortuga) ni las de ficheros. Devuelve el nombre final."""
+        if old not in self.manual_sources:
+            raise WatchlistError(f"«{old}» no es una fuente manual: solo se renombran las que escribiste a mano")
+        managed = {self.settings.community.source_name, self.settings.community.perm_source_name, self.settings.tortuga.source_name}
+        if not self.is_renamable_source(old):
+            raise WatchlistError(f"«{old}» la rellena la aplicación sola: no se puede renombrar")
+        name = " ".join(new.split())
+        if name == old:
+            return old
+        if not name:
+            raise WatchlistError("Pon un nombre a la fuente")
+        if len(name) > MAX_SOURCE_NAME:
+            raise WatchlistError(f"El nombre de la fuente no puede pasar de {MAX_SOURCE_NAME} caracteres")
+        taken = {s.name.casefold() for _, srcs in self.universe_files.values() for s in srcs}
+        taken |= {n.casefold() for n in self.manual_sources if n != old} | {n.casefold() for n in managed}
+        if name.casefold() in taken:
+            raise WatchlistError(f"«{name}» ya es otra fuente: elige otro nombre")
+        self.manual_sources = {(name if k == old else k): v for k, v in self.manual_sources.items()}
+        self._save_manual()
+        if old in self.spread_source_names():
+            marked = self.spread_source_names() - {self.settings.tortuga.source_name, old} | {name}
+            self.meta.set(SPREAD_SOURCES, json.dumps(sorted(marked)))
+        history = [{**h, "name": name} if h.get("name") == old else h for h in self._load_history()]
+        self.meta.set("universe_history", json.dumps(history))
+        self.state.data_version += 1
+        return name
+
     def _load_history(self) -> list[dict]:
         try:
             data = json.loads(self.meta.get("universe_history") or "[]")

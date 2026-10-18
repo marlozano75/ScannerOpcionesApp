@@ -206,6 +206,14 @@
             title="Quita todos los tickers de esta fuente; no toca la watchlist">Quitar toda la fuente</button>
     <span class="muted">Un fichero nuevo de esta fuente la restaura entera.</span>
   </p>
+  {% if renamable %}
+  <p>
+    <input type="text" name="new_name" value="{{ src }}" maxlength="40" aria-label="Nuevo nombre de la fuente" style="width:220px"
+           onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.nextElementSibling.click(); }">
+    <button class="secondary" type="submit" formaction="/universe/source/rename"
+            title="Cambia el nombre de esta fuente manual; conserva sus tickers">Renombrar fuente</button>
+  </p>
+  {% endif %}
   <p>
     {% if src in spread_sources %}
     <b title="Sus tickers no pasan los filtros de la empresa: solo liquidez de opciones ≥ {{ spread_cfg.min_option_liquidity }} y precio ≥ {{ spread_cfg.price_min|int }} $. Si solo están en fuentes así, el Scanner los muestra únicamente como spread.">✓ Fuente apta para spreads</b>

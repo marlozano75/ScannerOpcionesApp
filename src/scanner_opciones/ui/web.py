@@ -834,6 +834,7 @@ def create_app(
                       exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors),
                       spread_only=spread_only, spread_sources=service.spread_source_names(),
                       spread_cfg=sucfg, spread_builtin=service.settings.tortuga.source_name,
+                      renamable=bool(current) and service.is_renamable_source(current.name),
                       total_rows=total_rows, qform=form, filter_error=filter_error, n_active=n_active, q_presets=q_presets,
                       solvency=solvency_controls(qcfg, form), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
                       quality_opts=dict(quarters=qcfg.positive_quarters_options,
@@ -939,6 +940,17 @@ def create_app(
         what = "apta para spreads" if on else "ya no es apta para spreads"
         msg = _grp("ok", f"{source}: {what}", [], "")
         return RedirectResponse(f"/universe?{urlencode({'message': msg, 'src': source})}", status_code=303)
+
+    @app.post("/universe/source/rename")
+    async def universe_source_rename(src: str = Form(""), new_name: str = Form("")):
+        """Cambia el nombre de una fuente manual."""
+        try:
+            final = service.rename_manual_source(src, new_name)
+        except WatchlistError as exc:
+            return RedirectResponse(f"/universe?{urlencode({'message': _grp('err', 'Error', [], str(exc))})}", status_code=303)
+        remembered.pop("universe", None)
+        msg = _grp("ok", f"Fuente renombrada: {src} → {final}", [], "")
+        return RedirectResponse(f"/universe?{urlencode({'message': msg, 'src': final})}", status_code=303)
 
     @app.post("/universe/source/remove")
     async def universe_source_remove(request: Request):
