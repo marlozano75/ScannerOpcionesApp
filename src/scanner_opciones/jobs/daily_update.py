@@ -84,9 +84,10 @@ class DailyUpdater:
         self.settings = settings
         self.now = now
 
-    async def run_pending(self, on_progress=None) -> DailyUpdateReport:
-        """Actualiza los tickers que no se han actualizado hoy (incluye los añadidos después)."""
-        return await self.run(self.watchlist.pending_daily_update(self.now().date()), on_progress)
+    async def run_pending(self, on_progress=None, since: Optional[date] = None) -> DailyUpdateReport:
+        """Actualiza los tickers que no se han actualizado hoy (incluye los añadidos después). `since` sustituye a «hoy» como
+        día de referencia (con el mercado cerrado, el de la última sesión: no se repiten las cadenas en fines de semana)."""
+        return await self.run(self.watchlist.pending_daily_update(since or self.now().date()), on_progress)
 
     async def run(
         self,

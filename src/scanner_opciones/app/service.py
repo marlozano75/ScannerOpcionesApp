@@ -849,7 +849,9 @@ class AppService:
                 if tickers is not None:
                     report = await self.daily.run(tickers, self._progress, revalidate=revalidate)
                 else:
-                    report = await self.daily.run_pending(self._progress)
+                    # mercado cerrado: los datos no cambian hasta la próxima sesión, así que basta con haberlos bajado desde la última
+                    since = self.market.last_close(self.now()).date() if self._paused() else None
+                    report = await self.daily.run_pending(self._progress, since)
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return None
