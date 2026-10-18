@@ -3,7 +3,8 @@
 Cada rutina pide a la CLI de Claude (solo herramientas de lectura del conector) un JSON, lo valida con el mismo código que usa después la
 aplicación y SOLO entonces sustituye el fichero bueno (el anterior se conserva si algo falla). El estado de cada una (última vez que salió
 bien, último intento, error) se guarda en `meta` para que sobreviva a un reinicio. Una rutina toca a su hora local una vez al día y,
-tras un fallo, no se reintenta hasta pasados `tortuga.retry_minutes`."""
+tras un fallo, no se reintenta hasta pasados `tortuga.retry_minutes`. Las de `tortuga.intervals` (radar) se repiten solo con el mercado
+abierto y hacen una pasada más cuando se abre la app con el mercado cerrado si les falta la foto del último cierre."""
 from __future__ import annotations
 
 import json
@@ -15,6 +16,7 @@ from typing import Awaitable, Callable, Optional
 
 from scanner_opciones.community.data import CommunityError, parse_community
 from scanner_opciones.config.settings import Settings
+from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.portfolio.openings import OpeningsError, parse_openings
 from scanner_opciones.storage.repositories import MetaRepo
 from scanner_opciones.tortuga.claude_runner import ClaudeRunError, ToolCall, extract_json, run_claude, run_claude_calls, tool_names
@@ -95,6 +97,7 @@ class RoutineRunner:
                  base_dir: Optional[Path] = None, run_calls: ClaudeCalls = run_claude_calls) -> None:
         self.settings, self.meta, self.now, self._run, self._run_calls = settings, meta, now, run, run_calls
         self.base_dir = base_dir or Path.cwd()
+        self.market = MarketCalendar.from_settings(settings.market)
         self.running: Optional[str] = None
 
     # ---- estado ------------------------------------------------------------------------------
@@ -110,10 +113,16 @@ class RoutineRunner:
         self.meta.set(STATE_KEY, json.dumps(state))
 
     def due(self) -> list[Routine]:
-        """Rutinas que tocan ya: pasó su hora de hoy, no salieron bien hoy y no se intentaron hace poco."""
+        """Rutinas que tocan ya: pasó su hora de hoy, no salieron bien hoy y no se intentaron hace poco; las de `tortuga.intervals`, cuando
+        pasó su intervalo desde el último intento."""
         cfg, now, state = self.settings.tortuga, self.now(), self.state()
         out = []
         for r in ROUTINES:
+            every = cfg.intervals.get(r.key)
+            if every is not None:
+                if self._interval_due(r.key, every, now, state.get(r.key, {})):
+                    out.append(r)
+                continue
             hh, mm = (int(p) for p in cfg.times.get(r.key, "11:00").split(":"))
             if now.time() < dtime(hh, mm):
                 continue
@@ -126,6 +135,18 @@ class RoutineRunner:
                 continue
             out.append(r)
         return out
+
+    def _interval_due(self, key: str, every: int, now: datetime, st: dict) -> bool:
+        """Rutina por intervalo: con el mercado abierto, cada `every` minutos desde el último intento (salió bien o no); con él cerrado, UNA
+        pasada para tener la foto del último cierre (si la última que salió bien es anterior), con la espera `retry_minutes` tras un fallo."""
+        tried = _parse(st.get("last_try"))
+        if self.market.is_open(now):
+            return tried is None or (now - tried).total_seconds() >= every * 60
+        ok = _parse(st.get("last_ok"))
+        if ok is not None and ok.astimezone() >= self.market.last_close(now):
+            return False
+        failed = tried is not None and (ok is None or tried > ok)          # el último intento falló: espera `retry_minutes`
+        return not failed or (now - tried).total_seconds() >= self.settings.tortuga.retry_minutes * 60
 
     # ---- ejecución ---------------------------------------------------------------------------
     async def run_one(self, key: str) -> tuple[bool, str]:

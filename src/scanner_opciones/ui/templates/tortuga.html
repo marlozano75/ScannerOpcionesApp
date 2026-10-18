@@ -12,10 +12,10 @@
 <div class="card">
   <h2>Tortuga · Bull Put Spreads del Market Radar</h2>
   {% if not data %}
-  <p class="muted">Todavía no hay datos del radar. {% if enabled %}La aplicación los pide sola cada día a las {{ cfg.times.get('radar_spreads') }}; también puedes lanzarlos a mano abajo.{% else %}Las rutinas de Tortuga están desactivadas (<code>tortuga.enabled</code>) o falta el lanzador.{% endif %}</p>
+  <p class="muted">Todavía no hay datos del radar. {% if enabled %}La aplicación los pide sola cada {{ cfg.intervals.get('radar_spreads') }} minutos mientras está abierta con el mercado abierto (y una vez tras el cierre); también puedes lanzarlos a mano abajo.{% else %}Las rutinas de Tortuga están desactivadas (<code>tortuga.enabled</code>) o falta el lanzador.{% endif %}</p>
   {% else %}
   <p class="muted" style="margin-top:0">Valores del Market Radar de Tortuga cuya estrategia propuesta es <b>Bull Put Spread</b>, con los datos del {{ data.as_of.strftime('%d/%m/%Y') if data.as_of else '—' }}{% if age_days and age_days > 3 %} <b class="tr-err">(hace {{ age_days }} días: la rutina no se ha ejecutado)</b>{% endif %}.
-    El radar se calcula una vez al día. La lista no trae los strikes del spread que propone (solo su ficha, una por valor), así que se muestra la
+    El radar de Tortuga se refresca durante la sesión (precio e IV cada ~15 min, primas en pasadas de ~10 min; el OI es el del cierre anterior) y la aplicación lo relee cada {{ cfg.intervals.get('radar_spreads') }} minutos con el mercado abierto y una vez más tras el cierre (también al abrirla fuera de sesión si le falta esa foto). La lista no trae los strikes del spread que propone (solo su ficha, una por valor), así que se muestra la
     <b>put de 30Δ</b> de referencia: ✓ indica que su prima cubre al menos el <b>{{ minimum|num(2) }} % del strike hasta el vencimiento</b>, el yield del periodo del perfil «{{ cfg.profile }}».
     Los ✓ forman la fuente <b>{{ cfg.source_name }}</b> del Universo y pasan a tu watchlist (solo se añaden, nunca se quitan).
     Con <span class="tl tl-w" style="background:#dff3e6;color:#1d6b3f;padding:0 4px;border-radius:7px;font-size:10px;font-weight:700">W</span> los que ya están en tu watchlist y <span class="own">EN CARTERA</span> los que tienes en posiciones.
@@ -55,13 +55,13 @@
 
 <div class="card">
   <h2>Rutinas de lectura de Tortuga</h2>
-  <p class="muted" style="margin-top:0">La aplicación llama sola a la CLI de Claude (solo herramientas de lectura del conector de Tortuga) una vez al día a la hora indicada, mientras está abierta;
+  <p class="muted" style="margin-top:0">La aplicación llama sola a la CLI de Claude (solo herramientas de lectura del conector de Tortuga) a la hora indicada (una vez al día) o con la frecuencia indicada, mientras está abierta;
     si algo falla se conserva el fichero anterior y se reintenta pasadas {{ cfg.retry_minutes }} minutos. Necesitas la CLI <code>{{ cfg.command }}</code> con la sesión iniciada.
     {% if not enabled %}<b class="tr-err">Desactivadas.</b>{% endif %}</p>
   <table class="routines">
     <tr><th>Rutina</th><th>Hora</th><th>Última vez que salió bien</th><th>Resultado</th><th>Qué alimenta</th><th></th></tr>
     {% for r in routines %}{% set st = rstate.get(r.key, {}) %}
-    <tr><td><b>{{ r.title }}</b></td><td>{{ cfg.times.get(r.key, '—') }}</td>
+    <tr><td><b>{{ r.title }}</b></td><td>{{ ('cada ' ~ cfg.intervals[r.key] ~ ' min') if r.key in cfg.intervals else cfg.times.get(r.key, '—') }}</td>
       <td>{{ st.last_ok[:16].replace('T', ' ') if st.last_ok else 'nunca' }}</td>
       <td>{% if running == r.key %}<i>ejecutándose…</i>{% elif st.error %}<span class="tr-err" title="{{ st.error }}">Falló: {{ st.error[:90] }}</span>{% elif st.summary %}{{ st.summary }}{% else %}—{% endif %}</td>
       <td class="muted">{{ r.produces }}</td>

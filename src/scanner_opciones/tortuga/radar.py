@@ -173,15 +173,16 @@ def load_radar(path: "str | Path") -> RadarData:
 
 
 # La herramienta corta cada respuesta en ~41 filas aunque se pida limit=100 (medido el 2026-10-17: matched=45, filas=41), y no tiene paginación.
-# Por eso el radar se pide por tramos de precio (todo valor tiene precio, así que los tramos lo cubren entero) y se comprueba contra el total.
-PRICE_BANDS = ((0, 20), (20, 35), (35, 50), (50, 75), (75, 100), (100, 150), (150, 200), (200, 300), (300, 500), (500, None))
-COUNT_ARGS = {"strategy", "limit", "sort"}      # una llamada con solo estos argumentos es la de recuento (no lleva ningún filtro)
+# Por eso, si la lista entera no cabe, se pide por tramos de precio (todo valor tiene precio, así que los tramos lo cubren entero), partiendo
+# solo los tramos que sigan recortados (lo decide el prompt, `scripts/radar_spreads_prompt.md`), y se comprueba contra el total.
+COUNT_ARGS = {"strategy", "limit", "sort"}      # una llamada con solo estos argumentos no lleva ningún filtro: su `matched` es el total
 
 
 def build_radar_document(calls: list, now: datetime) -> dict:
     """Documento de la versión 1 a partir de las llamadas a `get_market_radar` con `strategy=bull_put_spread`, con lo que la herramienta
-    devolvió: una llamada SIN filtros (solo para saber cuántos valores hay: `matched`) y varias por tramo de precio. Se rechaza si alguna
-    respuesta viene recortada o si, juntas, no suman exactamente el total."""
+    devolvió: una llamada SIN filtros (de ahí sale el total `matched`; si no viene recortada ya es la lista entera) y, si hace falta, las de
+    los tramos de precio. Las respuestas recortadas aportan sus filas (son reales), pero se rechaza todo si, juntas y sin duplicados, no suman
+    exactamente el total."""
     rows: list[dict] = []
     seen: set[str] = set()
     total: Optional[int] = None
@@ -198,11 +199,7 @@ def build_radar_document(calls: list, now: datetime) -> dict:
             continue
         as_of = as_of or result.get("as_of")
         if not set(args) - COUNT_ARGS:
-            total = _opt_int(result.get("matched"))          # la llamada de recuento: sus filas (pocas) no se usan
-            continue
-        if result.get("matched") != len(result["rows"]) or result.get("truncated"):
-            raise RadarError(f"respuesta recortada del radar ({args.get('price_min')}-{args.get('price_max')} $): matched={result.get('matched')}, "
-                             f"filas={len(result['rows'])}")
+            total = _opt_int(result.get("matched"))          # la llamada sin filtros: da el total
         for item in result["rows"]:
             sym = str(item.get("symbol", "")).upper() if isinstance(item, dict) else ""
             if sym and sym not in seen:
@@ -211,7 +208,7 @@ def build_radar_document(calls: list, now: datetime) -> dict:
     if total is None:
         raise RadarError("falta la llamada de recuento del radar")
     if len(rows) != total:
-        raise RadarError(f"el radar suma {len(rows)} valores y debería haber {total}: faltan tramos de precio")
+        raise RadarError(f"el radar suma {len(rows)} valores y debería haber {total}: respuesta recortada o faltan tramos de precio")
     rows.sort(key=lambda r: -(_num(r.get("iv_rank")) or -1))
     return {"version": VERSION, "generated_at": now.astimezone().isoformat(timespec="seconds"), "source": "tortuga-market-radar",
             "as_of": as_of, "matched": len(rows), "returned": len(rows), "rows": rows}

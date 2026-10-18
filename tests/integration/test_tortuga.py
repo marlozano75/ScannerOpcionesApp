@@ -85,9 +85,22 @@ def test_radar_document_is_built_from_the_raw_tool_results_of_the_four_zones():
     with pytest.raises(RadarError, match="recuento"):
         build_radar_document(calls[1:], NOW)
     with pytest.raises(RadarError, match="recortada"):
-        build_radar_document(zone_calls({"sell_premium": [row("A")]}, matched=59), NOW)
-    with pytest.raises(RadarError, match="recortada"):
-        build_radar_document(zone_calls({"sell_premium": [row("A")]}, truncated=True), NOW)
+        build_radar_document(zone_calls({"sell_premium": [row("A")]}, total=59, matched=59), NOW)    # un tramo recortado que nadie completó
+
+
+def call(args, rows, matched=None):
+    body = {"as_of": "2026-10-16", "matched": len(rows) if matched is None else matched, "rows": rows}
+    return ToolCall("get_market_radar", {"strategy": "bull_put_spread", "sort": "iv_rank", "limit": 100, **args}, json.dumps(body))
+
+
+def test_radar_needs_a_single_call_when_it_fits_and_splits_only_the_cut_ranges():
+    rows = [row(f"T{i}", iv_rank=90 - i) for i in range(6)]
+    assert len(build_radar_document([call({}, rows)], NOW)["rows"]) == 6                           # una sola llamada sin filtros, completa
+    cut = call({}, rows[:3], matched=6)                                                             # recortada: 3 de 6
+    halves = [call({"price_min": 0, "price_max": 50}, rows[:4]), call({"price_min": 50}, rows[4:])]
+    assert [r["symbol"] for r in build_radar_document([cut, *halves], NOW)["rows"]] == ["T0", "T1", "T2", "T3", "T4", "T5"]
+    with pytest.raises(RadarError, match="debería haber 6"):
+        build_radar_document([cut, halves[0]], NOW)                                                 # falta el tramo de 50 $ para arriba
 
 
 def test_tool_calls_are_read_from_the_stream_without_the_model_copying_anything():
@@ -148,7 +161,7 @@ async def test_routine_writes_the_file_only_when_the_answer_is_valid(tmp_path):
     assert ok and "2 valores" in summary and (tmp_path / "radar.json").exists()
     before = (tmp_path / "radar.json").read_text(encoding="utf-8")
     bad = RoutineRunner(svc.settings, MetaRepo(svc.watchlist.db), lambda: NOW, fake_claude({}), tmp_path,
-                        fake_calls(zone_calls({"sell_premium": [row("A")]}, matched=59)))
+                        fake_calls(zone_calls({"sell_premium": [row("A")]}, total=59)))
     ok, why = await bad.run_one("radar_spreads")
     assert not ok and "recortada" in why and (tmp_path / "radar.json").read_text(encoding="utf-8") == before        # se conserva el bueno
     assert bad.state()["radar_spreads"]["error"] == why
@@ -157,19 +170,52 @@ async def test_routine_writes_the_file_only_when_the_answer_is_valid(tmp_path):
 async def test_due_routines_follow_the_schedule_and_back_off_after_a_failure(tmp_path):
     svc, runner, clock = make(tmp_path, fake_claude({}), retry_minutes=60)
     clock["now"] = datetime(2026, 10, 17, 10, 0)
-    assert runner.due() == []                                                       # antes de la primera hora (11:10)
+    def daily():
+        return [r.key for r in runner.due() if r.key != "radar_spreads"]            # el radar va por intervalo, no por hora
+
+    assert daily() == []                                                            # antes de la primera hora (11:10)
     clock["now"] = datetime(2026, 10, 17, 11, 20)
-    assert [r.key for r in runner.due()] == ["aperturas", "comunidad"]
+    assert daily() == ["aperturas", "comunidad"]
     await runner.run_one("aperturas")                                               # falla: no hay respuesta simulada
-    assert [r.key for r in runner.due()] == ["comunidad"]                           # no se reintenta enseguida
+    assert daily() == ["comunidad"]                           # no se reintenta enseguida
     clock["now"] = datetime(2026, 10, 17, 12, 30)
     assert "aperturas" in [r.key for r in runner.due()]                             # pasada la hora de espera, sí
-    ok_runner = RoutineRunner(svc.settings, MetaRepo(svc.watchlist.db), lambda: clock["now"], fake_claude({}), tmp_path,
-                              fake_calls(zone_calls({"sell_premium": [row("MPC")]})))
-    await ok_runner.run_one("radar_spreads")
-    assert "radar_spreads" not in [r.key for r in ok_runner.due()]                  # ya salió bien hoy
-    clock["now"] = datetime(2026, 10, 18, 11, 50)
-    assert "radar_spreads" in [r.key for r in ok_runner.due()]                      # y mañana vuelve a tocar
+
+async def test_radar_repeats_only_while_the_market_is_open_plus_one_pass_for_the_last_close(tmp_path):
+    from zoneinfo import ZoneInfo
+    ny = ZoneInfo("America/New_York")
+    svc, _, clock = make(tmp_path, retry_minutes=60)
+    runner = RoutineRunner(svc.settings, MetaRepo(svc.watchlist.db), lambda: clock["now"], fake_claude({}), tmp_path,
+                           fake_calls(zone_calls({"sell_premium": [row("MPC")]})))
+
+    def radar_due():
+        return "radar_spreads" in [r.key for r in runner.due()]
+
+    clock["now"] = datetime(2026, 10, 19, 8, 0, tzinfo=ny)                          # lunes antes de la apertura, nunca se leyó
+    assert radar_due()                                                              # una pasada con la foto del último cierre
+    await runner.run_one("radar_spreads")
+    assert not radar_due()                                                          # y hasta que abra el mercado no se repite
+    clock["now"] = datetime(2026, 10, 19, 10, 0, tzinfo=ny)
+    assert radar_due()                                                              # abierto: toca, la última foto es anterior...
+    await runner.run_one("radar_spreads")
+    clock["now"] += timedelta(minutes=29)
+    assert not radar_due()
+    clock["now"] += timedelta(minutes=2)
+    assert radar_due()                                                              # ...y se repite cada 30 minutos
+    clock["now"] = datetime(2026, 10, 19, 15, 50, tzinfo=ny)
+    await runner.run_one("radar_spreads")
+    clock["now"] = datetime(2026, 10, 19, 16, 5, tzinfo=ny)                         # cerrado: la última pasada fue antes del cierre
+    assert radar_due()
+    await runner.run_one("radar_spreads")
+    clock["now"] = datetime(2026, 10, 19, 23, 0, tzinfo=ny)
+    assert not radar_due()                                                          # ya tiene la foto del cierre
+    clock["now"] = datetime(2026, 10, 20, 8, 0, tzinfo=ny)
+    assert not radar_due()                                                          # ni al día siguiente antes de abrir
+    clock["now"] = datetime(2026, 10, 24, 12, 0, tzinfo=ny)
+    assert radar_due()                                                              # el sábado el último cierre es el del viernes: falta su foto
+    await runner.run_one("radar_spreads")
+    clock["now"] = datetime(2026, 10, 25, 12, 0, tzinfo=ny)
+    assert not radar_due()                                                          # y el fin de semana no se repite
 
 
 async def test_the_openings_routine_stores_closes_too(tmp_path):

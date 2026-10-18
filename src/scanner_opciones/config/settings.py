@@ -542,9 +542,15 @@ class TortugaSettings(_Model):
     source_name: str = "TortugaSpreads"       # fuente del Universo con los tickers del radar que cumplen el yield del perfil
     profile: str = "TastyPut"                 # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
     times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "radar_spreads": "11:45"}
+    # rutinas que se repiten cada N minutos mientras la aplicación está abierta y el mercado abierto (más una pasada tras el cierre; en vez de una vez al día a su hora de `times`): el radar de
+    # Tortuga se refresca durante la sesión (precio e IV cada ~15 min; las primas, en pasadas de ~10 min)
+    intervals: dict[str, int] = {"radar_spreads": 30}
 
     @model_validator(mode="after")
     def _check(self) -> "TortugaSettings":
+        for key, minutes in self.intervals.items():
+            if minutes < 1:
+                raise ValueError(f"tortuga.intervals.{key}: {minutes} minutos no es válido")
         for key, value in self.times.items():
             try:
                 hh, mm = value.split(":")
