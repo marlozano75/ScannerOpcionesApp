@@ -2,69 +2,102 @@
 {% block title %}Perfiles del Scanner{% endblock %}
 {% block content %}
 <style>
-  .cfg-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:8px 22px; }
-  .cfg-grid label { display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:13px; }
-  .cfg-grid input[type=text] { width:84px; text-align:right; }
-  .cfg-pre { border-collapse:collapse; font-size:13px; }
-  .cfg-pre td, .cfg-pre th { padding:3px 8px; text-align:left; font-weight:normal; }
-  .cfg-pre th { color:var(--mute); font-size:12px; }
-  .cfg-pre input[type=text] { width:80px; } .cfg-pre input.nm { width:160px; }
-  .cfg-sec { border:1px solid var(--line); border-radius:8px; margin:8px 0; padding:0 12px; }
-  .cfg-sec > summary { cursor:pointer; padding:9px 0; font-weight:600; }
-  .cfg-sec[open] > summary { border-bottom:1px solid var(--line); margin-bottom:10px; }
+  .cfg h2 { margin-bottom:2px; }
+  .cfg-lead { display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline; margin:0 0 12px; font-size:13px; }
+  .cfg-sec { border:1px solid var(--line); border-radius:10px; margin:10px 0; padding:0 14px;
+             width:fit-content; max-width:100%; box-sizing:border-box; }
+  .cfg-sec > summary { cursor:pointer; padding:10px 0; font-weight:600; display:flex; align-items:center; gap:8px; list-style:none; }
+  .cfg-sec > summary::-webkit-details-marker { display:none; }
+  .cfg-sec > summary::before { content:"▸"; color:var(--mute); font-size:12px; transition:transform .12s; }
+  .cfg-sec[open] > summary::before { transform:rotate(90deg); }
   .cfg-sec[open] { padding-bottom:12px; }
-  .cfg-actions { display:flex; gap:10px; align-items:center; margin-top:14px; }
+  .cfg-sec[open] > summary { border-bottom:1px solid var(--line); margin-bottom:10px; }
+  .cfg-hint { color:var(--mute); font-weight:normal; font-size:12px; }
+  .cfg-tbl-wrap { overflow-x:auto; max-width:100%; }
+  .cfg-pre { border-collapse:collapse; font-size:13px; }
+  .cfg-pre td, .cfg-pre th { padding:5px 10px; text-align:left; font-weight:normal; white-space:nowrap; }
+  .cfg-pre th { color:var(--mute); font-size:12px; border-bottom:1px solid var(--line); }
+  .cfg-pre th[data-tip] { cursor:help; }
+  .cfg-pre tbody tr:hover { background:rgba(127,127,127,.07); }
+  .cfg-pre td.c, .cfg-pre th.c { text-align:center; }
+  .cfg-pre input[type=text] { width:120px; }
+  .cfg-pre input[type=number] { width:52px; }
+  .cfg-pre input[type=color] { width:28px; height:22px; padding:0; border:0; background:none; vertical-align:middle; }
+  .cfg-pre select { width:auto; min-width:112px; }
+  .cfg-pre input, .cfg-pre select, .cfg-grid input { padding:3px 8px; min-height:0; height:28px; box-sizing:border-box; }
+  .cfg-pre input[type=checkbox], .cfg-pre input[type=radio] { height:auto; vertical-align:middle; }
+  .cfg-pre td.col { white-space:nowrap; }
+  .cfg .banner { width:fit-content; max-width:100%; box-sizing:border-box; }
+  .cfg-grid { display:flex; flex-wrap:wrap; gap:8px 24px; }
+  .cfg-grid label { display:flex; align-items:center; gap:10px; font-size:13px; white-space:nowrap; }
+  .cfg-grid input[type=text] { width:64px; text-align:right; }
+  .cfg-actions { display:flex; gap:10px; align-items:center; margin-top:12px; }
+  .cfg-actions button { width:auto; }
 </style>
 <div class="card cfg">
   <h2>Perfiles del Scanner</h2>
-  <p class="muted">Cada perfil guarda <b>todos los filtros</b> del Scanner. Aquí se gestionan los perfiles; los filtros se definen en el propio Scanner (<b>💾 Guardar en perfil</b>).
+  <p class="cfg-lead muted">
+    <span data-tip="Perfiles|Cada perfil guarda todos los filtros del Scanner. Aquí solo se gestionan los perfiles: los filtros se editan en el Scanner y se guardan con «💾 Guardar en perfil». Cargar un perfil reemplaza el formulario entero." tabindex="0">ⓘ Cada perfil guarda todos los filtros</span>
     <a href="/scanner">← Volver al Scanner</a></p>
   {% if ok %}<div class="banner ok">{{ ok }}</div>{% endif %}
   {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
   {% for g in gap %}<div class="banner info">Aviso: {{ g }}: solo se escanean los contratos guardados, amplía <code>scanner.candidates</code> en config.yaml.</div>{% endfor %}
   <form method="post" action="/scanner/profiles">
-    <details class="cfg-sec" open><summary>Perfiles (instrumentos, gestión y perfil inicial)</summary>
-    <p class="note">Cargar un perfil reemplaza el formulario entero. Con put y spread marcados el perfil arranca en «Ambos». El <b>orden</b> (número menor, antes) es el de los botones del Scanner y el del desplegable del Panel; el <b>color</b> tiñe su botón y su etiqueta en el Panel; <b>Duplicar</b> crea una copia con los mismos filtros. El <b>perfil inicial</b> es el que se carga al abrir el Scanner.
-      En el <b>Panel</b>, cada put vendida se asigna sola al perfil cuyo <b>rango de DTE</b> (mínimo y máximo de sus filtros) contiene el DTE con el que se abrió (la fecha es la primera vez que la app la vio);
-      si hay varios, el rango más estrecho, y lo que no encaja en ninguno va a <b>{{ fallback }}</b>. Se puede corregir a mano en el Panel. La <b>gestión</b> del perfil decide los avisos de esas puts
-      (Tastytrade: recoger al 50 %, revisar a 21 DTE; TPC: mantener hasta el vencimiento).
-      {{ 'Estos perfiles se han guardado desde la aplicación.' if profiles_saved else 'Todavía se generan a partir de config.yaml (presets TPC y estrategia Tastytrade); al guardar aquí pasan a ser propios.' }}</p>
-    <table class="cfg-pre">
-      <tr><th>Orden</th><th>Nombre</th><th>Color</th><th>Put vendida</th><th>Spread</th><th>Gestión</th><th>DTE (Panel)</th><th>Inicial</th><th>Duplicar</th><th>Borrar</th></tr>
-      {% for p in profiles %}{% set i = loop.index0 %}
-      <tr><td><input type="number" name="pf{{ i }}_order" value="{{ i + 1 }}" step="1" style="width:56px"></td>
-        <td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}" {{ 'readonly' if p.name == fallback }}><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
-        <td style="white-space:nowrap"><input type="checkbox" name="pf{{ i }}_usecolor" {{ 'checked' if p.color }} title="Con color"><input type="color" name="pf{{ i }}_color" value="{{ p.color or '#1f6feb' }}"></td>
-        <td><input type="checkbox" name="pf{{ i }}_put" {{ 'checked' if 'put' in p.instruments }}></td>
-        <td><input type="checkbox" name="pf{{ i }}_spread" {{ 'checked' if 'spread' in p.instruments }}></td>
-        <td><select name="pf{{ i }}_mgmt"><option value="tastytrade" {{ 'selected' if p.management == 'tastytrade' }}>Tastytrade</option><option value="tpc" {{ 'selected' if p.management == 'tpc' }}>TPC</option></select></td>
-        <td class="muted">{% if p.name == fallback %}el resto{% elif ranges[p.name] %}{{ ranges[p.name][0] }}–{{ ranges[p.name][1] }}{% else %}—{% endif %}</td>
-        <td><input type="radio" name="default" value="{{ i }}" {{ 'checked' if p.name == default_profile }}></td>
-        <td><input type="checkbox" name="pf{{ i }}_dup"></td>
-        <td>{% if p.name != fallback %}<input type="checkbox" name="pf{{ i }}_del">{% else %}<span class="muted">—</span>{% endif %}</td></tr>
-      {% endfor %}
-    </table>
-    <input type="hidden" name="n_profiles" value="{{ profiles|length }}">
-    <div class="cfg-actions">
-      <button>Guardar perfiles</button>
-      <button type="submit" formaction="/scanner/profiles/reset" formnovalidate class="secondary"
-        onclick="return confirmClick(this, '¿Regenerar los perfiles desde config.yaml? Se pierden los filtros guardados en ellos.')" {{ '' if profiles_saved else 'disabled' }}>Regenerar desde config.yaml</button>
-    </div>
+    <details class="cfg-sec" open>
+      <summary>Perfiles
+        <span class="cfg-hint" data-tip="Origen|{{ 'Perfiles guardados desde la aplicación.' if profiles_saved else 'Todavía se generan desde config.yaml (presets TPC y estrategia Tastytrade); al guardar aquí pasan a ser propios.' }}" tabindex="0">{{ 'guardados' if profiles_saved else 'desde config.yaml' }}</span></summary>
+      <div class="cfg-tbl-wrap">
+      <table class="cfg-pre">
+        <thead><tr>
+          <th class="c" data-tip="Orden|Número menor, antes: es el orden de los botones del Scanner y del desplegable del Panel." tabindex="0">Orden</th>
+          <th>Nombre</th>
+          <th class="c" data-tip="Color|Tiñe el botón del perfil y su etiqueta en el Panel. La casilla activa el color." tabindex="0">Color</th>
+          <th class="c" data-tip="Put vendida|El perfil incluye el instrumento put desnuda." tabindex="0">Put</th>
+          <th class="c" data-tip="Spread|El perfil incluye el instrumento spread de puts. Con put y spread marcados arranca en «Ambos»." tabindex="0">Spread</th>
+          <th data-tip="Gestión|Reglas de aviso de sus puts en el Panel. Tastytrade: recoger al 50 %, revisar a 21 DTE. TPC: mantener hasta el vencimiento." tabindex="0">Gestión</th>
+          <th data-tip="DTE (Panel)|Cada put vendida del Panel se asigna al perfil cuyo rango de DTE (mínimo y máximo de sus filtros) contiene el DTE con el que se abrió; si hay varios, el rango más estrecho. Lo que no encaja va a {{ fallback }}. Se corrige a mano en el Panel." tabindex="0">DTE</th>
+          <th class="c" data-tip="Inicial|Perfil que se carga al abrir el Scanner." tabindex="0">Inicial</th>
+          <th class="c" data-tip="Duplicar|Crea «Nombre (copia)» con los mismos filtros, justo detrás." tabindex="0">Dup.</th>
+          <th class="c" data-tip="Borrar|Elimina el perfil al guardar." tabindex="0">Borrar</th>
+        </tr></thead>
+        <tbody>
+        {% for p in profiles %}{% set i = loop.index0 %}
+        <tr><td class="c"><input type="number" name="pf{{ i }}_order" value="{{ i + 1 }}" step="1"></td>
+          <td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}" {{ 'readonly' if p.name == fallback }}><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
+          <td class="c col"><input type="checkbox" name="pf{{ i }}_usecolor" {{ 'checked' if p.color }} title="Con color"> <input type="color" name="pf{{ i }}_color" value="{{ p.color or '#1f6feb' }}"></td>
+          <td class="c"><input type="checkbox" name="pf{{ i }}_put" {{ 'checked' if 'put' in p.instruments }}></td>
+          <td class="c"><input type="checkbox" name="pf{{ i }}_spread" {{ 'checked' if 'spread' in p.instruments }}></td>
+          <td><select name="pf{{ i }}_mgmt"><option value="tastytrade" {{ 'selected' if p.management == 'tastytrade' }}>Tastytrade</option><option value="tpc" {{ 'selected' if p.management == 'tpc' }}>TPC</option></select></td>
+          <td class="muted">{% if p.name == fallback %}el resto{% elif ranges[p.name] %}{{ ranges[p.name][0] }}–{{ ranges[p.name][1] }}{% else %}—{% endif %}</td>
+          <td class="c"><input type="radio" name="default" value="{{ i }}" {{ 'checked' if p.name == default_profile }}></td>
+          <td class="c"><input type="checkbox" name="pf{{ i }}_dup"></td>
+          <td class="c">{% if p.name != fallback %}<input type="checkbox" name="pf{{ i }}_del">{% else %}<span class="muted">—</span>{% endif %}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <input type="hidden" name="n_profiles" value="{{ profiles|length }}">
+      <div class="cfg-actions">
+        <button>Guardar perfiles</button>
+        <button type="submit" formaction="/scanner/profiles/reset" formnovalidate class="secondary"
+          onclick="return confirmClick(this, '¿Regenerar los perfiles desde config.yaml? Se pierden los filtros guardados en ellos.')" {{ '' if profiles_saved else 'disabled' }}>Regenerar desde config.yaml</button>
+      </div>
     </details>
   </form>
   <form method="post" action="/scanner/config">
-    <details class="cfg-sec"><summary>Aviso del VIX (Panel)</summary>
-    <p class="note">Umbrales del aviso de mercado que acompaña al gráfico del VIX en el Panel (no es un filtro del Scanner).</p>
-    <div class="cfg-grid">
-      {% for key, label, kind, value in vix %}
-      <label>{{ label }}<input type="text" name="{{ key }}" value="{{ value }}" inputmode="decimal"></label>
-      {% endfor %}
-    </div>
-    <div class="cfg-actions">
-      <button>Guardar</button>
-      <button type="submit" formaction="/scanner/config/reset" formnovalidate class="secondary"
-        onclick="return confirmClick(this, '¿Volver a los valores de config.yaml?')" {{ '' if user_edited else 'disabled' }}>Restaurar los de config.yaml</button>
-    </div>
+    <details class="cfg-sec">
+      <summary>Aviso del VIX
+        <span class="cfg-hint" data-tip="Aviso del VIX|Umbrales del aviso de mercado que acompaña al gráfico del VIX en el Panel. No es un filtro del Scanner." tabindex="0">Panel</span></summary>
+      <div class="cfg-grid">
+        {% for key, label, kind, value in vix %}
+        <label>{{ label }}<input type="text" name="{{ key }}" value="{{ value }}" inputmode="decimal"></label>
+        {% endfor %}
+      </div>
+      <div class="cfg-actions">
+        <button>Guardar</button>
+        <button type="submit" formaction="/scanner/config/reset" formnovalidate class="secondary"
+          onclick="return confirmClick(this, '¿Volver a los valores de config.yaml?')" {{ '' if user_edited else 'disabled' }}>Restaurar los de config.yaml</button>
+      </div>
     </details>
   </form>
 </div>

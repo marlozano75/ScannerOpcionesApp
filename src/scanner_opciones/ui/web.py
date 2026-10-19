@@ -343,8 +343,8 @@ SPREAD_CHECK_MAX = 400   # filas máximas del panel «Revisión de spreads»
 SPREAD_CHECK_COLUMNS = SPREAD_CHECK_COLS
 
 VIX_FIELDS = (    # aviso del VIX del Panel (`scanner.strategy`): única parte de la estrategia que se edita en /scanner/config
-    ("min_vix", "VIX: primas pobres por debajo de", "float"), ("ideal_vix_min", "VIX: ideal desde", "float"),
-    ("max_vix", "VIX: nervioso por encima de", "float"),
+    ("min_vix", "Primas pobres si VIX <", "float"), ("ideal_vix_min", "Ideal desde", "float"),
+    ("max_vix", "Nervioso si VIX >", "float"),
 )
 
 SPREAD_FIELDS = (    # valores iniciales del modo Spread del Scanner (`scanner.spreads`); en el formulario van como `sp_<clave>`
