@@ -282,6 +282,12 @@ def test_tortuga_page_renders_rows_routines_and_manual_launch(client_and_service
     r = client.post("/tortuga/run", data={"key": "nope"})
     assert r.status_code == 400
     assert client.post("/tortuga/run", data={"key": "all"}, follow_redirects=False).status_code == 303
+    # mientras hay una rutina en marcha la página sondea /tortuga/status y se recarga sola al terminar (con ?done=1 dice cómo acabó)
+    svc._tortuga_busy = True
+    assert client.get("/tortuga/status").json() == {"busy": True} and "/tortuga/status" in client.get("/tortuga").text
+    svc._tortuga_busy = False
+    assert client.get("/tortuga/status").json() == {"busy": False} and "/tortuga/status" not in client.get("/tortuga").text
+    assert "Terminada" in client.get("/tortuga?done=1").text
 
 
 def test_the_radar_reads_both_strategies_and_labels_each_row_with_its_kind():

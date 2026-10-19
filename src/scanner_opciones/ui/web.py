@@ -717,7 +717,13 @@ def create_app(
 
     # ---- Tortuga: radar de Bull Put Spreads y rutinas -------------------------------------------
     @app.get("/tortuga", response_class=HTMLResponse)
-    async def tortuga(request: Request, cumple: int = 0, solo: int = 0, tipo: str = "", message: str = ""):
+    async def tortuga(request: Request, cumple: int = 0, solo: int = 0, tipo: str = "", message: str = "", done: int = 0):
+        runner = service.tortuga
+        if done and not message:    # la página recargó sola al terminar una rutina: dice cómo acabó
+            states = runner.state() if runner is not None else {}
+            failed = [r.title for r in ROUTINES if states.get(r.key, {}).get("error")]
+            message = (_grp("err", "Terminó con errores", failed, "mira la columna Resultado") if failed
+                       else _grp("ok", "Terminada", [], "resultado actualizado"))
         data = service.radar_spreads()
         minimum = service.radar_min_yield()
         watch = set(service.watchlist.list())
@@ -726,12 +732,16 @@ def create_app(
                  for r in (data.rows if data else ())]
         tipo = tipo if tipo in ("spread", "put") else ""
         shown = [i for i in items if (not cumple or i["ok"]) and (not solo or i["wl"]) and (not tipo or i["row"].kind == tipo)]
-        runner = service.tortuga
         return render(request, "tortuga.html", data=data, items=shown, total=len(items), passing=sum(1 for i in items if i["ok"]),
                       minimum=minimum, cumple=cumple, solo=solo, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
                       routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,
                       enabled=runner is not None and service.settings.tortuga.enabled, busy_routines=service._tortuga_busy,
                       age_days=(service.now().date() - data.as_of).days if data and data.as_of else None)
+
+    @app.get("/tortuga/status")
+    async def tortuga_status():
+        """¿Hay una rutina de Tortuga en marcha? La página de Tortuga lo consulta mientras espera para recargarse al terminar."""
+        return {"busy": bool(service._tortuga_busy)}
 
     @app.post("/tortuga/run")
     async def tortuga_run(request: Request):

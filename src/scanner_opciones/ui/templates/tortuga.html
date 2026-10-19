@@ -73,4 +73,18 @@
   </table>
   <form method="post" action="/tortuga/run" style="margin:10px 0 0"><input type="hidden" name="key" value="all"><button type="submit" {{ 'disabled' if not enabled or busy_routines }}>Actualizar todas</button></form>
 </div>
+{% if busy_routines %}<script>
+  // Hay una rutina en marcha: se consulta cada 3 s y, al terminar, la página se recarga sola con el resultado
+  (function () {
+    const timer = setInterval(function () {
+      fetch('/tortuga/status').then(function (r) { return r.json(); }).then(function (s) {
+        if (s.busy) return;
+        clearInterval(timer);
+        const url = new URL(location.href);
+        url.searchParams.delete('message'); url.searchParams.set('done', '1');
+        location.href = url.toString();
+      }).catch(function () { /* se reintenta en el siguiente ciclo */ });
+    }, 3000);
+  })();
+</script>{% endif %}
 {% endblock %}
