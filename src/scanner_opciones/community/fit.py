@@ -2,7 +2,8 @@
 
 Se compara con los valores de HOY (DTE, distancia del strike, yield y delta de la cotización actual) y con los valores por defecto de
 cada perfil (`scanner.presets` y `scanner.strategy`). Solo se comprueban los criterios que una idea permite medir: descuento del strike,
-DTE, yield del periodo (solo en la put desnuda: en un spread el yield es sobre el ancho y no es comparable), delta, IV Rank e IV Percentile
+DTE, yield del periodo (en un spread, en su lugar, el retorno sobre riesgo del periodo: crédito / (ancho − crédito), contra el mínimo de
+`scanner.spreads`), delta, IV Rank e IV Percentile
 (solo si el ticker tiene ficha) y el precio del subyacente (solo si el perfil del mismo nombre lo limita). No se evalúan los técnicos (RSI, medias, ATR…), la calidad de la empresa ni la liquidez: «encaja» significa
 «cumple lo medible», y lo que no se pudo medir se indica aparte.
 """
@@ -16,7 +17,7 @@ from scanner_opciones.config.settings import ScannerPreset, StrategySettings
 STRATEGY_NAME = "Tastytrade"
 
 
-SHORT = {"Precio": "PRE", "Descuento": "DES", "DTE": "DTE", "Yield": "YLD", "Delta": "DEL", "IV Rank": "IVR", "IV Percentile": "IVP"}
+SHORT = {"Precio": "PRE", "Descuento": "DES", "DTE": "DTE", "Yield": "YLD", "Retorno/riesgo": "R/R", "Delta": "DEL", "IV Rank": "IVR", "IV Percentile": "IVP"}
 
 
 @dataclass(frozen=True)
@@ -71,10 +72,22 @@ def _crit(label: str, value: Optional[float], ok, shown: str) -> Criterion:
     return Criterion(label, None, "sin dato") if value is None else Criterion(label, bool(ok(value)), shown)
 
 
+def _spread_return(view, minimum: Optional[float]) -> Criterion:
+    """Retorno sobre riesgo del periodo de un spread (el equivalente a su yield): crédito / (ancho − crédito). `yield_now_pct` de un spread
+    es crédito / ancho."""
+    cw = view.yield_now_pct
+    if minimum is None:
+        return Criterion("Yield", None, "en un spread es sobre el ancho: no comparable")
+    if cw is None or cw >= 100:
+        return Criterion("Retorno/riesgo", None, "sin dato")
+    ror = cw / (100 - cw) * 100
+    return Criterion("Retorno/riesgo", ror >= minimum, f"{ror:.0f} % (mín. {minimum:g} %, crédito/ancho {cw:.0f} %)")
+
+
 def _fit(name: str, view, *, discount_min: float, dte_min: int, dte_max: Optional[int], yield_min: float,
          delta_min: Optional[float] = None, delta_max: Optional[float] = None,
          iv_rank_min: Optional[float] = None, iv_pct_min: Optional[float] = None,
-         price: tuple[Optional[float], Optional[float]] = (None, None)) -> Fit:
+         price: tuple[Optional[float], Optional[float]] = (None, None), spread_min_ror: Optional[float] = None) -> Fit:
     out: list[Criterion] = []
     lo, hi = price
     if lo is not None or hi is not None:      # el filtro de precio del subyacente del perfil (en $); sin límites no se comprueba
@@ -86,7 +99,7 @@ def _fit(name: str, view, *, discount_min: float, dte_min: int, dte_max: Optiona
     top = "" if dte_max is None else f"–{dte_max}"
     out.append(Criterion("DTE", dte_min <= view.dte and (dte_max is None or view.dte <= dte_max), f"{view.dte} (rango {dte_min}{top})"))
     if view.idea.long_strike is not None:
-        out.append(Criterion("Yield", None, "en un spread es sobre el ancho: no comparable"))
+        out.append(_spread_return(view, spread_min_ror))
     else:
         y = view.yield_now_pct
         out.append(_crit("Yield", y, lambda v: v >= yield_min, f"{y or 0:.2f} % (mín. {yield_min:g} %)"))
@@ -102,16 +115,17 @@ def _fit(name: str, view, *, discount_min: float, dte_min: int, dte_max: Optiona
 
 
 def strategy_fits(view, presets: Sequence[ScannerPreset], strategy: StrategySettings,
-                  prices: Optional[Mapping[str, tuple[Optional[float], Optional[float]]]] = None) -> tuple[Fit, ...]:
+                  prices: Optional[Mapping[str, tuple[Optional[float], Optional[float]]]] = None,
+                  spread_min_ror: Optional[float] = None) -> tuple[Fit, ...]:
     """Un `Fit` por perfil: los TPC (`presets`) y el de Tastytrade (`strategy`). `prices` da el rango de precio del subyacente del perfil de
-    cada nombre. Vacío si la idea ya venció."""
+    cada nombre; `spread_min_ror` es el retorno mínimo sobre riesgo de los spreads (sin él, el criterio queda «no comparable»). Vacío si la idea ya venció."""
     prices = prices or {}
     if view.dte < 0:
         return ()
-    out = [_fit(p.name, view, discount_min=p.strike_below_pct_min, dte_min=p.dte_min, dte_max=p.dte_max, yield_min=p.min_yield_pct, price=prices.get(p.name, (None, None)))
+    out = [_fit(p.name, view, discount_min=p.strike_below_pct_min, dte_min=p.dte_min, dte_max=p.dte_max, yield_min=p.min_yield_pct, price=prices.get(p.name, (None, None)), spread_min_ror=spread_min_ror)
            for p in presets]
     out.append(_fit(STRATEGY_NAME, view, discount_min=strategy.strike_below_pct_min, dte_min=strategy.dte_min, dte_max=strategy.dte_max,
                     yield_min=strategy.min_yield_pct, delta_min=strategy.min_abs_delta, delta_max=strategy.max_abs_delta,
                     iv_rank_min=strategy.min_iv_rank, iv_pct_min=strategy.min_iv_percentile,
-                    price=prices.get(STRATEGY_NAME, (None, None))))
+                    price=prices.get(STRATEGY_NAME, (None, None)), spread_min_ror=spread_min_ror))
     return tuple(out)

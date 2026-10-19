@@ -1417,7 +1417,7 @@ class AppService:
                 prices[prof.name] = (lo, hi)
         closes = self.openings().closes if self.openings() is not None else ()
         days, today = self.settings.community.closed_marker_days, self.now().date()
-        return [replace(v, fits=strategy_fits(v, sc.presets, sc.strategy, prices), traded=past_trade(v.idea, closes, today, days)) for v in views]
+        return [replace(v, fits=strategy_fits(v, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct), traded=past_trade(v.idea, closes, today, days)) for v in views]
 
     async def refresh_community_quotes(self, max_age_seconds: Optional[float] = 300) -> None:
         """Cotiza en directo (tastytrade) las patas de las ideas que no están guardadas (tickers fuera de la watchlist, strikes o
