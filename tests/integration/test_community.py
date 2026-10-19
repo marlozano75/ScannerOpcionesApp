@@ -117,6 +117,7 @@ def test_the_ideas_page_values_each_idea_with_todays_quote_and_filters(client_an
     page = client.get("/ideas").text
     assert '<a href="/ideas" class=active>Ideas</a>' in page.replace('class="active"', "class=active") and "Ideas de la comunidad de Tortuga" in page
     assert "Vigente" in page and "Sin valorar: sin cotización de esas patas (no está en tu watchlist)" in page and "2 de 2 ideas · 1 vigentes" in page
+    assert 'class="chart-link" data-ticker="AAPL"' in page and 'id="strike-dialog"' in page   # el ticker abre el gráfico del strike
     only = client.get("/ideas?solo=1").text
     assert "Vigente" in only and "ZZZ" not in only and "1 de 2 ideas" in only
     ana = client.get("/ideas?trader=Ana").text
