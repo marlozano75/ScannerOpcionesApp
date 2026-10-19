@@ -1539,8 +1539,10 @@ def create_app(
         """Gráfico de cierres mensuales del ticker frente al strike, con los días desde el último toque
         (fragmento HTML que el Scanner muestra en una ventana)."""
         closes = service.bars.closes(ticker)
+        if not closes and strike > 0 and await service.ensure_history(ticker):   # fuera de la watchlist: se descarga al abrir el gráfico
+            closes = service.bars.closes(ticker)
         if not closes or strike <= 0:
-            return HTMLResponse('<p class="muted">Sin histórico de cierres de este ticker: se descarga con la actualización diaria.</p>')
+            return HTMLResponse('<p class="muted">Sin histórico de cierres de este ticker: tastytrade no devolvió velas. Se reintenta al abrir el gráfico otra vez.</p>')
         tcfg = service.settings.scanner.technical
         history = strike_history(sorted(closes.items()), strike, service.now().date(), tcfg.chart_months)
         alerts = service.filing_alert_map().get(norm_ticker(ticker), [])

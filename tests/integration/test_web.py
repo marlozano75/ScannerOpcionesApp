@@ -760,6 +760,7 @@ def test_strike_chart_endpoint_and_link(client_and_service):
     assert "<svg" in out and "Strike $75.00" in out and "(actual)" in out
     assert f"hace {(today - last_low).days} días" in out and "meses por encima del strike $75.00" in out
     assert "Sin toques del strike" in client.get("/chart/strike?ticker=AAPL&strike=10").text
+
     assert client.get("/chart/strike?ticker=AAPL&strike=abc").status_code == 422
     # miniatura de cada fila: imagen SVG propia que se carga al hacerse visible
     page = client.get("/scanner?reset=1").text
@@ -768,6 +769,23 @@ def test_strike_chart_endpoint_and_link(client_and_service):
     mini = client.get("/chart/mini.svg?ticker=AAPL&strike=75")
     assert mini.headers["content-type"].startswith("image/svg+xml") and "<path" in mini.text and "stroke-dasharray" in mini.text
     assert "<path" not in client.get("/chart/mini.svg?ticker=NOPE&strike=75").text     # sin histórico: solo un guion
+
+def test_strike_chart_downloads_history_of_tickers_outside_the_watchlist(client_and_service):
+    """Un valor de Ideas que no está en la watchlist ni en la cartera: el gráfico baja su histórico al abrirse y se conserva."""
+    client, svc, gw, _ = client_and_service
+    today = svc.now().date()
+
+    class Candles:
+        async def get_daily_closes(self, tickers, days):
+            return {t: [(today - timedelta(days=60 - i), 50.0 + i % 7) for i in range(1, 60)] for t in tickers}
+
+    svc.daily.candles = Candles()
+    out = client.get("/chart/strike?ticker=QLD&strike=48").text
+    assert "<svg" in out and "Sin histórico" not in out
+    assert "QLD" in svc.history_scope() and svc.bars.closes("QLD")   # queda en el alcance: no se purga en el siguiente refresco
+    svc.cleanup_orphans()
+    assert svc.bars.closes("QLD")
+
 
 
 def test_trend_window_months_form(client_and_service):

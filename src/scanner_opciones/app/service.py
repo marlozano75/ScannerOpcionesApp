@@ -79,6 +79,9 @@ PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posici
 SPREAD_SOURCES = "spread_sources"       # clave de `meta`: fuentes del Universo marcadas a mano como aptas para spreads (JSON, lista de nombres)
 SPREAD_UNIVERSE_SYNCED = "spread_universe_synced"   # (obsoleta) marca del antiguo universo para spreads; se vacía en `remove_legacy_spread_universe`
 COMMUNITY_CANDLE_WAIT = 8.0   # segundos que se espera por lote de velas al cotizar las ideas (solo dan el «precio al abrir»; medido: con 20 s tardaban ~85 s)
+CHART_HISTORY = "chart_history_tickers"   # clave de `meta`: tickers fuera de la watchlist cuyo gráfico se ha abierto (JSON, lista); conservan su histórico
+CHART_HISTORY_MAX = 200
+CHART_HISTORY_TIMEOUT = 25.0   # segundos que espera el gráfico a que se descargue el histórico de un ticker
 POSITION_HISTORY_RETRY_HOURS = 6   # un subyacente de la cartera sin velas en tastytrade no se vuelve a pedir antes
 RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
@@ -1794,8 +1797,30 @@ class AppService:
 
     def history_scope(self) -> list[str]:
         """Tickers de los que se guarda el histórico de cierres: la watchlist y los subyacentes de las opciones de la cartera (para los
-        gráficos del Panel, aunque no estén en la watchlist)."""
-        return sorted({*self.watchlist.list(), *self.position_tickers()})
+        gráficos del Panel, aunque no estén en la watchlist) y los tickers cuyo gráfico se abrió desde Ideas u otra pestaña."""
+        return sorted({*self.watchlist.list(), *self.position_tickers(), *self._chart_tickers()})
+
+    def _chart_tickers(self) -> list[str]:
+        try:
+            return [str(t) for t in json.loads(self.meta.get(CHART_HISTORY) or "[]")]
+        except (ValueError, TypeError):
+            return []
+
+    async def ensure_history(self, ticker: str) -> bool:
+        """Garantiza que `ticker` tiene histórico de cierres para su gráfico: si no lo tiene (p. ej. un valor de las Ideas que no está en
+        la watchlist ni en la cartera) lo descarga ahora y lo apunta para que no se purgue. False si no se pudo."""
+        if self.bars.closes(ticker):
+            return True
+        if self.daily.candles is None:
+            return False
+        known = self._chart_tickers()
+        if ticker not in known:
+            self.meta.set(CHART_HISTORY, json.dumps((known + [ticker])[-CHART_HISTORY_MAX:]))
+        try:
+            await asyncio.wait_for(self.daily.update_history([ticker]), CHART_HISTORY_TIMEOUT)
+        except Exception as exc:   # tiempo agotado o fallo de tastytrade: el gráfico dirá que no hay datos
+            log.warning("No se pudo descargar el histórico de %s para su gráfico: %s", ticker, exc)
+        return bool(self.bars.closes(ticker))
 
     def _history_for_positions(self) -> None:
         """Pide en segundo plano el histórico de los subyacentes de la cartera que aún no lo tienen (los que no están en la watchlist no se
