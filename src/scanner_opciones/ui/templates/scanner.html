@@ -129,7 +129,7 @@
   .sh-tog input { accent-color:var(--c); vertical-align:-2px; }
   .sh-svg .sh-ma.off { display:none; }
   .sh-svg { width:100%; height:auto; color:var(--ink); display:block; }
-  @media (min-width:901px) { .shell { grid-template-columns:270px minmax(0,1fr); gap:14px; } }   /* filtros más estrechos que el Universo (340 px): más sitio para la tabla */
+  @media (min-width:901px) { .shell { grid-template-columns:292px minmax(0,1fr); gap:14px; } }   /* filtros más estrechos que el Universo (340 px): más sitio para la tabla */
   .fgrid { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
   .fgrid .full { grid-column:1 / -1; }
   .field { display:flex; flex-direction:column; gap:4px; min-width:0; font-size:12px; color:var(--mute); }
@@ -142,8 +142,13 @@
   .stepper button.step:hover { background:var(--card); filter:none; }
   .check { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink); cursor:pointer; }
   .check input { margin:0; }
-  .opt-row { display:grid; grid-template-columns:1fr 92px; align-items:center; gap:10px; font-size:13px; }
-  .side .note { border:0; padding:0; font-size:12px; color:var(--mute); line-height:1.45; }
+  .opt-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; font-size:12.5px; }
+  .opt-row > input:not([type=checkbox]), .opt-row .pair input { padding-top:4px; padding-bottom:4px; }
+  .opt-row > input:not([type=checkbox]) { width:64px; text-align:right; }
+  .opt-row .pair { display:flex; gap:4px; } .opt-row .pair input { width:46px; text-align:right; }
+  .side .check { font-size:12.5px; line-height:1.3; }
+  .side .check[title], .side label.opt[title] { cursor:help; }
+  .side .note { border:0; padding:0; font-size:11.5px; color:var(--mute); line-height:1.4; }
   .strategy-btn { display:block; margin:0 0 10px; padding:9px 12px; border-radius:8px; text-align:center; font-weight:700; font-size:13px; text-decoration:none; background:var(--accent); color:#fff; }
   .strategy-btn:hover { filter:brightness(1.12); } .strategy-btn.on { background:#1d6b3f; }
   .side .note b { color:var(--ink); font-weight:600; }
@@ -236,27 +241,25 @@
         <span class="muted" style="font-size:12px">{{ 'Escanea: ' ~ ({'put': 'put vendida', 'spread': 'spread', 'both': 'ambos'}.get(form.mode, '?')) ~ ('' if form.mode == form.set or form.mode == 'both' else ' (este juego no se usa)') }}</span></div>
       {% if form.set == 'spread' %}
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
-        <label class="check"><input type="checkbox" name="best_width" {{ 'checked' if form.best_width }}> Solo el mejor ancho por put (se prueban todos los anchos; gana el de mayor retorno anualizado sobre riesgo)</label>
-        {% for key, use, label in (('rr', 'use_rr', 'Retorno s/ riesgo mín. (%, hasta el vencimiento)'), ('mc', 'use_mc', 'Crédito mín. ($ por contrato)'), ('cs', 'use_cs', 'Spread bid/ask máx. del combo (% del crédito)'), ('lo', 'use_lo', 'OI mín. pata comprada'), ('ls', 'use_ls', 'Spread bid/ask máx. pata comprada (%)'), ('mn', 'use_mn', 'Pérdida máxima (% del NLV)')) %}
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
+        <label class="check" title="Se prueban todos los anchos y gana el de mayor retorno anualizado sobre riesgo"><input type="checkbox" name="best_width" {{ 'checked' if form.best_width }}> Solo el mejor ancho por put</label>
+        {% for key, use, label, tip in (('rr', 'use_rr', 'Retorno/riesgo mín. (%)', 'Crédito / pérdida máxima hasta el vencimiento, sin anualizar'), ('mc', 'use_mc', 'Crédito mín. ($)', 'Crédito mínimo en dólares por contrato'), ('cs', 'use_cs', 'Spread combo máx. (%)', 'Spread bid/ask del combo, en % del crédito'), ('lo', 'use_lo', 'OI mín. comprada', 'Open interest mínimo de la pata comprada'), ('ls', 'use_ls', 'Spread compr. máx. (%)', 'Spread bid/ask máximo de la pata comprada; sin bid no pasa'), ('mn', 'use_mn', 'Pérdida máx. (% NLV)', 'Pérdida máxima del spread como % del NLV')) %}
+        <label class="opt opt-row" title="{{ tip }}"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
-        <p class="note" style="margin:8px 0 2px"><b>Criterios de Sosnoff</b> (tastylive): vendida a 16–20 Δ (filtro de delta de más abajo), comprada lo más alejada posible (≈ 10 Δ) o con un ancho fijo de 5–10 $, y crédito del 30–35 % del ancho.
+        <p class="note" style="margin:8px 0 2px"><b>Sosnoff</b>: vendida 16–20 Δ, comprada ≈ 10 Δ o ancho 5–10 $, crédito 30–35 % del ancho.
           <button type="button" id="sosnoff-apply" data-dmin="{{ sosnoff.dmin }}" data-dmax="{{ sosnoff.dmax }}" title="Marca la delta de la vendida, la delta de la comprada y el crédito/ancho con los valores de Sosnoff y escanea">Aplicar criterios de Sosnoff</button></p>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ld" {{ 'checked' if form.use_ld }}> |Delta| máx. de la put comprada</span>
+        <label class="opt opt-row" title="Delta máxima (en valor absoluto) de la put comprada"><span class="check"><input type="checkbox" name="use_ld" {{ 'checked' if form.use_ld }}> |Δ| máx. comprada</span>
           <input name="ld" value="{{ form.ld }}" inputmode="decimal"></label>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_cw" {{ 'checked' if form.use_cw }}> Crédito / ancho (%): mín. y máx. (vacío = sin tope)</span>
-          <input name="cw" value="{{ form.cw }}" inputmode="decimal" style="width:64px"> <input name="cwx" value="{{ form.cwx }}" inputmode="decimal" style="width:64px"></label>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_wd" {{ 'checked' if form.use_wd }}> Solo estos anchos ($, separados por comas)</span>
-          <input name="wd" value="{{ form.wd }}" style="width:110px"></label>
+        <label class="opt opt-row" title="Crédito / ancho en %: mínimo y máximo (máximo vacío = sin tope)"><span class="check"><input type="checkbox" name="use_cw" {{ 'checked' if form.use_cw }}> Crédito/ancho % (mín · máx)</span>
+          <span class="pair"><input name="cw" value="{{ form.cw }}" inputmode="decimal" placeholder="mín"><input name="cwx" value="{{ form.cwx }}" inputmode="decimal" placeholder="máx"></span></label>
+        <label class="opt opt-row" title="Anchos en dólares separados por comas; sustituyen a los que se prueban por defecto"><span class="check"><input type="checkbox" name="use_wd" {{ 'checked' if form.use_wd }}> Solo estos anchos ($)</span>
+          <input name="wd" value="{{ form.wd }}" style="width:76px"></label>
         {% if form.mode == 'both' %}
-        <p class="note"><b>Límite de la put desnuda</b>: si su strike supera el máximo, esa put sale como spread (con el motivo). La lista se ordena por retorno anualizado sobre capital: margen what-if (put) o pérdida máxima (spread).</p>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ns" {{ 'checked' if form.use_ns }}> Strike máximo de la put ($)</span>
+        <p class="note">Sobre ese strike la put sale como spread. Orden: retorno anualizado sobre capital.</p>
+        <label class="opt opt-row" title="Si el strike de la put supera este máximo, sale como spread"><span class="check"><input type="checkbox" name="use_ns" {{ 'checked' if form.use_ns }}> Strike máx. put desnuda ($)</span>
           <input name="ns" value="{{ form.ns }}" inputmode="decimal"></label>
         {% endif %}
-        <p class="note">Los filtros de abajo (strike, delta, IV, técnicos, calidad…) se aplican a la <b>put vendida</b>; la comprada es la del mismo vencimiento con strike inferior, probando cada ancho ofrecido (1 a 20 $).
-          El crédito se calcula con la vendida al precio de venta elegido y la comprada al <b>ask</b>. Pérdida máxima = (ancho − crédito) × 100, que es también el margen aproximado del spread.
-          El yield anual sobre el strike no se aplica: lo sustituye el retorno sobre riesgo del periodo (crédito / pérdida máxima, hasta el vencimiento y sin anualizar, como el yield de TPC; equivale a crédito/ancho: 25 % de crédito/ancho = 33 % de retorno/riesgo). La tabla se ordena por el retorno anualizado.</p>
+        <p class="note">Los filtros de abajo se aplican a la <b>put vendida</b>. Crédito = vendida (precio elegido) − <b>ask</b> de la comprada; pérdida máx. = (ancho − crédito) × 100. En lugar del yield rige el retorno/riesgo del periodo (25 % crédito/ancho = 33 % retorno/riesgo).</p>
       {% endcall %}
       {% endif %}
 
@@ -266,14 +269,13 @@
           <label class="field">DTE mín. {{ num("dte_min", 5, form.dte_min) }}</label>
           <label class="field">DTE máx. {{ num("dte_max", 5, form.dte_max) }}</label>
         </div>
-        <p class="note">Solo se escanean los contratos guardados: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }} % por debajo
-          del precio y DTE {{ candidates.dte_min }}–{{ candidates.dte_max }} (más un margen de ±{{ margin|num(0) }} % que se guarda pero no se cotiza). El descuento máximo es el del rango guardado.</p>
+        <p class="note">Solo contratos guardados: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }} % por debajo, DTE {{ candidates.dte_min }}–{{ candidates.dte_max }}.</p>
       {% endcall %}
 
       {% call section('sec-delta', 'Delta', (deltagroup | join(' · ')) or 'Sin filtros', deltagroup|length > 0) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_delta" {{ 'checked' if form.use_delta }}> |Delta| del put (mín. opcional, máx.)</span>
           <span style="display:flex;gap:4px"><input name="delta_min" value="{{ form.delta_min }}" inputmode="decimal" size="4" style="width:46px"><input name="delta_max" value="{{ form.delta_max }}" inputmode="decimal" size="4" style="width:46px"></span></label>
-        <p class="note">Marca el filtro para aplicarlo. <b>Delta</b>: −0,20 a −0,30 ≈ 70–80 % de probabilidad de expirar sin valor. El mínimo es opcional.</p>
+        <p class="note">Delta 0,20–0,30 ≈ 70–80 % de probabilidad de expirar sin valor. El mínimo es opcional.</p>
       {% endcall %}
 
       {% call section('sec-atr', 'Distancia al precio (ATR)', (atrgroup | join(' · ')) or 'Sin filtros', atrgroup|length > 0) %}
@@ -281,9 +283,8 @@
           <input name="atr_mult" value="{{ form.atr_mult }}" inputmode="decimal"></label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_exp" {{ 'checked' if form.use_exp }}> Strike fuera del mov. esperado (×)</span>
           <input name="exp_mult" value="{{ form.exp_mult }}" inputmode="decimal"></label>
-        <p class="note"><b>Movimiento esperado</b> = precio × IV del vencimiento × √(DTE/365) (la IV por vencimiento de tastytrade; sin ella, la del contrato): el strike debe quedar por debajo de precio − N × ese movimiento (1× ≈ delta 0,15). Obligatorio.</p>
-        <p class="note">Filtro <b>obligatorio</b> (no cuenta como señal de entrada). <b>ATR</b>(14) = rango diario medio (máximos, mínimos y cierres): con N = 2–3 el strike queda fuera del ruido normal de unos días.
-          Necesita los máximos y mínimos diarios, que se descargan con el histórico (la primera vez tras actualizar se vuelven a pedir los últimos días).</p>
+        <p class="note"><b>Mov. esperado</b> = precio × IV × √(DTE/365); el strike debe quedar por debajo de precio − N × movimiento (1× ≈ delta 0,15).</p>
+        <p class="note"><b>ATR</b>(14) = rango diario medio: con N = 2–3 el strike queda fuera del ruido normal de unos días.</p>
       {% endcall %}
 
       {% call section('sec-yield', 'Rentabilidad', '≥ ' ~ form.min_yield ~ ' % · ' ~ ref_names.get(form.ref, form.ref)) %}
@@ -297,8 +298,7 @@
             </select></label>
           <label class="field" id="ref_x_label" {{ 'hidden' if form.ref != 'bid_plus_spread' }}>X (% del spread) {{ num("ref_x", 5, form.ref_x, 100) }}</label>
         </div>
-        <p class="note">El yield se calcula con el precio de venta elegido: <b>bid</b>, <b>mid</b> o el bid más un porcentaje X del spread.
-          Todos los contratos se cotizan cada {{ refresh_minutes|round|int }} min.</p>
+        <p class="note">Yield con el precio de venta elegido. Cotización cada {{ refresh_minutes|round|int }} min.</p>
       {% endcall %}
 
       {% call section('sec-price', 'Precio del subyacente', ((form.price_min or '0') ~ ' – ' ~ (form.price_max or '∞')) if price_on else 'Cualquiera', price_on) %}
@@ -306,7 +306,7 @@
           <label class="field">Mínimo <input name="price_min" placeholder="Mín." value="{{ form.price_min }}" inputmode="decimal"></label>
           <label class="field">Máximo <input name="price_max" placeholder="Máx." value="{{ form.price_max }}" inputmode="decimal"></label>
         </div>
-        <p class="note">Filtra por el último precio de la acción. Deja ambos vacíos para incluirlas todas (valor por defecto).</p>
+        <p class="note">Vacío = todas las acciones.</p>
       {% endcall %}
 
       {% call section('sec-optional', 'Liquidez', (optional | join(' · ')) or 'Sin filtros', optional|length > 0) %}
@@ -314,12 +314,12 @@
           <select name="q_liq" id="q_liq">
             <option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>
             {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más{{ count_text('min_option_liquidity', n) }}</option>{% endfor %}</select></label>
-        <p class="note">La liquidez es la valoración de tastytrade de las opciones del ticker (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers: úsala con cuidado.</p>
+        <p class="note">Valoración de tastytrade (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers.</p>
         {% for key, use, label in (('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)')) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
-        <p class="note">Márcalos para aplicarlos: la caja muestra el valor por defecto aunque el filtro esté desactivado.</p>
+        <p class="note">Marca para aplicar; la caja muestra el valor por defecto.</p>
       {% endcall %}
 
       {% call section('sec-iv', 'Volatilidad (IV) y prima', (ivgroup | join(' · ')) or 'Sin filtros', ivgroup|length > 0) %}
@@ -327,14 +327,12 @@
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
-        <label class="check" title="Con los dos marcados, basta con que se cumpla uno: un pico antiguo de IV no descarta una IV alta de hoy"><input type="checkbox" name="iv_any" {{ 'checked' if form.iv_any }}> IV Rank <b>o</b> IV Percentile (basta uno de los dos)</label>
+        <label class="check" title="Con los dos marcados, basta con que se cumpla uno: un pico antiguo de IV no descarta una IV alta de hoy"><input type="checkbox" name="iv_any" {{ 'checked' if form.iv_any }}> IV Rank <b>o</b> IV Percentile</label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ivhv" {{ 'checked' if form.use_ivhv }}> IV / HV30 mín.</span>
           <input name="ivhv" value="{{ form.ivhv }}" inputmode="decimal"></label>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ivchg" {{ 'checked' if form.use_ivchg }}> Cambio de IV a 5 días ≤ (puntos)</span>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_ivchg" {{ 'checked' if form.use_ivchg }}> Cambio IV 5 d ≤ (pts)</span>
           <input name="ivchg" value="{{ form.ivchg }}" inputmode="decimal"></label>
-        <p class="note"><b>IV / HV30</b> &gt; 1,2: las opciones están caras frente a lo que realmente se mueve la acción (tastytrade: IV a 30 días ÷ volatilidad histórica a 30 días).
-          <b>Cambio de IV a 5 días</b> ≤ 0: el miedo deja de crecer. El <b>VIX</b> no es un filtro: su aviso (primas pobres, mercado nervioso, condiciones ideales) está en el Panel, junto a su gráfico.</p>
-        <p class="note">Marca cada filtro para aplicarlo (las cajas traen los valores de la estrategia). IV Rank &gt; 30 % es aceptable y &gt; 50 % ideal.</p>
+        <p class="note"><b>IV/HV30</b> &gt; 1,2: opciones caras frente a lo que se mueve la acción. <b>Cambio de IV</b> ≤ 0: el miedo deja de crecer. IV Rank &gt; 30 % aceptable, &gt; 50 % ideal. El VIX se avisa en el Panel.</p>
       {% endcall %}
 
       {% call section('sec-entry', 'Técnicos de entrada', (entry | join(' · ')) or 'Sin filtros', entry|length > 0) %}
@@ -344,8 +342,7 @@
         {% set sigs = [] %}
         {% for use, name in (('use_near', 'MA50/soporte'), ('use_rsi', 'RSI'), ('use_boll', 'Bollinger %B')) %}{% if form[use] %}{% set _ = sigs.append(name) %}{% endif %}{% endfor %}
         <p class="note" id="signals-marked" style="display:block"><b>Señales marcadas ({{ sigs|length }}):</b> {{ sigs|join(', ') or 'ninguna' }}. IV/HV y cambio de IV ya no son señales: son filtros obligatorios de «Volatilidad (IV) y prima».</p>
-        <p class="note">Cuentan como <b>señales</b>: cerca de MA50/soporte, RSI y Bollinger %B. Con «al menos N» basta con que se cumplan N de las marcadas
-          (con menos marcadas, todas); los demás filtros (delta, DTE, yield, IV Rank, IV/HV, cambio de IV, ATR, resultados…) siguen siendo obligatorios. Es lo que pide la estrategia: no hace falta que se cumplan todas las señales de timing.</p>
+        <p class="note">Son <b>señales</b> MA50/soporte, RSI y Bollinger %B: con «al menos N» basta cumplir N de las marcadas; el resto de filtros son obligatorios.</p>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_near" {{ 'checked' if form.use_near }}> Precio a ≤ X % de MA50 o soporte</span>
           <input name="near_pct" value="{{ form.near_pct }}" inputmode="decimal"></label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_rsi" {{ 'checked' if form.use_rsi }}> RSI(14) rebota desde ≤</span>
@@ -354,11 +351,8 @@
           <input name="boll_pctb" value="{{ form.boll_pctb }}" inputmode="decimal"></label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_bw" {{ 'checked' if form.use_bw }}> Bollinger: ancho ≥ (%)</span>
           <input name="boll_width" value="{{ form.boll_width }}" inputmode="decimal"></label>
-        <p class="note"><b>RSI</b>: ha tocado ese nivel (30–35) en las últimas {{ tech_opts.rsi_lookback }} sesiones y hoy sube respecto a ayer.
-          <b>Bollinger</b> (20, 2): %B = 0 es la banda inferior y 1 la superior, así que ≤ 0,3 es «cerca o por debajo»; el ancho (bandas ÷ media) descarta bandas muy estrechas.
-          No hace falta que se cumplan todos los indicadores de timing: con una o dos señales basta, por eso el botón de la estrategia solo activa el RSI.</p>
-        <p class="note">Entrada tras una corrección: el precio está a menos de X % de su media de 50 días (cierres diarios) <b>o</b> del borde superior de una zona de soporte probada.
-          Para exigir el precio sobre la media de 200, usa <b>Medias móviles</b> (MA 200 «Por encima»).</p>
+        <p class="note"><b>RSI</b>: tocó ese nivel en las últimas {{ tech_opts.rsi_lookback }} sesiones y hoy sube. <b>Bollinger</b>: %B 0 = banda inferior, 1 = superior; el ancho descarta bandas estrechas.</p>
+        <p class="note">Precio a menos de X % de su MA50 <b>o</b> del borde superior de un soporte probado. Para exigir precio sobre la MA200, usa <b>Medias</b>.</p>
       {% endcall %}
 
       {% call section('sec-trend', 'Tendencia', ((('Alcista' if form.trend_dir == 'up' else 'Bajista') ~ ' · ' ~ window_label) if trend_on else 'Off'), trend_on) %}
@@ -380,19 +374,18 @@
             <select name="trend_days" id="trend_days">
               {% for d, label in tech_opts.durations %}<option value="{{ d }}" {{ 'selected' if form.trend_days == d|string }}>{{ label }}</option>{% endfor %}</select></label>
         </div>
-        <p class="note"><b>Alcista</b>: el mínimo de la ventana (1–24 meses de cierres diarios) que el precio no ha vuelto a romper debe tener al menos esa antigüedad y el precio
-          debe haber avanzado desde él; <b>bajista</b> es lo mismo con el máximo. Con «máximos y mínimos crecientes» se comparan los últimos extremos locales. Un solo cierre que lo rompa descarta el ticker. <b>Off</b> lo ignora.</p>
+        <p class="note"><b>Alcista</b>: el mínimo de la ventana que el precio no ha roto tiene esa antigüedad y el precio avanzó desde él; <b>bajista</b>, al revés con el máximo. <b>Off</b> lo ignora.</p>
       {% endcall %}
 
       {% set levels_summary = ([('Soporte' if form.support else ''), (('Sin toque ' ~ touch_label) if form.touch else '')] | select | join(' · ')) or 'Sin exigencias' %}
       {% call section('sec-levels', 'Soporte y último toque', levels_summary, levels_on) %}
         <label class="check"><input type="checkbox" name="support" id="support" {{ 'checked' if form.support }}> Exigir una zona de precio probada</label>
-        <p class="note">Nivel tocado <b>3+ veces</b> en <b>2+ episodios</b> durante el último año, sin cierres que lo pierdan en más de 1,5 %. El strike debe estar en esa zona o por debajo.</p>
+        <p class="note">Nivel tocado 3+ veces en 2+ episodios en un año. El strike debe estar en la zona o por debajo.</p>
         <label class="field">Días mín. desde el último toque
           <select name="touch" id="touch">
             <option value="" {{ 'selected' if form.touch == '' }}>Cualquiera — sin mínimo</option>
             {% for d, label in tech_opts.touches %}<option value="{{ d }}" {{ 'selected' if form.touch == d|string }}>{{ label }}</option>{% endfor %}</select></label>
-        <p class="note">Se excluyen los strikes que un cierre haya visitado (cierre ≤ strike) dentro de ese plazo. <b>Más días = más seguro</b>: el strike lleva más tiempo sin ser amenazado.</p>
+        <p class="note">Excluye strikes visitados por un cierre (≤ strike) en ese plazo. Más días = más seguro.</p>
       {% endcall %}
 
 
@@ -432,16 +425,13 @@
               <option value="down" {{ 'selected' if form[key] == 'down' }}>Descendente</option></select></label>
           {% endfor %}
         </div>
-        <p class="note">Pon cualquier combinación de líneas en <b>Por encima</b> o <b>Por debajo</b> para exigir que el precio esté de ese lado; <b>Cualquiera</b> la ignora y todas las activas deben cumplirse.
-          Las velas pueden ser diarias, semanales o mensuales (MA 50 = 50 días, semanas o meses). tastytrade solo da ~3,8 años de historia (≈198 semanas, 46 meses):
-          con otras velas que no sean diarias, las medias (y sus comparaciones y pendientes) que no caben en ese histórico no se ofrecen.
-          La <b>pendiente</b> compara la media de hoy con la de hace {{ tech_opts.slope_candles }} velas (las elegidas arriba): ascendente si es mayor, descendente si es menor.</p>
+        <p class="note">Por encima/por debajo exige ese lado; «Cualquiera» la ignora y todas las activas deben cumplirse. Sin histórico suficiente (~3,8 años) se ocultan las medias que no caben. Pendiente: media de hoy frente a la de hace {{ tech_opts.slope_candles }} velas.</p>
       {% endcall %}
 
       {% call section('sec-quality', 'Evitar vencimientos con resultados', (quality | join(' · ')) or 'Sin filtros', quality|length > 0) %}
-        <p class="note">Datos de tastytrade. Los filtros de calidad de la empresa (beneficios, deuda, caja…) están en la pestaña <a href="/universe">Universo</a>.</p>
+        <p class="note">La calidad de la empresa se filtra en <a href="/universe">Universo</a>.</p>
         <label class="check"><input type="checkbox" name="q_earn" id="q_earn" {{ 'checked' if form.q_earn }}> Evitar vencimientos con resultados</label>
-        <p class="note">Se descartan los <b>contratos</b> cuyo vencimiento es igual o posterior a la próxima fecha de resultados: no se vende una put que atraviese un informe. Sin fecha conocida no se descarta nada.</p>
+        <p class="note">Descarta contratos que vencen en o después de los próximos resultados. Sin fecha, no descarta.</p>
       {% endcall %}
 
     </form>

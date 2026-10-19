@@ -119,7 +119,7 @@ def test_warning_when_outside_stored_range(client_and_service):
     assert "Descuento mín. por debajo del rango guardado" in r.text and "Descuento máx." not in r.text
     assert "DTE fuera del rango guardado" in r.text
     ok = client.get(BASE)
-    assert "Solo se escanean los contratos guardados" in ok.text and "banner info" not in ok.text.split("</form>")[1].split("<script>")[0]
+    assert "Solo contratos guardados" in ok.text and "banner info" not in ok.text.split("</form>")[1].split("<script>")[0]
 
 
 @pytest.mark.parametrize("qs", [
