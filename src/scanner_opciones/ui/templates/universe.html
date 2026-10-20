@@ -227,6 +227,19 @@
             title="En una fuente apta para spreads no se miden los beneficios ni la solvencia (el riesgo del spread está definido): solo liquidez de opciones y precio. Sus tickers solo salen en el Scanner como spread, nunca como put desnuda.">Marcar como fuente apta para spreads</button>
     {% endif %}
   </p>
+  <p>
+    {% if src in direct_sources %}
+    <b title="Se consulta varias veces al día y se supone que ya cumple los criterios: sus tickers pasan a la Watchlist sin más filtro (pantalla Admisión).">✓ Fuente directa</b>
+    {% if src not in direct_builtin %}
+    <button class="secondary" type="submit" formaction="/universe/source/direct" name="on" value="0">Dejar de marcarla como directa</button>
+    {% else %}
+    <span class="muted">Viene de la configuración (<code>admission.direct_sources</code>).</span>
+    {% endif %}
+    {% else %}
+    <button class="secondary" type="submit" formaction="/universe/source/direct" name="on" value="1"
+            title="Sus tickers pasarán a la Watchlist sin comprobar calidad, tendencia ni IV: úsalo solo con fuentes que ya filtran (listas de tastytrade, radar de Tortuga).">Marcar como fuente directa</button>
+    {% endif %}
+  </p>
   {% endif %}
   <div class="banner info" id="rk-working" hidden>⏳ Aplicando la selección a la watchlist…</div>
   <div class="scroll"><table class="sortable sticky-tk with-sel" id="universe-table">

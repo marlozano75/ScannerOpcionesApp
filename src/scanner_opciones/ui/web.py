@@ -888,6 +888,7 @@ def create_app(
                       qinfos=qinfos, with_quality=with_quality, edgar=bool(service.settings.edgar.contact.strip()),
                       exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors),
                       spread_only=spread_only, spread_sources=service.spread_source_names(),
+                      direct_sources=service.direct_source_names(), direct_builtin=service.direct_builtin_names(),
                       spread_cfg=sucfg, spread_builtin=service.spread_builtin_names(),
                       renamable=bool(current) and service.is_renamable_source(current.name),
                       total_rows=total_rows, qform=form, filter_error=filter_error, n_active=n_active, q_presets=q_presets,
@@ -981,6 +982,56 @@ def create_app(
         msg = "\n".join(parts) or _grp("skip", "Nada que añadir", [], "no hay ningún ticker que añadir")
         remembered.pop("universe", None)
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
+
+    @app.post("/universe/source/direct")
+    async def universe_source_direct(request: Request):
+        """Marca (`on=1`) o desmarca una fuente como directa: sus tickers pasan a la Watchlist sin más filtro (pantalla Admisión)."""
+        form = await request.form()
+        source, on = str(form.get("src", "")), str(form.get("on", "")) == "1"
+        try:
+            service.set_direct_source(source, on)
+        except WatchlistError as exc:
+            return RedirectResponse(f"/universe?{urlencode({'message': _grp('err', 'Error', [], str(exc))})}", status_code=303)
+        remembered.pop("universe", None)
+        msg = _grp("ok", f"{source}: {'fuente directa' if on else 'ya no es una fuente directa'}", [], "se aplica en la próxima evaluación de Admisión")
+        return RedirectResponse(f"/universe?{urlencode({'message': msg, 'src': source})}", status_code=303)
+
+    # ---- admisión a la watchlist ---------------------------------------------------------------------
+    @app.get("/admission", response_class=HTMLResponse)
+    async def admission(request: Request, message: str = ""):
+        report = service.admission_view()
+        ident = service.universe_identity()
+        return render(request, "admission.html", report=report, running=service.admission_running, error=service.admission_error,
+                      cfg=service.settings.admission, message=message, groups=message_groups(message), ident=ident,
+                      direct=sorted(service.direct_source_names()), direct_builtin=service.direct_builtin_names(),
+                      edgar_on=bool(service.settings.edgar.contact.strip()), watchlist_size=len(service.watchlist.list()))
+
+    @app.post("/admission/run")
+    async def admission_run():
+        started = service.admission_start()
+        msg = _grp("ok", "Evaluando el Universo", [], "puede tardar un par de minutos (cierres de los candidatos)") if started else \
+            _grp("warn", "No se ha iniciado", [], "ya hay una evaluación en curso o la admisión está desactivada")
+        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
+
+    @app.post("/admission/apply")
+    async def admission_apply(request: Request):
+        form = await request.form()
+        new = await service.admission_apply([str(t) for t in form.getlist("sel")])
+        msg = _grp("ok", f"{len(new)} tickers añadidos a la Watchlist", new, "su actualización diaria va en segundo plano") if new else \
+            _grp("warn", "No se ha añadido nada", [], "ninguno de los marcados cumple o ya estaba")
+        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
+
+    @app.post("/admission/remove")
+    async def admission_remove(request: Request):
+        form = await request.form()
+        removed, protected = service.admission_remove([str(t) for t in form.getlist("sel")])
+        parts = []
+        if removed:
+            parts.append(_grp("del", f"{len(removed)} tickers quitados de la Watchlist", removed, "con sus contratos y cotizaciones"))
+        if protected:
+            parts.append(_grp("skip", "No se quitan: tienen posiciones abiertas", protected, ""))
+        msg = "\n".join(parts) or _grp("warn", "No se ha quitado nada", [], "")
+        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
 
     @app.post("/universe/source/spread")
     async def universe_source_spread(request: Request):

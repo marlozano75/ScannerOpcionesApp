@@ -208,7 +208,7 @@
 <header>
   <strong class="brand">Scanner de Opciones</strong>
   <nav>
-    {% for href, label in (('/', 'Panel'), ('/universe', 'Universo'), ('/watchlist', 'Watchlist'), ('/scanner', 'Scanner'), ('/ideas', 'Ideas'), ('/tortuga', 'Tortuga')) %}
+    {% for href, label in (('/', 'Panel'), ('/universe', 'Universo'), ('/watchlist', 'Watchlist'), ('/admission', 'Admisión'), ('/scanner', 'Scanner'), ('/ideas', 'Ideas'), ('/tortuga', 'Tortuga')) %}
     <a href="{{ href }}" {{ 'class=active' if (path == '/' if href == '/' else path.startswith(href)) }}>{{ label }}</a>{% endfor %}
   </nav>
   <div class="right">

@@ -619,6 +619,37 @@ class TastyListsSettings(_Model):
     ]
 
 
+class AdmissionTpc(_Model):
+    """Estilo The Premium Collector para pasar del Universo a la Watchlist: empresa de calidad, con descuento y tendencia positiva."""
+    require_profitable: bool = True            # beneficios de los últimos 12 meses > 0
+    min_positive_quarters: int = Field(3, ge=0, le=4)    # trimestres con beneficios de los últimos 4
+    require_positive_fcf: bool = True          # flujo de caja libre > 0 (sin `edgar.contact` no hay dato y no pasaría nadie: se pide solo si hay contacto)
+    require_manageable_debt: bool = True       # deuda baja o manejable (`scanner.quality.manageable_debt`)
+    min_option_liquidity: int = Field(2, ge=1, le=5)
+    require_uptrend: bool = True               # cierre sobre la media de 200 sesiones y esa media subiendo (respaldo: 100)
+    min_pullback_pct: float = Field(5.0, ge=0, lt=100)   # descuento: el cierre está al menos N % por debajo de su máximo de 52 semanas; 0 = no se exige
+
+
+class AdmissionTastytrade(_Model):
+    """Estilo Tastytrade (venta de volatilidad) para pasar a la Watchlist: IV Rank / IV Percentile altos y opciones líquidas. Más holgado que el
+    perfil del Scanner (que pide 50) a propósito: la Watchlist es la reserva de la que luego cada perfil escoge."""
+    min_iv_rank: float = Field(30, ge=0, le=100)
+    min_iv_percentile: float = Field(30, ge=0, le=100)
+    iv_rank_pct_any: bool = True               # basta con uno de los dos
+    min_option_liquidity: int = Field(3, ge=1, le=5)
+
+
+class AdmissionSettings(_Model):
+    """Qué tickers del Universo pasan a la Watchlist (pantalla «Admisión») y cuáles de la Watchlist se proponen para quitar. Pasa un ticker si viene de
+    una fuente directa o cumple alguno de los dos estilos. No añade ni quita nada sin que lo confirmes."""
+    enabled: bool = True
+    # fuentes que ya se consultan varias veces al día y se supone que cumplen: sus tickers pasan sin más filtro (se pueden marcar más en el Universo)
+    direct_sources: list[str] = ["TortugaSpreads", "TortugaPuts", "TastyHourly", "TastyFastMovers"]
+    history_days: int = Field(420, ge=260)     # días de cierres que se piden de los candidatos para medir la tendencia (sin guardarlos)
+    tpc: AdmissionTpc = AdmissionTpc()
+    tastytrade: AdmissionTastytrade = AdmissionTastytrade()
+
+
 class SuperInvestorsSettings(_Model):
     """Fuente del Universo con las mayores posiciones 13F de gestores de calidad y valor (Super Investors de Tortuga). Es una fuente de empresas
     de calidad para puts (pasa por la barra de calidad del Universo y la calidad mínima de las puts), no apta para spreads."""
@@ -669,6 +700,7 @@ class Settings(_Model):
     tortuga: TortugaSettings = TortugaSettings()
     tasty_lists: TastyListsSettings = TastyListsSettings()
     super_investors: SuperInvestorsSettings = SuperInvestorsSettings()
+    admission: AdmissionSettings = AdmissionSettings()
 
     @property
     def refresh_interval_minutes(self) -> float:

@@ -67,6 +67,8 @@ from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.marketdata.watchlists import WatchlistProvider
+from scanner_opciones.app.admission import evaluate as evaluate_admission
+from scanner_opciones.scanner.admission import AdmissionReport
 from scanner_opciones.tortuga.investors import InvestorsData, InvestorsError, load_investors, quality_holdings
 from scanner_opciones.rankedstocks.loader import build_table, clean_ticker
 from scanner_opciones.universe.sources import MANUAL, SOURCE_COLUMN, Source, identities, load_sources
@@ -88,6 +90,7 @@ CHART_HISTORY_TIMEOUT = 25.0   # segundos que espera el gráfico a que se descar
 POSITION_HISTORY_RETRY_HOURS = 6   # un subyacente de la cartera sin velas en tastytrade no se vuelve a pedir antes
 TASTY_LISTS_CHECKED = "tasty_lists_checked_at"   # clave de `meta`: última lectura de las listas públicas de tastytrade
 TASTY_LIST_PREFIX = "tasty_list_synced_"         # + nombre de la fuente: huella de los tickers ya volcados
+DIRECT_SOURCES = "direct_sources"             # clave de `meta`: fuentes del Universo marcadas a mano como directas (pasan a la Watchlist sin más filtro)
 INVESTORS_SYNCED = "super_investors_synced"   # clave de `meta`: huella de la fuente SuperInvestors ya volcada
 INVESTORS_INFO = "super_investors_info"       # clave de `meta`: {ticker: {managers, max_weight}} de esa fuente (columnas del Universo)
 RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
@@ -206,6 +209,11 @@ class AppService:
         self._radar_syncing = False
         self.watchlists = watchlists
         self._tasty_lists_syncing = False
+        self.admission_report: Optional[AdmissionReport] = None
+        self.admission_running = False
+        self.admission_error: Optional[str] = None
+        self._admission_closes: dict = {}
+        self._admission_iv: dict = {}
         self._investors: Optional[tuple[float, InvestorsData]] = None
         self._investors_error: Optional[str] = None
         self._investors_syncing = False
@@ -1348,6 +1356,90 @@ class AppService:
                 self._radar_syncing = False
 
         self.launch(run())
+
+    # ---- Admisión a la Watchlist: del Universo a la Watchlist según los estilos TPC y Tastytrade ---------------
+    def direct_builtin_names(self) -> set[str]:
+        """Fuentes directas de la configuración (`admission.direct_sources`): no se pueden desmarcar desde la interfaz."""
+        return set(self.settings.admission.direct_sources)
+
+    def direct_source_names(self) -> set[str]:
+        """Fuentes cuyos tickers pasan a la Watchlist sin más filtro: las de la configuración y las que el usuario marcó."""
+        try:
+            marked = json.loads(self.meta.get(DIRECT_SOURCES) or "[]")
+        except (ValueError, TypeError):
+            marked = []
+        return self.direct_builtin_names() | {n for n in marked if isinstance(n, str)}
+
+    def set_direct_source(self, name: str, on: bool) -> None:
+        if name not in {s.name for s in self.universe_sources}:
+            raise WatchlistError(f"La fuente «{name}» no existe")
+        marked = self.direct_source_names() - self.direct_builtin_names()
+        marked = marked | {name} if on else marked - {name}
+        self.meta.set(DIRECT_SOURCES, json.dumps(sorted(marked)))
+
+    def admission_start(self) -> bool:
+        """Lanza en segundo plano la evaluación del Universo y la Watchlist. False si ya hay una en curso o está desactivada."""
+        if self.admission_running or not self.settings.admission.enabled:
+            return False
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+        self.admission_running, self.admission_error = True, None
+
+        async def run() -> None:
+            try:
+                self.admission_report = await evaluate_admission(self)
+            except Exception as exc:
+                log.exception("Falló la evaluación de la admisión a la Watchlist")
+                self.admission_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+            finally:
+                self.admission_running = False
+                if self.state.activity and self.state.activity.startswith("Admisión"):
+                    self.state.activity = None
+                self.state.data_version += 1
+
+        self.launch(run())
+        return True
+
+    def admission_view(self) -> Optional[AdmissionReport]:
+        """El último informe con la pertenencia a la Watchlist al día (se pueden haber añadido o quitado tickers desde que se evaluó)."""
+        report = self.admission_report
+        if report is None:
+            return None
+        watchlist = set(self.watchlist.list())
+        held = {p.ticker.replace(" ", "-") for p in self.state.positions}
+        return replace(report, verdicts=tuple(replace(v, in_watchlist=v.ticker in watchlist, protected=v.ticker in held) for v in report.verdicts))
+
+    async def admission_apply(self, tickers) -> list[str]:
+        """Añade a la Watchlist los tickers marcados, solo si el informe dice que pasan y aún no están (la actualización diaria va en segundo plano)."""
+        view = self.admission_view()
+        allowed = {v.ticker for v in view.to_add} if view is not None else set()
+        wanted = [t for t in dict.fromkeys(tickers) if t in allowed]
+        if not wanted:
+            return []
+        new = await self.add_watchlist(parse_tokens(wanted), background=True)
+        self.state.data_version += 1
+        return new
+
+    def admission_remove(self, tickers) -> tuple[list[str], list[str]]:
+        """Quita de la Watchlist los tickers marcados que el informe da por no cumplidos. Los que tienen posiciones abiertas NUNCA se quitan.
+        Devuelve (quitados, protegidos)."""
+        view = self.admission_view()
+        droppable = {v.ticker: v for v in view.to_drop} if view is not None else {}
+        removed, protected = [], []
+        for t in dict.fromkeys(tickers):
+            v = droppable.get(t)
+            if v is None:
+                continue
+            if v.protected:
+                protected.append(t)
+                continue
+            self.remove_ticker(t)
+            removed.append(t)
+        if removed:
+            self.state.data_version += 1
+        return removed, protected
 
     # ---- Listas públicas de tastytrade como fuentes del Universo --------------------------------------
     def sync_tasty_lists_in_background(self) -> None:
