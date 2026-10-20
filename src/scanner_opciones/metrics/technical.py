@@ -20,10 +20,11 @@ def sma(values: Sequence[float], n: int) -> Optional[float]:
     return sum(values[-n:]) / n
 
 
-def long_term_uptrend(values: Sequence[float], n: int = 200, slope_days: int = 20, fallback_n: int = 0) -> tuple[Optional[bool], str]:
+def long_term_uptrend(values: Sequence[float], n: int = 200, slope_days: int = 20, fallback_n: int = 0,
+                       require_above: bool = True) -> tuple[Optional[bool], str]:
     """¿Tendencia alcista a largo plazo? Último cierre sobre la media de `n` sesiones Y esa media por encima de la de hace `slope_days` sesiones.
     Si no hay histórico para la media de `n` y `fallback_n` > 0, se usa la de `fallback_n` (valores recién cotizados). Devuelve (resultado,
-    explicación); resultado None si tampoco así hay histórico."""
+    explicación); resultado None si tampoco así hay histórico. Con `require_above` False solo se exige que la media suba (el cierre puede estar por debajo)."""
     for period in (n, fallback_n) if fallback_n and fallback_n < n else (n,):
         now = sma(values, period)
         before = sma(values[:-slope_days], period) if len(values) > slope_days else None
@@ -31,11 +32,12 @@ def long_term_uptrend(values: Sequence[float], n: int = 200, slope_days: int = 2
             continue
         note = f" (histórico corto: media de {period} en vez de {n})" if period != n else ""
         price = values[-1]
-        if price <= now:
+        if require_above and price <= now:
             return False, f"cierre {price:g} por debajo de la media de {period} ({now:.2f}){note}"
         if now <= before:
             return False, f"la media de {period} no sube (hace {slope_days} sesiones {before:.2f}, hoy {now:.2f}){note}"
-        return True, f"cierre {price:g} sobre la media de {period} ({now:.2f}), que sube{note}"
+        where = "sobre" if price > now else "bajo"
+        return True, f"cierre {price:g} {where} la media de {period} ({now:.2f}), que sube{note}"
     return None, f"sin histórico suficiente para la media de {fallback_n if fallback_n and fallback_n < n else n} sesiones"
 
 

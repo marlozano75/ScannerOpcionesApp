@@ -20,7 +20,7 @@ def series(values):
 
 
 UP_WITH_DIP = [100 + i * 0.1 for i in range(300)][:-1] + [121.0]          # sube, y cierra ~7 % por debajo de su máximo, aún sobre la MA200
-FLAT_AT_HIGH = [100 + i * 0.1 for i in range(300)]                          # tendencia alcista pero en máximos: sin descuento
+FLAT_AT_HIGH = [130 - i * 0.1 for i in range(300)]                          # cae: cierre bajo la MA200 y esa media baja
 
 
 def good(t, **kw):
@@ -60,8 +60,8 @@ async def test_each_style_and_the_direct_sources_decide_what_passes(tmp_path):
     report = await run(svc)
     by = {v.ticker: v for v in report.verdicts}
     assert by["DIRECT"].styles == ["Directa"] and by["DIRECT"].passes                      # la fuente directa pasa sin comprobar nada
-    assert by["TPCOK"].styles == ["TPC"] and by["TPCOK"].tasty                              # calidad + tendencia + descuento; su IV es baja
-    assert by["TPCFLAT"].tpc and "descuento" in by["TPCFLAT"].tpc                           # en máximos: sin descuento
+    assert by["TPCOK"].styles == ["TPC"] and by["TPCOK"].tasty                              # calidad + tendencia; su IV es baja
+    assert by["TPCFLAT"].tpc and "tendencia" in by["TPCFLAT"].tpc                           # sin tendencia alcista
     assert by["TASTYOK"].styles == ["Tastytrade"] and by["TASTYOK"].tpc                     # IV Rank alto y liquidez; sin calidad para TPC
     assert not by["NOPE"].passes and not by["LOWQ"].passes and "beneficios" in by["LOWQ"].tpc
     assert {v.ticker for v in report.to_add} == {"DIRECT", "TPCOK", "TASTYOK"}              # solo lo que no estaba en la Watchlist

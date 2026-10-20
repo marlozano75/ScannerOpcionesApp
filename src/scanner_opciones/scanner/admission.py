@@ -1,6 +1,6 @@
 """Admisión a la Watchlist: qué tickers del Universo merecen entrar (y cuáles de la Watchlist ya no merecen quedarse) según dos estilos.
 
-- **TPC** (The Premium Collector): empresas de calidad que se querrían tener, con descuento y tendencia positiva.
+- **TPC** (The Premium Collector): empresas de calidad que se querrían tener, con tendencia positiva.
 - **Tastytrade**: venta de volatilidad, con IV Rank o IV Percentile altos y opciones líquidas.
 - **Fuente directa**: las fuentes que ya se consultan varias veces al día y se supone que cumplen (listas de tastytrade, radar de Tortuga) pasan sin más filtro.
 
@@ -15,17 +15,6 @@ from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import long_term_uptrend
 from scanner_opciones.scanner.criteria import ScanCriteria
 from scanner_opciones.scanner.quality import DEFAULT_EXEMPT, ticker_quality_reject
-
-SESSIONS_52W = 252
-
-
-def pullback_pct(closes: Sequence[float], window: int = SESSIONS_52W) -> Optional[float]:
-    """Cuánto está el último cierre por debajo de su máximo de las últimas `window` sesiones (%, ≥ 0); None sin cierres."""
-    if not closes:
-        return None
-    high = max(closes[-window:])
-    return max((high - closes[-1]) / high * 100, 0.0) if high > 0 else None
-
 
 def tpc_quality_criteria(cfg: AdmissionTpc, manageable: tuple[float, float] = (0.5, 3.0)) -> ScanCriteria:
     """Los filtros de calidad de la empresa que exige el estilo TPC, sobre unos criterios sin ningún otro filtro. `manageable` = (deuda/patrimonio máximo,
@@ -43,21 +32,17 @@ def tpc_quality_reject(info: Optional[TickerInfo], cfg: AdmissionTpc, exempt: Se
 
 
 def tpc_trend_reject(closes: Sequence[float], cfg: AdmissionTpc, ma: int = 200, slope_days: int = 20, fallback_ma: int = 100) -> Optional[str]:
-    """Tendencia positiva y descuento (distancia al máximo de 52 semanas). Sin cierres no se puede medir y no cumple."""
-    if not (cfg.require_uptrend or cfg.min_pullback_pct):
+    """Tendencia alcista a largo plazo: la MA200 (respaldo MA100) sube; el precio puede estar por debajo de ella. Sin cierres no se puede medir y no cumple."""
+    if not cfg.require_uptrend:
         return None
     if not closes:
-        return "sin histórico de cierres para medir la tendencia y el descuento"
+        return "sin histórico de cierres para medir la tendencia"
     if cfg.require_uptrend:
-        ok, note = long_term_uptrend(closes, ma, slope_days, fallback_ma)
+        ok, note = long_term_uptrend(closes, ma, slope_days, fallback_ma, require_above=False)
         if ok is None:
             return f"tendencia: {note}"
         if not ok:
             return f"sin tendencia alcista: {note}"
-    if cfg.min_pullback_pct:
-        pb = pullback_pct(closes)
-        if pb is None or pb < cfg.min_pullback_pct:
-            return f"sin descuento: a {0 if pb is None else pb:.1f} % de su máximo de 52 semanas (mínimo {cfg.min_pullback_pct:g} %)"
     return None
 
 

@@ -620,14 +620,13 @@ class TastyListsSettings(_Model):
 
 
 class AdmissionTpc(_Model):
-    """Estilo The Premium Collector para pasar del Universo a la Watchlist: empresa de calidad, con descuento y tendencia positiva."""
+    """Estilo The Premium Collector para pasar del Universo a la Watchlist: empresa de calidad con tendencia positiva."""
     require_profitable: bool = True            # beneficios de los últimos 12 meses > 0
     min_positive_quarters: int = Field(3, ge=0, le=4)    # trimestres con beneficios de los últimos 4
     require_positive_fcf: bool = True          # flujo de caja libre > 0 (sin `edgar.contact` no hay dato y no pasaría nadie: se pide solo si hay contacto)
     require_manageable_debt: bool = True       # deuda baja o manejable (`scanner.quality.manageable_debt`)
     min_option_liquidity: int = Field(2, ge=1, le=5)
-    require_uptrend: bool = True               # cierre sobre la media de 200 sesiones y esa media subiendo (respaldo: 100)
-    min_pullback_pct: float = Field(5.0, ge=0, lt=100)   # descuento: el cierre está al menos N % por debajo de su máximo de 52 semanas; 0 = no se exige
+    require_uptrend: bool = True               # la media de 200 sesiones sube (respaldo: 100); el precio puede estar por debajo de ella
 
 
 class AdmissionTastytrade(_Model):

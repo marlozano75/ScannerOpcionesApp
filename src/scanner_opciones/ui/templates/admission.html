@@ -1,10 +1,31 @@
 {% extends "base.html" %}
 {% block content %}
+{% macro verdict(reason) -%}
+  {%- if reason is none -%}<span class="ad-chip ok">✓</span>
+  {%- elif 'fuente directa' in reason -%}<span class="ad-chip d" title="{{ reason }}">Directa</span>
+  {%- else -%}
+    {%- set label = 'Beneficios' if 'beneficios (EPS' in reason else 'Trimestres' if 'trimestres' in reason else 'Liquidez' if 'liquidez' in reason
+        else 'FCF' if 'flujo de caja' in reason else 'Deuda' if 'deuda' in reason else 'Pasivo' if 'pasivo' in reason
+        else 'Sin cierres' if 'histórico' in reason else 'Tendencia' if 'tendencia' in reason else 'IV bajo' if 'IV' in reason else 'No cumple' -%}
+    <span class="ad-chip no" title="{{ reason }}">✗ {{ label }}</span>
+  {%- endif -%}
+{%- endmacro %}
+{% macro sources(names) -%}
+  {%- for s in names[:3] %}<span class="ad-chip src" title="{{ s }}">{{ s if s|length <= 16 else s[:15] ~ '…' }}</span>{% endfor -%}
+  {%- if names|length > 3 %}<span class="ad-chip src" title="{{ names[3:]|join(', ') }}">+{{ names|length - 3 }}</span>{% endif -%}
+  {%- if not names %}—{% endif -%}
+{%- endmacro %}
+{% macro company(v) -%}{{ ident.get(v.ticker, ('', ''))[0] }}{%- endmacro %}
 {% include "_msgs.html" %}
 <style>
   .ad-chip { display:inline-block; padding:0 7px; border-radius:9px; font-size:11px; font-weight:700; margin-right:3px; }
   .ad-chip.d { background:#e3ecfb; color:#1f4f9a; } .ad-chip.t { background:#dff3e6; color:#1d6b3f; } .ad-chip.s { background:#fdf0d8; color:#8a5a00; }
   .ad-why { color:var(--mute); font-size:12px; }
+  .ad-chip.ok { background:#dff3e6; color:#1d6b3f; } .ad-chip.no { background:#fbe3df; color:#a8321f; cursor:help; } .ad-chip.src { background:rgba(127,127,127,.16); color:var(--mute); font-weight:600; }
+  .ad-chip { white-space:nowrap; margin:1px 3px 1px 0; }
+  td.ad-co { max-width:150px; overflow:hidden; text-overflow:ellipsis; color:var(--mute); }
+  td.ad-src { white-space:normal; max-width:190px; line-height:1.7; }
+  table.ad-tbl td, table.ad-tbl th { padding:4px 8px; }
   .ad-kpi { display:flex; flex-wrap:wrap; gap:18px; margin:6px 0 10px; } .ad-kpi b { font-size:20px; display:block; }
   .ad-cfg td, .ad-cfg th { padding:4px 10px; text-align:left; font-size:13px; white-space:normal; vertical-align:top; line-height:1.4; }
   .ad-cfg td:first-child { white-space:nowrap; width:1%; }
@@ -19,7 +40,7 @@
     <tr><th>Estilo</th><th>Qué exige (de <code>admission</code> en config.yaml)</th></tr>
     <tr><td><b>TPC</b> · The Premium Collector</td><td>Empresa de calidad —
       {% if cfg.tpc.require_profitable %}beneficios 12 m &gt; 0, {% endif %}≥ {{ cfg.tpc.min_positive_quarters }} de 4 trimestres con beneficios{% if cfg.tpc.require_positive_fcf and edgar_on %}, FCF &gt; 0{% endif %}{% if cfg.tpc.require_manageable_debt %}, deuda baja o manejable{% endif %}, liquidez de opciones ≥ {{ cfg.tpc.min_option_liquidity }} —
-      {% if cfg.tpc.require_uptrend %}con tendencia alcista (sobre la MA200, que sube){% endif %}{% if cfg.tpc.min_pullback_pct %} y a ≥ {{ cfg.tpc.min_pullback_pct|num(0) }} % de su máximo de 52 semanas (descuento){% endif %}.
+      {% if cfg.tpc.require_uptrend %}con tendencia alcista (MA200 que sube){% endif %}.
       {% if cfg.tpc.require_positive_fcf and not edgar_on %}<span class="muted">(Sin <code>edgar.contact</code> no hay FCF y no se exige.)</span>{% endif %}</td></tr>
     <tr><td><b>Tastytrade</b></td><td>{% if cfg.tastytrade.iv_rank_pct_any %}IV Rank ≥ {{ cfg.tastytrade.min_iv_rank|num(0) }} <b>o</b> IV Percentile ≥ {{ cfg.tastytrade.min_iv_percentile|num(0) }}{% else %}IV Rank ≥ {{ cfg.tastytrade.min_iv_rank|num(0) }} e IV Percentile ≥ {{ cfg.tastytrade.min_iv_percentile|num(0) }}{% endif %}, liquidez de opciones ≥ {{ cfg.tastytrade.min_option_liquidity }}.</td></tr>
     <tr><td><b>Fuentes directas</b></td><td>{% for s in direct %}<span class="ad-chip d" title="{{ 'De la configuración' if s in direct_builtin else 'Marcada a mano en el Universo' }}">{{ s }}</span>{% else %}ninguna{% endfor %}
@@ -55,16 +76,16 @@
   {% if add %}
   <form method="post" action="/admission/apply">
     <p><button type="submit" onclick="return confirmClick(this, 'Se añadirán a la Watchlist los tickers marcados y se lanzará su actualización diaria en segundo plano. ¿Continuar?')">Añadir los marcados a la Watchlist</button>
-      <span class="muted">Del Universo y todavía fuera de la Watchlist. Desmarca los que no quieras.</span></p>
-    <div class="scroll"><table class="sortable sticky-tk with-sel">
+      <span class="muted">Del Universo y todavía fuera de la Watchlist. Desmarca los que no quieras. ✓ = cumple; ✗ = lo que falla (el detalle, al pasar el ratón).</span></p>
+    <div class="scroll"><table class="sortable sticky-tk with-sel ad-tbl">
       <tr><th class="sel"><input type="checkbox" checked onclick="document.querySelectorAll('#ad-add input[name=sel]').forEach(function (c) { c.checked = this.checked; }, this)" title="Marcar / desmarcar todas"></th>
-        <th class="tk">Ticker</th><th class="txt">Empresa</th><th class="txt">Cumple</th><th class="wrap">Fuentes</th><th class="wrap">Lo que falla del otro estilo</th></tr>
+        <th class="tk">Ticker</th><th class="txt">Empresa</th><th class="txt">Pasa por</th><th class="txt">Fuentes</th><th class="txt">TPC</th><th class="txt">Tastytrade</th></tr>
       <tbody id="ad-add">{% for v in add %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ v.ticker }}" checked></td>
-        <td class="tk"><b>{{ v.ticker }}</b></td><td class="txt">{{ ident.get(v.ticker, ('', ''))[0] }}</td>
+        <td class="tk" title="{{ company(v) }}"><b>{{ v.ticker }}</b></td><td class="txt ad-co" title="{{ company(v) }}">{{ company(v) }}</td>
         <td class="txt">{% for s in v.styles %}<span class="ad-chip {{ 'd' if s == 'Directa' else 't' if s == 'TPC' else 's' }}">{{ s }}</span>{% endfor %}</td>
-        <td class="wrap">{{ v.sources|join(', ') }}</td>
-        <td class="wrap ad-why">{% if not v.direct %}{% if v.tpc %}TPC: {{ v.tpc }}{% elif v.tasty %}Tastytrade: {{ v.tasty }}{% endif %}{% endif %}</td></tr>
+        <td class="txt ad-src">{{ sources(v.sources) }}</td>
+        <td class="txt">{{ verdict(v.tpc) }}</td><td class="txt">{{ verdict(v.tasty) }}</td></tr>
       {% endfor %}</tbody>
     </table></div>
   </form>
@@ -77,14 +98,14 @@
   <form method="post" action="/admission/remove">
     <p><button class="secondary" type="submit" onclick="return confirmClick(this, 'Se quitarán de la Watchlist los tickers marcados, con sus contratos y cotizaciones. Los que tienen posiciones abiertas no se tocan. ¿Continuar?')">Quitar los marcados de la Watchlist</button>
       <span class="muted">No cumplen ni TPC ni Tastytrade ni vienen de una fuente directa. Los que tienes en cartera aparecen bloqueados.</span></p>
-    <div class="scroll"><table class="sortable sticky-tk with-sel">
+    <div class="scroll"><table class="sortable sticky-tk with-sel ad-tbl">
       <tr><th class="sel"><input type="checkbox" onclick="document.querySelectorAll('#ad-drop input[name=sel]:not(:disabled)').forEach(function (c) { c.checked = this.checked; }, this)" title="Marcar / desmarcar todas"></th>
-        <th class="tk">Ticker</th><th class="txt">Empresa</th><th class="wrap">Fuentes</th><th class="wrap">TPC: motivo</th><th class="wrap">Tastytrade: motivo</th></tr>
+        <th class="tk">Ticker</th><th class="txt">Empresa</th><th class="txt">Fuentes</th><th class="txt">TPC</th><th class="txt">Tastytrade</th></tr>
       <tbody id="ad-drop">{% for v in drop %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ v.ticker }}" {{ 'disabled' if v.protected }}></td>
-        <td class="tk"><b>{{ v.ticker }}</b>{% if v.protected %} <span class="own" title="Tienes posiciones en este valor: no se quita">EN CARTERA</span>{% endif %}</td>
-        <td class="txt">{{ ident.get(v.ticker, ('', ''))[0] }}</td><td class="wrap">{{ v.sources|join(', ') or '—' }}</td>
-        <td class="wrap ad-why">{{ v.tpc }}</td><td class="wrap ad-why">{{ v.tasty }}</td></tr>
+        <td class="tk" title="{{ company(v) }}"><b>{{ v.ticker }}</b>{% if v.protected %} <span class="own" title="Tienes posiciones en este valor: no se quita">EN CARTERA</span>{% endif %}</td>
+        <td class="txt ad-co" title="{{ company(v) }}">{{ company(v) }}</td><td class="txt ad-src">{{ sources(v.sources) }}</td>
+        <td class="txt">{{ verdict(v.tpc) }}</td><td class="txt">{{ verdict(v.tasty) }}</td></tr>
       {% endfor %}</tbody>
     </table></div>
   </form>
