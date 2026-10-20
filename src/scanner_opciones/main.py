@@ -61,7 +61,7 @@ def build_app(settings: Settings):
         return HybridGateway(ibkr, tasty, md, fallback_batch=settings.refresh.batch_size) if md.source == "tastytrade" else ibkr
 
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty,
-                         fundamentals=tasty, financials=financials, names=tasty,
+                         fundamentals=tasty, financials=financials, names=tasty, watchlists=tasty,
                          analysts=YahooAnalysts(settings.analysts.concurrency) if settings.analysts.enabled else None,
                          tortuga=RoutineRunner(settings, MetaRepo(db)))
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)

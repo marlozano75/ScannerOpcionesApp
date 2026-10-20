@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 import asyncio
+import hashlib
 import base64
 import json
 import pickle
@@ -65,6 +66,8 @@ from scanner_opciones.marketdata.names import CompanyNameProvider
 from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
+from scanner_opciones.marketdata.watchlists import WatchlistProvider
+from scanner_opciones.tortuga.investors import InvestorsData, InvestorsError, load_investors, quality_holdings
 from scanner_opciones.rankedstocks.loader import build_table, clean_ticker
 from scanner_opciones.universe.sources import MANUAL, SOURCE_COLUMN, Source, identities, load_sources
 from scanner_opciones.watchlist.parser import ParseResult, parse_tokens
@@ -83,6 +86,10 @@ CHART_HISTORY = "chart_history_tickers"   # clave de `meta`: tickers fuera de la
 CHART_HISTORY_MAX = 200
 CHART_HISTORY_TIMEOUT = 25.0   # segundos que espera el gráfico a que se descargue el histórico de un ticker
 POSITION_HISTORY_RETRY_HOURS = 6   # un subyacente de la cartera sin velas en tastytrade no se vuelve a pedir antes
+TASTY_LISTS_CHECKED = "tasty_lists_checked_at"   # clave de `meta`: última lectura de las listas públicas de tastytrade
+TASTY_LIST_PREFIX = "tasty_list_synced_"         # + nombre de la fuente: huella de los tickers ya volcados
+INVESTORS_SYNCED = "super_investors_synced"   # clave de `meta`: huella de la fuente SuperInvestors ya volcada
+INVESTORS_INFO = "super_investors_info"       # clave de `meta`: {ticker: {managers, max_weight}} de esa fuente (columnas del Universo)
 RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 COMMUNITY_LIVE = "community_live"   # clave de `meta`: última cotización en directo de las ideas (pickle en base64)
@@ -148,6 +155,7 @@ class AppService:
         names: Optional[CompanyNameProvider] = None,
         tortuga: Optional[RoutineRunner] = None,
         analysts: Optional[AnalystProvider] = None,
+        watchlists: Optional[WatchlistProvider] = None,
     ) -> None:
         self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
@@ -196,6 +204,11 @@ class AppService:
         self._radar: Optional[tuple[float, RadarData]] = None
         self._radar_error: Optional[str] = None
         self._radar_syncing = False
+        self.watchlists = watchlists
+        self._tasty_lists_syncing = False
+        self._investors: Optional[tuple[float, InvestorsData]] = None
+        self._investors_error: Optional[str] = None
+        self._investors_syncing = False
         # cotizaciones en directo de las ideas fuera de lo guardado: (hora, generated_at del JSON, snapshots, fichas, cierres)
         self._community_live: Optional[tuple[datetime, str, dict, dict, dict]] = self._load_community_live()   # sobrevive al reinicio
         self._community_live_running = False
@@ -249,6 +262,12 @@ class AppService:
                     p = perm.get(t, {})
                     raw.append([t, name, ", ".join(p.get("traders", [])), p.get("strategy", ""),
                                 f"{p['passed']}/{p['total']}" if "passed" in p else ""])
+            elif name == self.settings.super_investors.source_name:     # lleva además los gestores que la tienen y su peso máximo
+                info = self.investors_info()
+                raw = [["Ticker", SOURCE_COLUMN, "Gestores", "Peso máx. %"]]
+                for t in tickers:
+                    i = info.get(t, {})
+                    raw.append([t, name, ", ".join(i.get("managers", [])), (f"{i['max_weight']:g}" if "max_weight" in i else "")])
             else:
                 raw = [["Ticker", SOURCE_COLUMN]] + [[t, name] for t in tickers]
             sources.append(Source(name, name, build_table(name, raw)))
@@ -394,10 +413,15 @@ class AppService:
             raise WatchlistError(f"«{name}» ya es una fuente de un fichero: elige otro nombre")
         return next((n for n in self.manual_sources if n.casefold() == name.casefold()), name)
 
+    def managed_sources(self) -> set[str]:
+        """Fuentes manuales que rellena la propia aplicación (comunidad y radar de Tortuga, listas de tastytrade)."""
+        return {self.settings.community.source_name, self.settings.community.perm_source_name, self.settings.tortuga.source_name,
+                self.settings.tortuga.puts_source_name, self.settings.super_investors.source_name,
+                *(s.name for s in self.settings.tasty_lists.sources)}
+
     def is_renamable_source(self, name: str) -> bool:
         """Fuente manual escrita por el usuario (no las que rellena la aplicación: comunidad y radar de Tortuga)."""
-        managed = {self.settings.community.source_name, self.settings.community.perm_source_name, self.settings.tortuga.source_name,
-                   self.settings.tortuga.puts_source_name}
+        managed = self.managed_sources()
         return name in self.manual_sources and name not in managed
 
     def rename_manual_source(self, old: str, new: str) -> str:
@@ -405,8 +429,7 @@ class AppService:
         renombrar las que gestiona la propia aplicación (comunidad y radar de Tortuga) ni las de ficheros. Devuelve el nombre final."""
         if old not in self.manual_sources:
             raise WatchlistError(f"«{old}» no es una fuente manual: solo se renombran las que escribiste a mano")
-        managed = {self.settings.community.source_name, self.settings.community.perm_source_name, self.settings.tortuga.source_name,
-                   self.settings.tortuga.puts_source_name}
+        managed = self.managed_sources()
         if not self.is_renamable_source(old):
             raise WatchlistError(f"«{old}» la rellena la aplicación sola: no se puede renombrar")
         name = " ".join(new.split())
@@ -1120,13 +1143,17 @@ class AppService:
             marked = json.loads(self.meta.get(SPREAD_SOURCES) or "[]")
         except (ValueError, TypeError):
             marked = []
-        return {self.settings.tortuga.source_name, *(n for n in marked if isinstance(n, str))}
+        return self.spread_builtin_names() | {n for n in marked if isinstance(n, str)}
+
+    def spread_builtin_names(self) -> set[str]:
+        """Fuentes aptas para spreads que no se pueden desmarcar: la del radar de Tortuga y las listas de tastytrade con `spreads: true`."""
+        return {self.settings.tortuga.source_name, *(s.name for s in self.settings.tasty_lists.sources if s.spreads)}
 
     def set_spread_source(self, name: str, on: bool) -> None:
         """Marca o desmarca una fuente del Universo como apta para spreads (la del radar de Tortuga no se puede desmarcar)."""
         if name not in {s.name for s in self.universe_sources}:
             raise WatchlistError(f"La fuente «{name}» no existe")
-        marked = self.spread_source_names() - {self.settings.tortuga.source_name}
+        marked = self.spread_source_names() - self.spread_builtin_names()
         marked = marked | {name} if on else marked - {name}
         self.meta.set(SPREAD_SOURCES, json.dumps(sorted(marked)))
         self.state.data_version += 1
@@ -1255,6 +1282,7 @@ class AppService:
                 self.state.data_version += 1
                 self.sync_community_in_background()
                 self.sync_radar_in_background()
+                self.sync_investors_in_background()
             except Exception:
                 log.exception("Falló una rutina de Tortuga")
             finally:
@@ -1320,6 +1348,139 @@ class AppService:
                 self._radar_syncing = False
 
         self.launch(run())
+
+    # ---- Listas públicas de tastytrade como fuentes del Universo --------------------------------------
+    def sync_tasty_lists_in_background(self) -> None:
+        """Relee las listas de tastytrade si toca (`tasty_lists.refresh_minutes`; en fin de semana o festivo solo si falta alguna fuente)."""
+        cfg = self.settings.tasty_lists
+        if not cfg.enabled or self.watchlists is None or self._tasty_lists_syncing:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        now = self.now()
+        missing = any(s.name not in self.manual_sources for s in cfg.sources)
+        if not missing:
+            if not self.market.is_session_day_now(now):
+                return
+            last = self.meta.get(TASTY_LISTS_CHECKED)
+            try:
+                if last and (now - datetime.fromisoformat(last)).total_seconds() < cfg.refresh_minutes * 60:
+                    return
+            except ValueError:
+                pass
+        self._tasty_lists_syncing = True
+
+        async def run() -> None:
+            try:
+                await self.sync_tasty_lists()
+            except Exception:
+                log.exception("No se pudieron actualizar las listas de tastytrade")
+            finally:
+                self._tasty_lists_syncing = False
+
+        self.launch(run())
+
+    async def sync_tasty_lists(self) -> dict[str, int]:
+        """Vuelca cada lista pública de `tasty_lists.sources` en su fuente del Universo, solo si cambió su contenido. {fuente: nº de tickers
+        con opciones} de las que se actualizaron. Una lista que falla se salta (se conserva la fuente anterior)."""
+        out: dict[str, int] = {}
+        if self.watchlists is None:
+            return out
+        for src in self.settings.tasty_lists.sources:
+            try:
+                tickers = await self.watchlists.get_public_watchlist(src.list)
+            except Exception as exc:
+                log.warning("Lista de tastytrade «%s»: %s; se conserva la fuente «%s»", src.list, exc, src.name)
+                continue
+            stamp = hashlib.sha1(",".join(sorted(tickers)).encode()).hexdigest()
+            if not tickers or (self.meta.get(TASTY_LIST_PREFIX + src.name) == stamp and src.name in self.manual_sources):
+                continue
+            try:
+                result = await self.add_manual_tickers(parse_tokens(tickers), src.name, replace_source=True)
+            except WatchlistError as exc:
+                log.warning("Lista de tastytrade «%s»: no se pudo actualizar la fuente «%s»: %s", src.list, src.name, exc)
+                continue
+            self.meta.set(TASTY_LIST_PREFIX + src.name, stamp)
+            out[src.name] = len(result["added"])
+            log.info("Fuente «%s» (lista «%s» de tastytrade): %d tickers con opciones, %d nuevos en el Universo",
+                     src.name, src.list, len(result["added"]), len(result["new_in_universe"]))
+        self.meta.set(TASTY_LISTS_CHECKED, self.now().isoformat())
+        if out:
+            self.state.data_version += 1
+        return out
+
+    # ---- Super Investors (13F de gestores de calidad) como fuente del Universo ---------------------------
+    def investors(self) -> Optional[InvestorsData]:
+        """Carteras de los Super Investors (JSON de la rutina), releídas solo si el fichero cambió. None si no existe; si el nuevo es
+        inválido se conserva el último bueno."""
+        path = Path(self.settings.super_investors.path)
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            self._investors = None
+            return None
+        if self._investors is not None and self._investors[0] == mtime:
+            return self._investors[1]
+        try:
+            data = load_investors(path)
+        except InvestorsError as exc:
+            if self._investors_error != str(exc):
+                log.warning("Super Investors: %s no es válido (%s); se conservan los últimos datos buenos", path, exc)
+                self._investors_error = str(exc)
+            return self._investors[1] if self._investors is not None else None
+        self._investors, self._investors_error = (mtime, data), None
+        return data
+
+    def investors_info(self) -> dict[str, dict]:
+        try:
+            info = json.loads(self.meta.get(INVESTORS_INFO) or "{}")
+        except (ValueError, TypeError):
+            return {}
+        return info if isinstance(info, dict) else {}
+
+    def sync_investors_in_background(self) -> None:
+        if not self.settings.super_investors.enabled or self._investors_syncing or self.investors() is None:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._investors_syncing = True
+
+        async def run() -> None:
+            try:
+                await self.sync_investors_source()
+            except Exception:
+                log.exception("No se pudo actualizar la fuente de Super Investors")
+            finally:
+                self._investors_syncing = False
+
+        self.launch(run())
+
+    async def sync_investors_source(self) -> Optional[dict]:
+        """La fuente `super_investors.source_name` pasa a ser las posiciones de convicción (peso ≥ `min_weight_pct`) de los gestores de calidad.
+        Solo se vuelca si cambió el contenido. No toca la watchlist. Devuelve el resultado de `add_manual_tickers` o None si no hubo cambios."""
+        cfg = self.settings.super_investors
+        data = self.investors()
+        if data is None:
+            return None
+        held = quality_holdings(data, cfg.min_weight_pct, cfg.min_managers)
+        stamp = hashlib.sha1(",".join(sorted(held)).encode()).hexdigest()
+        if not held or (self.meta.get(INVESTORS_SYNCED) == stamp and cfg.source_name in self.manual_sources):
+            return None
+        info = {t: {"managers": e["managers"], "max_weight": e["max_weight"]} for t, e in held.items()}
+        self.meta.set(INVESTORS_INFO, json.dumps(info))
+        try:
+            result = await self.add_manual_tickers(parse_tokens(list(held)), cfg.source_name, replace_source=True)
+        except WatchlistError as exc:
+            log.warning("Super Investors: no se pudo actualizar la fuente «%s»: %s", cfg.source_name, exc)
+            return None
+        self.meta.set(INVESTORS_SYNCED, stamp)
+        self.state.data_version += 1
+        log.info("Fuente «%s»: %d tickers con opciones de %d de convicción (%d gestores)", cfg.source_name, len(result["added"]), len(held), len(data.managers))
+        return result
 
     async def sync_radar_source(self) -> Optional[dict]:
         """Las fuentes del Universo del radar de Tortuga pasan a ser los valores cuya put de 30Δ rinde en el periodo al menos el yield del
@@ -1917,6 +2078,8 @@ class AppService:
         self.update_quality_if_due()             # ídem: solo si tastytrade ha recalculado sus métricas desde la última descarga
         self.sync_community_in_background()      # ídem: solo si la rutina diaria dejó un JSON nuevo de la comunidad
         self.tortuga_in_background()             # lanza las rutinas de Tortuga que toquen hoy (CLI de Claude, solo lectura)
+        self.sync_investors_in_background()      # ídem con los Super Investors: fuente SuperInvestors (empresas de calidad para puts)
+        self.sync_tasty_lists_in_background()    # listas públicas de tastytrade (Dividend Champions, Hourly, Fast Movers...): fuentes del Universo
         self.sync_radar_in_background()          # ídem con el radar de Bull Put Spreads: fuente TortugaSpreads y watchlist
         if not self._paused() or self._capture_needed():
             return await self.refresh_all()

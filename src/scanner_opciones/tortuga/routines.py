@@ -20,6 +20,7 @@ from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.portfolio.openings import OpeningsError, parse_openings
 from scanner_opciones.storage.repositories import MetaRepo
 from scanner_opciones.tortuga.claude_runner import ClaudeRunError, ToolCall, extract_json, run_claude, run_claude_calls, tool_names
+from scanner_opciones.tortuga.investors import InvestorsError, build_investors_document, parse_investors
 from scanner_opciones.tortuga.radar import RadarError, build_radar_document, parse_radar
 
 log = logging.getLogger(__name__)
@@ -50,6 +51,8 @@ ROUTINES = (
             "columna Comunidad del Scanner, pestaña Ideas y fuente TortugaTrades_Dia"),
     Routine("radar_spreads", "Radar de Bull Put Spreads", "radar_spreads_prompt.md", ("get_context", "get_market_radar"), 30,
             "pestaña Tortuga y fuente TortugaSpreads (pasa a la watchlist)", via_calls=True),
+    Routine("super_investors", "Super Investors (13F de gestores de calidad)", "super_investors_prompt.md", ("get_super_investors",), 30,
+            "fuente SuperInvestors del Universo (empresas de calidad para puts)", via_calls=True),
 )
 BY_KEY = {r.key: r for r in ROUTINES}
 
@@ -81,6 +84,14 @@ def finish(settings: Settings, key: str, text: str) -> str:
 
 def finish_calls(settings: Settings, key: str, calls: list[ToolCall], now: datetime) -> str:
     """Como `finish`, para las rutinas que usan el resultado bruto de las herramientas (radar de Bull Put Spreads)."""
+    if key == "super_investors":
+        try:
+            doc = build_investors_document(calls, now, settings.super_investors.managers)
+            data = parse_investors(doc)
+        except (InvestorsError, ValueError) as exc:
+            raise RoutineError(str(exc)) from exc
+        _atomic_write(Path(settings.super_investors.path), json.dumps(doc, ensure_ascii=False))
+        return f"{len(data.managers)} gestores, {sum(len(m.holdings) for m in data.managers)} posiciones"
     if key != "radar_spreads":
         raise RoutineError(f"rutina desconocida: {key}")
     try:
@@ -131,6 +142,9 @@ class RoutineRunner:
             ok = _parse(st.get("last_ok"))
             if ok is not None and ok.date() == now.date():
                 continue
+            wait = cfg.min_days.get(r.key)
+            if wait is not None and ok is not None and (now - ok).days < wait:      # datos que cambian poco (13F): no se piden a diario
+                continue
             if not self.market.is_session_day_now(now):                   # fin de semana o festivo: hasta el siguiente día hábil, a su hora
                 continue
             tried = _parse(st.get("last_try"))
@@ -160,6 +174,7 @@ class RoutineRunner:
         self._save(key, last_try=self.now().isoformat(timespec="seconds"))
         try:
             prompt = (self.base_dir / cfg.prompts_dir / r.prompt).read_text(encoding="utf-8")
+            prompt = prompt.replace("{managers}", "\n".join(f"- {m}" for m in self.settings.super_investors.managers))
             if r.via_calls:
                 calls = await self._run_calls(cfg.command, prompt, tool_names(*r.tools), cfg.model, r.max_turns, cfg.timeout_seconds)
                 summary = finish_calls(self.settings, key, calls, self.now())

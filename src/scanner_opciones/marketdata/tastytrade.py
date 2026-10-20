@@ -500,6 +500,23 @@ class TastytradeVolatility:
 
         return await Equity.get(self._open_session(), list(symbols))
 
+    async def get_public_watchlist(self, name: str) -> list[str]:
+        """Acciones y ETF de una lista pública de tastytrade («Dividend Champions»...). Se ignoran futuros, índices y cripto."""
+        from tastytrade.watchlists import PublicWatchlist
+        try:
+            wl = await PublicWatchlist.get(self._open_session(), name)
+        except Exception as exc:   # el SDK lanza tipos variados (red, autenticación, formato)
+            self._session = None
+            raise VolatilityError(f"tastytrade: lista «{name}»: {type(exc).__name__}: {str(exc)[:200]}") from exc
+        out: list[str] = []
+        for entry in wl.watchlist_entries or []:
+            symbol = str(entry.get("symbol", "")).strip()
+            if entry.get("instrument-type") == "Equity" and symbol:
+                ticker = symbol.replace("/", "-")      # tastytrade escribe las clases con «/» (BF/B); la app, con «-»
+                if ticker not in out:
+                    out.append(ticker)
+        return out
+
     async def get_company_names(self, tickers: list[str]) -> dict[str, str]:
         """{ticker: nombre de la empresa} (campo `description` del instrumento, p. ej. «APPLE INC»)."""
         names = {tasty_symbol(t): t for t in tickers}

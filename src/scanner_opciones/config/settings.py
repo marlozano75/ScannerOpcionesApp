@@ -575,7 +575,9 @@ class TortugaSettings(_Model):
     # barra de calidad de la empresa (y en el Scanner la calidad mínima de las puts)
     puts_source_name: str = "TortugaPuts"
     profile: str = "TastyPut"                 # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
-    times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "radar_spreads": "11:45"}
+    times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "radar_spreads": "11:45", "super_investors": "11:30"}
+    # días mínimos entre dos lecturas buenas de una rutina diaria (los 13F cambian una vez al trimestre: una semana sobra)
+    min_days: dict[str, int] = {"super_investors": 7}
     # rutinas que se repiten cada N minutos mientras la aplicación está abierta y el mercado abierto (más una pasada tras el cierre; en vez de una vez al día a su hora de `times`): el radar de
     # Tortuga se refresca durante la sesión (precio e IV cada ~15 min; las primas, en pasadas de ~10 min)
     intervals: dict[str, int] = {"radar_spreads": 30}
@@ -593,6 +595,41 @@ class TortugaSettings(_Model):
             except ValueError:
                 raise ValueError(f"tortuga.times.{key}: hora «{value}» no válida (HH:MM)") from None
         return self
+
+
+class TastyListSource(_Model):
+    """Una lista pública de tastytrade que se vuelca en una fuente del Universo."""
+    list: str                   # nombre de la lista en tastytrade
+    name: str                   # nombre de la fuente en el Universo
+    spreads: bool = False       # True = fuente apta para spreads (sin calidad de la empresa; liquidez, precio y tendencia larga)
+
+
+class TastyListsSettings(_Model):
+    """Listas públicas de tastytrade como fuentes del Universo. Se releen cada `refresh_minutes` (solo en días hábiles, salvo la primera
+    vez) y sustituyen a la fuente SOLO si su contenido cambió. No añaden nada a la watchlist: eso se hace desde el Universo, con sus filtros."""
+    enabled: bool = True
+    refresh_minutes: int = Field(60, ge=5)
+    sources: list[TastyListSource] = [
+        TastyListSource(list="Dividend Champions", name="DividendChampions"),
+        TastyListSource(list="tasty Hourly Top Equities", name="TastyHourly", spreads=True),
+        TastyListSource(list="tasty Fast Movers", name="TastyFastMovers", spreads=True),
+        TastyListSource(list="Liquid Symbols", name="TastyLiquid", spreads=True),
+        TastyListSource(list="tasty IVR", name="TastyIVR", spreads=True),
+        TastyListSource(list="Tom's Watchlist", name="TastyTom", spreads=True),
+    ]
+
+
+class SuperInvestorsSettings(_Model):
+    """Fuente del Universo con las mayores posiciones 13F de gestores de calidad y valor (Super Investors de Tortuga). Es una fuente de empresas
+    de calidad para puts (pasa por la barra de calidad del Universo y la calidad mínima de las puts), no apta para spreads."""
+    enabled: bool = True
+    path: str = "data/community/super_investors.json"
+    source_name: str = "SuperInvestors"
+    # slugs de `get_super_investors`: gestores concentrados de calidad y valor (los cuantitativos, activistas y de crecimiento especulativo no)
+    managers: list[str] = ["buffett", "fundsmith", "akre", "sequoia", "yacktman", "pabrai", "himalaya", "russo", "dodgecox", "harris",
+                           "firsteagle", "tweedy", "weitz", "brave", "southeastern"]
+    min_weight_pct: float = Field(2.0, ge=0)   # peso mínimo en la cartera 13F del gestor para contar como posición de convicción
+    min_managers: int = Field(1, ge=1)         # nº mínimo de gestores que la tienen con ese peso
 
 
 class SpreadUniverseSettings(_Model):
@@ -630,6 +667,8 @@ class Settings(_Model):
     community: CommunitySettings = CommunitySettings()
     spread_universe: SpreadUniverseSettings = SpreadUniverseSettings()
     tortuga: TortugaSettings = TortugaSettings()
+    tasty_lists: TastyListsSettings = TastyListsSettings()
+    super_investors: SuperInvestorsSettings = SuperInvestorsSettings()
 
     @property
     def refresh_interval_minutes(self) -> float:

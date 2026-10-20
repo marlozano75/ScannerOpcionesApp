@@ -217,10 +217,10 @@
   <p>
     {% if src in spread_sources %}
     <b title="Sus tickers no pasan los filtros de la empresa: solo liquidez de opciones ≥ {{ spread_cfg.min_option_liquidity }} y precio ≥ {{ spread_cfg.price_min|int }} $. Si solo están en fuentes así, el Scanner los muestra únicamente como spread.">✓ Fuente apta para spreads</b>
-    {% if src != spread_builtin %}
+    {% if src not in spread_builtin %}
     <button class="secondary" type="submit" formaction="/universe/source/spread" name="on" value="0">Dejar de marcarla como apta para spreads</button>
     {% else %}
-    <span class="muted">Es la del radar de Bull Put Spreads de Tortuga; no se puede desmarcar.</span>
+    <span class="muted">La rellena la propia aplicación (radar de Tortuga o lista de tastytrade); no se puede desmarcar.</span>
     {% endif %}
     {% else %}
     <button class="secondary" type="submit" formaction="/universe/source/spread" name="on" value="1"

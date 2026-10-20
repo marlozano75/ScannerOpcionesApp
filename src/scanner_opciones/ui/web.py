@@ -888,7 +888,7 @@ def create_app(
                       qinfos=qinfos, with_quality=with_quality, edgar=bool(service.settings.edgar.contact.strip()),
                       exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors),
                       spread_only=spread_only, spread_sources=service.spread_source_names(),
-                      spread_cfg=sucfg, spread_builtin=service.settings.tortuga.source_name,
+                      spread_cfg=sucfg, spread_builtin=service.spread_builtin_names(),
                       renamable=bool(current) and service.is_renamable_source(current.name),
                       total_rows=total_rows, qform=form, filter_error=filter_error, n_active=n_active, q_presets=q_presets,
                       solvency=solvency_controls(qcfg, form), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
