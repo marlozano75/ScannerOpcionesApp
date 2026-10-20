@@ -637,19 +637,19 @@ def create_app(
             by_ticker.setdefault(s.ticker, []).append(s)
         key_of = lambda t: t.replace(" ", "-")                      # IBKR escribe la clase con espacio (BRK B); el histórico, con guion      # noqa: E731
         closes = service.bars.all_closes({key_of(t) for t in by_ticker}) if by_ticker else {}
-        minis = {t: position_mini(closes.get(key_of(t), []), puts, service.settings.management, today, service.settings.management.chart_weeks,
-                                  puts[0].underlying_price) for t, puts in by_ticker.items()}
-        pos_charts = [dict(ticker=t, chart=position_chart(closes.get(key_of(t), []), puts, service.settings.management, today,
-                                                          service.settings.management.chart_weeks, puts[0].underlying_price),
-                           plans=[(s, exit_plan(s, service.settings.management, today)) for s in puts])
-                      for t, puts in sorted(by_ticker.items())]
+        pkey = lambda s: f"{s.ticker}|{s.expiry.isoformat()}|{s.strike}|{s.long_strike}"      # noqa: E731  (un gráfico por put o spread)
+        mgmt_cfg, weeks_cfg = service.settings.management, service.settings.management.chart_weeks
+        minis = {pkey(s): position_mini(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, weeks_cfg, s.underlying_price) for s in mgmt.puts}
+        pos_charts = [dict(ticker=s.ticker, chart=position_chart(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, weeks_cfg, s.underlying_price),
+                           plans=[(s, exit_plan(s, mgmt_cfg, today))]) for s in mgmt.puts]
+        pc_index = {pkey(s): n for n, s in enumerate(mgmt.puts, 1)}
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
             cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index={pc["ticker"]: n for n, pc in enumerate(pos_charts, 1)}, profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 
