@@ -50,6 +50,7 @@ def bars(values):
 
 async def test_a_ticker_without_the_floor_is_only_scanned_as_a_spread_with_an_uptrend():
     svc, gw = await started_service()
+    object.__setattr__(svc.settings, "spread_universe", svc.settings.spread_universe.model_copy(update={"require_uptrend": True}))   # por defecto está apagado
     crit = svc.criteria().with_filters(strike_below_pct_min=1, strike_below_pct_max=40, min_yield_pct=0, dte_min=1, dte_max=45)
     assert svc.scan(crit).results == []                                  # sin datos de calidad no cumple: ninguna put desnuda
     assert "AAPL" in svc.put_floor_reasons() and "calidad mínima" in svc.scan(crit, include_rejections=True).rejections.popitem()[1]

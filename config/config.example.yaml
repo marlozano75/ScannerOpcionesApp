@@ -218,7 +218,7 @@ community:
 # Fuentes aptas para spreads (la de Tortuga y las que marques a mano en el Universo): sus tickers no pasan los filtros de la empresa (solo
 # liquidez de opciones y precio) y en el Scanner solo salen como spread.
 # scanner.quality.put_floor: {enabled: true, require_profitable: true, min_positive_quarters: 3, require_positive_fcf: true}   # calidad mínima de toda put desnuda
-# spread_universe:  # (require_uptrend / uptrend_ma / uptrend_slope_days: tendencia alcista a largo plazo de lo que solo puede ir como spread)
+# spread_universe:  # (require_uptrend, apagado por defecto / uptrend_ma / uptrend_slope_days: tendencia alcista a largo plazo de lo que solo puede ir como spread)
 #   min_option_liquidity: 3        # liquidez de opciones de tastytrade (1-5)
 #   price_min: 30
 # scanner:
