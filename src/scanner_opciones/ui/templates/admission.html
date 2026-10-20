@@ -6,7 +6,10 @@
   .ad-chip.d { background:#e3ecfb; color:#1f4f9a; } .ad-chip.t { background:#dff3e6; color:#1d6b3f; } .ad-chip.s { background:#fdf0d8; color:#8a5a00; }
   .ad-why { color:var(--mute); font-size:12px; }
   .ad-kpi { display:flex; flex-wrap:wrap; gap:18px; margin:6px 0 10px; } .ad-kpi b { font-size:20px; display:block; }
-  .ad-cfg td, .ad-cfg th { padding:2px 10px; text-align:left; font-size:13px; }
+  .ad-cfg td, .ad-cfg th { padding:4px 10px; text-align:left; font-size:13px; white-space:normal; vertical-align:top; line-height:1.4; }
+  .ad-cfg td:first-child { white-space:nowrap; width:1%; }
+  .ad-chip { white-space:nowrap; line-height:1.5; }
+  .ad-wrap { margin:0; }
 </style>
 <div class="card">
   <h2>Admisión a la Watchlist</h2>
@@ -55,13 +58,13 @@
       <span class="muted">Del Universo y todavía fuera de la Watchlist. Desmarca los que no quieras.</span></p>
     <div class="scroll"><table class="sortable sticky-tk with-sel">
       <tr><th class="sel"><input type="checkbox" checked onclick="document.querySelectorAll('#ad-add input[name=sel]').forEach(function (c) { c.checked = this.checked; }, this)" title="Marcar / desmarcar todas"></th>
-        <th class="tk">Ticker</th><th class="txt">Empresa</th><th class="txt">Cumple</th><th class="txt">Fuentes</th><th class="txt">Lo que falla del otro estilo</th></tr>
+        <th class="tk">Ticker</th><th class="txt">Empresa</th><th class="txt">Cumple</th><th class="wrap">Fuentes</th><th class="wrap">Lo que falla del otro estilo</th></tr>
       <tbody id="ad-add">{% for v in add %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ v.ticker }}" checked></td>
         <td class="tk"><b>{{ v.ticker }}</b></td><td class="txt">{{ ident.get(v.ticker, ('', ''))[0] }}</td>
         <td class="txt">{% for s in v.styles %}<span class="ad-chip {{ 'd' if s == 'Directa' else 't' if s == 'TPC' else 's' }}">{{ s }}</span>{% endfor %}</td>
-        <td class="txt">{{ v.sources|join(', ') }}</td>
-        <td class="txt ad-why">{% if not v.direct %}{% if v.tpc %}TPC: {{ v.tpc }}{% elif v.tasty %}Tastytrade: {{ v.tasty }}{% endif %}{% endif %}</td></tr>
+        <td class="wrap">{{ v.sources|join(', ') }}</td>
+        <td class="wrap ad-why">{% if not v.direct %}{% if v.tpc %}TPC: {{ v.tpc }}{% elif v.tasty %}Tastytrade: {{ v.tasty }}{% endif %}{% endif %}</td></tr>
       {% endfor %}</tbody>
     </table></div>
   </form>
@@ -76,12 +79,12 @@
       <span class="muted">No cumplen ni TPC ni Tastytrade ni vienen de una fuente directa. Los que tienes en cartera aparecen bloqueados.</span></p>
     <div class="scroll"><table class="sortable sticky-tk with-sel">
       <tr><th class="sel"><input type="checkbox" onclick="document.querySelectorAll('#ad-drop input[name=sel]:not(:disabled)').forEach(function (c) { c.checked = this.checked; }, this)" title="Marcar / desmarcar todas"></th>
-        <th class="tk">Ticker</th><th class="txt">Empresa</th><th class="txt">Fuentes</th><th class="txt">TPC: motivo</th><th class="txt">Tastytrade: motivo</th></tr>
+        <th class="tk">Ticker</th><th class="txt">Empresa</th><th class="wrap">Fuentes</th><th class="wrap">TPC: motivo</th><th class="wrap">Tastytrade: motivo</th></tr>
       <tbody id="ad-drop">{% for v in drop %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ v.ticker }}" {{ 'disabled' if v.protected }}></td>
         <td class="tk"><b>{{ v.ticker }}</b>{% if v.protected %} <span class="own" title="Tienes posiciones en este valor: no se quita">EN CARTERA</span>{% endif %}</td>
-        <td class="txt">{{ ident.get(v.ticker, ('', ''))[0] }}</td><td class="txt">{{ v.sources|join(', ') or '—' }}</td>
-        <td class="txt ad-why">{{ v.tpc }}</td><td class="txt ad-why">{{ v.tasty }}</td></tr>
+        <td class="txt">{{ ident.get(v.ticker, ('', ''))[0] }}</td><td class="wrap">{{ v.sources|join(', ') or '—' }}</td>
+        <td class="wrap ad-why">{{ v.tpc }}</td><td class="wrap ad-why">{{ v.tasty }}</td></tr>
       {% endfor %}</tbody>
     </table></div>
   </form>
