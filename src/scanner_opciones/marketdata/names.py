@@ -9,3 +9,10 @@ class CompanyNameProvider(Protocol):
     async def get_company_names(self, tickers: list[str]) -> dict[str, str]:
         """{ticker: nombre}. Los que el proveedor no conoce no aparecen. Lanza `VolatilityError` si falla."""
         ...
+
+
+class ActivityProvider(Protocol):
+    async def get_inactive(self, tickers: list[str]) -> set[str]:
+        """Tickers (de los dados) que el proveedor conoce pero marca como inactivos: deslistados o adquiridos. Los que no conoce no aparecen.
+        Lanza `VolatilityError` si falla."""
+        ...

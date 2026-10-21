@@ -88,6 +88,8 @@ CHART_HISTORY = "chart_history_tickers"   # clave de `meta`: tickers fuera de la
 CHART_HISTORY_MAX = 200
 CHART_HISTORY_TIMEOUT = 25.0   # segundos que espera el gráfico a que se descargue el histórico de un ticker
 POSITION_HISTORY_RETRY_HOURS = 6   # un subyacente de la cartera sin velas en tastytrade no se vuelve a pedir antes
+INACTIVE_CHECKED = "universe_inactive_checked_at"   # clave de `meta`: última vez que se buscaron tickers deslistados en el Universo
+INACTIVE_RECHECK_DAYS = 7
 TASTY_LISTS_CHECKED = "tasty_lists_checked_at"   # clave de `meta`: última lectura de las listas públicas de tastytrade
 TASTY_LIST_PREFIX = "tasty_list_synced_"         # + nombre de la fuente: huella de los tickers ya volcados
 DIRECT_SOURCES = "direct_sources"             # clave de `meta`: fuentes del Universo marcadas a mano como directas (pasan a la Watchlist sin más filtro)
@@ -564,9 +566,71 @@ class AppService:
             except VolatilityError as exc:
                 log.warning("Universo: no se pudo comprobar qué tickers tienen opciones: %s", exc)
                 return None
-            self._has_options.update({t: t in found for t in pending})
+            inactive = await self._inactive(sorted(found))
+            self._has_options.update({t: t in found and t not in inactive for t in pending})
             self.meta.set("universe_options", json.dumps(self._has_options))
         return {t for t in tickers if self._has_options.get(t)}
+
+    async def _inactive(self, tickers: list[str]) -> set[str]:
+        """Tickers que tastytrade marca como inactivos (deslistados o adquiridos; las listas públicas y los ficheros los arrastran). Sin
+        proveedor o si falla, ninguno: no se descarta nada sin poder comprobarlo."""
+        check = getattr(self.names, "get_inactive", None)
+        if check is None or not tickers:
+            return set()
+        try:
+            return set(await check(tickers))
+        except VolatilityError as exc:
+            log.warning("Universo: no se pudo comprobar qué tickers están deslistados: %s", exc)
+            return set()
+
+    def forget_in_universe(self, tickers) -> int:
+        """Marca los tickers como sin opciones (se recuerda) y los quita de las fuentes manuales y de los ficheros cargados; no tocan la watchlist.
+        Devuelve cuántos estaban en alguna fuente."""
+        gone = {t for t in tickers if t}
+        if not gone:
+            return 0
+        present = {r.ticker for src in self.universe_sources for r in src.table.rows}
+        self._has_options.update({t: False for t in gone})
+        self.meta.set("universe_options", json.dumps(self._has_options))
+        changed = False
+        for name in list(self.manual_sources):
+            kept = [t for t in self.manual_sources[name] if clean_ticker(t) not in gone and t not in gone]
+            if len(kept) != len(self.manual_sources[name]):
+                changed = True
+                if kept:
+                    self.manual_sources[name] = kept
+                else:
+                    del self.manual_sources[name]
+        if changed:
+            self._save_manual()
+        for file, (at, srcs) in list(self.universe_files.items()):
+            self.universe_files[file] = (at, tuple(self._prune(list(srcs))))
+        self.state.data_version += 1
+        return len(gone & present)
+
+    async def purge_inactive(self, force: bool = False) -> int:
+        """Quita del Universo los tickers que tastytrade marca como inactivos (deslistados o adquiridos). Se repite cada `INACTIVE_RECHECK_DAYS`
+        días: un valor puede dejar de cotizar con el tiempo. Devuelve cuántos quitó."""
+        if self.names is None or getattr(self.names, "get_inactive", None) is None:
+            return 0
+        now = self.now()
+        last = self.meta.get(INACTIVE_CHECKED)
+        try:
+            if not force and last and (now - datetime.fromisoformat(last)).days < INACTIVE_RECHECK_DAYS:
+                return 0
+        except ValueError:
+            pass
+        tickers = sorted({r.ticker for src in self.universe_sources for r in src.table.rows})
+        try:
+            inactive = await self.names.get_inactive(tickers)
+        except VolatilityError as exc:
+            log.warning("Universo: no se pudo comprobar qué tickers están deslistados: %s", exc)
+            return 0
+        self.meta.set(INACTIVE_CHECKED, now.isoformat())
+        removed = self.forget_in_universe(inactive)
+        if inactive:
+            log.info("Universo: %d tickers deslistados quitados de las fuentes (%s)", removed, ", ".join(sorted(inactive)))
+        return removed
 
     def _load_options_map(self) -> dict[str, bool]:
         try:
@@ -796,6 +860,7 @@ class AppService:
             self.remove_ticker(ticker)
             self.excluded_notice[ticker] = reason
             log.warning("%s excluido de la watchlist: %s", ticker, reason)
+        self.forget_in_universe(report.unsupported)     # tampoco se vuelve a ofrecer desde las fuentes del Universo
         return list(report.unsupported)
 
     def dismiss_excluded_notice(self) -> None:
@@ -1480,6 +1545,7 @@ class AppService:
         out: dict[str, int] = {}
         if self.watchlists is None:
             return out
+        await self.purge_inactive()      # antes de volcar: las listas públicas arrastran valores deslistados
         for src in self.settings.tasty_lists.sources:
             try:
                 tickers = await self.watchlists.get_public_watchlist(src.list)

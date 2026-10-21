@@ -535,6 +535,21 @@ class TastytradeVolatility:
                     out[names[item.symbol]] = text
         return out
 
+    async def get_inactive(self, tickers: list[str]) -> set[str]:
+        """Tickers cuyo instrumento está inactivo en tastytrade (`Equity.active` falso: deslistados, adquiridos, pasados a OTC)."""
+        names = {tasty_symbol(t): t for t in tickers}
+        symbols = list(names)
+        out: set[str] = set()
+        for i in range(0, len(symbols), BATCH_SIZE):
+            batch = symbols[i:i + BATCH_SIZE]
+            try:
+                items = await self._sdk_fetch_equities(batch)
+            except Exception as exc:   # el SDK lanza tipos variados (red, autenticación, formato)
+                self._session = None
+                raise VolatilityError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
+            out.update(names[item.symbol] for item in items if item.symbol in names and getattr(item, "active", True) is False)
+        return out
+
     async def get_iv_metrics(self, tickers: list[str]) -> dict[str, IVMetrics]:
         names = {tasty_symbol(t): t for t in tickers}          # «PBR-A» -> «PBR/A»; el resultado vuelve con el ticker de la app
         symbols = list(names)
