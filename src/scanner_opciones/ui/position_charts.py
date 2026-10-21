@@ -11,7 +11,8 @@ from typing import Optional, Sequence
 from markupsafe import Markup
 
 from scanner_opciones.config.settings import ManagementSettings
-from scanner_opciones.portfolio.management import TASTYTRADE, PutStatus
+from scanner_opciones.portfolio.exits import defaults as style_rules
+from scanner_opciones.portfolio.management import PutStatus
 from scanner_opciones.ui.viz import _e, _scale, empty, nice_ticks
 
 W, H = 560, 250
@@ -22,25 +23,33 @@ SOLD, BOUGHT, EXPIRY, REVIEW = "var(--red)", "var(--grey)", "var(--ink)", "var(-
 
 @dataclass(frozen=True)
 class Exit:
-    """Qué toca hacer con una put según su perfil de gestión (para la leyenda bajo el gráfico)."""
+    """Qué toca hacer con una put según la estrategia de salida de su perfil (para la leyenda bajo el gráfico)."""
     text: str
     review_date: Optional[date] = None
     days_to_review: Optional[int] = None
-    is_review: bool = False              # True: se gestiona con Tastytrade y toca revisarla; False (TPC): la fecha es solo una referencia
+    is_review: bool = False              # True: la estrategia revisa a N DTE y toca revisarla; False (mantener): la fecha es solo una referencia
+    dte: int = 21                        # DTE de la fecha dibujada (el de revisión o, si no se revisa, el de referencia de `management.review_dte`)
 
 
 def exit_plan(s: PutStatus, cfg: ManagementSettings, today: date) -> Exit:
-    """Estrategia de salida: Tastytrade recoge al `take_profit_pct` de la prima y revisa a `review_dte` DTE; TPC mantiene hasta el vencimiento."""
-    review = s.expiry - timedelta(days=cfg.review_dte)
+    """Estrategia de salida del perfil de la put: recoger al `take_profit_pct` y revisar a `review_dte` DTE, o mantener hasta el vencimiento
+    (con la fecha de `management.review_dte` solo como referencia)."""
+    r = s.rules or style_rules(s.profile, cfg)
+    dte = r.review_dte if r.review_dte is not None else cfg.review_dte
+    review = s.expiry - timedelta(days=dte)
     left = (review - today).days
-    if s.profile != TASTYTRADE:       # TPC no revisa: la fecha es solo una referencia
-        ref = f"referencia a {cfg.review_dte} DTE el {review:%d/%m} (faltan {left} días)" if left > 0 else f"ya dentro de los {cfg.review_dte} DTE"
-        return Exit(f"TPC: mantener hasta el vencimiento ({ref})", review, left, False)
-    if s.captured_pct is not None and s.captured_pct >= cfg.take_profit_pct:
-        return Exit(f"objetivo del {cfg.take_profit_pct:g} % alcanzado ({s.captured_pct:.0f} %): recoger beneficios", review, left, True)
+    if r.review_dte is None:          # no revisa: la fecha es solo una referencia
+        ref = f"referencia a {dte} DTE el {review:%d/%m} (faltan {left} días)" if left > 0 else f"ya dentro de los {dte} DTE"
+        hit = r.take_profit_pct is not None and s.captured_pct is not None and s.captured_pct >= r.take_profit_pct
+        if hit:
+            return Exit(f"objetivo del {r.take_profit_pct:g} % alcanzado ({s.captured_pct:.0f} %): recoger beneficios", review, left, False, dte)
+        return Exit(f"mantener hasta el vencimiento ({ref})", review, left, False, dte)
+    if r.take_profit_pct is not None and s.captured_pct is not None and s.captured_pct >= r.take_profit_pct:
+        return Exit(f"objetivo del {r.take_profit_pct:g} % alcanzado ({s.captured_pct:.0f} %): recoger beneficios", review, left, True, dte)
+    goal = f" si no se ha llegado al {r.take_profit_pct:g} %" if r.take_profit_pct is not None else ""
     if left > 0:
-        return Exit(f"revisar el {review:%d/%m} (a {cfg.review_dte} DTE): faltan {left} días", review, left, True)
-    return Exit(f"en zona de revisión (≤ {cfg.review_dte} DTE): cerrar o rolar si no se ha llegado al {cfg.take_profit_pct:g} %", review, left, True)
+        return Exit(f"revisar el {review:%d/%m} (a {dte} DTE): faltan {left} días", review, left, True, dte)
+    return Exit(f"en zona de revisión (≤ {dte} DTE): cerrar o rolar{goal}", review, left, True, dte)
 
 
 def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatus], cfg: ManagementSettings, today: date, weeks: int = 10,
@@ -116,9 +125,9 @@ def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatu
         marks.append((exp, f"venc. {exp:%d/%m} · {(exp - today).days} d", EXPIRY, f"{exp:%d/%m/%Y}|Vencimiento|quedan {(exp - today).days} días"))
     for (rd, exp), plan in sorted(reviews.items()):
         if plan.days_to_review is not None and plan.days_to_review > 0:
-            marks.append((rd, f"{'revisar' if plan.is_review else f'{cfg.review_dte} DTE'} {rd:%d/%m} · en {plan.days_to_review} d", REVIEW, f"{rd:%d/%m/%Y}|Revisión a {cfg.review_dte} DTE|faltan {plan.days_to_review} días"))
+            marks.append((rd, f"{'revisar' if plan.is_review else f'{plan.dte} DTE'} {rd:%d/%m} · en {plan.days_to_review} d", REVIEW, f"{rd:%d/%m/%Y}|Revisión a {plan.dte} DTE|faltan {plan.days_to_review} días"))
         elif plan.days_to_review is not None and exp >= today:
-            marks.append((today, "en zona de revisión" if plan.is_review else f"dentro de {cfg.review_dte} DTE", REVIEW, f"{rd:%d/%m/%Y}|Revisión a {cfg.review_dte} DTE|ya toca (venc. {exp:%d/%m})"))
+            marks.append((today, "en zona de revisión" if plan.is_review else f"dentro de {plan.dte} DTE", REVIEW, f"{rd:%d/%m/%Y}|Revisión a {plan.dte} DTE|ya toca (venc. {exp:%d/%m})"))
     row_ends: list[float] = []                                                         # etiquetas en filas: una cercana a otra va a la fila siguiente
     for d, text, color, tip in sorted(marks):
         if d < start:

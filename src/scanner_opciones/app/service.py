@@ -2030,6 +2030,11 @@ class AppService:
         style = {p.name: p.management for p in self.scanner_profiles()}
         return {key: style.get(name, "tastytrade") for key, name in self.put_assignments().items()}
 
+    def put_exit_rules(self) -> dict:
+        """Estrategia de salida (`portfolio.exits.ExitRules`) de cada put vendida, la de su perfil."""
+        rules = {p.name: p.exit_rules(self.settings.management) for p in self.scanner_profiles()}
+        return {key: rules[name] for key, name in self.put_assignments().items() if name in rules}
+
     def record_today_prices(self) -> int:
         """Guarda el último precio de cada ticker como cierre provisional de la sesión de hoy en el histórico (lo
         sustituye el cierre oficial al día siguiente). Solo si hoy hay sesión y el precio es de hoy. Devuelve

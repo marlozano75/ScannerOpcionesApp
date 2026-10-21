@@ -18,6 +18,7 @@ from scanner_opciones.config.settings import ManagementSettings
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import Position
 from scanner_opciones.portfolio.diversification import nominal as nominal_of
+from scanner_opciones.portfolio.exits import ExitRules, defaults as style_rules
 from scanner_opciones.portfolio.spreads import with_spreads
 
 
@@ -58,6 +59,7 @@ class PutStatus:
     margin: Optional[float] = None       # margen comprometido en $ (todos los contratos): what-if guardado (put desnuda) o pérdida máxima (spread)
     margin_exact: bool = False           # False = estimado con el what-if de una put nueva, no con el margen real de IBKR
     assign_note: str = ""                # cómo se reconoció el perfil de la posición (por los filtros al abrir o a mano)
+    rules: Optional[ExitRules] = None    # estrategia de salida aplicada (la del perfil; None = la del estilo `profile`)
 
 
 @dataclass(frozen=True)
@@ -99,7 +101,8 @@ def committed_margin(p: Position, entry: Optional[float], contracts: int, what_i
 
 
 def put_status(p: Position, today: date, underlying: Optional[float], cfg: ManagementSettings, profile: str = TASTYTRADE,
-               what_if_margin: Optional[float] = None) -> PutStatus:
+               what_if_margin: Optional[float] = None, rules: Optional[ExitRules] = None) -> PutStatus:
+    """`rules`: estrategia de salida del perfil de la put; sin ella, la del estilo `profile` (tastytrade | tpc) con los valores de `cfg`."""
     o = p.option
     contracts = int(abs(p.quantity))
     dte = (o.expiry - today).days
@@ -107,48 +110,49 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
     current = abs(p.market_value) / per_share if per_share else None
     entry = abs(p.avg_cost) / o.multiplier if p.avg_cost else None
     captured = (entry - current) / entry * 100 if entry and current is not None else None
+    r = rules or style_rules(profile, cfg)
     alerts: list[Alert] = []
-    tpc = profile == TPC
-    if tpc:
-        if captured is not None and captured >= cfg.tpc_close_capture_pct:
-            alerts.append(Alert("info", f"Casi toda la prima ganada ({captured:.0f} %): puedes cerrarla y liberar la obligación o mantenerla hasta el vencimiento."))
-    elif captured is not None and captured >= cfg.take_profit_pct:
-        rango = f"{cfg.take_profit_pct:g}–{cfg.take_profit_max_pct:g} %"
-        extra = " Ya supera el rango: no esperes más." if captured > cfg.take_profit_max_pct else ""
+    if r.take_profit_pct is not None and captured is not None and captured >= r.take_profit_pct:
+        rango = f"{r.take_profit_pct:g}–{r.take_profit_max_pct:g} %" if r.take_profit_max_pct else f"{r.take_profit_pct:g} %"
+        extra = " Ya supera el rango: no esperes más." if r.take_profit_max_pct and captured > r.take_profit_max_pct else ""
         alerts.append(Alert("ok", f"Recoger beneficios: {captured:.0f} % de la prima ganada (objetivo {rango}).{extra}"))
-    elif 0 <= dte <= cfg.review_dte:
+    elif r.close_capture_pct is not None and captured is not None and captured >= r.close_capture_pct:
+        alerts.append(Alert("info", f"Casi toda la prima ganada ({captured:.0f} %): puedes cerrarla y liberar la obligación o mantenerla hasta el vencimiento."))
+    elif r.review_dte is not None and 0 <= dte <= r.review_dte:
         got = "sin dato de la prima" if captured is None else f"{captured:.0f} % de la prima ganada"
-        alerts.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {cfg.review_dte}) y no se ha llegado al {cfg.take_profit_pct:g} % "
+        goal = f" y no se ha llegado al {r.take_profit_pct:g} %" if r.take_profit_pct is not None else ""
+        alerts.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {r.review_dte}){goal} "
                                     f"({got}). Cerrarla o rolarla a un vencimiento posterior cobrando crédito."))
     if captured is not None and captured < 0:
         alerts.append(Alert("info", "En pérdida: recomprarla cuesta más que la prima cobrada."))
     spread = p.hedge_strike is not None
-    if spread and not tpc and entry and current is not None and current >= cfg.spread_stop_value_multiple * entry:
-        alerts.append(Alert("warn", f"Stop: el spread vale {current / entry:.1f} veces el crédito cobrado (límite {cfg.spread_stop_value_multiple:g}×): "
+    if spread and r.stop_multiple is not None and entry and current is not None and current >= r.stop_multiple * entry:
+        alerts.append(Alert("warn", f"Stop: el spread vale {current / entry:.1f} veces el crédito cobrado (límite {r.stop_multiple:g}×): "
                                     "la pérdida ya iguala o supera el crédito. Valora cerrarlo."))
-    if spread and underlying is not None and 0 <= dte <= cfg.pin_dte and underlying <= o.strike * (1 + cfg.pin_buffer_pct / 100):
-        alerts.append(Alert("warn", f"Riesgo de pin: quedan {dte} días y el precio ({underlying:.2f}) está a ≤ {cfg.pin_buffer_pct:g} % del strike vendido "
+    if spread and underlying is not None and 0 <= dte <= r.pin_dte and underlying <= o.strike * (1 + r.pin_buffer_pct / 100):
+        alerts.append(Alert("warn", f"Riesgo de pin: quedan {dte} días y el precio ({underlying:.2f}) está a ≤ {r.pin_buffer_pct:g} % del strike vendido "
                                     f"({o.strike:g}). Cerrarlo antes del vencimiento evita una asignación parcial."))
     if underlying is not None:
         if p.hedge_strike is not None and underlying <= p.hedge_strike:
             alerts.append(Alert("warn", f"Pérdida máxima: el precio ({underlying:.2f}) está por debajo de la put comprada ({p.hedge_strike:g}); "
                                         f"el spread ya vale su ancho ({o.strike - p.hedge_strike:g})."))
         elif underlying <= o.strike:
-            todo = ("Método TPC: no se rola; si te asignan, reevalúa la tesis y valora vender calls." if tpc
+            todo = ("Mantener sin rolar: no se rola; si te asignan, reevalúa la tesis y valora vender calls." if r.itm_action == "hold"
                     else "Valora cerrar antes que esperar la asignación.")
             alerts.append(Alert("warn", f"En el dinero: el precio ({underlying:.2f}) está por debajo del strike. {todo}"))
         elif (underlying - o.strike) / underlying * 100 < cfg.near_strike_pct:
             alerts.append(Alert("info", f"El precio ({underlying:g}) está a menos de {cfg.near_strike_pct:g} % del strike."))
     return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts), p.hedge_strike,
-                     profile, put_key(p), margin=committed_margin(p, entry, contracts, what_if_margin), margin_exact=spread)
+                     profile, put_key(p), margin=committed_margin(p, entry, contracts, what_if_margin), margin_exact=spread, rules=r)
 
 
 def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[float], cfg: ManagementSettings,
-                   profiles: Optional[dict[str, str]] = None) -> list[TickerWeight]:
+                   profiles: Optional[dict[str, str]] = None, rules: Optional[dict[str, ExitRules]] = None) -> list[TickerWeight]:
     """Peso sobre el NLV de cada acción con puts vendidas: acciones que ya tienes + lo que comprarías si te asignan todo.
-    Los umbrales son los de TPC (más holgados) solo si TODAS las puts de la acción se gestionan con TPC."""
+    Los umbrales son los de la estrategia de salida de cada put; si la acción tiene varias, los más estrictos (los holgados de TPC solo
+    valen si TODAS las puts de la acción se gestionan con ellos)."""
     puts = _short_puts(positions)
-    profiles = profiles or {}
+    profiles, rules = profiles or {}, rules or {}
     out = []
     for ticker in sorted({p.ticker for p in puts}):
         stock = sum(p.market_value for p in positions if p.ticker == ticker and p.option is None and p.quantity > 0)
@@ -156,8 +160,8 @@ def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[floa
         nominal = sum(nominal_of(p) for p in mine)       # en un spread, su ancho: la put comprada limita lo que compras
         total = stock + nominal
         pct = total / net_liquidation * 100 if net_liquidation and net_liquidation > 0 else None
-        tpc = all(profiles.get(put_key(p), cfg.default_profile) == TPC for p in mine)
-        warn, top = (cfg.tpc_warn_position_pct, cfg.tpc_max_position_pct) if tpc else (cfg.warn_position_pct, cfg.max_position_pct)
+        mine_rules = [rules.get(put_key(p)) or style_rules(profiles.get(put_key(p), cfg.default_profile), cfg) for p in mine]
+        warn, top = min(r.warn_position_pct for r in mine_rules), min(r.max_position_pct for r in mine_rules)
         level = None if pct is None else ("warn" if pct > top else "info" if pct > warn else None)
         out.append(TickerWeight(ticker, stock, nominal, total, pct, level, int(sum(abs(p.quantity) for p in mine))))
     return sorted(out, key=lambda w: -(w.pct_nlv if w.pct_nlv is not None else -1))
@@ -179,18 +183,19 @@ def manage_puts(
     positions: Sequence[Position], net_liquidation: Optional[float], today: date,
     prices: dict[str, Optional[float]], cfg: ManagementSettings, profiles: Optional[dict[str, str]] = None,
     assigned: Optional[dict[str, str]] = None, opened: Optional[dict[str, tuple[date, bool]]] = None,
-    margins: Optional[dict[str, float]] = None, notes: Optional[dict[str, str]] = None,
+    margins: Optional[dict[str, float]] = None, notes: Optional[dict[str, str]] = None, rules: Optional[dict[str, ExitRules]] = None,
 ) -> ManagementReport:
     """`profiles`: perfil de gestión elegido por put (`put_key`); las que no están usan `cfg.default_profile`.
+    `rules`: estrategia de salida de cada put (`put_key`, la de su perfil); las que no están usan la del estilo.
     `margins`: margen what-if guardado por contrato de cada put desnuda (`put_key`); en un spread el margen es su pérdida máxima."""
     positions = with_spreads(positions)     # cada spread es una sola fila: prima y valor netos, riesgo = ancho
     profiles = profiles or {}
-    assigned, opened, margins, notes = assigned or {}, opened or {}, margins or {}, notes or {}
-    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile), margins.get(put_key(p))),
+    assigned, opened, margins, notes, rules = assigned or {}, opened or {}, margins or {}, notes or {}, rules or {}
+    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile), margins.get(put_key(p)), rules.get(put_key(p))),
                            assigned=assigned.get(put_key(p), ""), assign_note=notes.get(put_key(p), ""), opened=opened.get(put_key(p), (None, False))[0],
                            opened_exact=opened.get(put_key(p), (None, False))[1])
                    for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))
-    weights = ticker_weights(positions, net_liquidation, cfg, profiles)
+    weights = ticker_weights(positions, net_liquidation, cfg, profiles, rules)
     total = open_risk(positions)
     risk_pct = total / net_liquidation * 100 if net_liquidation and net_liquidation > 0 and total > 0 else None
     risk_level = "warn" if risk_pct is not None and risk_pct > cfg.max_total_risk_pct else None

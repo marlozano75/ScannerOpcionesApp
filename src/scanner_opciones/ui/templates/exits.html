@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Estrategias de salida{% endblock %}
+{% block content %}
+<style>
+  .ex-lead { margin:0 0 12px; font-size:13px; }
+  .ex-card { border:1px solid var(--line); border-left-width:5px; border-radius:10px; margin:12px 0; padding:12px 16px; }
+  .ex-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 16px; margin-bottom:6px; }
+  .ex-head h3 { margin:0; }
+  .ex-cols { display:flex; flex-wrap:wrap; gap:16px 40px; }
+  .ex-desc { flex:1 1 360px; max-width:560px; }
+  .ex-desc ul { margin:6px 0 0; padding-left:18px; font-size:13px; line-height:1.5; }
+  .ex-form { flex:0 1 auto; }
+  .ex-grid { display:grid; grid-template-columns:auto 84px; gap:6px 12px; align-items:center; font-size:13px; }
+  .ex-grid label { white-space:nowrap; cursor:help; }
+  .ex-grid input, .ex-grid select { padding:3px 8px; min-height:0; height:28px; box-sizing:border-box; width:100%; }
+  .ex-grid .chg { color:var(--amber); font-weight:700; }
+  .ex-grid .unit { color:var(--mute); font-size:12px; }
+  .ex-actions { display:flex; gap:10px; align-items:center; margin-top:12px; }
+  .ex-actions button { width:auto; }
+  .ex-card .tag { font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); }
+</style>
+<div class="card">
+  <h2>Estrategias de salida por perfil</h2>
+  <p class="ex-lead muted">Cada perfil del Scanner tiene su estrategia de salida: cuándo recoger beneficios, cuándo revisar o rolar, el stop de los spreads y el peso por acción.
+    El Panel la aplica a las puts de ese perfil (avisos orientativos, nunca órdenes). Un perfil parte de un <b>estilo base</b>
+    (Tastytrade: recoger al 50 %, revisar a 21 DTE · TPC: mantener hasta el vencimiento) y aquí solo se guarda lo que cambias; deja un campo vacío para apagar esa regla.
+    Los filtros de entrada se editan en el <a href="/scanner">Scanner</a>; los nombres, colores e instrumentos, en <a href="/scanner/config">Perfiles</a>.</p>
+  {% if ok %}<div class="banner ok">{{ ok }}</div>{% endif %}
+  {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
+  <form method="post" action="/exits/save">
+    <input type="hidden" name="n_profiles" value="{{ cards|length }}">
+    {% for c in cards %}{% set i = loop.index0 %}{% set p = c.profile %}
+    <section class="ex-card" id="pf{{ i }}" style="{{ 'border-left-color:' ~ p.color if p.color }}">
+      <div class="ex-head">
+        <h3>{{ p.name }}</h3>
+        <span class="tag">{{ 'put' if p.instruments == ('put',) else 'spread' if p.instruments == ('spread',) else 'put y spread' }}</span>
+        <span class="muted" style="font-size:12px">{{ c.open_puts }} {{ 'posición abierta' if c.open_puts == 1 else 'posiciones abiertas' }} en el Panel</span>
+        <span class="muted" style="font-size:12px">{% if c.changed %}personalizada ({{ c.changed|length }} {{ 'cambio' if c.changed|length == 1 else 'cambios' }} sobre el estilo){% else %}valores del estilo{% endif %}</span>
+      </div>
+      <div class="ex-cols">
+        <div class="ex-desc">
+          <b style="font-size:13px">Qué hace</b>
+          <ul>{% for t in c.text %}<li>{{ t }}</li>{% endfor %}</ul>
+        </div>
+        <div class="ex-form">
+          <div class="ex-grid">
+            <label title="Punto de partida de las reglas. Cambiarlo y guardar descarta los cambios de este perfil y carga los valores del estilo.">Estilo base</label>
+            <select name="pf{{ i }}_style">
+              <option value="tastytrade" {{ 'selected' if p.management == 'tastytrade' }}>Tastytrade</option>
+              <option value="tpc" {{ 'selected' if p.management == 'tpc' }}>TPC</option>
+            </select>
+            {% for key, label, kind, nullable, help in fields %}
+            {% set v = c.rules|attr(key) %}{% set b = c.base|attr(key) %}
+            <label title="{{ help }}" class="{{ 'chg' if key in c.changed }}">{{ label }}</label>
+            <input type="text" inputmode="decimal" name="pf{{ i }}_{{ key }}" value="{{ '' if v is none else ('%g' % v) }}" placeholder="{{ 'apagado' if nullable else '' }}"
+                   title="{{ help }} Estilo base: {{ 'apagado' if b is none else ('%g' % b) }}">
+            {% endfor %}
+            <label title="Qué se aconseja cuando el precio queda por debajo del strike vendido." class="{{ 'chg' if 'itm_action' in c.changed }}">En el dinero</label>
+            <select name="pf{{ i }}_itm_action">
+              <option value="close" {{ 'selected' if c.rules.itm_action == 'close' }}>Valorar cerrar</option>
+              <option value="hold" {{ 'selected' if c.rules.itm_action == 'hold' }}>Mantener, no rolar</option>
+            </select>
+          </div>
+          {% if c.changed %}<label style="font-size:12px;display:block;margin-top:8px"><input type="checkbox" name="pf{{ i }}_reset"> Restaurar los valores del estilo</label>{% endif %}
+        </div>
+      </div>
+    </section>
+    {% endfor %}
+    <div class="ex-actions"><button type="submit">Guardar estrategias de salida</button>
+      <span class="muted" style="font-size:12px">Los campos en ámbar difieren del estilo base. El perfil «Tortuga» agrupa las puts que no encajan por DTE.</span></div>
+  </form>
+</div>
+{% endblock %}

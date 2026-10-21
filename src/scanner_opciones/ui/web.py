@@ -29,6 +29,7 @@ from scanner_opciones.community.ideas import idea_key
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
+from scanner_opciones.portfolio import exits as exits_mod
 from scanner_opciones.portfolio.management import manage_puts
 from scanner_opciones.ui.position_charts import exit_plan, position_chart, position_mini
 from scanner_opciones.scanner.engine import ScanOutput
@@ -630,7 +631,7 @@ def create_app(
         mgmt = manage_puts(service.state.positions, nlv, service.now().date(),
                            {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
                            service.put_management(), service.put_assignments(), service.put_open_dates(), service.put_margins(),
-                           service.put_assignment_notes())
+                           service.put_assignment_notes(), service.put_exit_rules())
         today = service.now().date()
         by_ticker: dict[str, list] = {}
         for s in mgmt.puts:
@@ -1410,7 +1411,7 @@ def create_app(
             instruments = tuple(k for k in ("put", "spread") if form.get(f"pf{i}_{k}"))
             name = orig.name if orig.name == FALLBACK_PROFILE else str(form.get(f"pf{i}_name", ""))     # «Tortuga» no se renombra ni se borra
             color = str(form.get(f"pf{i}_color", orig.color)) if form.get(f"pf{i}_usecolor") else ""
-            kept = Profile(name, instruments, orig.put, orig.spread, str(form.get(f"pf{i}_mgmt", orig.management)), color)
+            kept = Profile(name, instruments, orig.put, orig.spread, orig.management, color, orig.exits)
             try:
                 order = float(str(form.get(f"pf{i}_order", "")).replace(",", "."))
             except ValueError:
@@ -1431,6 +1432,62 @@ def create_app(
             return RedirectResponse("/scanner/config?" + urlencode({"error": str(exc)}), status_code=303)
         remembered.pop("scanner", None)
         return RedirectResponse("/scanner/config?" + urlencode({"ok": "Perfiles guardados."}), status_code=303)
+
+    # ---- estrategias de salida por perfil ------------------------------------------------------
+    @app.get("/exits", response_class=HTMLResponse)
+    async def exits_page(request: Request, ok: str = "", error: str = ""):
+        cfg = service.settings.management
+        profiles, _ = get_profiles()
+        open_puts: dict[str, int] = {}
+        for name in service.put_assignments().values():
+            open_puts[name] = open_puts.get(name, 0) + 1
+        cards = []
+        for p in profiles:
+            rules = p.exit_rules(cfg)
+            cards.append(dict(profile=p, rules=rules, base=exits_mod.defaults(p.management, cfg), changed=set(p.exits),
+                              text=exits_mod.describe(rules), open_puts=open_puts.get(p.name, 0)))
+        return render(request, "exits.html", cards=cards, fields=exits_mod.FIELDS, ok=ok, error=error)
+
+    @app.post("/exits/save")
+    async def exits_save(request: Request):
+        """Guarda la estrategia de salida de cada perfil: solo lo que cambia respecto a su estilo base. Cambiar el estilo (o «Restaurar») vuelve a los
+        valores del estilo."""
+        form = await request.form()
+        cfg = service.settings.management
+        profiles, default = get_profiles()
+        try:
+            if int(form.get("n_profiles", -1) or -1) != len(profiles):
+                raise ValueError("Los perfiles han cambiado: recarga la página antes de guardar.")
+            out = []
+            for i, orig in enumerate(profiles):
+                style = str(form.get(f"pf{i}_style", orig.management))
+                if style not in exits_mod.STYLES:
+                    raise ValueError(f"«{orig.name}»: estilo no válido")
+                if form.get(f"pf{i}_reset") or style != orig.management:
+                    out.append(replace(orig, management=style, exits={}))
+                    continue
+                current, vals = orig.exit_rules(cfg), {}
+                for key, label, kind, nullable, _ in exits_mod.FIELDS:
+                    if f"pf{i}_{key}" not in form:
+                        continue
+                    raw = str(form.get(f"pf{i}_{key}", "")).strip()
+                    if not raw:
+                        if not nullable:
+                            raise ValueError(f"«{orig.name}» · {label}: es obligatorio")
+                        vals[key] = None
+                    else:
+                        vals[key] = _read_num(raw, int if kind == "int" else float, f"«{orig.name}» · {label}")
+                if f"pf{i}_itm_action" in form:
+                    vals["itm_action"] = str(form.get(f"pf{i}_itm_action"))
+                try:
+                    rules = exits_mod.validate(replace(current, **vals))
+                except ValueError as exc:
+                    raise ValueError(f"«{orig.name}»: {exc}") from None
+                out.append(replace(orig, exits=exits_mod.overrides_of(style, rules, cfg)))
+            service.save_profiles(out, default)
+        except ValueError as exc:
+            return RedirectResponse("/exits?" + urlencode({"error": str(exc)}), status_code=303)
+        return RedirectResponse("/exits?" + urlencode({"ok": "Estrategias de salida guardadas."}), status_code=303)
 
     @app.post("/scanner/profiles/reset")
     async def scanner_profiles_reset():

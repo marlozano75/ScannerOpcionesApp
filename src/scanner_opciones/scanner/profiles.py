@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Optional
 
+from scanner_opciones.portfolio import exits as exits_mod
+
 INSTRUMENTS = ("put", "spread")
 # claves de la URL que no son filtros de un perfil (navegación, estado de la página o identidad del perfil)
 NOT_FILTERS = frozenset(("profile", "reset", "debug", "message", "submitted", "mode", "set"))
@@ -24,6 +26,11 @@ class Profile:
     spread: dict = field(default_factory=dict)    # ... y del de spread
     management: str = "tastytrade"                # reglas con las que se gestionan en el Panel las puts de este perfil: tastytrade | tpc
     color: str = ""                               # color del botón del perfil y de su etiqueta en el Panel (#rrggbb; vacío = sin color)
+    exits: dict = field(default_factory=dict)     # estrategia de salida: solo lo que cambia respecto al estilo `management` (`portfolio.exits`)
+
+    def exit_rules(self, cfg) -> exits_mod.ExitRules:
+        """Estrategia de salida efectiva: la del estilo de gestión con los cambios de este perfil."""
+        return exits_mod.resolve(self.management, self.exits, cfg)
 
     @property
     def mode(self) -> str:
@@ -52,7 +59,7 @@ class Profile:
 
     def to_dict(self) -> dict:
         return {"name": self.name, "instruments": list(self.instruments), "put": self.put, "spread": self.spread, "management": self.management,
-                "color": self.color}
+                "color": self.color, "exits": self.exits}
 
 
 def validate_profile(p: Profile) -> Profile:
@@ -90,7 +97,8 @@ def load(raw: str) -> Optional[tuple[list[Profile], str]]:
     try:
         data = json.loads(raw)
         profiles = [Profile(d["name"], tuple(d["instruments"]), {str(k): str(v) for k, v in d["put"].items()},
-                            {str(k): str(v) for k, v in d["spread"].items()}, d.get("management", "tastytrade"), d.get("color", "")) for d in data["profiles"]]
+                            {str(k): str(v) for k, v in d["spread"].items()}, d.get("management", "tastytrade"), d.get("color", ""),
+                            exits_mod.check_overrides(d.get("exits") or {})) for d in data["profiles"]]
         return validate_profiles(profiles, data.get("default"))
     except Exception:
         return None
