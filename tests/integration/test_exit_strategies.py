@@ -63,3 +63,9 @@ def test_put_status_uses_the_profile_rules():
     rules = exits.resolve("tastytrade", {"take_profit_pct": 80.0}, CFG)
     assert "Recoger beneficios" not in alerts(put_status(half, TODAY, 100.0, CFG, rules=rules)).get("ok", "")
     assert "Recoger beneficios" in alerts(put_status(half, TODAY, 100.0, CFG))["ok"]
+
+
+def test_the_style_script_is_in_the_page_body_not_in_the_title(client_and_service):
+    page = client_and_service[0].get("/exits").text
+    assert "<title>Estrategias de salida" in page and "<script id=\"ex-defaults\"" not in page.split("</title>")[0]
+    assert page.index('id="ex-defaults"') > page.index("</title>")
