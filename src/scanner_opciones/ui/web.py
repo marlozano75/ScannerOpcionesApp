@@ -1446,7 +1446,8 @@ def create_app(
             rules = p.exit_rules(cfg)
             cards.append(dict(profile=p, rules=rules, base=exits_mod.defaults(p.management, cfg), changed=set(p.exits),
                               text=exits_mod.describe(rules), open_puts=open_puts.get(p.name, 0)))
-        return render(request, "exits.html", cards=cards, fields=exits_mod.FIELDS, ok=ok, error=error)
+        style_defaults = {st: {k: getattr(exits_mod.defaults(st, cfg), k) for k in exits_mod.KEYS} for st in exits_mod.STYLES}
+        return render(request, "exits.html", cards=cards, fields=exits_mod.FIELDS, ok=ok, error=error, style_defaults=style_defaults)
 
     @app.post("/exits/save")
     async def exits_save(request: Request):
