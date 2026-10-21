@@ -40,7 +40,7 @@
       <div class="ex-cols">
         <div class="ex-desc">
           <b style="font-size:13px">Qué hace</b>
-          <ul>{% for t in c.text %}<li>{{ t }}</li>{% endfor %}</ul>
+          <ul class="ex-text">{% for t in c.text %}<li>{{ t }}</li>{% endfor %}</ul>
         </div>
         <div class="ex-form">
           <div class="ex-grid">
@@ -70,11 +70,11 @@
       <span class="muted" style="font-size:12px">Los campos en ámbar difieren del estilo base. El perfil «Tortuga» agrupa las puts que no encajan por DTE.</span></div>
   </form>
 </div>
-<script id="ex-defaults" type="application/json">{{ style_defaults|tojson }}</script>
+<script id="ex-defaults" type="application/json">{{ {"values": style_defaults, "text": style_text}|tojson }}</script>
 <script>
   // Al cambiar el estilo base se cargan en el acto los valores de ese estilo (al guardar, el servidor también descarta los cambios del perfil).
   (function () {
-    var defs = JSON.parse(document.getElementById("ex-defaults").textContent);
+    var data = JSON.parse(document.getElementById("ex-defaults").textContent), defs = data.values;
     document.querySelectorAll(".ex-style").forEach(function (sel) {
       sel.addEventListener("change", function () {
         var card = document.getElementById(sel.dataset.card), vals = defs[sel.value];
@@ -82,6 +82,9 @@
           var el = card.querySelector('[name$="_' + key + '"]');
           if (el) el.value = vals[key] === null ? "" : String(vals[key]);
         });
+        var list = card.querySelector(".ex-text");       // «Qué hace» pasa a describir el estilo elegido
+        list.textContent = "";
+        data.text[sel.value].forEach(function (t) { var li = document.createElement("li"); li.textContent = t; list.appendChild(li); });
         card.querySelectorAll(".chg").forEach(function (l) { l.classList.remove("chg"); });
         var reset = card.querySelector('[name$="_reset"]');
         if (reset) reset.checked = false;
