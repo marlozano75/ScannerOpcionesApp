@@ -763,6 +763,16 @@
       timer = setTimeout(function () { form.submit(); }, 400);
     });
   });
+  // Delta mín./máx.: editar una caja activa el filtro y escanea al confirmar el valor
+  ['delta_min', 'delta_max'].forEach(function (n) {
+    const input = form.elements[n];
+    if (!input) return;
+    input.addEventListener('change', function () {
+      if (form.elements.use_delta) form.elements.use_delta.checked = true;
+      clearTimeout(timer);
+      timer = setTimeout(function () { form.submit(); }, 400);
+    });
+  });
   // Con la tendencia en Off se atenúan sus opciones
   const techSync = function () {
     const off = document.getElementById('trend_dir').value === 'off', low = document.getElementById('trend_method').value === 'low';
