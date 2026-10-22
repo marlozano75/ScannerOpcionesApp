@@ -31,6 +31,7 @@ _GROUPS: tuple[tuple[str, str, dict], ...] = (
     ("spread", "Spread máximo", {"max_spread_pct": None}),
     ("iv_rank", "IV Rank mínimo", {"min_iv_rank": None}),
     ("iv_pct", "IV Percentile mínimo", {"min_iv_percentile": None}),
+    ("iv_either", "IV Rank o IV Percentile", {"min_iv_rank": None, "min_iv_percentile": None}),   # con `iv_any`: quitar solo uno haría el filtro MÁS estricto
     ("iv_hv", "IV / HV30 mínimo", {"min_iv_hv_ratio": None}),
     ("iv_change", "Cambio de IV a 5 días", {"max_iv_change_5d": None}),
     ("atr", "Strike a N ATR del precio", {"min_atr_multiple": None}),
@@ -104,6 +105,7 @@ def describe_group(key: str, c: ScanCriteria) -> str:
         "spread": lambda: f"≤ {_g(c.max_spread_pct)} %",
         "iv_rank": lambda: f"≥ {_g(c.min_iv_rank)}",
         "iv_pct": lambda: f"≥ {_g(c.min_iv_percentile)}",
+        "iv_either": lambda: f"IV Rank ≥ {_g(c.min_iv_rank)} o IV Percentile ≥ {_g(c.min_iv_percentile)}",
         "iv_hv": lambda: f"≥ {_g(c.min_iv_hv_ratio)}",
         "iv_change": lambda: f"≤ {_g(c.max_iv_change_5d)} puntos",
         "atr": lambda: f"strike a ≥ {_g(c.min_atr_multiple)} ATR",
@@ -141,8 +143,15 @@ def describe_group(key: str, c: ScanCriteria) -> str:
 def active_groups(criteria: ScanCriteria) -> list[tuple[str, str, dict]]:
     """Los grupos de filtros que `criteria` tiene activos (algún campo distinto del valor neutro)."""
     mode = criteria.signals_required > 0
+    either = criteria.iv_any and criteria.min_iv_rank is not None and criteria.min_iv_percentile is not None
     out = []
     for g in _GROUPS:
+        if g[0] == "iv_either":
+            if either:
+                out.append(g)
+            continue
+        if either and g[0] in ("iv_rank", "iv_pct"):
+            continue
         if g[0] == "signals":
             if mode and any(getattr(criteria, f) is not None for f in SIGNAL_FIELDS):
                 out.append(g)

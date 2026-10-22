@@ -75,3 +75,10 @@ def test_each_filter_shows_its_current_configuration():
     assert describe_group("averages", c) == "MA200 precio sobre; EMA9/EMA20 ≥ (velas daily)"
     assert describe_group("max_debt_to_equity", c) == "deuda/patrimonio ≤ 1"
     assert describe_group("signals", c) == "al menos 2 de: RSI rebotando desde el nivel de sobreventa tocó ≤ 35 y sube"
+
+
+def test_iv_rank_o_percentile_es_un_solo_grupo():
+    from scanner_opciones.scanner.impact import active_groups
+    c = BASE.with_filters(min_iv_rank=30, min_iv_percentile=50, iv_any=True)
+    assert [g[0] for g in active_groups(c)] == ["iv_either"]       # quitar solo uno haría el filtro más estricto: impacto negativo
+    assert [g[0] for g in active_groups(c.with_filters(iv_any=False))] == ["iv_rank", "iv_pct"]
