@@ -783,6 +783,13 @@
       timer = setTimeout(function () { form.submit(); }, 400);
     });
   });
+  // Escribir a mano en una caja con − / + (DTE, descuento, yield…) también escanea al confirmar el valor
+  document.querySelectorAll('.stepper input').forEach(function (input) {
+    input.addEventListener('change', function () {
+      clearTimeout(timer);
+      timer = setTimeout(function () { form.submit(); }, 400);
+    });
+  });
   // Con la tendencia en Off se atenúan sus opciones
   const techSync = function () {
     const off = document.getElementById('trend_dir').value === 'off', low = document.getElementById('trend_method').value === 'low';
