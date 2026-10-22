@@ -465,12 +465,6 @@
         <summary>¿Cuánto descarta cada filtro? <span class="muted">(ver lo restrictiva que es la selección)</span></summary>
         <div id="impact-body" class="muted">Calculando…</div>
       </details>
-      {% if criteria.spread_mode %}
-      <details class="viz-box" id="spread-box" data-url="/scanner/spread-check">
-        <summary>Revisión de spreads <span class="muted">(las puts vendidas que cumplen como put sola y se descartan como spread, y por qué)</span></summary>
-        <div id="spread-body" class="muted">Calculando…</div>
-      </details>
-      {% endif %}
       {% endif %}
     </div>
     {% if out and criteria and criteria.mixed %}
@@ -728,27 +722,6 @@
     const el = form.querySelector('[name=' + n + ']');
     el.addEventListener('change', function () { form.submit(); });   // editar X o el precio escanea
   });
-  // Panel «Revisión de spreads» (modos Spread y Ambos): se calcula al abrirlo
-  (function () {
-    const box = document.getElementById('spread-box');
-    if (!box) return;
-    // la página se recarga sola al terminar un refresco: se recuerda si estaba abierto
-    try { if (sessionStorage.getItem('spread-open') === '1') box.open = true; } catch (e) { /* sin almacenamiento */ }
-    let loaded = false;
-    function load() {
-      if (loaded || !box.open) return;
-      loaded = true;
-      fetch(box.dataset.url + window.location.search, { headers: { 'X-Requested-With': 'fetch' } })
-        .then(function (r) { return r.text(); })
-        .then(function (html) { document.getElementById('spread-body').innerHTML = html; })
-        .catch(function () { document.getElementById('spread-body').textContent = 'No se pudo calcular.'; });
-    }
-    box.addEventListener('toggle', function () {
-      try { sessionStorage.setItem('spread-open', box.open ? '1' : '0'); } catch (e) { /* idem */ }
-      load();
-    });
-    load();
-  })();
   // Panel «¿Cuánto descarta cada filtro?»: se calcula al abrirlo (cerrado por defecto, salvo que se haya abierto)
   (function () {
     const box = document.getElementById('viz-box');

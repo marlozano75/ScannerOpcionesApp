@@ -893,18 +893,6 @@ def test_scanner_spread_mode_renders_and_validates(client_and_service):
         assert "Parámetro no válido" in client.get(BASE + bad).text, bad
 
 
-def test_scanner_spread_check_panel(client_and_service):
-    client, svc, gw, _ = client_and_service
-    refresh(client)
-    assert "id=\"spread-box\"" not in client.get(BASE).text                              # solo en los modos Spread y Ambos
-    for mode in ("spread", "both&use_ns=on&ns=100"):
-        page = client.get(BASE + "&mode=" + mode)
-        assert "id=\"spread-box\"" in page.text and "/scanner/spread-check" in page.text
-        frag = client.get("/scanner/spread-check?" + BASE.split("?")[1] + "&mode=" + mode)
-        assert frag.status_code == 200 and ("Resultado" in frag.text or "Ninguna put vendida" in frag.text or "no se descarta ninguna" in frag.text)
-    assert "Solo en los modos" in client.get("/scanner/spread-check?" + BASE.split("?")[1]).text
-
-
 def test_scanner_both_mode_renders_and_validates(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
@@ -979,6 +967,3 @@ def test_sosnoff_filters_long_delta_credit_over_width_and_fixed_widths(client_an
     for bad in ("&use_ld=on&ld=abc", "&use_ld=on&ld=2", "&use_cw=on&cw=0", "&use_cw=on&cw=30&cwx=20", "&use_cw=on&cw=30&cwx=100",
                 "&use_wd=on&wd=abc", "&use_wd=on&wd="):
         assert "Parámetro no válido" in client.get(q + bad).text, bad
-    # el panel «Revisión de spreads» enseña las columnas nuevas
-    frag = client.get("/scanner/spread-check?" + q.split("?")[1] + "&use_ld=on&ld=0.05&use_cw=on&cw=30&cwx=35")
-    assert frag.status_code == 200 and ("Δ comprada" in frag.text or "no se descarta ninguna" in frag.text or "Ninguna put vendida" in frag.text)

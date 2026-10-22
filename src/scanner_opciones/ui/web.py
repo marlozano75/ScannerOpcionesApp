@@ -40,7 +40,6 @@ from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, dt
 from scanner_opciones.scanner.profiles import Profile
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, spread_universe_reject, ticker_quality_reject
-from scanner_opciones.scanner.spread_check import COLUMNS as SPREAD_CHECK_COLS
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
@@ -340,8 +339,6 @@ STRATEGY_FIELDS = (
 )
 
 
-SPREAD_CHECK_MAX = 400   # filas máximas del panel «Revisión de spreads»
-SPREAD_CHECK_COLUMNS = SPREAD_CHECK_COLS
 
 VIX_FIELDS = (    # aviso del VIX del Panel (`scanner.strategy`): única parte de la estrategia que se edita en /scanner/config
     ("min_vix", "Primas pobres si VIX <", "float"), ("ideal_vix_min", "Ideal desde", "float"),
@@ -1546,18 +1543,6 @@ def create_app(
         if parsed["criteria"] is None:
             return render(request, "_impact.html", error=parsed["error"] or "Parámetros no válidos", report=None)
         return render(request, "_impact.html", error=None, report=service.scan_impact(parsed["criteria"]))
-
-    @app.get("/scanner/spread-check", response_class=HTMLResponse)
-    async def scanner_spread_check(request: Request):
-        """Panel «Revisión de spreads» (fragmento HTML, se carga al abrirlo): cada put vendida que pasa como put sola y sus condiciones de spread."""
-        parsed = parse_pair(request.query_params)["spread"]       # la revisión parte de los filtros del juego de spread
-        c = parsed["criteria"]
-        if c is None or not c.spread_mode or request.query_params.get("mode", "put") == "put":
-            return render(request, "_spread_check.html", error=parsed["error"] or "Solo en los modos Spread y Ambos.", rows=[], total=0, dropped=0, columns=[], mixed=False)
-        every = service.spread_check(c)
-        rows = [r for r in every if r.outcome == "no"]      # solo las que se descartan; las que salen ya están en la tabla de resultados
-        return render(request, "_spread_check.html", error=None, rows=rows[:SPREAD_CHECK_MAX], total=len(every), dropped=len(rows),
-                      columns=SPREAD_CHECK_COLUMNS, mixed=c.mixed)
 
     @app.get("/scanner", response_class=HTMLResponse)
     async def scanner(request: Request, debug: int = 0):
