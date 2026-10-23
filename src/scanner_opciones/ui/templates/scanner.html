@@ -30,7 +30,7 @@
 {% if form.q_earn %}{% set _ = quality.append('Sin resultados') %}{% endif %}
 {% set optional = [] %}
 {% if form.q_liq %}{% set _ = optional.append('Liquidez ≥ ' ~ form.q_liq) %}{% endif %}
-{% for key, use, label, sign in (('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤'), ('credit', 'use_credit', 'Crédito', '≥')) %}
+{% for key, use, label, sign in (('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤')) %}
   {% if form[use] %}{% set _ = optional.append(label ~ ' ' ~ sign ~ ' ' ~ form[key]) %}{% endif %}
 {% endfor %}
 {# grupo de volatilidad (IV, delta) y técnico de entrada (cercanía a la media de 50 o a un soporte) #}
@@ -85,6 +85,7 @@
 {% for o in entry %}{% set _ = chips.append(('sec-entry', o)) %}{% endfor %}
 {% for o in atrgroup %}{% set _ = chips.append(('sec-atr', o)) %}{% endfor %}
 {% for o in optional %}{% set _ = chips.append(('sec-optional', o)) %}{% endfor %}
+{% if form.use_credit and form.set != 'spread' %}{% set _ = chips.append(('sec-credit', 'Crédito ≥ ' ~ form.credit ~ ' $')) %}{% endif %}
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto) #}
 {% set offs = [] %}
 {% if form.set == 'spread' %}
@@ -94,7 +95,7 @@
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-delta'), ('use_ivhv', 'IV/HV', 'sec-iv'),
     ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-atr'), ('use_exp', 'Mov. esperado', 'sec-atr'), ('use_rsi', 'RSI', 'sec-entry'),
     ('use_boll', 'Bollinger %B', 'sec-entry'), ('use_bw', 'Ancho de bandas', 'sec-entry'), ('use_oi', 'OI', 'sec-optional'),
-    ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('use_credit', 'Crédito mín.', 'sec-optional'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
+    ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('use_credit', 'Crédito mín.', 'sec-credit'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
   {% if not form[use] and (use != 'use_credit' or form.set != 'spread') %}{% set _ = offs.append((sec, label)) %}{% endif %}
 {% endfor %}
 {% if not form.q_liq %}{% set _ = offs.append(('sec-optional', 'Liquidez')) %}{% endif %}
@@ -272,6 +273,14 @@
         <p class="note">Solo contratos guardados: strikes {{ candidates.strike_below_pct_min|num(0) }}–{{ candidates.strike_below_pct_max|num(0) }} % por debajo, DTE {{ candidates.dte_min }}–{{ candidates.dte_max }}.</p>
       {% endcall %}
 
+      {% if form.set != 'spread' %}
+      {% call section('sec-credit', 'Crédito mínimo', ('≥ ' ~ form.credit ~ ' $') if form.use_credit else 'Sin filtro', form.use_credit) %}
+        <label class="opt opt-row" title="Precio de venta de referencia × 100 acciones"><span class="check"><input type="checkbox" name="use_credit" {{ 'checked' if form.use_credit }}> Crédito mín. ($ por contrato)</span>
+          <input name="credit" value="{{ form.credit }}" inputmode="decimal"></label>
+        <p class="note">Prima que cobras por contrato con el precio de venta elegido. Descarta las primas de céntimos, que se comen las comisiones. En un spread rige el «Crédito mín.» del propio spread.</p>
+      {% endcall %}
+      {% endif %}
+
       {% call section('sec-delta', 'Delta', (deltagroup | join(' · ')) or 'Sin filtros', deltagroup|length > 0) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_delta" {{ 'checked' if form.use_delta }}> |Delta| del put (mín. opcional, máx.)</span>
           <span style="display:flex;gap:4px"><input name="delta_min" value="{{ form.delta_min }}" inputmode="decimal" size="4" style="width:46px"><input name="delta_max" value="{{ form.delta_max }}" inputmode="decimal" size="4" style="width:46px"></span></label>
@@ -315,9 +324,9 @@
             <option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>
             {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más{{ count_text('min_option_liquidity', n) }}</option>{% endfor %}</select></label>
         <p class="note">Valoración de tastytrade (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers.</p>
-        {% for key, use, label in (('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)'), ('credit', 'use_credit', 'Crédito mín. ($ por contrato)')) %}
-        {% if key != 'credit' or form.set != 'spread' %}<label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
-          <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>{% endif %}
+        {% for key, use, label in (('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)')) %}
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
+          <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
         <p class="note">Marca para aplicar; la caja muestra el valor por defecto.</p>
       {% endcall %}
