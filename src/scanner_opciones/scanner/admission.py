@@ -46,6 +46,36 @@ def tpc_trend_reject(closes: Sequence[float], cfg: AdmissionTpc, ma: int = 200, 
     return None
 
 
+def tpc_failures(info: Optional[TickerInfo], cfg: AdmissionTpc, exempt: Sequence[str], manageable: tuple[float, float],
+                 trend_reason: Optional[str]) -> tuple[str, ...]:
+    """Etiquetas de TODOS los filtros TPC que el ticker incumple, cada uno evaluado por separado (no solo el primero). `trend_reason` es el motivo
+    de `tpc_trend_reject` (None = cumple o no se midió)."""
+    out = []
+    base = tpc_quality_criteria(cfg, manageable)
+    for field in ("require_profitable", "min_positive_quarters", "require_positive_fcf", "require_manageable_debt", "min_option_liquidity"):
+        value = getattr(base, field)
+        if not value:
+            continue
+        only = ScanCriteria(strike_below_pct_min=0, strike_below_pct_max=100, min_yield_pct=0, dte_min=0, dte_max=9999,
+                            manageable_max_de=manageable[0], manageable_min_cover=manageable[1], **{field: value})
+        reason = ticker_quality_reject(info, only, exempt)
+        if reason is not None:
+            out.append(reason_label(reason))
+    if trend_reason is not None:
+        out.append(reason_label(trend_reason))
+    return tuple(out)
+
+
+def tasty_failures(iv_rank: Optional[float], iv_percentile: Optional[float], liquidity: Optional[int], cfg: AdmissionTastytrade) -> tuple[str, ...]:
+    """Etiquetas de los filtros Tastytrade que incumple, cada uno por separado: liquidez de opciones e IV (Rank / Percentile)."""
+    out = []
+    if liquidity is None or liquidity < cfg.min_option_liquidity:
+        out.append("Liquidez")
+    if tasty_reject(iv_rank, iv_percentile, 10 ** 6, cfg) is not None:
+        out.append("IV bajo")
+    return tuple(out)
+
+
 def tasty_reject(iv_rank: Optional[float], iv_percentile: Optional[float], liquidity: Optional[int], cfg: AdmissionTastytrade) -> Optional[str]:
     """IV Rank / IV Percentile y liquidez de opciones del estilo Tastytrade. Con `iv_rank_pct_any` basta con uno de los dos."""
     if liquidity is None or liquidity < cfg.min_option_liquidity:
@@ -74,6 +104,8 @@ class Verdict:
     tpc: Optional[str] = "sin evaluar"
     tasty: Optional[str] = "sin evaluar"
     protected: bool = False          # tiene posiciones: nunca se propone quitarla
+    tpc_all: tuple[str, ...] = ()    # etiquetas de TODOS los filtros TPC que incumple (cada uno evaluado por separado)
+    tasty_all: tuple[str, ...] = ()
 
     @property
     def styles(self) -> list[str]:
@@ -110,7 +142,7 @@ REASON_LABELS = (("Beneficios", ("beneficios (EPS",)), ("Trimestres", ("trimestr
 @dataclass(frozen=True)
 class SourceSummary:
     """Una fila por fuente del Universo: cuántos tickers tiene, cuántos pasan, cuántos están en la Watchlist y cuántos rechaza cada filtro
-    (`tpc` / `tasty`: etiqueta del filtro → tickers cuyo motivo principal es ese; cada ticker cuenta solo en el primer filtro que falla de su estilo)."""
+    (`tpc` / `tasty`: etiqueta del filtro → tickers que lo incumplen, cada filtro evaluado por separado: un ticker puede contar en varios)."""
     name: str
     total: int
     passing: int
@@ -159,9 +191,8 @@ class AdmissionReport:
             for v in vs:
                 if v.direct:
                     continue
-                for reason, bucket in ((v.tpc, tpc), (v.tasty, tasty)):
-                    if reason is not None:
-                        label = reason_label(reason)
+                for labels, bucket in ((v.tpc_all, tpc), (v.tasty_all, tasty)):
+                    for label in labels:
                         bucket[label] = bucket.get(label, 0) + 1
             ok = [v for v in vs if v.passes]
             out.append(SourceSummary(name, len(vs), len(ok), sum(v.in_watchlist for v in ok), sum(v.in_watchlist for v in vs),

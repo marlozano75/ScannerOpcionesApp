@@ -67,13 +67,15 @@ async def test_each_style_and_the_direct_sources_decide_what_passes(tmp_path):
     assert {v.ticker for v in report.to_add} == {"DIRECT", "TPCOK", "TASTYOK"}              # solo lo que no estaba en la Watchlist
     assert {v.ticker for v in report.to_drop} == {"OLD", "HELD"}
     assert by["HELD"].protected and not by["OLD"].protected
+    assert "Beneficios" in by["LOWQ"].tpc_all and not by["TPCOK"].tpc_all and by["TPCOK"].tasty_all == ("IV bajo",)
+    assert by["TPCFLAT"].tpc_all and "Tendencia" in by["TPCFLAT"].tpc_all
     rows = report.by_source()
     assert sum(r.total for r in rows) == sum(len(v.sources) for v in report.verdicts)              # una fila por fuente; un ticker cuenta en cada una
     for r in rows:
         in_src = [v for v in report.verdicts if r.name in v.sources]
         assert r.passing == sum(v.passes for v in in_src) and r.in_watchlist == sum(v.in_watchlist for v in in_src)
         assert r.passing_in_watchlist == sum(v.passes and v.in_watchlist for v in in_src)
-        assert sum(r.tpc.values()) == sum(1 for v in in_src if not v.direct and v.tpc is not None)
+        assert sum(r.tpc.values()) == sum(len(v.tpc_all) for v in in_src if not v.direct)
 
 
 async def test_closes_are_only_downloaded_for_candidates_that_pass_the_quality_gate(tmp_path):

@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
-from scanner_opciones.scanner.admission import AdmissionReport, Verdict, tasty_reject, tpc_quality_reject, tpc_trend_reject
+from scanner_opciones.scanner.admission import AdmissionReport, Verdict, tasty_failures, tasty_reject, tpc_failures, tpc_quality_reject, tpc_trend_reject
 
 log = logging.getLogger(__name__)
 CLOSES_TTL_HOURS = 6        # los cierres pedidos para medir la tendencia se reutilizan (evaluar dos veces seguidas no repite la descarga)
@@ -53,8 +53,20 @@ async def evaluate(svc: Any) -> AdmissionReport:
             if len(values) > len(closes.get(t, ())):
                 closes[t] = values
     spread = svc.settings.spread_universe
+    trend_args = (tpc_cfg, spread.uptrend_ma, spread.uptrend_slope_days, spread.uptrend_fallback_ma)
     for t in candidates:
-        tpc[t] = tpc_trend_reject(closes.get(t, []), tpc_cfg, spread.uptrend_ma, spread.uptrend_slope_days, spread.uptrend_fallback_ma)
+        tpc[t] = tpc_trend_reject(closes.get(t, []), *trend_args)
+    # cada filtro por separado: la tendencia se mide también en quien falló la calidad, pero solo con los cierres que ya hay guardados (no se descargan)
+    stored = svc.bars.all_closes([t for t in todo if t not in candidates])
+    trend_all: dict[str, object] = {}
+    for t in todo:
+        values = closes.get(t) or [px for _, px in stored.get(t, ())]
+        if t in candidates:
+            trend_all[t] = tpc[t] if tpc[t] is None or "tendencia" in str(tpc[t]) or "histórico" in str(tpc[t]) else tpc_trend_reject(values, *trend_args)
+        elif len(values) >= MIN_STORED_SESSIONS:
+            trend_all[t] = tpc_trend_reject(values, *trend_args)
+        else:
+            trend_all[t] = None         # sin cierres suficientes guardados no se puede medir: no cuenta como rechazo
 
     # Tastytrade: IV Rank / Percentile (guardados en la Watchlist; del Universo se piden juntos) y liquidez de opciones
     svc.state.activity = "Admisión: IV Rank e IV Percentile del Universo"
@@ -68,10 +80,19 @@ async def evaluate(svc: Any) -> AdmissionReport:
             rank, pct = winfos[t].iv_rank, winfos[t].iv_percentile
         tasty[t] = tasty_reject(rank, pct, info.option_liquidity if info is not None else None, cfg.tastytrade)
 
+    tpc_all = {t: tpc_failures(info_of(t), tpc_cfg, exempt, (md.max_debt_to_equity, md.min_interest_coverage), trend_all[t]) for t in todo}
+    tasty_all = {}
+    for t in todo:
+        info, iv = info_of(t), ivs.get(t)
+        rank, pct = (iv.iv_rank, iv.iv_percentile) if iv is not None else (None, None)
+        if rank is None and pct is None and winfos.get(t) is not None:
+            rank, pct = winfos[t].iv_rank, winfos[t].iv_percentile
+        tasty_all[t] = tasty_failures(rank, pct, info.option_liquidity if info is not None else None, cfg.tastytrade)
+
     held = {p.ticker.replace(" ", "-") for p in svc.state.positions}
     verdicts = [Verdict(t, t in watchlist, tuple(lists.get(t, ())), t in direct,
                         DIRECT_NOTE if t in direct else tpc[t], DIRECT_NOTE if t in direct else tasty[t],
-                        protected=t in held) for t in tickers]
+                        protected=t in held, tpc_all=tpc_all.get(t, ()), tasty_all=tasty_all.get(t, ())) for t in tickers]
     return AdmissionReport(now, tuple(verdicts), tuple(notes))
 
 

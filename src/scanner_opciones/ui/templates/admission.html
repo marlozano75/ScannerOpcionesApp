@@ -80,8 +80,8 @@
 {% if rows %}
 <div class="card">
   <h2>Por fuente</h2>
-  <p class="muted" style="margin-top:0">Un ticker en varias fuentes cuenta en cada una. «Pasan» = cumplen algún estilo o la fuente es directa. Los rechazos son por filtro: cada ticker cuenta
-    en el <b>primer</b> filtro que falla de cada estilo (TPC y Tastytrade por separado), así que un ticker rechazado suma una vez en cada estilo; las fuentes directas no se evalúan.</p>
+  <p class="muted" style="margin-top:0">Un ticker en varias fuentes cuenta en cada una. «Pasan» = cumplen algún estilo o la fuente es directa. Los rechazos son por filtro: cada filtro se evalúa
+    <b>por separado</b>, así que un ticker puede sumar en varios a la vez. La tendencia de quien falló la calidad solo se mide si ya hay cierres guardados (no se descargan); las fuentes directas no se evalúan.</p>
   {% set tl = rows|map(attribute='tpc')|map('list')|sum(start=[])|unique|list %}
   {% set yl = rows|map(attribute='tasty')|map('list')|sum(start=[])|unique|list %}
   {% macro cell(n, total, cls) -%}
