@@ -251,6 +251,10 @@ class AppService:
 
     @property
     def universe_sources(self) -> list[Source]:
+        # lo que se sabe que no sirve (sin opciones, deslistado o no reconocido por IBKR) no vuelve aunque una fuente se vuelva a volcar
+        return self._prune(self._raw_universe_sources())
+
+    def _raw_universe_sources(self) -> list[Source]:
         sources: list[Source] = []
         for _, srcs in self.universe_files.values():
             for src in srcs:
@@ -588,7 +592,7 @@ class AppService:
         gone = {t for t in tickers if t}
         if not gone:
             return 0
-        present = {r.ticker for src in self.universe_sources for r in src.table.rows}
+        present = {r.ticker for src in self._raw_universe_sources() for r in src.table.rows}
         self._has_options.update({t: False for t in gone})
         self.meta.set("universe_options", json.dumps(self._has_options))
         changed = False
@@ -619,7 +623,7 @@ class AppService:
                 return 0
         except ValueError:
             pass
-        tickers = sorted({r.ticker for src in self.universe_sources for r in src.table.rows})
+        tickers = sorted({r.ticker for src in self._raw_universe_sources() for r in src.table.rows})
         try:
             inactive = await self.names.get_inactive(tickers)
         except VolatilityError as exc:
