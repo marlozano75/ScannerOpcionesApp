@@ -71,6 +71,26 @@
     <ul class="ad-why">{% for k, n in rc.items() %}<li>{{ n }} · {{ k }}</li>{% endfor %}</ul></details>{% endif %}
 </div>
 
+{% set rows = report.by_source() %}
+{% if rows %}
+<div class="card">
+  <h2>Por fuente</h2>
+  <p class="muted" style="margin-top:0">Un ticker en varias fuentes cuenta en cada una. «Pasan» = cumplen algún estilo o la fuente es directa. Los rechazos son por filtro: cada ticker cuenta
+    en el <b>primer</b> filtro que falla de cada estilo (TPC y Tastytrade por separado), así que un ticker rechazado suma una vez en cada estilo; las fuentes directas no se evalúan.</p>
+  {% set tl = rows|map(attribute='tpc')|map('list')|sum(start=[])|unique|list %}
+  {% set yl = rows|map(attribute='tasty')|map('list')|sum(start=[])|unique|list %}
+  <div class="scroll"><table class="sortable ad-tbl">
+    <tr><th class="txt">Fuente</th><th>Total</th><th>Pasan</th><th>Pasan y en Watchlist</th><th>En Watchlist</th>
+      {% for l in tl %}<th title="Rechazados por este filtro del estilo TPC">TPC · {{ l }}</th>{% endfor %}
+      {% for l in yl %}<th title="Rechazados por este filtro del estilo Tastytrade">Tasty · {{ l }}</th>{% endfor %}</tr>
+    {% for r in rows %}<tr><td class="txt">{{ r.name }}{% if r.direct %} <span class="ad-chip d">Directa</span>{% endif %}</td>
+      <td>{{ r.total }}</td><td>{{ r.passing }}</td><td>{{ r.passing_in_watchlist }}</td><td>{{ r.in_watchlist }}</td>
+      {% for l in tl %}<td>{{ r.tpc.get(l, 0) }}</td>{% endfor %}
+      {% for l in yl %}<td>{{ r.tasty.get(l, 0) }}</td>{% endfor %}</tr>{% endfor %}
+  </table></div>
+</div>
+{% endif %}
+
 <div class="card">
   <h2>Pasarían a la Watchlist ({{ add|length }})</h2>
   {% if add %}

@@ -67,6 +67,13 @@ async def test_each_style_and_the_direct_sources_decide_what_passes(tmp_path):
     assert {v.ticker for v in report.to_add} == {"DIRECT", "TPCOK", "TASTYOK"}              # solo lo que no estaba en la Watchlist
     assert {v.ticker for v in report.to_drop} == {"OLD", "HELD"}
     assert by["HELD"].protected and not by["OLD"].protected
+    rows = report.by_source()
+    assert sum(r.total for r in rows) == sum(len(v.sources) for v in report.verdicts)              # una fila por fuente; un ticker cuenta en cada una
+    for r in rows:
+        in_src = [v for v in report.verdicts if r.name in v.sources]
+        assert r.passing == sum(v.passes for v in in_src) and r.in_watchlist == sum(v.in_watchlist for v in in_src)
+        assert r.passing_in_watchlist == sum(v.passes and v.in_watchlist for v in in_src)
+        assert sum(r.tpc.values()) == sum(1 for v in in_src if not v.direct and v.tpc is not None)
 
 
 async def test_closes_are_only_downloaded_for_candidates_that_pass_the_quality_gate(tmp_path):
@@ -136,7 +143,7 @@ def test_admission_page_renders_before_and_after_an_evaluation(tmp_path):
     assert "Fuente directa" in hourly.text and "admission.direct_sources" in hourly.text
     asyncio.run(_evaluate(svc))
     done = client.get("/admission").text
-    assert "pasarían a la Watchlist" in done and "TPCOK" in done and "EN CARTERA" in done and "Quitar los marcados" in done
+    assert "pasarían a la Watchlist" in done and "TPCOK" in done and "EN CARTERA" in done and "Quitar los marcados" in done and "Por fuente" in done
 
 
 async def _evaluate(svc):

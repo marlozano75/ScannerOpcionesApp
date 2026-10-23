@@ -95,6 +95,32 @@ class Verdict:
         return f"TPC: {self.tpc} · Tastytrade: {self.tasty}"
 
 
+def reason_label(reason: str) -> str:
+    """Nombre corto del filtro que dio el motivo de rechazo (el mismo que muestran las etiquetas de la pantalla)."""
+    for label, words in REASON_LABELS:
+        if any(w in reason for w in words):
+            return label
+    return "No cumple"
+
+
+REASON_LABELS = (("Beneficios", ("beneficios (EPS",)), ("Trimestres", ("trimestres",)), ("Liquidez", ("liquidez",)), ("FCF", ("flujo de caja",)),
+                 ("Deuda", ("deuda",)), ("Pasivo", ("pasivo",)), ("Sin cierres", ("histórico",)), ("Tendencia", ("tendencia",)), ("IV bajo", ("IV",)))
+
+
+@dataclass(frozen=True)
+class SourceSummary:
+    """Una fila por fuente del Universo: cuántos tickers tiene, cuántos pasan, cuántos están en la Watchlist y cuántos rechaza cada filtro
+    (`tpc` / `tasty`: etiqueta del filtro → tickers cuyo motivo principal es ese; cada ticker cuenta solo en el primer filtro que falla de su estilo)."""
+    name: str
+    total: int
+    passing: int
+    passing_in_watchlist: int
+    in_watchlist: int
+    direct: bool
+    tpc: dict
+    tasty: dict
+
+
 @dataclass(frozen=True)
 class AdmissionReport:
     generated_at: object                      # datetime
@@ -119,3 +145,25 @@ class AdmissionReport:
                 key = (v.tpc or "").split(":")[0].split(" (")[0][:60]
                 counts[key] = counts.get(key, 0) + 1
         return dict(sorted(counts.items(), key=lambda kv: -kv[1]))
+
+    def by_source(self) -> list[SourceSummary]:
+        """Resumen por fuente (una fuente directa no se evalúa: no tiene rechazos). Un ticker en varias fuentes cuenta en cada una."""
+        groups: dict[str, list[Verdict]] = {}
+        for v in self.verdicts:
+            for name in v.sources:
+                groups.setdefault(name, []).append(v)
+        out = []
+        for name, vs in groups.items():
+            tpc: dict[str, int] = {}
+            tasty: dict[str, int] = {}
+            for v in vs:
+                if v.direct:
+                    continue
+                for reason, bucket in ((v.tpc, tpc), (v.tasty, tasty)):
+                    if reason is not None:
+                        label = reason_label(reason)
+                        bucket[label] = bucket.get(label, 0) + 1
+            ok = [v for v in vs if v.passes]
+            out.append(SourceSummary(name, len(vs), len(ok), sum(v.in_watchlist for v in ok), sum(v.in_watchlist for v in vs),
+                                     all(v.direct for v in vs), tpc, tasty))
+        return sorted(out, key=lambda r: -r.total)
