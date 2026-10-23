@@ -151,6 +151,7 @@ class FilterSettings(_Model):
     min_iv_rank: Optional[float] = Field(None, ge=0, le=100)
     min_iv_percentile: Optional[float] = Field(None, ge=0, le=100)
     min_put_credit: Optional[float] = Field(None, gt=0)
+    max_capital_risk_pct: Optional[float] = Field(None, gt=0, le=100)
 
 
 class FilterValues(_Model):
@@ -162,6 +163,7 @@ class FilterValues(_Model):
     min_iv_rank: float = Field(30, ge=0, le=100)
     min_iv_percentile: float = Field(50, ge=0, le=100)
     min_put_credit: float = Field(30, gt=0)
+    max_capital_risk_pct: float = Field(10, gt=0, le=100)
 
 
 class SpreadSettings(_Model):

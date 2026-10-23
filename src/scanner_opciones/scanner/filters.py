@@ -50,6 +50,7 @@ def reject_reason(
     iv_percentile: Optional[float] = None,
     info: Optional[TickerInfo] = None,
     atr: Optional[float] = None,
+    nlv_usd: Optional[float] = None,
 ) -> Optional[str]:
     c = snap.contract
     if c.right is not OptionRight.PUT:
@@ -77,6 +78,11 @@ def reject_reason(
         credit = (reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct) or 0.0) * c.multiplier
         if credit < criteria.min_put_credit - _EPS:
             return f"crédito {credit:.0f} $ < mínimo {criteria.min_put_credit:g} $"
+    if criteria.max_capital_risk_pct is not None and nlv_usd:     # capital en riesgo: lo que se pierde si el subyacente llega a 0 (strike − prima)
+        premium = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct) or 0.0
+        risk = (c.strike - premium) * c.multiplier / nlv_usd * 100
+        if risk > criteria.max_capital_risk_pct + _EPS:
+            return f"capital en riesgo {risk:.1f}% del NLV > máximo {criteria.max_capital_risk_pct:g}%"
     if criteria.min_oi is not None and (snap.open_interest is None or snap.open_interest < criteria.min_oi):
         return "OI insuficiente o desconocido"
     if criteria.min_bid_size is not None and (snap.bid_size is None or snap.bid_size < criteria.min_bid_size):

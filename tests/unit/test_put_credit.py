@@ -35,3 +35,12 @@ def test_credit_can_be_disabled_per_profile():
     settings = Settings()
     preset = settings.scanner.presets[0].model_copy(update={"min_credit_usd": None})
     assert "use_credit" not in dict(parse_qsl(preset_link(settings, preset, {})[0]))
+
+
+def test_capital_at_risk_filter_is_a_percentage_of_nlv():
+    # strike 78, prima 0,936: capital en riesgo (78 − 0,936) × 100 = 7.706 $ → 7,7 % de un NLV de 100.000 $
+    crit = REGULAR.with_filters(max_capital_risk_pct=5)
+    assert "capital en riesgo" in reject_reason(snap(), 100.0, TODAY, crit, nlv_usd=100_000)
+    assert reject_reason(snap(), 100.0, TODAY, REGULAR.with_filters(max_capital_risk_pct=8), nlv_usd=100_000) is None
+    assert reject_reason(snap(), 100.0, TODAY, crit) is None          # sin NLV en USD no se aplica
+    assert BASE.max_capital_risk_pct is None

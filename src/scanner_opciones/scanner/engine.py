@@ -64,7 +64,8 @@ def run_scan(
     exempt = exempt_sectors
     naked_min_yield = criteria.min_yield_pct    # en modo «Ambos» solo lo exige la put desnuda
     if criteria.spread_mode:   # el yield sobre el strike no vale para un spread: lo sustituyen crédito/ancho y retorno sobre riesgo
-        criteria = replace(criteria, min_yield_pct=0.0, min_put_credit=None)   # el crédito del spread lo mide `min_spread_credit`
+        criteria = replace(criteria, min_yield_pct=0.0, min_put_credit=None,
+                           max_capital_risk_pct=None)   # el crédito del spread lo mide `min_spread_credit`
     tech = TechnicalFilter(criteria, technical or TechnicalSettings(), bars or {}, today) if criteria.technical_active else None
     results: list[ScanResult] = []
     rejections: dict[str, str] = {}
@@ -80,7 +81,7 @@ def run_scan(
             why = no_spread[c.ticker]
         if why is None:
             why = reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info,
-                                (atr or {}).get(c.ticker))
+                                (atr or {}).get(c.ticker), nlv_usd)
         if why is None and criteria.quality_active:
             why = quality_reject(info, c.expiry, criteria, today, exempt if exempt is not None else DEFAULT_EXEMPT)
         if why is None and tech is not None:

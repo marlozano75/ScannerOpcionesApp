@@ -156,6 +156,7 @@ class ScanCriteria:
     price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD
     price_spread_pct: float = 25.0
     min_put_credit: Optional[float] = None         # crédito mínimo de la put desnuda: precio de venta de referencia × multiplicador, en $
+    max_capital_risk_pct: Optional[float] = None   # capital en riesgo de la put desnuda ((strike − prima) × multiplicador) como % del NLV; sin NLV en USD no se aplica
     # modo spread (ver scanner/spreads.py): put vendida (filtros de arriba) + put comprada `ancho` $ por debajo
     spread_mode: bool = False
     spread_widths: tuple[float, ...] = ()
@@ -189,7 +190,7 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
         min_yield_pct=ini.min_yield_pct,
         dte_min=ini.dte_min,
         dte_max=ini.dte_max,
-        min_put_credit=f.min_put_credit,
+        min_put_credit=f.min_put_credit, max_capital_risk_pct=f.max_capital_risk_pct,
         min_oi=f.min_oi, min_bid=settings.scanner.min_bid, min_bid_size=f.min_bid_size, max_spread_pct=f.max_spread_pct,
         min_iv_rank=f.min_iv_rank, min_iv_percentile=f.min_iv_percentile,
         manageable_max_de=settings.scanner.quality.manageable_debt.max_debt_to_equity,

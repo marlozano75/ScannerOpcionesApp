@@ -86,6 +86,7 @@
 {% for o in atrgroup %}{% set _ = chips.append(('sec-atr', o)) %}{% endfor %}
 {% for o in optional %}{% set _ = chips.append(('sec-optional', o)) %}{% endfor %}
 {% if form.use_credit and form.set != 'spread' %}{% set _ = chips.append(('sec-credit', 'Crédito ≥ ' ~ form.credit ~ ' $')) %}{% endif %}
+{% if form.use_risk and form.set != 'spread' %}{% set _ = chips.append(('sec-risk', 'Capital en riesgo ≤ ' ~ form.risk ~ ' % NLV')) %}{% endif %}
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto) #}
 {% set offs = [] %}
 {% if form.set == 'spread' %}
@@ -95,8 +96,8 @@
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-delta'), ('use_ivhv', 'IV/HV', 'sec-iv'),
     ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-atr'), ('use_exp', 'Mov. esperado', 'sec-atr'), ('use_rsi', 'RSI', 'sec-entry'),
     ('use_boll', 'Bollinger %B', 'sec-entry'), ('use_bw', 'Ancho de bandas', 'sec-entry'), ('use_oi', 'OI', 'sec-optional'),
-    ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('use_credit', 'Crédito mín.', 'sec-credit'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
-  {% if not form[use] and (use != 'use_credit' or form.set != 'spread') %}{% set _ = offs.append((sec, label)) %}{% endif %}
+    ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('use_credit', 'Crédito mín.', 'sec-credit'), ('use_risk', 'Capital en riesgo', 'sec-risk'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
+  {% if not form[use] and (use not in ('use_credit', 'use_risk') or form.set != 'spread') %}{% set _ = offs.append((sec, label)) %}{% endif %}
 {% endfor %}
 {% if not form.q_liq %}{% set _ = offs.append(('sec-optional', 'Liquidez')) %}{% endif %}
 {% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia')) %}{% endif %}
@@ -278,6 +279,14 @@
         <label class="opt opt-row" title="Precio de venta de referencia × 100 acciones"><span class="check"><input type="checkbox" name="use_credit" {{ 'checked' if form.use_credit }}> Crédito mín. ($ por contrato)</span>
           <input name="credit" value="{{ form.credit }}" inputmode="decimal"></label>
         <p class="note">Prima que cobras por contrato con el precio de venta elegido. Descarta las primas de céntimos, que se comen las comisiones. En un spread rige el «Crédito mín.» del propio spread.</p>
+      {% endcall %}
+      {% endif %}
+
+      {% if form.set != 'spread' %}
+      {% call section('sec-risk', 'Capital en riesgo', ('≤ ' ~ form.risk ~ ' % NLV') if form.use_risk else 'Sin filtro', form.use_risk) %}
+        <label class="opt opt-row" title="(strike − prima de referencia) × 100 acciones, sobre el NLV en USD"><span class="check"><input type="checkbox" name="use_risk" {{ 'checked' if form.use_risk }}> Capital en riesgo máx. (% del NLV)</span>
+          <input name="risk" value="{{ form.risk }}" inputmode="decimal"></label>
+        <p class="note">Lo que pierdes por contrato si el subyacente llega a 0: (strike − prima) × 100, sobre el NLV. Si no hay NLV en USD no se aplica. En un spread es su «Pérdida máx. (% NLV)».</p>
       {% endcall %}
       {% endif %}
 
@@ -671,7 +680,7 @@
     if (!form || !body) return;
     const OFF = {   // clave del panel -> casillas a desmarcar, cajas a vaciar y selects a poner en su valor neutro
       yield: { set: { min_yield: '0' } }, price: { set: { price_min: '', price_max: '' } },
-      credit: { uncheck: ['use_credit'] }, oi: { uncheck: ['use_oi'] }, bid_size: { uncheck: ['use_bidsize'] }, spread: { uncheck: ['use_spread'] },
+      credit: { uncheck: ['use_credit'] }, risk: { uncheck: ['use_risk'] }, oi: { uncheck: ['use_oi'] }, bid_size: { uncheck: ['use_bidsize'] }, spread: { uncheck: ['use_spread'] },
       iv_rank: { uncheck: ['use_ivr'] }, iv_pct: { uncheck: ['use_ivp'] }, iv_hv: { uncheck: ['use_ivhv'] }, iv_change: { uncheck: ['use_ivchg'] },
       atr: { uncheck: ['use_atr'] }, expected_move: { uncheck: ['use_exp'] }, delta: { uncheck: ['use_delta'] }, near_level: { uncheck: ['use_near'] }, rsi: { uncheck: ['use_rsi'] },
       bollinger: { uncheck: ['use_boll'] }, bollinger_width: { uncheck: ['use_bw'] },

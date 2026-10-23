@@ -1115,10 +1115,11 @@ def create_app(
             "ivr": ("min_iv_rank", float, base.min_iv_rank),
             "ivp": ("min_iv_percentile", float, base.min_iv_percentile),
             "credit": ("min_put_credit", float, base.min_put_credit),
+            "risk": ("max_capital_risk_pct", float, base.max_capital_risk_pct),
         }
         fv = service.settings.scanner.filter_values
         shown = {"oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
-                 "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile, "credit": fv.min_put_credit}
+                 "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile, "credit": fv.min_put_credit, "risk": fv.max_capital_risk_pct}
         for key, (_, _, cfg_value) in optional.items():   # estado inicial desde la configuración
             form[f"use_{key}"] = cfg_value is not None
             # desmarcado: la caja muestra su valor por defecto (marcarlo lo aplica)
@@ -1286,6 +1287,7 @@ def create_app(
                     raise ValueError("el ancho de las bandas debe estar entre 0 y 100 %")
             if set_name == "spread":     # los filtros propios del spread solo existen en su juego de filtros
                 overrides["min_put_credit"], form["use_credit"] = None, False      # el crédito del spread lo fija «Crédito mín.» (use_mc)
+                overrides["max_capital_risk_pct"], form["use_risk"] = None, False   # el capital en riesgo del spread es su «Pérdida máxima (% del NLV)» (use_mn)
                 overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(sp.width_options))), best_width=bool(form["best_width"]))
                 for use, key, field_name, label, upper in (
                         ("use_rr", "rr", "min_return_on_risk_pct", "Retorno s/ riesgo mín. (%)", None),

@@ -27,6 +27,7 @@ _GROUPS: tuple[tuple[str, str, dict], ...] = (
     ("yield", "Yield mínimo del periodo", {"min_yield_pct": 0.0}),
     ("price", "Precio del subyacente", {"min_price": None, "max_price": None}),
     ("credit", "Crédito mínimo por contrato", {"min_put_credit": None}),
+    ("risk", "Capital en riesgo (% del NLV)", {"max_capital_risk_pct": None}),
     ("oi", "OI mínimo", {"min_oi": None}),
     ("bid_size", "Bid size mínimo", {"min_bid_size": None}),
     ("spread", "Spread máximo", {"max_spread_pct": None}),
@@ -102,6 +103,7 @@ def describe_group(key: str, c: ScanCriteria) -> str:
         "yield": lambda: f"≥ {_g(c.min_yield_pct)} %",
         "price": lambda: _range(c.min_price, c.max_price, " $"),
         "credit": lambda: f"≥ {_g(c.min_put_credit)} $",
+        "risk": lambda: f"≤ {_g(c.max_capital_risk_pct)} % del NLV",
         "oi": lambda: f"≥ {c.min_oi}",
         "bid_size": lambda: f"≥ {c.min_bid_size}",
         "spread": lambda: f"≤ {_g(c.max_spread_pct)} %",
@@ -169,7 +171,7 @@ def _neutral(criteria: ScanCriteria) -> ScanCriteria:
 def _passes(
     snapshots: Sequence[ContractSnapshot], infos: dict[str, TickerInfo], criteria: ScanCriteria, today: date,
     bars: Optional[dict], technical: Optional[TechnicalSettings], exempt: Optional[Sequence[str]],
-    atr: Optional[dict] = None,
+    atr: Optional[dict] = None, nlv_usd: Optional[float] = None,
 ) -> list[ContractSnapshot]:
     tech = TechnicalFilter(criteria, technical or TechnicalSettings(), bars or {}, today) if criteria.technical_active else None
     keep = exempt if exempt is not None else DEFAULT_EXEMPT
@@ -179,7 +181,7 @@ def _passes(
         info = infos.get(c.ticker)
         price = info.underlying_price if info else None
         if reject_reason(snap, price, today, criteria, snap.iv_rank, snap.iv_percentile, info,
-                         (atr or {}).get(c.ticker)) is not None:
+                         (atr or {}).get(c.ticker), nlv_usd) is not None:
             continue
         if criteria.quality_active and quality_reject(info, c.expiry, criteria, today, keep) is not None:
             continue
@@ -195,17 +197,18 @@ def impact_report(
     snapshots: Sequence[ContractSnapshot], infos: dict[str, TickerInfo], criteria: ScanCriteria, today: date,
     bars: Optional[dict] = None, technical: Optional[TechnicalSettings] = None,
     exempt_sectors: Optional[Sequence[str]] = None, atr: Optional[dict] = None,
+    nlv_usd: Optional[float] = None,
 ) -> ImpactReport:
     groups = active_groups(criteria)
     neutral = _neutral(criteria)
-    window = _passes(snapshots, infos, neutral, today, bars, technical, exempt_sectors, atr)   # el resto solo mira estos
-    final = _passes(window, infos, criteria, today, bars, technical, exempt_sectors, atr)
+    window = _passes(snapshots, infos, neutral, today, bars, technical, exempt_sectors, atr, nlv_usd)   # el resto solo mira estos
+    final = _passes(window, infos, criteria, today, bars, technical, exempt_sectors, atr, nlv_usd)
     rows = []
     alone_sets: dict[str, set] = {}
     for key, label, fields in groups:
         alone = _passes(window, infos, neutral.with_filters(**{f: getattr(criteria, f) for f in fields}),
-                        today, bars, technical, exempt_sectors, atr)
-        without = _passes(window, infos, criteria.with_filters(**fields), today, bars, technical, exempt_sectors, atr)
+                        today, bars, technical, exempt_sectors, atr, nlv_usd)
+        without = _passes(window, infos, criteria.with_filters(**fields), today, bars, technical, exempt_sectors, atr, nlv_usd)
         rows.append(FilterImpact(key, label, len(alone), len(without) - len(final), describe_group(key, criteria)))
         alone_sets[key] = {(s.contract.ticker, s.contract.expiry, s.contract.strike) for s in alone}
     rows.sort(key=lambda r: (r.alone, -r.exclusive))

@@ -2563,7 +2563,7 @@ class AppService:
     def scan_impact(self, criteria: ScanCriteria) -> ImpactReport:
         """Cuánto descarta cada filtro activo (ver `scanner/impact.py`). En modo spread se mide la pata vendida, sin yield."""
         if criteria.spread_mode:
-            criteria = criteria.with_filters(min_yield_pct=0.0, min_put_credit=None)
+            criteria = criteria.with_filters(min_yield_pct=0.0, min_put_credit=None, max_capital_risk_pct=None)
         return self._memo_result("impact", criteria, None, lambda: self._scan_impact(criteria))
 
     def _scan_impact(self, criteria: ScanCriteria) -> ImpactReport:
@@ -2571,7 +2571,7 @@ class AppService:
         bars = self._scan_closes(snapshots) if criteria.technical_active else None
         return impact_report(
             snapshots, self.infos(criteria), criteria, self.now().date(), bars, self.settings.scanner.technical,
-            self.quality_exempt(), self._atr(criteria, snapshots),
+            self.quality_exempt(), self._atr(criteria, snapshots), self.nlv_usd(),
         )
 
     def assignment(self) -> AssignmentExposure:
