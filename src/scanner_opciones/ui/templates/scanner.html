@@ -504,7 +504,7 @@
             <td class="hl cb"{% if rmax and m.return_on_capital_annualized_pct is not none %} style="--p:{{ (100 * m.return_on_capital_annualized_pct / rmax)|round(0)|int }}%"{% endif %}>{{ m.return_on_capital_annualized_pct|pct(0) }}</td>
             {{ cols.mkt_cells(r, sp.long if sp else none) }}
             <td title="{{ 'Pérdida máxima' if sp else 'Margen what-if' }}">{{ m.capital|num(0) if m.capital is not none else '—' }}</td><td>{{ m.weight_pct|pct }}</td>
-            <td>{{ sp.max_loss|num(0) if sp else '—' }}</td><td>{{ (sp.max_loss / nlv_usd * 100)|pct if sp and nlv_usd else '—' }}</td><td>{{ be|num }}</td><td>{{ ((px - be) / px * 100)|pct if px else '—' }}</td>
+            <td>{{ sp.max_loss|num(0) if sp else '—' }}</td><td>{{ (sp.max_loss / nlv_usd * 100)|pct if sp and nlv_usd else (((c.strike - m.credit) * c.multiplier / nlv_usd * 100)|pct if nlv_usd else '—') }}</td><td>{{ be|num }}</td><td>{{ ((px - be) / px * 100)|pct if px else '—' }}</td>
             {{ cols.extra_cells(r, community, false) }}
             <td class="txt muted">{{ m.why_spread }}</td>
             <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px">{% if sp %}<input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}">{% endif %}</td></tr>
@@ -533,7 +533,7 @@
         {% for r in out.results %}{% set c = r.snapshot.contract %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
           <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
-            {{ cols.cells(r, yield_max, community) }}
+            {{ cols.cells(r, yield_max, community, nlv_usd) }}
             <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px"></td></tr>
         {% else %}<tr><td colspan="40" class="muted empty">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
       </table></div>
