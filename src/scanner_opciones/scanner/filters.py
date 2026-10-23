@@ -7,7 +7,7 @@ from typing import Optional
 
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
-from scanner_opciones.metrics.yields import gross_yield_ref_pct, strike_distance_pct
+from scanner_opciones.metrics.yields import gross_yield_ref_pct, reference_price, strike_distance_pct
 from scanner_opciones.scanner.criteria import ScanCriteria
 
 _EPS = 1e-9  # tolerancia para comparaciones en el límite (float)
@@ -73,6 +73,10 @@ def reject_reason(
         return "sin yield (cotización no válida)"
     if y < criteria.min_yield_pct - _EPS:        # yield del periodo (prima / strike hasta el vencimiento), no anualizado
         return f"yield del periodo {y:.2f}% < {criteria.min_yield_pct}%"
+    if criteria.min_put_credit is not None:      # prima por contrato con el precio de venta de referencia (las de céntimos se comen las comisiones)
+        credit = (reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct) or 0.0) * c.multiplier
+        if credit < criteria.min_put_credit - _EPS:
+            return f"crédito {credit:.0f} $ < mínimo {criteria.min_put_credit:g} $"
     if criteria.min_oi is not None and (snap.open_interest is None or snap.open_interest < criteria.min_oi):
         return "OI insuficiente o desconocido"
     if criteria.min_bid_size is not None and (snap.bid_size is None or snap.bid_size < criteria.min_bid_size):

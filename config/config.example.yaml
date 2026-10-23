@@ -93,6 +93,7 @@ scanner:
     max_spread_pct: null
     min_iv_rank: null
     min_iv_percentile: null
+    min_put_credit: null           # crédito mínimo de la put desnuda ($ por contrato, con el precio de venta de referencia)
   technical:                     # filtros de tendencia, soporte y días desde el último toque (sus valores se eligen en el formulario)
     trend_pivot_width: 3           # método «máximos y mínimos»: días a cada lado de un máximo/mínimo local
     trend_swings_required: 3       # y cuántos de los últimos deben ser crecientes (o decrecientes)
@@ -115,6 +116,7 @@ scanner:
     max_spread_pct: 35
     min_iv_rank: 30
     min_iv_percentile: 50
+    min_put_credit: 30             # los perfiles TPC y TastyPut lo cargan marcado (scanner.presets[].min_credit_usd / scanner.strategy.min_credit_usd)
 
 risk:
   cushion_thresholds:

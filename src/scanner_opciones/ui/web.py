@@ -309,7 +309,7 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
 STRATEGY_KEYS = frozenset((
     "discount", "dte_min", "dte_max", "min_yield", "use_delta", "delta_min", "delta_max", "use_near", "near_pct",
     "use_ivr", "ivr", "use_ivp", "ivp", "iv_any", "use_ivhv", "ivhv", "use_ivchg", "ivchg", "use_atr", "atr_mult", "use_exp", "exp_mult", "use_rsi", "signals",
-    "rsi_max", "use_boll", "boll_pctb", "use_bw", "boll_width", "ma200", "q_earn", "q_liq", "reset", "debug"))
+    "rsi_max", "use_boll", "boll_pctb", "use_bw", "boll_width", "ma200", "q_earn", "q_liq", "use_credit", "credit", "reset", "debug"))
 
 
 # Valores de la estrategia que se editan desde la aplicación: (grupo, [(campo, etiqueta, tipo)]); tipos: float, int, bool, ofloat/oint
@@ -430,6 +430,8 @@ def strategy_link(settings, form: dict, base, current=None) -> tuple[str, bool]:
         "use_ivr": "on", "ivr": _fmt(st.min_iv_rank), "use_ivp": "on", "ivp": _fmt(st.min_iv_percentile),
         "signals": str(st.min_signals),
     }
+    if st.min_credit_usd is not None:
+        params["use_credit"], params["credit"] = "on", _fmt(st.min_credit_usd)
     if st.min_abs_delta is not None:       # por defecto solo máximo: el mínimo de prima lo pone el yield
         params["delta_min"] = _fmt(st.min_abs_delta)
     if st.iv_rank_pct_any:
@@ -472,6 +474,8 @@ def preset_link(settings, preset, form: dict, current=None) -> tuple[str, bool]:
         "dte_max": str(preset.dte_max if preset.dte_max is not None else cand.dte_max),
         "min_yield": _fmt(preset.min_yield_pct),
     }
+    if preset.min_credit_usd is not None:
+        params["use_credit"], params["credit"] = "on", _fmt(preset.min_credit_usd)
     on = all(form.get(k) == params[k] for k in ("discount", "dte_min", "dte_max", "min_yield"))
     kept = {k: v for k, v in (current.items() if current is not None else ()) if k not in STRATEGY_KEYS} if current is not None and "submitted" in current else {}
     return urlencode({**kept, **params}), on
@@ -1110,10 +1114,11 @@ def create_app(
             "spread": ("max_spread_pct", float, base.max_spread_pct),
             "ivr": ("min_iv_rank", float, base.min_iv_rank),
             "ivp": ("min_iv_percentile", float, base.min_iv_percentile),
+            "credit": ("min_put_credit", float, base.min_put_credit),
         }
         fv = service.settings.scanner.filter_values
         shown = {"oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
-                 "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile}
+                 "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile, "credit": fv.min_put_credit}
         for key, (_, _, cfg_value) in optional.items():   # estado inicial desde la configuración
             form[f"use_{key}"] = cfg_value is not None
             # desmarcado: la caja muestra su valor por defecto (marcarlo lo aplica)
@@ -1280,6 +1285,7 @@ def create_app(
                 if not (0 < overrides["min_bollinger_width_pct"] <= 100):
                     raise ValueError("el ancho de las bandas debe estar entre 0 y 100 %")
             if set_name == "spread":     # los filtros propios del spread solo existen en su juego de filtros
+                overrides["min_put_credit"], form["use_credit"] = None, False      # el crédito del spread lo fija «Crédito mín.» (use_mc)
                 overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(sp.width_options))), best_width=bool(form["best_width"]))
                 for use, key, field_name, label, upper in (
                         ("use_rr", "rr", "min_return_on_risk_pct", "Retorno s/ riesgo mín. (%)", None),

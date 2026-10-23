@@ -30,7 +30,7 @@
 {% if form.q_earn %}{% set _ = quality.append('Sin resultados') %}{% endif %}
 {% set optional = [] %}
 {% if form.q_liq %}{% set _ = optional.append('Liquidez ≥ ' ~ form.q_liq) %}{% endif %}
-{% for key, use, label, sign in (('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤')) %}
+{% for key, use, label, sign in (('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤'), ('credit', 'use_credit', 'Crédito', '≥')) %}
   {% if form[use] %}{% set _ = optional.append(label ~ ' ' ~ sign ~ ' ' ~ form[key]) %}{% endif %}
 {% endfor %}
 {# grupo de volatilidad (IV, delta) y técnico de entrada (cercanía a la media de 50 o a un soporte) #}
@@ -94,8 +94,8 @@
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-delta'), ('use_ivhv', 'IV/HV', 'sec-iv'),
     ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-atr'), ('use_exp', 'Mov. esperado', 'sec-atr'), ('use_rsi', 'RSI', 'sec-entry'),
     ('use_boll', 'Bollinger %B', 'sec-entry'), ('use_bw', 'Ancho de bandas', 'sec-entry'), ('use_oi', 'OI', 'sec-optional'),
-    ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
-  {% if not form[use] %}{% set _ = offs.append((sec, label)) %}{% endif %}
+    ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('use_credit', 'Crédito mín.', 'sec-optional'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
+  {% if not form[use] and (use != 'use_credit' or form.set != 'spread') %}{% set _ = offs.append((sec, label)) %}{% endif %}
 {% endfor %}
 {% if not form.q_liq %}{% set _ = offs.append(('sec-optional', 'Liquidez')) %}{% endif %}
 {% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia')) %}{% endif %}
@@ -315,9 +315,9 @@
             <option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>
             {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más{{ count_text('min_option_liquidity', n) }}</option>{% endfor %}</select></label>
         <p class="note">Valoración de tastytrade (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers.</p>
-        {% for key, use, label in (('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)')) %}
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
-          <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
+        {% for key, use, label in (('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)'), ('credit', 'use_credit', 'Crédito mín. ($ por contrato)')) %}
+        {% if key != 'credit' or form.set != 'spread' %}<label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
+          <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>{% endif %}
         {% endfor %}
         <p class="note">Marca para aplicar; la caja muestra el valor por defecto.</p>
       {% endcall %}
@@ -662,7 +662,7 @@
     if (!form || !body) return;
     const OFF = {   // clave del panel -> casillas a desmarcar, cajas a vaciar y selects a poner en su valor neutro
       yield: { set: { min_yield: '0' } }, price: { set: { price_min: '', price_max: '' } },
-      oi: { uncheck: ['use_oi'] }, bid_size: { uncheck: ['use_bidsize'] }, spread: { uncheck: ['use_spread'] },
+      credit: { uncheck: ['use_credit'] }, oi: { uncheck: ['use_oi'] }, bid_size: { uncheck: ['use_bidsize'] }, spread: { uncheck: ['use_spread'] },
       iv_rank: { uncheck: ['use_ivr'] }, iv_pct: { uncheck: ['use_ivp'] }, iv_hv: { uncheck: ['use_ivhv'] }, iv_change: { uncheck: ['use_ivchg'] },
       atr: { uncheck: ['use_atr'] }, expected_move: { uncheck: ['use_exp'] }, delta: { uncheck: ['use_delta'] }, near_level: { uncheck: ['use_near'] }, rsi: { uncheck: ['use_rsi'] },
       bollinger: { uncheck: ['use_boll'] }, bollinger_width: { uncheck: ['use_bw'] },

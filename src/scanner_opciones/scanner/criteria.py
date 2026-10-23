@@ -155,6 +155,7 @@ class ScanCriteria:
         )
     price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD
     price_spread_pct: float = 25.0
+    min_put_credit: Optional[float] = None         # crédito mínimo de la put desnuda: precio de venta de referencia × multiplicador, en $
     # modo spread (ver scanner/spreads.py): put vendida (filtros de arriba) + put comprada `ancho` $ por debajo
     spread_mode: bool = False
     spread_widths: tuple[float, ...] = ()
@@ -188,6 +189,7 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
         min_yield_pct=ini.min_yield_pct,
         dte_min=ini.dte_min,
         dte_max=ini.dte_max,
+        min_put_credit=f.min_put_credit,
         min_oi=f.min_oi, min_bid=settings.scanner.min_bid, min_bid_size=f.min_bid_size, max_spread_pct=f.max_spread_pct,
         min_iv_rank=f.min_iv_rank, min_iv_percentile=f.min_iv_percentile,
         manageable_max_de=settings.scanner.quality.manageable_debt.max_debt_to_equity,
@@ -207,4 +209,4 @@ def strategy_criteria(settings: Settings) -> ScanCriteria:
         strike_below_pct_min=st.strike_below_pct_min, strike_below_pct_max=settings.scanner.candidates.strike_below_pct_max,
         dte_min=st.dte_min, dte_max=max(st.dte_max, settings.scanner.candidates.dte_max), min_yield_pct=st.min_yield_pct,
         min_abs_delta=st.min_abs_delta, max_abs_delta=st.max_abs_delta,
-        min_iv_rank=st.min_iv_rank, min_iv_percentile=st.min_iv_percentile)
+        min_iv_rank=st.min_iv_rank, min_iv_percentile=st.min_iv_percentile, min_put_credit=None)

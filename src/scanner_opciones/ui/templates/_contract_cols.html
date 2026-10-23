@@ -18,6 +18,7 @@
 {% macro head() -%}
 {{ lead_head() }}<th title="Strike de la put vendida">Strike</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
 <th class="hl" data-sort-default="desc" title="Prima / strike anualizada, con el precio de venta de referencia elegido">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th title="Yield anual con el bid">Yield bid</th>
+<th title="Prima que cobras por contrato, en $: precio de venta de referencia × multiplicador">Crédito ($)</th>
 {{ vol_head() }}
 <th title="Peso del sector tras la venta">+Sector</th><th title="Peso de la semana de vencimiento">Semana</th><th title="% de la cartera si te asignan">% cart. asig.</th>
 {%- endmacro %}
@@ -53,6 +54,7 @@
 {{ lead_cells(r) }}
 <td data-sort="{{ c.strike }}">{{ c.strike|num }} <span class="muted">V</span></td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ mini_cell(r) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
 <td class="hl cb"{% if ymax and r.yield_ref_annualized_pct is not none %} style="--p:{{ (100 * r.yield_ref_annualized_pct / ymax)|round(0)|int }}%"{% endif %}>{{ r.yield_ref_annualized_pct|pct }}</td><td>{{ r.yield_ref_pct|pct }}</td><td>{{ r.yield_bid_annualized_pct|pct }}</td>
+<td>{{ (r.reference_price * c.multiplier)|num(0) if r.reference_price is not none else '—' }}</td>
 {{ vol_cells(r, community) }}
 <td>{{ r.impact.sector_weight_increase_pct|pct }}</td><td>{{ r.impact.week_weight_pct|pct }}</td>
 <td>{{ r.impact.assignment_pct_of_portfolio|pct }}</td>

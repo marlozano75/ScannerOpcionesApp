@@ -127,6 +127,7 @@ class ScannerPreset(_Model):
     dte_min: int = Field(ge=0)
     dte_max: Optional[int] = Field(None, ge=0)
     min_yield_pct: float = Field(ge=0)
+    min_credit_usd: Optional[float] = Field(30, gt=0)   # crédito mínimo de la put, en $ por contrato (None = sin mínimo)
 
     @model_validator(mode="after")
     def _check(self) -> "ScannerPreset":
@@ -149,6 +150,7 @@ class FilterSettings(_Model):
     max_spread_pct: Optional[float] = Field(None, ge=0)
     min_iv_rank: Optional[float] = Field(None, ge=0, le=100)
     min_iv_percentile: Optional[float] = Field(None, ge=0, le=100)
+    min_put_credit: Optional[float] = Field(None, gt=0)
 
 
 class FilterValues(_Model):
@@ -159,6 +161,7 @@ class FilterValues(_Model):
     max_spread_pct: float = Field(35, ge=0)
     min_iv_rank: float = Field(30, ge=0, le=100)
     min_iv_percentile: float = Field(50, ge=0, le=100)
+    min_put_credit: float = Field(30, gt=0)
 
 
 class SpreadSettings(_Model):
@@ -342,6 +345,7 @@ class StrategySettings(_Model):
     dte_min: int = Field(30, ge=0)
     dte_max: int = Field(45, ge=0)
     min_yield_pct: float = Field(1.0, ge=0)         # prima mínima del periodo (% del strike hasta el vencimiento)
+    min_credit_usd: Optional[float] = Field(30, gt=0)   # crédito mínimo de la put, en $ por contrato (None = sin mínimo): las primas de céntimos se comen las comisiones
     # |delta| de la put: solo MÁXIMO por defecto (≤ 0,30 ≈ 70 % o más de probabilidad de expirar sin valor). El mínimo de prima lo pone el
     # yield mínimo; con un mínimo de delta (0,20) se descartaba el 92 % de los contratos y sale casi todo lo más seguro
     min_abs_delta: Optional[float] = Field(None, gt=0, le=1)
