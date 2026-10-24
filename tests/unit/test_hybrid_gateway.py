@@ -267,3 +267,34 @@ async def test_empty_provider_chain_is_confirmed_with_the_broker_before_giving_u
     from scanner_opciones.domain.errors import UnsupportedTickerError
     with pytest.raises(UnsupportedTickerError):               # ninguno tiene cadena: inservible para siempre
         await gw2.get_option_chain("UI")
+
+
+async def test_calls_are_quoted_from_their_own_listing_and_puts_never_get_a_call_symbol():
+    from scanner_opciones.domain.enums import OptionRight
+    puts = {listing_key(E1, 200): ".AAPL261016P200"}
+    calls = {listing_key(E1, 200): ".AAPL261016C200", listing_key(E1, 210): ".AAPL261016C210"}
+    quotes = {".AAPL261016P200": OptionQuote(bid=3.0, ask=3.2, delta=-0.5), ".AAPL261016C200": OptionQuote(bid=4.0, ask=4.2, delta=0.5),
+              ".AAPL261016C210": OptionQuote(bid=1.5, ask=1.7, delta=0.25)}
+    gw, _, prov = build(FakeOptionData(listings={"AAPL": puts}, call_listings={"AAPL": calls}, quotes=quotes))
+    put, call200, call210 = contract(200), OptionContract("AAPL", E1, 200, OptionRight.CALL), OptionContract("AAPL", E1, 210, OptionRight.CALL)
+    got = await gw.get_quotes([put, call200, call210])
+    assert got[put].delta == -0.5 and got[call200].delta == 0.5 and got[call210].bid == 1.5
+    await gw.get_quotes([call210])
+    assert len([c for c in prov.calls if c[0] == "get_call_listing"]) == 1          # el listado de calls se cachea
+    only_puts = await gw.get_quotes([put])
+    assert set(only_puts) == {put} and len([c for c in prov.calls if c[0] == "get_call_listing"]) == 1   # sin calls no se pide su listado
+
+
+async def test_a_provider_without_call_listing_simply_returns_no_calls():
+    from scanner_opciones.domain.enums import OptionRight
+
+    class PutsOnly:
+        async def get_put_listing(self, ticker):
+            return {listing_key(E1, 200): ".AAPL261016P200"}
+
+        async def get_option_quotes(self, symbols):
+            return {s: OptionQuote(bid=1.0, ask=1.1) for s in symbols}
+
+    gw, _, _ = build(PutsOnly())
+    got = await gw.get_quotes([contract(200), OptionContract("AAPL", E1, 205, OptionRight.CALL)])
+    assert set(got) == {contract(200)}

@@ -582,6 +582,8 @@ class DefenseSettings(_Model):
     protect_strike_pct_min: float = Field(5, gt=0)     # put comprada de protección: strike entre N y N % por debajo...
     protect_strike_pct_max: float = Field(10, gt=0)
     protect_max_debit_pct: float = Field(50, gt=0, le=100)   # ... con un débito que no se coma más de este % del crédito original
+    call_min_credit_pct: float = Field(10, ge=0)       # la prima de la call de la defensa: al menos este % del crédito original (si no, no compensa el riesgo)
+    call_strikes_above_pct: float = Field(15, gt=0, lt=100)  # strikes candidatos de la call: del precio hasta este % por encima
     risk_free_rate: float = Field(0.04, ge=0, lt=1)    # tasa para estimar la delta (Black-Scholes) cuando no hay la real
     greeks_max_age_minutes: float = Field(10, ge=0)    # la delta real de las puts del Panel (cotizadas por DXLink) se reutiliza hasta esta edad con el mercado abierto
 

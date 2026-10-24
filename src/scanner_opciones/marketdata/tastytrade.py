@@ -123,6 +123,7 @@ class TastytradeVolatility:
         fetch: Optional[Fetch] = None, fetch_quotes: Optional[Fetch] = None,
         fetch_candles: Optional[CandleFetch] = None,
         fetch_chain: Optional[ChainFetch] = None, fetch_option_quotes: Optional[OptionQuotesFetch] = None,
+        fetch_call_chain: Optional[ChainFetch] = None,
         fetch_vix: Optional[VixFetch] = None, fetch_earnings: Optional[EarningsFetch] = None,
         quote_wait: float = 20.0, settle: float = 3.0, option_batch_size: int = 400,
     ) -> None:
@@ -134,6 +135,7 @@ class TastytradeVolatility:
         self._fetch_candles = fetch_candles or self._sdk_fetch_candles
         self._fetch_ohlc = self._ohlc_from(fetch_candles) if fetch_candles else self._sdk_fetch_ohlc
         self._fetch_chain = fetch_chain or self._sdk_fetch_chain
+        self._fetch_call_chain = fetch_call_chain or self._sdk_fetch_call_chain
         self._fetch_option_quotes = fetch_option_quotes or self._sdk_fetch_option_quotes
         self._fetch_vix = fetch_vix or self._sdk_fetch_vix
         self._fetch_earnings = fetch_earnings or self._sdk_fetch_earnings
@@ -243,13 +245,20 @@ class TastytradeVolatility:
         return out, unanswered
 
     async def _sdk_fetch_chain(self, symbol: str) -> OptionListing:
+        return await self._sdk_fetch_listing(symbol, "PUT")
+
+    async def _sdk_fetch_call_chain(self, symbol: str) -> OptionListing:
+        return await self._sdk_fetch_listing(symbol, "CALL")
+
+    async def _sdk_fetch_listing(self, symbol: str, kind: str) -> OptionListing:
         from tastytrade.instruments import OptionType, get_option_chain
 
+        wanted = OptionType.PUT if kind == "PUT" else OptionType.CALL
         out: OptionListing = {}
         for expiry, options in (await get_option_chain(self._open_session(), symbol)).items():
             for o in options:
                 # solo opciones estándar: las ajustadas por splits/fusiones (otra entrega) no son las de IBKR
-                if o.option_type is OptionType.PUT and o.shares_per_contract == 100 and o.active:
+                if o.option_type is wanted and o.shares_per_contract == 100 and o.active:
                     out.setdefault(listing_key(expiry, float(o.strike_price)), o.streamer_symbol)
         return out
 
@@ -427,6 +436,13 @@ class TastytradeVolatility:
         try:
             return await self._fetch_chain(tasty_symbol(ticker))
         except Exception as exc:   # el SDK lanza tipos variados (red, autenticación, formato)
+            self._session = None
+            raise OptionDataError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
+
+    async def get_call_listing(self, ticker: str) -> OptionListing:
+        try:
+            return await self._fetch_call_chain(tasty_symbol(ticker))
+        except Exception as exc:
             self._session = None
             raise OptionDataError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
 

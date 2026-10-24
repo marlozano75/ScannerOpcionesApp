@@ -18,12 +18,17 @@ def put_position(strike=100.0, days=14, qty=-1, mark=3.0, credit=2.0):
 def stage(gw, ask=3.1):
     """Cadena y cotizaciones: la put actual (100, a 14 días) y candidatas a 45 y 80 días."""
     e45, e80 = TODAY + timedelta(days=45), TODAY + timedelta(days=80)
-    gw.chains["AAPL"] = OptionChain("AAPL", [TODAY + timedelta(days=14), e45, e80], [90.0, 92.5, 95.0, 97.5, 100.0, 105.0])
+    gw.chains["AAPL"] = OptionChain("AAPL", [TODAY + timedelta(days=14), e45, e80], [90.0, 92.5, 95.0, 97.5, 100.0, 105.0, 108.0, 110.0])
     cur = OptionContract("AAPL", TODAY + timedelta(days=14), 100.0, OptionRight.PUT)
     gw.quotes[cur] = OptionQuote(bid=2.9, ask=ask, delta=-0.52)
     for strike, bid, delta in [(100.0, 4.6, -0.50), (97.5, 4.0, -0.44), (95.0, 3.6, -0.38), (92.5, 3.0, -0.31), (90.0, 2.5, -0.26)]:
         gw.quotes[OptionContract("AAPL", e45, strike, OptionRight.PUT)] = OptionQuote(bid=bid, ask=bid + 0.1, delta=delta)
     gw.quotes[OptionContract("AAPL", e80, 95.0, OptionRight.PUT)] = OptionQuote(bid=4.4, ask=4.6, delta=-0.35)
+    e14 = TODAY + timedelta(days=14)
+    for strike, ask in [(95.0, 1.5), (92.5, 0.9), (90.0, 0.6)]:                                  # puts de protección (mismo vencimiento)
+        gw.quotes[OptionContract("AAPL", e14, strike, OptionRight.PUT)] = OptionQuote(bid=ask - 0.1, ask=ask, delta=-0.2)
+    for strike, bid, delta in [(105.0, 1.6, 0.27), (108.0, 0.9, 0.21), (110.0, 0.5, 0.15)]:      # calls del strangle (mismo vencimiento)
+        gw.quotes[OptionContract("AAPL", e14, strike, OptionRight.CALL)] = OptionQuote(bid=bid, ask=bid + 0.1, delta=delta)
 
 
 async def test_roll_evaluation_finds_the_lowest_strike_with_net_credit():
@@ -136,3 +141,44 @@ def test_the_panel_marks_a_real_delta_and_an_estimated_one(client_and_service):
     svc.state.position_deltas = {put_key(pos): 0.58}
     real = client.get("/").text
     assert "Delta real de tastytrade" in real and "Δ 0.58 ·" in real and "Δ 0.58~" not in real
+
+
+async def test_roll_evaluation_offers_concrete_protection_puts_and_calls():
+    svc, gw = await started_service()
+    pos = put_position()
+    svc.state.positions = [pos]
+    stage(gw)
+    ev = await svc.roll_evaluation(put_key(pos))
+    # protección: banda 90–95 (5–10 % por debajo de 100); crédito original 2,00 → débito máximo 1,00: 92,5 (0,90) y 90 (0,60) cumplen, 95 (1,50) no
+    assert [p.strike for p in ev.protections] == [92.5, 90.0, 95.0] and [p.ok for p in ev.protections] == [True, True, False]
+    assert ev.protections[0].max_loss == pytest.approx(7.5 - (2.0 - 0.9))
+    # calls: Δ 0,20–0,30 → 105 (0,27) y 108 (0,21); la de Δ 0,15 no entra; prima ≥ 0,20 (10 % de 2,00)
+    assert [c.strike for c in ev.calls] == [105.0, 108.0] and ev.calls_quoted == 3 and all(c.ok for c in ev.calls)
+    assert ev.calls[0].breakeven_down == pytest.approx(100.0 - (2.0 + 1.6)) and ev.calls[0].breakeven_up == pytest.approx(105.0 + 3.6)
+
+
+async def test_a_call_failure_does_not_stop_the_roll_and_protection():
+    from scanner_opciones.domain.errors import DataUnavailableError
+    svc, gw = await started_service()
+    pos = put_position()
+    svc.state.positions = [pos]
+    stage(gw)
+    original = gw.get_quotes
+
+    async def no_calls(contracts):
+        if any(c.right is OptionRight.CALL for c in contracts):
+            raise DataUnavailableError("el proveedor no lista calls")
+        return await original(contracts)
+    gw.get_quotes = no_calls
+    ev = await svc.roll_evaluation(put_key(pos))
+    assert ev.calls == () and ev.calls_quoted == 0 and ev.report.verdict == "roll" and ev.protections
+
+
+def test_the_roll_window_shows_the_call_and_protection_tables(client_and_service):
+    client, svc, gw, _ = client_and_service
+    pos = put_position()
+    svc.state.positions = [pos]
+    stage(gw)
+    frag = client.get("/management/roll", params={"key": put_key(pos)}).text
+    assert "Vender la call (strangle)" in frag and "Breakeven abajo" in frag and "105" in frag
+    assert "Comprar protección (put comprada)" in frag and "Pérdida máx." in frag and "demasiado cara" in frag

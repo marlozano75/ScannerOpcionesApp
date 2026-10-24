@@ -2769,10 +2769,22 @@ class AppService:
         floor = underlying * (1 - cfg.roll_strikes_below_pct / 100)
         strikes = sorted((k for k in chain.strikes if floor <= k <= o.strike), key=lambda k: o.strike - k)[:self.ROLL_MAX_STRIKES]
         wanted = [OptionContract(ticker, e, k, OptionRight.PUT, o.multiplier) for e in expiries for k in strikes]
+        # puts de protección (mismo vencimiento, 5-10 % por debajo de la vendida) y calls del strangle (mismo vencimiento, del precio hacia arriba)
+        lo, hi = o.strike * (1 - cfg.protect_strike_pct_max / 100), o.strike * (1 - cfg.protect_strike_pct_min / 100)
+        protect = [OptionContract(ticker, o.expiry, k, OptionRight.PUT, o.multiplier) for k in chain.strikes if lo - 1e-9 <= k <= hi + 1e-9 and k < o.strike]
+        up = underlying * (1 + cfg.call_strikes_above_pct / 100)
+        calls = [OptionContract(ticker, o.expiry, k, OptionRight.CALL, o.multiplier)
+                 for k in sorted(k for k in chain.strikes if underlying <= k <= up)][:self.ROLL_MAX_STRIKES]
         try:
-            quotes = await asyncio.wait_for(self.gateway.get_quotes([current, *wanted]), 90) if wanted else {}
+            quotes = await asyncio.wait_for(self.gateway.get_quotes([current, *wanted, *protect]), 90)
         except (BrokerError, asyncio.TimeoutError) as exc:
             raise ValueError(f"No se pudieron cotizar las candidatas del roll: {exc or 'tiempo agotado'}") from None
+        call_quotes: dict = {}
+        if calls:          # un fallo con las calls no impide evaluar el roll y la protección
+            try:
+                call_quotes = await asyncio.wait_for(self.gateway.get_quotes(calls), 60)
+            except (BrokerError, asyncio.TimeoutError) as exc:
+                log.info("Calls de la defensa de %s no disponibles: %s", ticker, exc or "tiempo agotado")
         live = quotes.get(current)
         close_live = live is not None and live.ask is not None and live.ask > 0
         close_cost = live.ask if close_live else mark
@@ -2786,12 +2798,19 @@ class AppService:
         rollq = [defense_mod.RollQuote(c.expiry, c.strike, q.bid, q.ask, abs(q.delta) if q.delta is not None else None)
                  for c in wanted if (q := quotes.get(c)) is not None]
         report = defense_mod.rank_rolls(o.strike, entry, close_cost, rollq, today, cfg)
+        protections = defense_mod.rank_protection(o.strike, o.expiry, entry, [
+            defense_mod.RollQuote(c.expiry, c.strike, q.bid, q.ask, abs(q.delta) if q.delta is not None else None)
+            for c in protect if (q := quotes.get(c)) is not None], cfg)
+        call_rq = [defense_mod.RollQuote(c.expiry, c.strike, q.bid, q.ask, abs(q.delta) if q.delta is not None else None)
+                   for c in calls if (q := call_quotes.get(c)) is not None]
+        call_options = defense_mod.rank_calls(o.strike, entry, o.expiry, call_rq, cfg, self.defense_context().get(o.ticker, {}).get("ex_dividend_in"), today)
         earnings = info.next_earnings if info and info.next_earnings and info.next_earnings >= today else None
         if earnings is not None:      # evitar meter resultados en el nuevo vencimiento salvo que sea a propósito
             report = replace(report, best=tuple(
                 replace(b, notes=b.notes + (f"incluye resultados del {earnings:%d/%m}",)) if o.expiry < earnings <= b.expiry else b for b in report.best))
         return defense_mod.RollEvaluation(o.ticker, o.expiry, o.strike, (o.expiry - today).days, contracts, underlying, entry, close_cost, close_live, delta,
-                                          info.iv_rank if info else None, defense, report, len(wanted), len(rollq), today)
+                                          info.iv_rank if info else None, defense, report, len(wanted), len(rollq), today,
+                                          protections, call_options, len(call_rq))
 
     def put_margins(self) -> dict[str, float]:
         """Margen what-if guardado (por contrato) de las puts vendidas de la cartera, por `put_key` (en un spread, de la pata vendida).

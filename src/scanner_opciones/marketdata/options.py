@@ -35,6 +35,9 @@ class OptionDataProvider(Protocol):
         """Cotizaciones por símbolo de streaming; los que no responden no aparecen. Lanza `OptionDataError`."""
         ...
 
+    # Opcional: `async def get_call_listing(self, ticker) -> OptionListing` (calls estándar, igual que `get_put_listing`). La usa la defensa de las
+    # puts (strangle); un proveedor que no la tenga simplemente no cotiza calls.
+
     async def get_prices(self, tickers: list[str]) -> dict[str, float]:
         """Lanza `PriceError` si el proveedor falla."""
         ...
@@ -52,6 +55,7 @@ class OptionDataProvider(Protocol):
 class FakeOptionData:
     """Proveedor en memoria para los tests."""
     listings: dict[str, OptionListing] = field(default_factory=dict)
+    call_listings: dict[str, OptionListing] = field(default_factory=dict)
     quotes: dict[str, OptionQuote] = field(default_factory=dict)
     prices: dict[str, float] = field(default_factory=dict)
     extras: dict[str, MarketExtras] = field(default_factory=dict)
@@ -67,6 +71,11 @@ class FakeOptionData:
         self.calls.append(("get_put_listing", ticker))
         self._maybe_fail()
         return dict(self.listings.get(ticker, {}))
+
+    async def get_call_listing(self, ticker: str) -> OptionListing:
+        self.calls.append(("get_call_listing", ticker))
+        self._maybe_fail()
+        return dict(self.call_listings.get(ticker, {}))
 
     async def get_option_quotes(self, symbols: Sequence[str]) -> dict[str, OptionQuote]:
         self.calls.append(("get_option_quotes", tuple(symbols)))

@@ -22,6 +22,38 @@
   {% endfor %}
 </table>
 {% endif %}
-<p class="muted" style="font-size:12px;margin:8px 0 0">Se cotizaron {{ ev.quoted }} de {{ ev.checked }} puts candidatas (strikes del actual hacia abajo). El crédito es conservador: bid de la nueva menos ask de la actual, sin comisiones.
-  La app no cotiza calls: si vas a vender la call de la defensa, mira su prima en tu broker (mismo vencimiento, Δ 0,20–0,30). Información, no asesoramiento ni órdenes.</p>
+<h3 style="margin:14px 0 4px;font-size:14px">Vender la call (strangle)</h3>
+{% if ev.calls %}
+<table>
+  <tr><th>Strike</th><th title="|Δ| de la call: la idea es 0,20–0,30">|Δ|</th><th title="Lo que cobras por la call (bid)">Prima</th><th title="Frente al crédito original de la put">% orig.</th>
+    <th title="Strike de la put menos todo lo cobrado (put + call): hasta dónde aguantas a la baja, si mantienes la put hasta el vencimiento">Breakeven abajo</th>
+    <th title="Strike de la call más todo lo cobrado: hasta dónde aguantas al alza">Breakeven arriba</th><th></th></tr>
+  {% for c in ev.calls %}
+  <tr><td>{{ c.strike|num }}</td><td>{{ '%.2f'|format(c.delta) }}</td><td>{{ '%.2f'|format(c.bid) }} <span class="muted">({{ '%+.0f'|format(c.bid * cn) }} $)</span></td>
+    <td><span class="mg {{ 'ok' if c.ok else 'warn' if c.ok is false else 'info' }}" style="display:inline">{{ '%.0f'|format(c.credit_pct) ~ ' %' if c.credit_pct is not none else '—' }}</span></td>
+    <td>{{ '%.2f'|format(c.breakeven_down) if c.breakeven_down is not none else '—' }}{% if ev.entry %} <span class="muted">(ahora {{ '%.2f'|format(ev.strike - ev.entry) }})</span>{% endif %}</td>
+    <td>{{ '%.2f'|format(c.breakeven_up) if c.breakeven_up is not none else '—' }}</td>
+    <td class="wrap">{% if c.ok is false %}<span class="mg warn">prima pequeña: apenas mejora el breakeven</span>{% endif %}{% for n in c.notes %}<span class="mg info">{{ n }}</span>{% endfor %}</td></tr>
+  {% endfor %}
+</table>
+<p class="muted" style="font-size:12px;margin:4px 0 0">Mejor tras una caída fuerte y algo de rebote, no en plena caída libre. Si la put sigue cayendo, la call se rola hacia abajo para cobrar más; un strangle invertido solo compensa si lo cobrado supera la distancia entre strikes.</p>
+{% elif ev.calls_quoted == 0 %}<p class="muted" style="font-size:13px;margin:0">El proveedor no cotizó calls de este valor: mira su prima en tu broker (mismo vencimiento, Δ 0,20–0,30).</p>
+{% else %}<p class="muted" style="font-size:13px;margin:0">Ninguna call cotizada del mismo vencimiento tiene |Δ| de 0,20 a 0,30 con prima.</p>{% endif %}
+
+<h3 style="margin:14px 0 4px;font-size:14px">Comprar protección (put comprada)</h3>
+{% if ev.protections %}
+<table>
+  <tr><th>Strike</th><th title="Distancia entre la vendida y la comprada">Ancho</th><th>|Δ|</th><th title="Lo que pagas (ask)">Débito</th><th title="Frente al crédito original: la regla es que no se coma más de la mitad">% orig.</th>
+    <th title="Pérdida máxima por acción del spread resultante: ancho − (crédito original − débito)">Pérdida máx.</th></tr>
+  {% for p in ev.protections %}
+  <tr><td>{{ p.strike|num }}</td><td>{{ p.width|num }}</td><td>{{ '%.2f'|format(p.delta) if p.delta is not none else '—' }}</td><td>{{ '%.2f'|format(p.ask) }} <span class="muted">({{ '%.0f'|format(p.ask * cn) }} $)</span></td>
+    <td><span class="mg {{ 'ok' if p.ok else 'warn' if p.ok is false else 'info' }}" style="display:inline">{{ '%.0f'|format(p.debit_pct) ~ ' %' if p.debit_pct is not none else '—' }}</span>{% if p.ok is false %} <span class="muted">demasiado cara</span>{% endif %}</td>
+    <td>{{ '%.2f'|format(p.max_loss) if p.max_loss is not none else '—' }}{% if p.max_loss is not none %} <span class="muted">({{ '%.0f'|format(p.max_loss * cn) }} $)</span>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+<p class="muted" style="font-size:12px;margin:4px 0 0">Útil antes de un evento binario cercano o si la posición pesa demasiado en la cuenta. Strike del mismo vencimiento, 5–10 % por debajo de la vendida.</p>
+{% else %}<p class="muted" style="font-size:13px;margin:0">Sin puts cotizadas del mismo vencimiento entre el 5 y el 10 % por debajo de la vendida.</p>{% endif %}
+
+<p class="muted" style="font-size:12px;margin:10px 0 0">Se cotizaron {{ ev.quoted }} de {{ ev.checked }} puts candidatas del roll (strikes del actual hacia abajo). El crédito es conservador: bid de la nueva menos ask de la actual, sin comisiones.
+  Los créditos y primas son a precio de ahora y las comisiones no están incluidas. Información, no asesoramiento ni órdenes.</p>
 {% endif %}

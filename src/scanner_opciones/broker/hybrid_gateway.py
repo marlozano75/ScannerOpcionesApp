@@ -17,6 +17,7 @@ from typing import Callable, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import MarketDataSettings
+from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import (
     DataUnavailableError, OptionDataError, PriceError, UnsupportedTickerError, VolatilityError,
 )
@@ -50,6 +51,7 @@ class HybridGateway:
         self._now = now
         self._clock = clock
         self._listings: dict[str, tuple[float, OptionListing]] = {}   # ticker -> (instante, puts existentes)
+        self._call_listings: dict[str, tuple[float, OptionListing]] = {}   # ticker -> (instante, calls existentes); solo si hay quien las pida
         self.sectors = sectors          # sector sin TWS (EDGAR, Yahoo); TWS queda como último recurso
         self._sector_cache: dict[str, tuple[str, Optional[str]]] = {}
 
@@ -207,6 +209,18 @@ class HybridGateway:
         self._listings[ticker] = (self._clock(), listing)
         return listing
 
+    async def _call_listing(self, ticker: str) -> OptionListing:
+        """Calls que existen de `ticker` (cacheadas igual que las puts). Vacío si el proveedor no las lista. Lanza OptionDataError si falla."""
+        fetch = getattr(self.provider, "get_call_listing", None)
+        if fetch is None:
+            return {}
+        cached = self._call_listings.get(ticker)
+        if cached is not None and self._clock() - cached[0] < self.s.listing_ttl_minutes * 60:
+            return cached[1]
+        listing = await fetch(ticker)
+        self._call_listings[ticker] = (self._clock(), listing)
+        return listing
+
     async def get_option_chain(self, ticker: str) -> OptionChain:
         try:
             listing = await self._listing(ticker)
@@ -252,13 +266,15 @@ class HybridGateway:
     async def get_quotes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, OptionQuote]:
         symbols: dict[str, OptionContract] = {}
         for ticker in {c.ticker for c in contracts}:
+            mine = [c for c in contracts if c.ticker == ticker]
             try:
-                listing = await self._listing(ticker)
+                puts = await self._listing(ticker) if any(c.right is OptionRight.PUT for c in mine) else {}
+                calls = await self._call_listing(ticker) if any(c.right is OptionRight.CALL for c in mine) else {}
             except OptionDataError as exc:
                 log.warning("Cotizaciones no disponibles en el proveedor, se piden a IBKR: %s", exc)
                 return await self._inner_quotes(contracts)
-            for c in contracts:
-                if c.ticker == ticker and (sym := listing.get(listing_key(c.expiry, c.strike))):
+            for c in mine:
+                if sym := (calls if c.right is OptionRight.CALL else puts).get(listing_key(c.expiry, c.strike)):
                     symbols[sym] = c
         try:
             quotes = await self.provider.get_option_quotes(list(symbols))

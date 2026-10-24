@@ -162,3 +162,43 @@ def test_settings_validate_the_bands():
     for bad in ({"tested_delta": 0.6}, {"roll_dte_min": 70}, {"loss_multiple": 4}, {"call_delta_min": 0.5}, {"protect_strike_pct_min": 20}):
         with pytest.raises(ValueError):
             DefenseSettings(**bad)
+
+
+# ---- protección y call ---------------------------------------------------------------------------------------
+def test_protection_candidates_respect_the_band_and_the_debit_cap():
+    exp = TODAY + timedelta(days=20)
+    q = lambda k, ask, d=-0.2, e=exp: RollQuote(e, k, ask - 0.1, ask, d)       # noqa: E731
+    # vendida a 100, cobró 2,00: banda 90-95; débito máximo 50 % = 1,00
+    quotes = [q(95.0, 1.4), q(93.0, 0.9), q(91.0, 0.6), q(90.0, 0.5), q(85.0, 0.1), q(97.0, 2.0), q(94.0, 0.8, e=exp + timedelta(days=7))]
+    got = dfn.rank_protection(100.0, exp, 2.0, quotes, CFG)
+    assert [p.strike for p in got] == [93.0, 91.0, 90.0]                         # fuera de banda, de otro vencimiento o de más de 3: no; las que cumplen primero
+    assert all(p.ok for p in got) and got[0].width == 7.0 and got[0].debit_pct == pytest.approx(45.0)
+    assert got[0].max_loss == pytest.approx(7.0 - (2.0 - 0.9))                    # ancho − (crédito − débito)
+    dear = dfn.rank_protection(100.0, exp, 2.0, [q(95.0, 1.4)], CFG)
+    assert dear[0].ok is False and dear[0].debit_pct == pytest.approx(70.0)
+    unknown = dfn.rank_protection(100.0, exp, None, [q(93.0, 0.9)], CFG)
+    assert unknown[0].ok is None and unknown[0].max_loss is None
+    assert dfn.rank_protection(100.0, exp, 2.0, [q(93.0, 0.0)], CFG) == ()
+
+
+def test_call_candidates_need_the_delta_band_and_show_the_new_breakevens():
+    exp = TODAY + timedelta(days=20)
+    c = lambda k, bid, d: RollQuote(exp, k, bid, bid + 0.1, d)                    # noqa: E731
+    quotes = [c(105.0, 1.8, 0.28), c(108.0, 1.0, 0.22), c(103.0, 2.6, 0.38), c(115.0, 0.2, 0.08), c(110.0, 0.1, 0.24)]
+    got = dfn.rank_calls(100.0, 2.0, exp, quotes, CFG)
+    assert [x.strike for x in got] == [108.0, 105.0, 110.0]                       # Δ 0,20–0,30; las que compensan (≥ 10 % de 2,00) primero y más cerca de 0,25
+    best = got[0]
+    assert best.ok and best.credit_pct == pytest.approx(50.0) and best.breakeven_down == pytest.approx(100.0 - 3.0) and best.breakeven_up == pytest.approx(111.0)
+    assert not best.inverted and got[2].ok is False                                # 0,10 de prima en 2,00: no compensa
+    assert dfn.rank_calls(100.0, 2.0, exp, [c(105.0, 1.8, 0.35)], CFG) == ()
+
+
+def test_an_inverted_strangle_is_only_covered_when_the_total_credit_exceeds_the_distance():
+    exp = TODAY + timedelta(days=20)
+    # put 100 (ITM), call 98: distancia 2,00
+    low = dfn.rank_calls(100.0, 1.5, exp, [RollQuote(exp, 98.0, 0.3, 0.4, 0.25)], CFG)
+    assert low[0].inverted and low[0].covered is False and "NO supera" in low[0].notes[0]      # 1,5 + 0,3 = 1,8 < 2,0
+    high = dfn.rank_calls(100.0, 1.5, exp, [RollQuote(exp, 98.0, 0.9, 1.0, 0.25)], CFG)
+    assert high[0].covered is True and "supera la distancia" in high[0].notes[0]               # 2,4 > 2,0
+    div = dfn.rank_calls(100.0, 1.5, exp, [RollQuote(exp, 105.0, 0.9, 1.0, 0.25)], CFG, ex_dividend_in=3, today=TODAY)
+    assert any("ex-dividendo en 3 días" in n for n in div[0].notes)

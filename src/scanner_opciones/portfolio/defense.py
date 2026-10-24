@@ -201,6 +201,81 @@ def rank_rolls(strike: float, entry: Optional[float], close_cost: float, quotes:
                                            "(si te gusta el valor a ese precio y la posición cabe en la cartera).")
 
 
+# ---- protección (put comprada) y call (strangle) ------------------------------------------------------------------------------
+MAX_CANDIDATES = 3
+
+
+@dataclass(frozen=True)
+class ProtectOption:
+    """Put comprada del mismo vencimiento por debajo de la vendida: convierte la put en un spread y acota la pérdida."""
+    strike: float
+    ask: float
+    delta: Optional[float]
+    width: float                     # ancho del spread resultante
+    debit_pct: Optional[float]       # débito en % del crédito original
+    ok: Optional[bool]               # el débito no se come más de `protect_max_debit_pct` del crédito original (None sin crédito original)
+    max_loss: Optional[float]        # pérdida máxima por acción del spread: ancho − (crédito original − débito)
+
+
+@dataclass(frozen=True)
+class CallOption:
+    """Call vendida del mismo vencimiento (la put más la call forman un strangle)."""
+    strike: float
+    bid: float
+    delta: float
+    credit_pct: Optional[float]      # prima en % del crédito original
+    ok: Optional[bool]               # compensa: al menos `call_min_credit_pct` del crédito original (None sin crédito original)
+    breakeven_down: Optional[float]  # strike de la put − (crédito original + prima): lo que aguantas a la baja
+    breakeven_up: Optional[float]    # strike de la call + (crédito original + prima): lo que aguantas al alza
+    inverted: bool                   # call por debajo del strike de la put (straddle/strangle invertido)
+    covered: Optional[bool]          # solo si es invertido: el crédito total cobrado supera la distancia entre strikes
+    notes: tuple[str, ...]
+
+
+def rank_protection(strike: float, expiry: date, entry: Optional[float], quotes: Sequence[RollQuote], cfg: DefenseSettings) -> tuple[ProtectOption, ...]:
+    """Puts de protección candidatas: mismo vencimiento que la vendida y strike entre `protect_strike_pct_min` y `_max` % por debajo de ella; primero las
+    que cumplen el débito máximo, y entre ellas la más cercana a la vendida (más protección). Como mucho tres."""
+    lo, hi = strike * (1 - cfg.protect_strike_pct_max / 100), strike * (1 - cfg.protect_strike_pct_min / 100)
+    out = []
+    for q in quotes:
+        if q.expiry != expiry or not lo - 1e-9 <= q.strike <= hi + 1e-9 or q.strike >= strike or q.ask is None or q.ask <= 0:
+            continue
+        pct = q.ask / entry * 100 if entry else None
+        ok = None if pct is None else pct <= cfg.protect_max_debit_pct + 1e-9
+        width = strike - q.strike
+        out.append(ProtectOption(q.strike, q.ask, q.delta, width, pct, ok, width - (entry - q.ask) if entry else None))
+    out.sort(key=lambda o: (o.ok is not True, -o.strike))
+    return tuple(out[:MAX_CANDIDATES])
+
+
+def rank_calls(strike: float, entry: Optional[float], expiry: date, quotes: Sequence[RollQuote], cfg: DefenseSettings,
+               ex_dividend_in: Optional[int] = None, today: Optional[date] = None) -> tuple[CallOption, ...]:
+    """Calls candidatas de la defensa: mismo vencimiento que la put y |delta| de `call_delta_min` a `call_delta_max`; las que cobran más de
+    `call_min_credit_pct` del crédito original primero y, entre ellas, la más cercana a la mitad de la banda de delta. Como mucho tres. La prima es el
+    bid (conservador). El breakeven nuevo supone mantener la put hasta el vencimiento."""
+    mid = (cfg.call_delta_min + cfg.call_delta_max) / 2
+    out = []
+    for q in quotes:
+        if q.expiry != expiry or q.bid is None or q.bid <= 0 or q.delta is None or not cfg.call_delta_min - 1e-9 <= abs(q.delta) <= cfg.call_delta_max + 1e-9:
+            continue
+        pct = q.bid / entry * 100 if entry else None
+        ok = None if pct is None else pct >= cfg.call_min_credit_pct - 1e-9
+        total = (entry or 0.0) + q.bid
+        down = strike - total if entry else None
+        up = q.strike + total if entry else None
+        inverted = q.strike < strike
+        covered = (total > strike - q.strike) if inverted and entry else None
+        notes = []
+        if inverted:
+            notes.append("strangle invertido: " + ("el crédito total supera la distancia entre strikes" if covered else
+                         "el crédito total NO supera la distancia entre strikes: pierdes con cualquier precio al vencimiento" if covered is False else "sin crédito original para comprobarlo"))
+        if ex_dividend_in is not None and 0 <= ex_dividend_in <= cfg.ex_dividend_days:
+            notes.append(f"ex-dividendo en {ex_dividend_in} días: la call podría asignarse antes")
+        out.append(CallOption(q.strike, q.bid, abs(q.delta), pct, ok, down, up, inverted, covered, tuple(notes)))
+    out.sort(key=lambda o: (o.ok is not True, abs(o.delta - mid)))
+    return tuple(out[:MAX_CANDIDATES])
+
+
 @dataclass(frozen=True)
 class RollEvaluation:
     """Resultado de evaluar un roll con cotizaciones en vivo (lo que muestra el Panel)."""
@@ -220,3 +295,6 @@ class RollEvaluation:
     checked: int                           # cotizaciones candidatas pedidas
     quoted: int                            # ... de las que contestaron
     fetched_at: Optional[date] = None
+    protections: tuple[ProtectOption, ...] = ()
+    calls: tuple[CallOption, ...] = ()
+    calls_quoted: int = 0                  # calls candidatas que contestaron (0 = el proveedor no las cotizó)
