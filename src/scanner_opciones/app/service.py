@@ -2349,7 +2349,7 @@ class AppService:
             checks.append(("el IV Rank", sum(1 for t in tickers if not infos.get(t) or infos[t].iv_rank is None), KEPT,
                            "Se rellenan con la actualización diaria"))
         if c.min_atr_multiple is not None:
-            have = self.bars.atr(tickers, self.settings.scanner.technical.atr_period)
+            have = self._atr_map()
             checks.append(("el ATR", sum(1 for t in tickers if t not in have), KEPT,
                            "Hacen falta los máximos y mínimos diarios, que se descargan con el histórico (si tastytrade no responde, se reintenta en la siguiente actualización)"))
         return [f"Faltan datos para {label} en {n} de {total} tickers: {effect}. {hint}."
@@ -2647,7 +2647,13 @@ class AppService:
         """ATR de los subyacentes, solo si el filtro está activo."""
         if criteria.min_atr_multiple is None:
             return None
-        return self._memo("atr", lambda: self.bars.atr({s.contract.ticker for s in snapshots}, self.settings.scanner.technical.atr_period))
+        return self._atr_map()
+
+    def _atr_map(self) -> dict[str, float]:
+        """ATR de la watchlist y de los tickers con contratos guardados, leído una vez por cambio de datos (son ~2.800 consultas a SQLite, 1-2 s) y
+        compartido por el filtro, el aviso de datos que faltan y el panel de impacto."""
+        return self._memo("atr", lambda: self.bars.atr(
+            set(self.watchlist.list()) | {s.contract.ticker for s in self._scan_snapshots()}, self.settings.scanner.technical.atr_period))
 
     def put_margins(self) -> dict[str, float]:
         """Margen what-if guardado (por contrato) de las puts vendidas de la cartera, por `put_key` (en un spread, de la pata vendida).
@@ -2671,7 +2677,9 @@ class AppService:
         if not wanted:
             return {}
         bars = self._memo("closes_all", lambda: self.bars.all_closes(set(self.watchlist.list())))
-        summarizer = TechSummarizer(bars, self.settings.scanner.technical, self.settings.scanner.strategy, self.now().date())
+        # el resumen de cada ticker (RSI, zonas de soporte) es caro y no depende del perfil: se reutiliza entre cargas mientras no cambien los datos
+        summarizer = self._memo("tech_summarizer", lambda: TechSummarizer(
+            bars, self.settings.scanner.technical, self.settings.scanner.strategy, self.now().date()))
         found = ((key, summarizer.summary(key[0], price, key[1])) for key, price in wanted.items())
         return {key: s for key, s in found if s is not None}
 

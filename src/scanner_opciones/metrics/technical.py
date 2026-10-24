@@ -64,8 +64,9 @@ def atr(bars: Sequence[tuple[float, float, float]], n: int = 14) -> Optional[flo
     return out
 
 
-def rsi_series(values: Sequence[float], n: int = 14) -> list[Optional[float]]:
-    """RSI de Wilder alineado con `values` (None hasta tener `n` variaciones). Sin pérdidas = 100; sin movimiento = 50."""
+def rsi_series(values: Sequence[float], n: int = 14, last: Optional[int] = None) -> list[Optional[float]]:
+    """RSI de Wilder alineado con `values` (None hasta tener `n` variaciones). Sin pérdidas = 100; sin movimiento = 50.
+    Con `last` solo se rellenan las últimas `last` posiciones (el resto, None): el alisado recorre todo igual, pero no se calcula el RSI de cada día."""
     out: list[Optional[float]] = [None] * len(values)
     if n <= 0 or len(values) <= n:
         return out
@@ -78,17 +79,20 @@ def rsi_series(values: Sequence[float], n: int = 14) -> list[Optional[float]]:
             return 50.0
         return 100.0 if loss == 0 else 100 - 100 / (1 + gain / loss)
 
-    out[n] = rsi()
+    first = 0 if last is None else len(values) - last
+    if n >= first:
+        out[n] = rsi()
     for i in range(n, len(diffs)):
         gain = (gain * (n - 1) + max(diffs[i], 0.0)) / n
         loss = (loss * (n - 1) + max(-diffs[i], 0.0)) / n
-        out[i + 1] = rsi()
+        if i + 1 >= first:
+            out[i + 1] = rsi()
     return out
 
 
 def rsi_rebound(values: Sequence[float], threshold: float, lookback: int, n: int = 14) -> tuple[bool, str]:
     """¿El RSI ha tocado `threshold` (o menos) en las últimas `lookback` sesiones y hoy sube respecto a la anterior?"""
-    series = rsi_series(values, n)
+    series = rsi_series(values, n, last=max(lookback, 2))     # solo se usan las últimas sesiones
     recent = [r for r in series[-lookback:] if r is not None]
     if len(series) < 2 or series[-1] is None or series[-2] is None or not recent:
         return False, f"sin datos para el RSI({n}) ({len(values)} cierres)"
@@ -144,9 +148,9 @@ def pivots(values: Sequence[float], width: int) -> tuple[list[int], list[int]]:
     lows: list[int] = []
     for i in range(width, len(values) - width):
         left, right, v = values[i - width:i], values[i + 1:i + 1 + width], values[i]
-        if all(v > x for x in left) and all(v >= x for x in right):
+        if v > max(left, default=v - 1) and v >= max(right, default=v):      # default: con width 0 todo valor es pivote, como antes
             highs.append(i)
-        if all(v < x for x in left) and all(v <= x for x in right):
+        if v < min(left, default=v + 1) and v <= min(right, default=v):
             lows.append(i)
     return highs, lows
 

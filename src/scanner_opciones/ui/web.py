@@ -249,9 +249,12 @@ def quality_counts(infos: dict, tickers: list[str], base, qcfg) -> dict:
     from scanner_opciones.domain.models import TickerInfo
     from scanner_opciones.scanner.quality import ticker_quality_reject
 
+    exempt = qcfg.exempt_entries      # una propiedad que arma la tupla: fuera del bucle por ticker
+    fichas = [infos.get(t) or TickerInfo(t) for t in tickers]
+
     def passing(**overrides) -> int:
         c = base.with_filters(**overrides)
-        return sum(1 for t in tickers if ticker_quality_reject(infos.get(t) or TickerInfo(t), c, qcfg.exempt_entries) is None)
+        return sum(1 for info in fichas if ticker_quality_reject(info, c, exempt) is None)
 
     by: dict = {("require_profitable", True): passing(require_profitable=True),
                 ("require_positive_fcf", True): passing(require_positive_fcf=True),
@@ -1685,7 +1688,8 @@ def create_app(
                                 strategy=p.put.get("use_delta") == "on") for p in profiles]
         active_profile = next((p for p in profiles if p.name == active_name), None)
         qcfg = service.settings.scanner.quality
-        counts = quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg)
+        # no depende del perfil (base de config.yaml): se reutiliza entre cargas mientras no cambien los datos
+        counts = service._memo("quality_counts", lambda: quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg))
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
         return render(request, "scanner.html", no_autorefresh=True, out=out, other_params=pair["other_params"], owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, default_qs=default_qs,
