@@ -10,7 +10,7 @@ from scanner_opciones.scanner.impact import active_groups, impact_report
 TODAY = date(2026, 9, 29)
 NOW = datetime(2026, 9, 29, 12, 0)
 # sin el bid mínimo por defecto: estos tests miden solo los filtros que ellos activan
-BASE = criteria_from_settings(Settings()).with_filters(min_bid=None, min_yield_pct=0)
+BASE = criteria_from_settings(Settings()).with_filters(min_bid=None, min_yield_pct=0, floor_eps=False, floor_quarters=0, floor_fcf=False)
 INFOS = {"AAPL": TickerInfo("AAPL", underlying_price=100.0)}
 
 
@@ -82,3 +82,21 @@ def test_iv_rank_o_percentile_es_un_solo_grupo():
     c = BASE.with_filters(min_iv_rank=30, min_iv_percentile=50, iv_any=True)
     assert [g[0] for g in active_groups(c)] == ["iv_either"]       # quitar solo uno haría el filtro más estricto: impacto negativo
     assert [g[0] for g in active_groups(c.with_filters(iv_any=False))] == ["iv_rank", "iv_pct"]
+
+
+def test_the_minimum_put_quality_is_counted_like_any_other_filter():
+    infos = {"AAPL": TickerInfo("AAPL", underlying_price=100.0, eps_ttm=2.0, positive_quarters=4, fcf_ttm=1.0),
+             "LOSS": TickerInfo("LOSS", underlying_price=100.0, eps_ttm=-1.0, positive_quarters=1, fcf_ttm=-1.0)}
+
+    def other(ticker, strike):
+        c = OptionContract(ticker, TODAY + timedelta(days=30), strike, OptionRight.PUT)
+        return ContractSnapshot(c, NOW, bid=1.0, ask=1.0, open_interest=500, spread_pct=5, yield_pct=1.2)
+
+    snaps = [snap(80, 500, 5), snap(81, 500, 5), other("LOSS", 80)]
+    crit = BASE.with_filters(floor_eps=True, floor_quarters=3, floor_fcf=True)
+    r = impact_report(snaps, infos, crit, TODAY)
+    f = by_key(r)
+    assert (r.window, r.final) == (3, 2) and set(f) == {"floor_eps", "floor_quarters", "floor_fcf"}
+    assert f["floor_eps"].alone == 2 and f["floor_eps"].exclusive == 0         # los otros dos la cubren: LOSS falla las tres
+    assert "solo spread" in f["floor_eps"].config and f["floor_quarters"].config.startswith("≥ 3")
+    assert impact_report(snaps, infos, BASE, TODAY).window == 3 and impact_report(snaps, infos, BASE, TODAY).filters == ()

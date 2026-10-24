@@ -2672,6 +2672,8 @@ class AppService:
         """Cuánto descarta cada filtro activo (ver `scanner/impact.py`). En modo spread se mide la pata vendida, sin yield."""
         if criteria.spread_mode:
             criteria = criteria.with_filters(min_yield_pct=0.0, min_put_credit=None, max_capital_risk_pct=None)
+        if criteria.floor_fcf and not self.settings.edgar.contact.strip():      # sin EDGAR no hay FCF y el escaneo tampoco lo exige
+            criteria = criteria.with_filters(floor_fcf=False)
         return self._memo_result("impact", criteria, None, lambda: self._scan_impact(criteria))
 
     def _scan_impact(self, criteria: ScanCriteria) -> ImpactReport:

@@ -15,7 +15,7 @@ from scanner_opciones.scanner.technical import TechnicalFilter
 
 TODAY = date(2026, 10, 6)
 NOW = datetime(2026, 10, 6, 12, 0)
-BASE = criteria_from_settings(Settings()).with_filters(strike_below_pct_min=0, dte_min=1, dte_max=60, min_yield_pct=0, min_bid=None)
+BASE = criteria_from_settings(Settings()).with_filters(strike_below_pct_min=0, dte_min=1, dte_max=60, min_yield_pct=0, min_bid=None, floor_eps=False, floor_quarters=0, floor_fcf=False)
 
 
 def snap(strike=90.0, days=36, delta=-0.22, iv=0.30):

@@ -18,7 +18,7 @@ from scanner_opciones.config.settings import TechnicalSettings
 from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, SOLVENCY_RULES, ScanCriteria
 from scanner_opciones.scanner.filters import reject_reason
-from scanner_opciones.scanner.quality import DEFAULT_EXEMPT, quality_reject
+from scanner_opciones.scanner.quality import DEFAULT_EXEMPT, put_floor_reject, quality_reject
 from scanner_opciones.scanner.signals import SIGNAL_FIELDS, signals_reject
 from scanner_opciones.scanner.technical import TechnicalFilter
 
@@ -44,6 +44,9 @@ _GROUPS: tuple[tuple[str, str, dict], ...] = (
     ("bollinger", "Bollinger: cerca de la banda inferior", {"max_bollinger_pctb": None}),
     ("bollinger_width", "Bollinger: bandas no estrechas", {"min_bollinger_width_pct": None}),
     ("signals", "Señales de entrada (al menos N)", {"signals_required": 0, **{f: None for f in SIGNAL_FIELDS}}),
+    ("floor_eps", "Calidad mínima de la put: beneficios (12 meses)", {"floor_eps": False}),
+    ("floor_quarters", "Calidad mínima de la put: trimestres con beneficios", {"floor_quarters": 0}),
+    ("floor_fcf", "Calidad mínima de la put: flujo de caja libre", {"floor_fcf": False}),
     ("profit", "Beneficios (12 meses)", {"require_profitable": False}),
     ("quarters", "Trimestres con beneficios", {"min_positive_quarters": None}),
     ("liquidity", "Liquidez de las opciones", {"min_option_liquidity": None}),
@@ -119,6 +122,9 @@ def describe_group(key: str, c: ScanCriteria) -> str:
         "rsi": lambda: f"tocó ≤ {_g(c.rsi_rebound_max)} y sube",
         "bollinger": lambda: f"%B ≤ {_g(c.max_bollinger_pctb)}",
         "bollinger_width": lambda: f"ancho ≥ {_g(c.min_bollinger_width_pct)} %",
+        "floor_eps": lambda: "EPS 12 meses > 0 (si no, solo spread)",
+        "floor_quarters": lambda: f"≥ {c.floor_quarters} de 4 (si no, solo spread)",
+        "floor_fcf": lambda: "FCF 12 meses > 0 (si no, solo spread)",
         "profit": lambda: "EPS 12 meses > 0",
         "quarters": lambda: f"≥ {c.min_positive_quarters} de 4",
         "liquidity": lambda: f"≥ {c.min_option_liquidity}",
@@ -185,6 +191,8 @@ def _passes(
             continue
         if criteria.quality_active and quality_reject(info, c.expiry, criteria, today, keep) is not None:
             continue
+        if criteria.floor_active and put_floor_reject(info, criteria.floor_eps, criteria.floor_quarters, criteria.floor_fcf, keep) is not None:
+            continue          # calidad mínima de la put desnuda: la misma que aplica el escaneo (`AppService.naked_blocked`)
         if tech is not None and tech.reject(c.ticker, price, c.strike) is not None:
             continue
         if signals_reject(criteria, info, tech, c.ticker, price) is not None:

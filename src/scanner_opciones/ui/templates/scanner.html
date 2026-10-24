@@ -694,6 +694,7 @@
     if (!form || !body) return;
     const OFF = {   // clave del panel -> casillas a desmarcar, cajas a vaciar y selects a poner en su valor neutro
       yield: { set: { min_yield: '0' } }, price: { set: { price_min: '', price_max: '' } },
+      floor_eps: { uncheck: ['fl_eps'] }, floor_quarters: { set: { fl_q: '0' } }, floor_fcf: { uncheck: ['fl_fcf'] },
       credit: { uncheck: ['use_credit'] }, risk: { uncheck: ['use_risk'] }, oi: { uncheck: ['use_oi'] }, bid_size: { uncheck: ['use_bidsize'] }, spread: { uncheck: ['use_spread'] },
       iv_rank: { uncheck: ['use_ivr'] }, iv_pct: { uncheck: ['use_ivp'] }, iv_hv: { uncheck: ['use_ivhv'] }, iv_change: { uncheck: ['use_ivchg'] },
       atr: { uncheck: ['use_atr'] }, expected_move: { uncheck: ['use_exp'] }, delta: { uncheck: ['use_delta'] }, near_level: { uncheck: ['use_near'] }, rsi: { uncheck: ['use_rsi'] },
