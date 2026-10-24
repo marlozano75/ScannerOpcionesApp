@@ -6,6 +6,7 @@ fechas calculados aquí; el ticker se escapa.
 from __future__ import annotations
 
 from datetime import date
+from typing import Optional
 from html import escape
 
 from scanner_opciones.metrics.technical import StrikeHistory
@@ -14,6 +15,7 @@ W, H = 760, 300
 LEFT, RIGHT, TOP, BOTTOM = 58, 84, 20, 34
 _MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 BLUE, RED, YELLOW, ORANGE = "#2f6fd1", "#d64545", "#d9a400", "#e87a1e"
+MAX_EARNINGS_AHEAD = 120          # días: unos resultados más lejanos no alargan el eje
 MA50, MA200 = "#8a5cd0", "#1f9d8a"
 
 
@@ -76,7 +78,7 @@ def _side_tags(tags: list[tuple[float, str, str, str]], x: float, top: float, bo
     return "".join(out)
 
 
-def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: float) -> str:
+def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: float, earnings: Optional[date] = None) -> str:
     """Resumen + gráfico (fragmento HTML). Con menos de 2 cierres mensuales devuelve solo un aviso."""
     if len(h.months) < 2:
         return '<p class="muted">Sin histórico de cierres suficiente para dibujar el gráfico.</p>'
@@ -110,6 +112,10 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     pad = (hi - lo) * 0.1 or hi * 0.05
     lo, hi = lo - pad, hi + pad
     t0, t1 = h.months[0][0].toordinal(), h.months[-1][0].toordinal()
+    if earnings is not None and earnings.toordinal() > t1 and (earnings - h.months[-1][0]).days <= MAX_EARNINGS_AHEAD:
+        t1 = earnings.toordinal()          # el eje se alarga hasta los resultados próximos
+    else:
+        earnings = None
     span = max(t1 - t0, 1)
     px_x = lambda d: LEFT + (d.toordinal() - t0) / span * (W - LEFT - RIGHT)
     px_y = lambda v: TOP + (hi - v) / (hi - lo) * (H - TOP - BOTTOM)
@@ -151,12 +157,20 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
             anchor = "end" if x > W * 0.6 else "start"
             tx = x - 4 if anchor == "end" else x + 4
             g.append(f'<text x="{tx:.1f}" y="{ty:.1f}" text-anchor="{anchor}" font-size="11.5" font-weight="700" fill="{ORANGE}">{escape(label)}</text>')
+    if earnings is not None:                                           # raya vertical en la fecha de resultados
+        x = px_x(earnings)
+        days = (earnings - h.months[-1][0]).days
+        g.append(f'<g><title>Resultados el {earnings.day} {_MONTHS[earnings.month - 1]} {earnings.year}</title>'
+                 f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{TOP}" y2="{base_y}" stroke="{ORANGE}" stroke-width="1.8" stroke-dasharray="2 3"/>'
+                 f'<text x="{x - 4:.1f}" y="{TOP + 10}" text-anchor="end" font-size="11" font-weight="700" fill="{ORANGE}" stroke="var(--panel)" '
+                 f'stroke-width="3" paint-order="stroke">resultados {earnings.day} {_MONTHS[earnings.month - 1]} · en {days} d</text></g>')
     tags.append((pts[-1][1], _usd(current), BLUE, ""))
     g.append(_side_tags(tags, W - RIGHT + 12, TOP, base_y))
 
     legend = (f'<div class="sh-legend"><span style="--c:{BLUE}">Cierre mensual (actual)</span><span style="--c:{RED}" class="dash">Strike {_usd(strike)}</span>'
               f'<span style="--c:{YELLOW}">A menos de {near_pct:g}% del strike</span><span style="--c:{RED}">En o bajo el strike</span>'
               f'<span style="--c:{ORANGE}" class="ring">Último toque (cierre diario)</span>'
+              + (f'<span style="--c:{ORANGE}" class="dash">Resultados {earnings.day} {_MONTHS[earnings.month - 1]}</span>' if earnings is not None else "")
               + "".join(f'<label class="sh-tog" style="--c:{c}"><input type="checkbox" data-ma="{k}" checked> {lb}</label>' for lb, k, c, _ in mas)
               + '</div>')
     svg = (f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="Cierres mensuales de {escape(ticker)} frente al strike" '

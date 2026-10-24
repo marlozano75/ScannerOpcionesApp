@@ -494,6 +494,7 @@ class CompanySettings(_Model):
     clave). Solo informa, no filtra. Lo escrito a mano (`python -m scanner_opciones.marketdata.company_cli`) manda sobre lo automático."""
     enabled: bool = True
     description_chars: int = Field(320, ge=60)           # largo máximo de la descripción en el tooltip
+    card_chars: int = Field(700, ge=60)                  # y en la ficha de los gráficos de historial y del Panel
     description_refresh_days: int = Field(90, ge=1)      # el negocio casi no cambia
     news_window_days: int = Field(90, ge=1)              # noticias de los últimos N días
     news_max_items: int = Field(4, ge=1, le=10)

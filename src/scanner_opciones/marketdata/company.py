@@ -113,13 +113,42 @@ def select_news(items: Sequence[NewsItem], today: date, window_days: int, max_it
     return out
 
 
+def shown_news(notes: CompanyNotes) -> tuple[tuple[NewsItem, ...], Optional[date]]:
+    """Las noticias que se enseñan (las revisadas a mano mandan sobre las automáticas) y de cuándo son."""
+    return (notes.curated, notes.curated_at) if notes.curated else (notes.news, notes.news_at)
+
+
+def card_html(name: str, notes: Optional[CompanyNotes], desc_chars: int) -> str:
+    """Ficha para los gráficos: nombre completo, a qué se dedica y noticias con fecha (fragmento HTML; todo el texto se escapa)."""
+    from html import escape
+    description = short_description((notes.summary or notes.description) if notes else "", desc_chars)
+    news, stamp = shown_news(notes) if notes else ((), None)
+    if not (name or description or news):
+        return ""
+    out = ['<div class="co-card" style="margin:0 0 8px;font-size:12.5px;line-height:1.4">']
+    if name:
+        out.append(f'<div><b>{escape(name)}</b></div>')
+    if description:
+        out.append(f'<div class="muted">{escape(description)}</div>')
+    if news:
+        out.append(f'<div style="margin-top:4px"><b>Noticias{" revisadas" if notes.curated else ""}</b> '
+                   f'<span class="muted">(actualizadas el {stamp.strftime("%d/%m/%Y") if stamp else "?"})</span></div>'
+                   '<ul style="margin:2px 0 0;padding-left:18px">')
+        for n in news:
+            src = f' <span class="muted">({escape(n.source)})</span>' if n.source else ""
+            out.append(f'<li><span class="muted">{n.day.strftime("%d/%m")}</span> {escape(n.headline)}{src}</li>')
+        out.append("</ul>")
+    out.append("</div>")
+    return "".join(out)
+
+
 def tooltip(notes: CompanyNotes, desc_chars: int, news_chars: int = 120) -> str:
     """Texto del tooltip: descripción (la guardada a mano si existe) y, debajo, las noticias con su fecha y de cuándo son."""
     lines: list[str] = []
     description = short_description(notes.summary or notes.description, desc_chars)
     if description:
         lines.append(description)
-    news, stamp = (notes.curated, notes.curated_at) if notes.curated else (notes.news, notes.news_at)
+    news, stamp = shown_news(notes)
     if news:
         lines.append(f"Noticias{' revisadas' if notes.curated else ''} (actualizadas el {stamp.strftime('%d/%m/%Y') if stamp else '?'}):")
         for n in news:

@@ -18,6 +18,7 @@ from scanner_opciones.ui.viz import _e, _scale, empty, nice_ticks
 W, H = 560, 250
 LEFT, RIGHT, TOP, BOTTOM = 46, 16, 52, 28      # TOP deja sitio a 4 filas de etiquetas de fechas
 FUTURE_DAYS = 60            # hasta dónde se dibuja el futuro; un vencimiento más lejano se marca con una flecha en el borde derecho
+EARNINGS = "#e87a1e"
 SOLD, BOUGHT, EXPIRY, REVIEW = "var(--red)", "var(--grey)", "var(--ink)", "var(--amber)"
 
 
@@ -53,7 +54,7 @@ def exit_plan(s: PutStatus, cfg: ManagementSettings, today: date) -> Exit:
 
 
 def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatus], cfg: ManagementSettings, today: date, weeks: int = 10,
-                   price: Optional[float] = None) -> Markup:
+                   price: Optional[float] = None, earnings: Optional[date] = None) -> Markup:
     """`closes`: cierres diarios (fecha, cierre) del ticker; `puts`: sus puts vendidas (un spread es una fila con `long_strike`)."""
     start = today - timedelta(weeks=weeks)
     bars = sorted((d, p) for d, p in closes if start <= d <= today)
@@ -128,6 +129,9 @@ def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatu
             marks.append((rd, f"{'revisar' if plan.is_review else f'{plan.dte} DTE'} {rd:%d/%m} · en {plan.days_to_review} d", REVIEW, f"{rd:%d/%m/%Y}|Revisión a {plan.dte} DTE|faltan {plan.days_to_review} días"))
         elif plan.days_to_review is not None and exp >= today:
             marks.append((today, "en zona de revisión" if plan.is_review else f"dentro de {plan.dte} DTE", REVIEW, f"{rd:%d/%m/%Y}|Revisión a {plan.dte} DTE|ya toca (venc. {exp:%d/%m})"))
+    if earnings is not None and earnings >= today:
+        marks.append((earnings, f"resultados {earnings:%d/%m} · en {(earnings - today).days} d", EARNINGS,
+                      f"{earnings:%d/%m/%Y}|Presentación de resultados|faltan {(earnings - today).days} días"))
     row_ends: list[float] = []                                                         # etiquetas en filas: una cercana a otra va a la fila siguiente
     for d, text, color, tip in sorted(marks):
         if d < start:
@@ -148,7 +152,7 @@ def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatu
         dash = "6 4" if color == EXPIRY else "2 3"
         out.append(f'<g tabindex="0" data-tip="{_e(tip)}"><line x1="{x:.1f}" x2="{x:.1f}" y1="{y_text + 3:.1f}" y2="{H - BOTTOM}" stroke="{color}" stroke-width="1.8" '
                    f'stroke-dasharray="{dash}"/><line x1="{x:.1f}" x2="{x:.1f}" y1="{TOP}" y2="{H - BOTTOM}" stroke="transparent" stroke-width="10"/>'
-                   f'<text x="{x + dx:.1f}" y="{y_text + 8:.1f}" font-size="10.5" font-weight="700" text-anchor="{anchor}" fill="{"var(--ink)" if color == EXPIRY else "#8a5a00"}" '
+                   f'<text x="{x + dx:.1f}" y="{y_text + 8:.1f}" font-size="10.5" font-weight="700" text-anchor="{anchor}" fill="{"var(--ink)" if color == EXPIRY else ("#a8480a" if color == EARNINGS else "#8a5a00")}" '
                    f'stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(text + (" →" if beyond else ""))}</text></g>')
     out.append("</svg>")
     return Markup("".join(out))

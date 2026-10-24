@@ -56,7 +56,7 @@ from scanner_opciones.storage.repositories import (
 )
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystProvider
-from scanner_opciones.marketdata.company import DescriptionProvider, NewsProvider, tooltip as company_tooltip
+from scanner_opciones.marketdata.company import DescriptionProvider, NewsProvider, card_html, tooltip as company_tooltip
 from scanner_opciones.marketdata.filings import FilingAlert
 from scanner_opciones.scanner.admission import SourceRule
 from scanner_opciones.tortuga.api import API_ROUTINES
@@ -961,6 +961,18 @@ class AppService:
             texts = ((norm_ticker(t), company_tooltip(n, cfg.description_chars)) for t, n in self.company_notes.all().items())
             return {t: text for t, text in texts if text}
         return self._memo("company_notes", build)
+
+    def company_card(self, ticker: str) -> str:
+        """Nombre completo, descripción y noticias con fecha de un ticker, como HTML para los gráficos de historial y del Panel."""
+        key = norm_ticker(ticker)
+        notes = self._memo("company_notes_raw", lambda: {norm_ticker(t): n for t, n in self.company_notes.all().items()})
+        return card_html(self.company_name_map().get(key, ""), notes.get(key), self.settings.company.card_chars)
+
+    def next_earnings(self, ticker: str) -> Optional[date]:
+        """Próxima presentación de resultados (de tastytrade), si es de hoy o posterior."""
+        info = self.ticker_info.get(ticker.replace(" ", "-"))
+        day = info.next_earnings if info else None
+        return day if day and day >= self.now().date() else None
 
     def company_name_map(self) -> dict[str, str]:
         """{ticker normalizado: nombre completo de la acción o ETF} para el tooltip de los tickers: el que traen las fuentes del Universo y

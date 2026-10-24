@@ -55,6 +55,7 @@
     vencimiento (línea vertical) y la fecha de {{ mgmt_cfg.review_dte }} DTE (zona ámbar): en las puts gestionadas con Tastytrade es cuando toca revisarlas; con TPC se mantiene hasta el vencimiento y es solo una referencia.</p>
   <div hidden>{% for pc in pos_charts %}
     <div id="pc-{{ loop.index }}" data-ticker="{{ pc.ticker }}">
+      {{ pc.company }}
       {{ pc.chart }}
       <ul class="vs" style="margin:6px 0 0;padding-left:16px">
         {% for s, plan in pc.plans %}<li>{{ s.contracts }} × {{ s.strike|num }}{% if s.long_strike is not none %}/{{ s.long_strike|num }}{% endif %} · venc. {{ s.expiry.strftime('%d/%m') }} ({{ s.dte }} d) · {{ plan.text }}</li>{% endfor %}

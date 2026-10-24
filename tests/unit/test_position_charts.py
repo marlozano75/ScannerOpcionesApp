@@ -52,3 +52,10 @@ def test_thumbnail_has_no_text_but_draws_strike_expiry_and_the_review_zone():
     svg = str(position_mini(closes(), [put(strike=105.0, long_strike=100.0)], CFG, TODAY, 10, 110.0))
     assert svg.startswith("<svg") and "<text" not in svg and "stroke-dasharray" in svg and 'opacity=".2"' in svg
     assert str(position_mini([], [put()], CFG, TODAY)) == ""
+
+
+def test_earnings_date_is_drawn_as_a_vertical_line_with_its_days_left():
+    svg = str(position_chart(closes(), [put(dte=35)], CFG, TODAY, 10, 110.0, TODAY + timedelta(days=12)))
+    assert "resultados 31/10 · en 12 d" in svg and "Presentación de resultados" in svg
+    assert "resultados" not in str(position_chart(closes(), [put(dte=35)], CFG, TODAY, 10, 110.0, None))
+    assert "resultados" not in str(position_chart(closes(), [put(dte=35)], CFG, TODAY, 10, 110.0, TODAY - timedelta(days=1)))

@@ -650,8 +650,9 @@ def create_app(
         pkey = lambda s: f"{s.ticker}|{s.expiry.isoformat()}|{s.strike}|{s.long_strike}"      # noqa: E731  (un gráfico por put o spread)
         mgmt_cfg, weeks_cfg = service.settings.management, service.settings.management.chart_weeks
         minis = {pkey(s): position_mini(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, weeks_cfg, s.underlying_price) for s in mgmt.puts}
-        pos_charts = [dict(ticker=s.ticker, chart=position_chart(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, weeks_cfg, s.underlying_price),
-                           plans=[(s, exit_plan(s, mgmt_cfg, today))]) for s in mgmt.puts]
+        pos_charts = [dict(ticker=s.ticker, chart=position_chart(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, weeks_cfg, s.underlying_price,
+                                                  service.next_earnings(s.ticker)),
+                           company=Markup(service.company_card(s.ticker)), plans=[(s, exit_plan(s, mgmt_cfg, today))]) for s in mgmt.puts]
         pc_index = {pkey(s): n for n, s in enumerate(mgmt.puts, 1)}
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
@@ -1730,7 +1731,8 @@ def create_app(
         alerts = service.filing_alert_map().get(norm_ticker(ticker), [])
         box = ('<div class="banner warn"><b>⚠ Presentaciones recientes ante la SEC</b><ul style="margin:4px 0 0 18px;padding:0">'
                + "".join(f"<li>{escape(a.text)}</li>" for a in alerts) + "</ul></div>") if alerts else ""
-        return HTMLResponse(box + strike_chart_html(history, ticker, strike, tcfg.chart_near_pct))
+        return HTMLResponse(service.company_card(ticker) + box
+                            + strike_chart_html(history, ticker, strike, tcfg.chart_near_pct, service.next_earnings(ticker)))
 
     @app.get("/chart/mini.svg")
     async def strike_mini(ticker: str, strike: float):

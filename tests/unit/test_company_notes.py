@@ -102,3 +102,22 @@ def test_headlines_must_name_the_company_because_finnhub_mixes_in_other_companie
     assert mention_pattern("AXP", "American Express Company").search("American Express beats") and \
         not mention_pattern("AXP", "American Express Company").search("American Airlines sued")      # «American» solo no vale
     assert mention_pattern("KO", "Coca-Cola Co").search("Coca-Cola raises guidance") and not mention_pattern("KO").search("ko")
+
+
+def test_card_has_full_name_description_and_dated_news_escaped():
+    from scanner_opciones.marketdata.company import card_html
+    notes = CompanyNotes("Plataforma <b>x</b>.", TODAY, tuple(news("Probe & lawsuit")), TODAY)
+    html = card_html("Robinhood Markets, Inc.", notes, 300)
+    assert "<b>Robinhood Markets, Inc.</b>" in html and "&lt;b&gt;x&lt;/b&gt;" in html and "Probe &amp; lawsuit" in html and "24/10/2026" in html
+    assert card_html("", None, 300) == ""
+
+
+def test_strike_chart_extends_to_upcoming_earnings_only_when_close():
+    from scanner_opciones.metrics.technical import strike_history
+    from scanner_opciones.ui.charts import strike_chart_html
+    bars = [(TODAY - timedelta(days=400 - i), 100.0 + i * 0.1) for i in range(400)]
+    h = strike_history(bars, 90.0, TODAY, 12)
+    assert "resultados 3 nov · en 10 d" not in strike_chart_html(h, "ABC", 90.0, 5)           # sin fecha: sin raya
+    html = strike_chart_html(h, "ABC", 90.0, 5, TODAY + timedelta(days=10))
+    assert "Resultados el 3 nov 2026" in html and "Resultados 3 nov" in html
+    assert "Resultados el" not in strike_chart_html(h, "ABC", 90.0, 5, TODAY + timedelta(days=300))
