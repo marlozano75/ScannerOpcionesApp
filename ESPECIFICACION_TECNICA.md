@@ -384,6 +384,9 @@ Decisiones del usuario: anchos en $ (no en %) y conmutador Put/Spread (no filas 
 ### Defensa de las puts vendidas (2026-10-24)
 Avisos de defensa en el Panel para las puts desnudas de los perfiles con la defensa activada (estilo Tastytrade; TPC no rola) y evaluación de rolls bajo demanda con cotizaciones en vivo. Zonas por |delta| estimada (testeada ≥ 0,30, en el dinero ≥ 0,50, muy dentro ≥ 0,70), días (≤ 21 DTE), extrínseco casi nulo y dividendo (asignación anticipada), pérdida (2×/3× el crédito), IV Rank (30/40) y resultados. El roll exige crédito neto (bid de la nueva − ask de la actual ≥ 10 % del crédito original y ≥ 0,05 $), vencimiento a 30–60 DTE (hasta 90 si no hay crédito), strike lo más bajo posible y |Δ| final de 0,30–0,40; sin crédito, cerrar o aceptar la asignación. Umbrales en `management.defense`. Solo avisos: la aplicación no envía órdenes.
 
+### Defensa de los put spreads (2026-10-24)
+Matriz de la delta de la put vendida × DTE (> 30, 21–30, < 21, < 7) × IV Rank (30): esperar, añadir un call spread (mismo vencimiento y ancho, call vendida Δ 0,20–0,30, crédito ≥ 25 % del original), rolar fuera / abajo y fuera con crédito neto (nuevo vencimiento a 30–45 DTE, hasta 60; si no hay crédito, no rolar) o cerrar (pérdida de 2× el crédito o 50 % de la máxima, resultados con el spread testeado, tesis rota). Los umbrales están en `management.defense`.
+
 ### Símbolos con clase de acciones (2026-10-06)
 - Al hablar con IBKR, `.` y `-` del ticker se sustituyen por un espacio (`BRK.B` → `BRK B`); el ticker guardado no cambia. Pendiente de verificar contra TWS con opciones de esas clases.
 

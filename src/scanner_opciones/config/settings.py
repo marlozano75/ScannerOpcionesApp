@@ -585,6 +585,17 @@ class DefenseSettings(_Model):
     call_min_credit_pct: float = Field(10, ge=0)       # la prima de la call de la defensa: al menos este % del crédito original (si no, no compensa el riesgo)
     call_strikes_above_pct: float = Field(15, gt=0, lt=100)  # strikes candidatos de la call: del precio hasta este % por encima
     risk_free_rate: float = Field(0.04, ge=0, lt=1)    # tasa para estimar la delta (Black-Scholes) cuando no hay la real
+    # --- spreads de puts (matriz delta de la vendida x DTE x IV Rank, estilo tastylive) ---
+    spread_atm_delta: float = Field(0.45, gt=0, lt=1)       # |delta| de la vendida desde la que el precio está en el strike vendido (antes: testeado, desde `tested_delta`)...
+    spread_between_delta: float = Field(0.60, gt=0, lt=1)   # ... entre los dos strikes...
+    spread_beyond_delta: float = Field(0.80, gt=0, lt=1)    # ... y por debajo de ambos, cerca de la pérdida máxima
+    spread_manage_dte: int = Field(30, ge=1)                # con más de N DTE hay tiempo (rolar casi nunca compensa); de `gamma_dte` a N es la zona de gestión
+    spread_close_dte: int = Field(7, ge=0)                  # con menos de N DTE se cierra según dónde esté el precio respecto a los strikes
+    spread_close_loss_pct: float = Field(50, gt=0, le=100)  # cerrar con una pérdida de este % de la pérdida máxima (o de `loss_multiple` veces el crédito)
+    spread_call_min_credit_pct: float = Field(25, ge=0)     # call spread de la defensa: crédito de al menos este % del crédito original (25-30 %)
+    spread_roll_dte_min: int = Field(30, ge=1)              # roll del spread: nuevo vencimiento de N a N DTE; si no hay crédito se alarga hasta `far`
+    spread_roll_dte_max: int = Field(45, ge=1)
+    spread_roll_dte_far: int = Field(60, ge=1)
     greeks_max_age_minutes: float = Field(10, ge=0)    # la delta real de las puts del Panel (cotizadas por DXLink) se reutiliza hasta esta edad con el mercado abierto
 
     @model_validator(mode="after")
@@ -599,6 +610,12 @@ class DefenseSettings(_Model):
             raise ValueError("el mínimo de una banda de delta no puede superar su máximo")
         if self.protect_strike_pct_min > self.protect_strike_pct_max:
             raise ValueError("protect_strike_pct_min no puede superar protect_strike_pct_max")
+        if not self.tested_delta < self.spread_atm_delta < self.spread_between_delta < self.spread_beyond_delta:
+            raise ValueError("tested_delta < spread_atm_delta < spread_between_delta < spread_beyond_delta")
+        if not self.spread_roll_dte_min <= self.spread_roll_dte_max <= self.spread_roll_dte_far:
+            raise ValueError("spread_roll_dte_min <= spread_roll_dte_max <= spread_roll_dte_far")
+        if not self.spread_close_dte < self.gamma_dte < self.spread_manage_dte:
+            raise ValueError("spread_close_dte < gamma_dte < spread_manage_dte")
         return self
 
 

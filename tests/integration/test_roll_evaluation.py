@@ -66,10 +66,6 @@ async def test_roll_evaluation_flags_earnings_in_the_new_expiry_and_rejects_spre
     assert all(any("resultados" in n for n in o.notes) for o in ev.report.best)       # los resultados caen entre la put actual y los nuevos vencimientos
     with pytest.raises(ValueError, match="ya no está"):
         await svc.roll_evaluation("MSFT|2026-11-20|100")
-    long_put = Position("AAPL", 1, 50.0, "Technology", OptionContract("AAPL", pos.option.expiry, 95.0, OptionRight.PUT), 40.0)
-    svc.state.positions = [pos, long_put]
-    with pytest.raises(ValueError, match="spread"):
-        await svc.roll_evaluation(put_key(pos))
 
 
 def test_the_panel_shows_the_zone_and_the_roll_button_and_the_route_renders(client_and_service):
@@ -110,8 +106,9 @@ async def test_position_deltas_come_from_the_provider_and_are_reused_while_fresh
     assert len(asked) == 1 and len(asked[0]) == 2
     assert await svc.refresh_position_deltas() is False and len(asked) == 1           # reciente: no se vuelve a pedir
     assert await svc.refresh_position_deltas(force=True) is True and len(asked) == 2
-    svc.state.positions = [pos, long_leg]                                              # ahora es un spread: no se cotiza
-    assert await svc.refresh_position_deltas() is False and len(asked) == 2 and svc.state.position_deltas == {}
+    svc.state.positions = [pos, long_leg]                                              # ahora es un spread: se cotiza su pata vendida (misma clave)
+    assert await svc.refresh_position_deltas() is False and len(asked) == 2 and svc.state.position_deltas == {put_key(pos): pytest.approx(0.52)}   # y MSFT ya no está
+    assert await svc.refresh_position_deltas(force=True) is True and [c.strike for c in asked[-1]] == [100.0]     # el spread solo cotiza su vendida
 
 
 async def test_a_failing_quote_keeps_the_previous_deltas_and_the_panel_falls_back_to_the_estimate():
@@ -182,3 +179,70 @@ def test_the_roll_window_shows_the_call_and_protection_tables(client_and_service
     frag = client.get("/management/roll", params={"key": put_key(pos)}).text
     assert "Vender la call (strangle)" in frag and "Breakeven abajo" in frag and "105" in frag
     assert "Comprar protección (put comprada)" in frag and "Pérdida máx." in frag and "demasiado cara" in frag
+
+
+# ---- spreads ------------------------------------------------------------------------------------------------------
+def spread_positions(days=14):
+    """Put spread 100/95 (ancho 5) a 14 días: vendida a 2,50 y comprada a 1,00 → crédito neto 1,50; hoy vale 2,20 (vendida 3,20, comprada 1,00)."""
+    exp = TODAY + timedelta(days=days)
+    short = Position("AAPL", -1, -320.0, "Technology", OptionContract("AAPL", exp, 100.0, OptionRight.PUT), 250.0)
+    long = Position("AAPL", 1, 100.0, "Technology", OptionContract("AAPL", exp, 95.0, OptionRight.PUT), 100.0)
+    return short, long
+
+
+def stage_spread(gw):
+    e14, e55 = TODAY + timedelta(days=14), TODAY + timedelta(days=40)
+    gw.chains["AAPL"] = OptionChain("AAPL", [e14, e55], [85.0, 87.5, 90.0, 92.5, 95.0, 97.5, 100.0, 105.0, 108.0, 110.0, 113.0])
+    P, C = OptionRight.PUT, OptionRight.CALL
+    gw.quotes[OptionContract("AAPL", e14, 100.0, P)] = OptionQuote(bid=3.0, ask=3.2, delta=-0.52)
+    gw.quotes[OptionContract("AAPL", e14, 95.0, P)] = OptionQuote(bid=1.0, ask=1.1, delta=-0.30)          # cerrar: 3,20 − 1,00 = 2,20
+    # roll a 40 días, mismo ancho: (vendida, comprada) con crédito del nuevo spread = bid vendida − ask comprada
+    for k, sb, lk, la, d in [(100.0, 5.0, 95.0, 2.4, -0.50), (97.5, 4.4, 92.5, 2.0, -0.44), (95.0, 3.8, 90.0, 1.6, -0.38)]:
+        gw.quotes[OptionContract("AAPL", e55, k, P)] = OptionQuote(bid=sb, ask=sb + 0.1, delta=d)
+        gw.quotes[OptionContract("AAPL", e55, lk, P)] = OptionQuote(bid=la - 0.1, ask=la, delta=-0.3)
+    for k, bid, d in [(105.0, 1.0, 0.27), (108.0, 0.6, 0.21)]:                                              # call vendida del call spread
+        gw.quotes[OptionContract("AAPL", e14, k, C)] = OptionQuote(bid=bid, ask=bid + 0.1, delta=d)
+    for k, ask in [(110.0, 0.3), (113.0, 0.2)]:                                                             # call comprada, a +ancho
+        gw.quotes[OptionContract("AAPL", e14, k, C)] = OptionQuote(bid=ask - 0.05, ask=ask, delta=0.1)
+
+
+async def test_spread_evaluation_rolls_the_whole_spread_with_net_credit_and_offers_call_spreads():
+    svc, gw = await started_service()
+    short, long = spread_positions()
+    svc.state.positions = [short, long]
+    stage_spread(gw)
+    ev = await svc.roll_evaluation(put_key(short))
+    assert ev.kind == "spread" and ev.long_strike == 95.0 and ev.close_live and ev.close_cost == pytest.approx(2.2) and ev.entry == pytest.approx(1.5)
+    assert ev.delta == pytest.approx(0.52) and ev.defense.zone == "atm" and ev.defense.delta_live
+    assert ev.report.verdict == "roll" and len(ev.report.best) == 1
+    best = ev.report.best[0]                                  # necesita 0,20 sobre 2,20: 100/95 cobra 2,60 (0,40 pero Δ 0,50), 97,5/92,5 cobra 2,40 (0,20)
+    assert (best.strike, best.long_strike, best.dte) == (97.5, 92.5, 40) and best.net_credit == pytest.approx(0.20) and best.ok
+    assert [(c.short_strike, c.long_strike) for c in ev.call_spreads] == [(105.0, 110.0), (108.0, 113.0)]
+    assert ev.call_spreads[0].credit == pytest.approx(0.7) and ev.call_spreads[0].ok and ev.call_spreads[0].new_credit == pytest.approx(2.2)
+    assert ev.protections == () and ev.calls == ()            # un spread ya está protegido: no hay strangle ni put de protección
+
+
+async def test_spread_evaluation_without_credit_says_not_to_roll():
+    svc, gw = await started_service()
+    short, long = spread_positions()
+    svc.state.positions = [short, long]
+    stage_spread(gw)
+    gw.quotes[OptionContract("AAPL", TODAY + timedelta(days=14), 100.0, OptionRight.PUT)] = OptionQuote(bid=5.0, ask=5.4, delta=-0.7)    # cerrar cuesta 4,30
+    ev = await svc.roll_evaluation(put_key(short))
+    assert ev.report.verdict == "none" and "no rueles" in ev.report.text
+
+
+def test_the_panel_offers_the_defense_of_a_spread_and_the_window_renders(client_and_service):
+    client, svc, gw, _ = client_and_service
+    short, long = spread_positions()
+    svc.state.positions = [short, long]
+    stage_spread(gw)
+    from scanner_opciones.scanner.profiles import Profile
+    svc.save_profiles([Profile("Tasty", ("spread",), management="tastytrade")], "Tasty")
+    svc.set_put_profile(put_key(short), "Tasty")
+    svc.state.position_deltas = {put_key(short): 0.55}              # delta real de la vendida (sin ella el precio igual al strike sale «cómodo»)
+    page = client.get("/").text
+    assert 'class="roll-btn"' in page and "Evaluar roll" in page and "rola fuera YA con crédito" in page
+    frag = client.get("/management/roll", params={"key": put_key(short)}).text
+    assert "spread 100.00/95.00" in frag and "Vendida/comprada" in frag and "97.50/92.50" in frag
+    assert "Añadir un call spread (iron condor)" in frag and "Riesgo máx." in frag and "Vender la call (strangle)" not in frag

@@ -145,7 +145,9 @@ def test_put_status_adds_the_defense_for_profiles_that_use_it_only():
     assert tpc.defense is None and not any("rolar abajo y fuera" in a.text for a in tpc.alerts) and any("no se rola" in a.text for a in tpc.alerts)
     off = put_status(pos, TODAY, 98.0, mcfg, "tastytrade", rules=exits.resolve("tastytrade", {"defense": False}, mcfg))
     assert off.defense is None
-    assert put_status(replace(pos, hedge_strike=95.0), TODAY, 98.0, mcfg, "tastytrade").defense is None       # los spreads no se defienden así
+    spread = put_status(replace(pos, hedge_strike=95.0), TODAY, 98.0, mcfg, "tastytrade")
+    assert spread.defense is not None and spread.defense.zone in (dfn.TESTED, dfn.ATM, dfn.BETWEEN, dfn.BEYOND)     # los spreads usan su propia matriz
+    assert put_status(replace(pos, hedge_strike=95.0), TODAY, 98.0, mcfg, "tpc").defense is None
 
 
 def test_defense_rule_is_per_style_and_survives_overrides():
@@ -202,3 +204,86 @@ def test_an_inverted_strangle_is_only_covered_when_the_total_credit_exceeds_the_
     assert high[0].covered is True and "supera la distancia" in high[0].notes[0]               # 2,4 > 2,0
     div = dfn.rank_calls(100.0, 1.5, exp, [RollQuote(exp, 105.0, 0.9, 1.0, 0.25)], CFG, ex_dividend_in=3, today=TODAY)
     assert any("ex-dividendo en 3 días" in n for n in div[0].notes)
+
+
+# ---- spreads: matriz delta de la vendida x DTE x IV Rank -----------------------------------------------------
+def sp(dte, delta, ivr=20.0, underlying=96.0, entry=1.0, current=1.0, earnings=None):
+    return dfn.SpreadInput(TODAY + timedelta(days=dte), 100.0, 95.0, dte, underlying, entry, current, delta, ivr, None, earnings, TODAY)
+
+
+SPREAD_MATRIX = [
+    # (DTE, delta, IV Rank, zona, fragmento del consejo)
+    (45, 0.20, 20, dfn.CALM, None),
+    (45, 0.35, 20, dfn.TESTED, "espera."), (45, 0.35, 50, dfn.TESTED, "Δ 0.2–0.25"),
+    (45, 0.50, 20, dfn.ATM, "espera, o añade un call spread"), (45, 0.50, 50, dfn.ATM, "Δ 0.25–0.3"),
+    (45, 0.70, 20, dfn.BETWEEN, "si hay prima, añade un call spread"), (45, 0.70, 50, dfn.BETWEEN, "añade un call spread"),
+    (45, 0.85, 20, dfn.BEYOND, "cierra si la tesis está rota"), (45, 0.85, 50, dfn.BEYOND, "espera o cierra"),
+    (25, 0.35, 20, dfn.TESTED, "espera a 21 DTE"), (25, 0.35, 50, dfn.TESTED, "añade un call spread"),
+    (25, 0.50, 20, dfn.ATM, "rola fuera si da crédito"), (25, 0.50, 50, dfn.ATM, "rola abajo y fuera"),
+    (25, 0.70, 20, dfn.BETWEEN, "si no hay crédito, cierra"), (25, 0.70, 50, dfn.BETWEEN, "rola fuera con crédito"),
+    (25, 0.85, 20, dfn.BEYOND, "cierra o déjalo correr"), (25, 0.85, 50, dfn.BEYOND, "cierra o déjalo correr"),
+    (15, 0.20, 20, dfn.CALM, "ciérralo al 50 %"), (15, 0.40, 20, dfn.TESTED, "rola fuera YA con crédito"), (15, 0.55, 50, dfn.ATM, "rola fuera YA con crédito"),
+    (15, 0.70, 20, dfn.BETWEEN, "rola si queda extrínseco"), (15, 0.85, 20, dfn.BEYOND, "deja correr hasta la pérdida máxima"),
+]
+
+
+@pytest.mark.parametrize("dte,delta,ivr,zone,advice", SPREAD_MATRIX)
+def test_spread_matrix_follows_the_delta_dte_and_ivr_table(dte, delta, ivr, zone, advice):
+    d = dfn.assess_spread(sp(dte, delta, ivr), CFG)
+    assert d.zone == zone and d.delta == delta and d.delta_live
+    if advice is None:
+        assert d.steps == ()                                            # cómodo con tiempo: nada que hacer
+    else:
+        assert advice in texts(d), texts(d)
+
+
+def test_spread_with_plenty_of_time_says_rolling_rarely_pays_and_the_call_spread_keeps_the_width():
+    d = dfn.assess_spread(sp(45, 0.50, 50), CFG)
+    assert "rolar casi nunca compensa" in texts(d) and "mismo ancho (5)" in texts(d) and "al menos el 25 %" in texts(d) and "nunca en plena caída" in texts(d)
+    assert "momento de cualquier defensa que venda prima" in texts(d)
+    assert "rolar casi nunca compensa" not in texts(dfn.assess_spread(sp(25, 0.50, 50), CFG))
+
+
+def test_spread_under_7_dte_closes_depending_on_where_the_price_is():
+    between = dfn.assess_spread(sp(5, 0.55, underlying=97.0), CFG)
+    assert "cierra siempre" in texts(between) and "pin" in texts(between) and between.steps[0][0] == "warn"
+    below = dfn.assess_spread(sp(5, 0.90, underlying=93.0), CFG)
+    assert "por debajo de ambos strikes" in texts(below) and "vigila tu margen" in texts(below)
+    above = dfn.assess_spread(sp(5, 0.10, underlying=103.0), CFG)
+    assert "deja expirar o cierra por céntimos" in texts(above) and above.steps[0][0] == "info"
+
+
+def test_spread_closing_rules_loss_earnings_and_thesis():
+    # crédito 1,00, ancho 5 → pérdida máxima 4,00: el 50 % son 2,00 de pérdida (valor 3,00); 2× el crédito también son 2,00
+    assert "Cierra: la pérdida" in texts(dfn.assess_spread(sp(45, 0.50, current=3.1), CFG))
+    assert "Cierra: la pérdida" not in texts(dfn.assess_spread(sp(45, 0.50, current=2.5), CFG))
+    # ancho 10, crédito 3 → pérdida máxima 7: con el spread a 6,60 la pérdida es 3,60 (51 % de la máxima) y aún no llega a 2× el crédito (6,00)
+    wide = lambda cur: dfn.SpreadInput(TODAY + timedelta(days=45), 100.0, 90.0, 45, 96.0, 3.0, cur, 0.5, 20.0, None, None, TODAY)      # noqa: E731
+    assert "el 51 % de la pérdida máxima" in texts(dfn.assess_spread(wide(6.6), CFG))
+    assert "Cierra: la pérdida" not in texts(dfn.assess_spread(wide(6.2), CFG))                                    # 3,2: 46 % y 1,07×
+    earn = dfn.assess_spread(sp(20, 0.40, earnings=TODAY + timedelta(days=9)), CFG)
+    assert "resultados el" in texts(earn) and "antes del vencimiento" in texts(earn)
+    assert "Si la tesis está rota" in texts(dfn.assess_spread(sp(45, 0.85, 20), CFG)) and "Si la tesis está rota" not in texts(dfn.assess_spread(sp(45, 0.35, 20), CFG))
+
+
+def test_spread_without_delta_falls_back_to_the_price_and_without_price_there_is_no_assessment():
+    assert dfn.spread_zone(None, 97.0, 100.0, 95.0, CFG) == dfn.BETWEEN and dfn.spread_zone(None, 90.0, 100.0, 95.0, CFG) == dfn.BEYOND
+    assert dfn.spread_zone(None, 105.0, 100.0, 95.0, CFG) == dfn.CALM
+    est = dfn.assess_spread(dfn.SpreadInput(TODAY + timedelta(days=45), 100.0, 95.0, 45, 98.0, 1.0, 2.0, None, 20.0, 0.30, None, TODAY), CFG)
+    assert est.delta is not None and not est.delta_live
+    assert dfn.assess_spread(dfn.SpreadInput(TODAY + timedelta(days=45), 100.0, 95.0, 45, None, 1.0, 2.0), CFG) is None
+
+
+def test_call_spread_candidates_keep_the_width_and_need_a_quarter_of_the_credit():
+    exp = TODAY + timedelta(days=20)
+    s = lambda k, bid, d: RollQuote(exp, k, bid, bid + 0.1, d)                       # noqa: E731
+    l = lambda k, ask: RollQuote(exp, k, ask - 0.05, ask, 0.1)                       # noqa: E731
+    longs = {110.0: l(110.0, 0.3), 113.0: l(113.0, 0.2), 106.0: l(106.0, 0.6)}
+    shorts = [s(105.0, 1.0, 0.27), s(108.0, 0.6, 0.21), s(101.0, 2.0, 0.40), s(120.0, 0.5, 0.25)]
+    got = dfn.rank_call_spreads(5.0, 1.5, exp, shorts, longs, CFG)
+    assert [(c.short_strike, c.long_strike) for c in got] == [(105.0, 110.0), (108.0, 113.0)]       # Δ fuera de banda o sin la comprada a +ancho: no
+    assert got[0].credit == pytest.approx(0.7) and got[0].credit_pct == pytest.approx(46.67, abs=0.01) and got[0].ok
+    assert got[0].new_credit == pytest.approx(2.2) and got[0].max_loss == pytest.approx(2.8)       # ancho − crédito total
+    poor = dfn.rank_call_spreads(5.0, 3.0, exp, [s(105.0, 1.0, 0.27)], longs, CFG)                  # 0,70 de 3,00 = 23 %
+    assert poor[0].ok is False
+    assert dfn.rank_call_spreads(5.0, 1.5, exp, [s(105.0, 0.3, 0.27)], longs, CFG) == ()           # la comprada (0,30) se come el crédito

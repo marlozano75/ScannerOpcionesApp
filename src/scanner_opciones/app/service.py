@@ -2697,12 +2697,12 @@ class AppService:
                                  next_earnings=info.next_earnings if info.next_earnings and info.next_earnings >= today else None)
         return out
 
-    def _naked_short_puts(self) -> dict[str, OptionContract]:
-        """Puts desnudas vendidas de la cartera (los spreads no entran) como contratos con el símbolo de la app, por `put_key`."""
+    def _short_put_contracts(self) -> dict[str, OptionContract]:
+        """Puts vendidas de la cartera, desnudas o pata vendida de un spread, como contratos con el símbolo de la app, por `put_key`."""
         out: dict[str, OptionContract] = {}
         for p in with_spreads(self.state.positions):
             o = p.option
-            if o is not None and o.right is OptionRight.PUT and p.quantity < 0 and p.hedge_strike is None:
+            if o is not None and o.right is OptionRight.PUT and p.quantity < 0:
                 out[put_key_of(p)] = OptionContract(o.ticker.replace(" ", "-"), o.expiry, o.strike, OptionRight.PUT, o.multiplier)
         return out
 
@@ -2715,14 +2715,15 @@ class AppService:
         return self.now() - at < timedelta(minutes=self.settings.management.defense.greeks_max_age_minutes)
 
     async def refresh_position_deltas(self, force: bool = False) -> bool:
-        """Cotiza por DXLink (tastytrade) las puts desnudas vendidas de la cartera y guarda su |delta| real para el Panel: son pocas (una conexión) y
+        """Cotiza por DXLink (tastytrade) las puts vendidas de la cartera (desnudas y la pata vendida de los spreads) y guarda su |delta| real para el Panel: son pocas (una conexión) y
         su contrato casi nunca está en la ventana de contratos guardados (strikes >= 5 % por debajo). Se reutiliza `greeks_max_age_minutes` con el
         mercado abierto y, cerrado, una vez tras el cierre. Un fallo conserva lo anterior y el Panel estima la delta con Black-Scholes."""
-        contracts = self._naked_short_puts()
+        contracts = self._short_put_contracts()
         if not contracts:
             self.state.position_deltas, self.state.position_deltas_at = {}, None
             return False
         if not force and self._position_deltas_fresh(set(contracts)):
+            self.state.position_deltas = {k: v for k, v in self.state.position_deltas.items() if k in contracts}      # fuera las puts que ya no están
             return False
         if self._known_disconnected() and not self._offline_capable():
             return False
@@ -2735,6 +2736,68 @@ class AppService:
         self.state.position_deltas_at = self.now()
         self._position_delta_keys = set(contracts)
         return True
+
+    async def _spread_evaluation(self, pos: Position, chain, info, underlying: float, contracts: int, mark: float, entry: Optional[float], cfg,
+                                 today: date) -> "defense_mod.RollEvaluation":
+        """Evaluación en vivo de un put spread: la matriz de defensa con la delta REAL de la vendida, el roll del spread entero (misma anchura, crédito neto
+        del nuevo spread menos lo que cuesta cerrar el actual) a `spread_roll_dte_min`-`_far` DTE y los call spreads (mismo vencimiento y ancho) para añadir."""
+        o = pos.option
+        ticker = o.ticker.replace(" ", "-")
+        long_strike = pos.hedge_strike
+        width = o.strike - long_strike
+        mk = lambda e, k, right=OptionRight.PUT: OptionContract(ticker, e, k, right, o.multiplier)      # noqa: E731
+        cur_short, cur_long = mk(o.expiry, o.strike), mk(o.expiry, long_strike)
+        expiries = [e for e in chain.expiries if e > o.expiry and cfg.spread_roll_dte_min <= (e - today).days <= cfg.spread_roll_dte_far][:self.ROLL_MAX_EXPIRIES]
+        floor = underlying * (1 - cfg.roll_strikes_below_pct / 100)
+        known = {round(k, 4) for k in chain.strikes}
+        strikes = sorted((k for k in chain.strikes if floor <= k <= o.strike and round(k - width, 4) in known), key=lambda k: o.strike - k)[:self.ROLL_MAX_STRIKES]
+        pairs = [(mk(e, k), mk(e, round(k - width, 4))) for e in expiries for k in strikes]
+        wanted = [c for pair in pairs for c in pair]
+        try:
+            quotes = await asyncio.wait_for(self.gateway.get_quotes([cur_short, cur_long, *wanted]), 90)
+        except (BrokerError, asyncio.TimeoutError) as exc:
+            raise ValueError(f"No se pudieron cotizar las candidatas del roll: {exc or 'tiempo agotado'}") from None
+        shorts_c = [mk(o.expiry, k, OptionRight.CALL) for k in sorted(k for k in chain.strikes if underlying <= k <= underlying * (1 + cfg.call_strikes_above_pct / 100)
+                                                                         and round(k + width, 4) in known)][:self.ROLL_MAX_STRIKES]
+        longs_c = [mk(o.expiry, round(c.strike + width, 4), OptionRight.CALL) for c in shorts_c]
+        call_quotes: dict = {}
+        if shorts_c:         # un fallo con las calls no impide evaluar el roll
+            try:
+                call_quotes = await asyncio.wait_for(self.gateway.get_quotes([*shorts_c, *longs_c]), 60)
+            except (BrokerError, asyncio.TimeoutError) as exc:
+                log.info("Calls de la defensa de %s no disponibles: %s", ticker, exc or "tiempo agotado")
+        qs, ql = quotes.get(cur_short), quotes.get(cur_long)
+        close_live = qs is not None and ql is not None and qs.ask is not None and ql.bid is not None and qs.ask - ql.bid > 0
+        close_cost = qs.ask - ql.bid if close_live else mark
+        delta = abs(qs.delta) if qs is not None and qs.delta is not None else None
+        iv30 = info.iv30 / 100 if info and info.iv30 else None
+        earnings = info.next_earnings if info and info.next_earnings and info.next_earnings >= today else None
+        defense = defense_mod.assess_spread(defense_mod.SpreadInput(
+            o.expiry, o.strike, long_strike, (o.expiry - today).days, underlying, entry, close_cost, delta, info.iv_rank if info else None, iv30, earnings, today), cfg)
+        if delta is None and defense is not None:
+            delta = defense.delta
+        rollq = []
+        for s_c, l_c in pairs:
+            s_q, l_q = quotes.get(s_c), quotes.get(l_c)
+            if s_q is None or l_q is None or s_q.bid is None or l_q.ask is None:
+                continue
+            rollq.append(defense_mod.RollQuote(s_c.expiry, s_c.strike, s_q.bid - l_q.ask, (s_q.ask - l_q.bid) if s_q.ask is not None and l_q.bid is not None else None,
+                                               abs(s_q.delta) if s_q.delta is not None else None, l_c.strike))
+        report = defense_mod.rank_rolls(
+            o.strike, entry, close_cost, rollq, today, cfg, (cfg.spread_roll_dte_min, cfg.spread_roll_dte_max, cfg.spread_roll_dte_far),
+            "No hay roll con crédito neto ni alargando hasta "
+            f"{cfg.spread_roll_dte_far} DTE: no rueles. Cierra el spread o déjalo correr (su pérdida máxima es el ancho menos el crédito cobrado).")
+        if earnings is not None:      # evitar meter resultados en el nuevo vencimiento salvo que sea a propósito
+            report = replace(report, best=tuple(
+                replace(b, notes=b.notes + (f"incluye resultados del {earnings:%d/%m}",)) if o.expiry < earnings <= b.expiry else b for b in report.best))
+        quoted = lambda c: call_quotes.get(c)      # noqa: E731
+        s_rq = [defense_mod.RollQuote(c.expiry, c.strike, q.bid, q.ask, abs(q.delta) if q.delta is not None else None) for c in shorts_c if (q := quoted(c)) is not None]
+        l_rq = {round(c.strike, 4): defense_mod.RollQuote(c.expiry, c.strike, q.bid, q.ask, abs(q.delta) if q.delta is not None else None)
+                for c in longs_c if (q := quoted(c)) is not None}
+        call_spreads = defense_mod.rank_call_spreads(width, entry, o.expiry, s_rq, l_rq, cfg)
+        return defense_mod.RollEvaluation(o.ticker, o.expiry, o.strike, (o.expiry - today).days, contracts, underlying, entry, close_cost, close_live, delta,
+                                          info.iv_rank if info else None, defense, report, len(pairs), sum(1 for r in rollq), today, (), (), len(s_rq),
+                                          "spread", long_strike, call_spreads)
 
     ROLL_MAX_EXPIRIES = 8       # vencimientos candidatos del roll cotizados a la vez
     ROLL_MAX_STRIKES = 40       # strikes candidatos por vencimiento (los más cercanos al actual)
@@ -2749,8 +2812,6 @@ class AppService:
                     and put_key_of(p) == key), None)
         if pos is None:
             raise ValueError("Esa put ya no está en la cartera.")
-        if pos.hedge_strike is not None:
-            raise ValueError("Es un spread: la evaluación de rolls es para puts desnudas.")
         o = pos.option
         ticker = o.ticker.replace(" ", "-")
         info = self.ticker_info.get(ticker)
@@ -2765,6 +2826,8 @@ class AppService:
             chain = await asyncio.wait_for(self.gateway.get_option_chain(ticker), 30)
         except (BrokerError, asyncio.TimeoutError) as exc:
             raise ValueError(f"No se pudo leer la cadena de {ticker}: {exc or 'tiempo agotado'}") from None
+        if pos.hedge_strike is not None:
+            return await self._spread_evaluation(pos, chain, info, underlying, contracts, mark, entry, cfg, today)
         expiries = [e for e in chain.expiries if e > o.expiry and cfg.roll_dte_min <= (e - today).days <= cfg.roll_dte_far][:self.ROLL_MAX_EXPIRIES]
         floor = underlying * (1 - cfg.roll_strikes_below_pct / 100)
         strikes = sorted((k for k in chain.strikes if floor <= k <= o.strike), key=lambda k: o.strike - k)[:self.ROLL_MAX_STRIKES]

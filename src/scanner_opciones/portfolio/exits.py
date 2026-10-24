@@ -133,7 +133,8 @@ def describe(r: ExitRules) -> list[str]:
     if r.defense:
         out.append("Defensa de las puts desnudas según su delta, los días y el IV Rank: testeada (Δ 0,30+) esperar o vender la call; en el dinero (Δ 0,50+) rolar "
                    "abajo y fuera con crédito neto; muy dentro (Δ 0,70+) rolar solo hacia fuera o asignación; a ≤ 21 DTE o sin extrínseco, gestionar ya. "
-                   "Evaluación de rolls con cotizaciones en vivo desde el Panel.")
+                   "Spreads: matriz de la delta de la vendida × DTE (> 30, 21–30, < 21, < 7) × IV Rank (esperar, añadir un call spread del mismo ancho, rolar con "
+                   "crédito o cerrar). Evaluación de rolls y de las defensas con cotizaciones en vivo desde el Panel.")
     else:
         out.append("Sin avisos de defensa: no se rola ni se defiende la put.")
     out.append(f"Peso por acción tras asignación: aviso por encima del {r.warn_position_pct:g} % del NLV y alerta por encima del {r.max_position_pct:g} %.")

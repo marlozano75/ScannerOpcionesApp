@@ -21,7 +21,9 @@ from scanner_opciones.config.settings import DefenseSettings
 from scanner_opciones.metrics.greeks import estimate_abs_delta
 
 CALM, TESTED, ATM, DEEP = "calm", "tested", "atm", "deep"
-ZONE_LABELS = {CALM: "tranquila", TESTED: "testeada", ATM: "en el dinero", DEEP: "muy dentro del dinero"}
+BETWEEN, BEYOND = "between", "beyond"          # spreads: entre los dos strikes / por debajo de ambos
+ZONE_LABELS = {CALM: "tranquila", TESTED: "testeada", ATM: "en el dinero", DEEP: "muy dentro del dinero",
+               BETWEEN: "entre los dos strikes", BEYOND: "por debajo de ambos strikes"}
 
 
 @dataclass(frozen=True)
@@ -135,6 +137,7 @@ class RollQuote:
     bid: Optional[float]
     ask: Optional[float]
     delta: Optional[float] = None    # |delta| (la del proveedor)
+    long_strike: Optional[float] = None   # roll de un spread: strike de la put comprada del nuevo spread (bid/ask son los del spread completo)
 
 
 @dataclass(frozen=True)
@@ -148,6 +151,7 @@ class RollOption:
     credit_pct: Optional[float]      # ... en % del crédito original
     ok: bool                         # cumple el crédito mínimo (neto y % del original)
     notes: tuple[str, ...]
+    long_strike: Optional[float] = None   # roll de un spread: put comprada del nuevo spread
 
 
 @dataclass(frozen=True)
@@ -158,27 +162,30 @@ class RollReport:
 
 
 def rank_rolls(strike: float, entry: Optional[float], close_cost: float, quotes: Sequence[RollQuote], today: date, cfg: DefenseSettings,
-               ) -> RollReport:
+               dte_range: Optional[tuple[int, int, int]] = None, none_text: Optional[str] = None) -> RollReport:
     """Mejor roll de la put: del strike actual hacia abajo y con vencimiento posterior, SIEMPRE con crédito neto. `close_cost`: lo que cuesta recomprar la
     put actual (su ask). Por cada vencimiento se elige el strike más bajo que da el crédito mínimo (el que más se aleja), con preferencia por
-    una |delta| final de 0,30–0,40. Si en 30–60 DTE no hay crédito, se alarga hasta `roll_dte_far`; si tampoco, la defensa no es viable."""
+    una |delta| final de 0,30–0,40. Si en 30–60 DTE no hay crédito, se alarga hasta `roll_dte_far`; si tampoco, la defensa no es viable.
+    `dte_range` = (mínimo, máximo, lejano) sustituye al de `cfg` (los spreads rolan a 30–45 y alargan a 60); `none_text`, el veredicto sin crédito.
+    En un spread cada `RollQuote` trae el crédito del NUEVO spread completo en `bid` y `close_cost` es lo que cuesta cerrar el actual."""
+    dmin, dmax, dfar = dte_range or (cfg.roll_dte_min, cfg.roll_dte_max, cfg.roll_dte_far)
     need_pct = entry * cfg.roll_min_credit_pct / 100 if entry else 0.0
     need = max(cfg.roll_min_credit, need_pct)
     options: dict[date, list[RollOption]] = {}
     for q in quotes:
         dte = (q.expiry - today).days
-        if q.bid is None or q.bid <= 0 or q.strike > strike + 1e-9 or dte < cfg.roll_dte_min or dte > cfg.roll_dte_far:
+        if q.bid is None or q.bid <= 0 or q.strike > strike + 1e-9 or dte < dmin or dte > dfar:
             continue
         net = q.bid - close_cost
         notes = []
-        if dte > cfg.roll_dte_max:
-            notes.append(f"{dte} DTE: más allá de {cfg.roll_dte_max} se ata mucho tiempo por poco crédito extra")
+        if dte > dmax:
+            notes.append(f"{dte} DTE: más allá de {dmax} se ata mucho tiempo por poco crédito extra")
         if q.delta is not None and q.delta > cfg.atm_delta:
             notes.append(f"Δ {q.delta:.2f} sigue por encima de {cfg.atm_delta:g}: solo compras tiempo, no probabilidad")
         elif q.delta is not None and q.delta > cfg.roll_target_delta_max:
             notes.append(f"Δ {q.delta:.2f} por encima del objetivo ({cfg.roll_target_delta_min:g}–{cfg.roll_target_delta_max:g})")
         pct = net / entry * 100 if entry else None
-        options.setdefault(q.expiry, []).append(RollOption(q.expiry, dte, q.strike, q.bid, q.delta, net, pct, net >= need - 1e-9, tuple(notes)))
+        options.setdefault(q.expiry, []).append(RollOption(q.expiry, dte, q.strike, q.bid, q.delta, net, pct, net >= need - 1e-9, tuple(notes), q.long_strike))
     best: list[RollOption] = []
     for expiry in sorted(options):
         rows = options[expiry]
@@ -188,8 +195,8 @@ def rank_rolls(strike: float, entry: Optional[float], close_cost: float, quotes:
             best.append(min(pool, key=lambda o: o.strike))                 # el strike más bajo que mantiene el crédito mínimo
         else:
             best.append(max((o for o in rows if o.net_credit > 0), key=lambda o: o.net_credit, default=max(rows, key=lambda o: o.net_credit)))
-    in_range = [o for o in best if o.ok and o.dte <= cfg.roll_dte_max]
-    extended = [o for o in best if o.ok and o.dte > cfg.roll_dte_max]
+    in_range = [o for o in best if o.ok and o.dte <= dmax]
+    extended = [o for o in best if o.ok and o.dte > dmax]
     if in_range:
         top = min(in_range, key=lambda o: (o.strike, o.dte))
         return RollReport(tuple(best), "roll", f"Roll viable: {top.expiry:%d/%m/%Y} ({top.dte} DTE) al strike {top.strike:g} cobra {top.net_credit:.2f} $/acción neto.")
@@ -197,8 +204,172 @@ def rank_rolls(strike: float, entry: Optional[float], close_cost: float, quotes:
         top = min(extended, key=lambda o: o.dte)
         return RollReport(tuple(best), "extend", f"Solo hay crédito alargando el plazo: {top.expiry:%d/%m/%Y} ({top.dte} DTE) al strike {top.strike:g} "
                                                  f"cobra {top.net_credit:.2f} $/acción neto.")
-    return RollReport(tuple(best), "none", "No hay roll con crédito neto suficiente ni alargando el plazo: la defensa no es viable. Cierra la put o acepta la asignación "
-                                           "(si te gusta el valor a ese precio y la posición cabe en la cartera).")
+    return RollReport(tuple(best), "none", none_text or "No hay roll con crédito neto suficiente ni alargando el plazo: la defensa no es viable. Cierra la put o acepta la asignación "
+                                                     "(si te gusta el valor a ese precio y la posición cabe en la cartera).")
+
+
+# ---- spreads de puts: matriz delta de la vendida x DTE x IV Rank -------------------------------------------------------------
+@dataclass(frozen=True)
+class SpreadInput:
+    expiry: date
+    short_strike: float
+    long_strike: float
+    dte: int
+    underlying: Optional[float]
+    entry: Optional[float]                 # crédito neto cobrado por acción
+    current: Optional[float]               # lo que cuesta cerrar el spread ahora, por acción
+    delta: Optional[float] = None          # |delta| de la put VENDIDA (cotización en vivo); si no, se estima con la IV30 del subyacente
+    iv_rank: Optional[float] = None
+    iv30: Optional[float] = None
+    next_earnings: Optional[date] = None
+    today: Optional[date] = None
+
+    @property
+    def width(self) -> float:
+        return self.short_strike - self.long_strike
+
+
+def spread_zone(delta: Optional[float], underlying: Optional[float], short_strike: float, long_strike: float, cfg: DefenseSettings) -> str:
+    """Dónde está el precio según la |delta| de la put vendida: cómodo (< 0,30), testeado, en el strike vendido (0,45-0,60), entre los dos strikes
+    (0,60-0,80) o por debajo de ambos (> 0,80). Sin delta, por el precio frente a los strikes."""
+    if delta is None:
+        if underlying is None or underlying >= short_strike:
+            return CALM
+        return BEYOND if underlying <= long_strike else BETWEEN
+    if delta >= cfg.spread_beyond_delta:
+        return BEYOND
+    if delta >= cfg.spread_between_delta:
+        return BETWEEN
+    if delta >= cfg.spread_atm_delta:
+        return ATM
+    if delta >= cfg.tested_delta:
+        return TESTED
+    return CALM
+
+
+def _add_call_text(i: SpreadInput, cfg: DefenseSettings, lo: float, hi: float) -> str:
+    return (f"añade un call spread: mismo vencimiento y mismo ancho ({i.width:g}) que el put spread, para no aumentar el riesgo máximo; call vendida de Δ {lo:g}–{hi:g} "
+            f"y un crédito de al menos el {cfg.spread_call_min_credit_pct:g} % del original (si es menor, no merece la pena). Mejor tras un rebote, nunca en plena caída")
+
+
+def assess_spread(i: SpreadInput, cfg: DefenseSettings) -> Optional[Defense]:
+    """Defensa aconsejada para un put spread. Referencias de estilo tastylive, no reglas fijas: con más de 30 DTE hay tiempo (esperar o añadir un call spread
+    si el IV Rank paga; rolar casi nunca compensa); de 21 a 30 DTE es la zona de gestión (rolar con crédito); por debajo de 21 manda el gamma
+    (rolar ya con crédito o cerrar); por debajo de 7 se cierra según dónde esté el precio. None sin precio del subyacente."""
+    if i.underlying is None or i.underlying <= 0:
+        return None
+    delta = i.delta if i.delta is not None else estimate_abs_delta(i.underlying, i.short_strike, i.dte, None, i.iv30, cfg.risk_free_rate)
+    zone = spread_zone(delta, i.underlying, i.short_strike, i.long_strike, cfg)
+    d = f"Δ {delta:.2f}" if delta is not None else "sin delta"
+    high = i.iv_rank is not None and i.iv_rank >= cfg.ivr_good
+    iv = "IV Rank alto" if high else "IV Rank bajo" if i.iv_rank is not None else "sin IV Rank (se trata como bajo)"
+    steps: list[tuple[str, str]] = []
+
+    def step(level: str, text: str) -> None:
+        steps.append((level, text))
+
+    lo, hi = cfg.call_delta_min, cfg.call_delta_max
+    where = {CALM: "cómodo, fuera del dinero", TESTED: "testeado, acercándose al strike vendido", ATM: "en el strike vendido",
+             BETWEEN: "entre los dos strikes", BEYOND: "por debajo de ambos strikes, cerca de la pérdida máxima"}[zone]
+    head = f"{d}: {where} ({i.dte} DTE, {iv})"
+    if 0 <= i.dte < cfg.spread_close_dte:                                       # < 7 DTE: se cierra según dónde esté el precio
+        if i.long_strike < i.underlying <= i.short_strike:
+            step("warn", f"{head}. Precio entre los strikes con menos de {cfg.spread_close_dte} días: cierra siempre; el riesgo de pin y de asignación no compensan.")
+        elif i.underlying <= i.long_strike:
+            step("warn", f"{head}. Precio por debajo de ambos strikes: cierra o deja que se ejerzan las dos patas, pero vigila tu margen.")
+        else:
+            step("info", f"{head}. Precio por encima del strike vendido: deja expirar o cierra por céntimos.")
+    elif zone == CALM:
+        if i.dte < cfg.gamma_dte:
+            step("info", f"{head}: déjalo expirar o ciérralo al 50 % de beneficio.")
+    elif i.dte > cfg.spread_manage_dte:                                          # hay tiempo
+        if zone == TESTED:
+            if high:
+                step("warn", f"{head}: " + _add_call_text(i, cfg, lo, 0.25) + ".")
+            else:
+                step("info", f"{head}: espera.")
+        elif zone == ATM:
+            if high:
+                step("warn", f"{head}: " + _add_call_text(i, cfg, 0.25, hi) + ".")
+            else:
+                step("info", f"{head}: espera, o " + _add_call_text(i, cfg, lo, hi) + ".")
+        elif zone == BETWEEN:
+            step("warn" if high else "info", f"{head}: " + ("" if high else "si hay prima, ") + _add_call_text(i, cfg, lo, hi) + ("" if high else "; si no, espera") + ".")
+        else:
+            step("info", f"{head}: " + ("espera o cierra" if high else "espera; cierra si la tesis está rota") + ".")
+        step("info", "Con tanto tiempo por delante rolar casi nunca compensa: el tiempo aún juega a tu favor.")
+    elif i.dte >= cfg.gamma_dte:                                                 # 21-30 DTE: zona de gestión
+        if zone == TESTED:
+            if high:
+                step("warn", f"{head}: " + _add_call_text(i, cfg, lo, hi) + ".")
+            else:
+                step("info", f"{head}: espera a {cfg.gamma_dte} DTE.")
+        elif zone == ATM:
+            step("warn", f"{head}: " + ("rola abajo y fuera" if high else "rola fuera si da crédito") + " (crédito neto, nuevo vencimiento a "
+                 f"{cfg.spread_roll_dte_min}–{cfg.spread_roll_dte_max} DTE).")
+        elif zone == BETWEEN:
+            step("warn", f"{head}: rola fuera con crédito" + ("" if high else "; si no hay crédito, cierra") + ".")
+        else:
+            step("warn", f"{head}: cierra o déjalo correr.")
+    else:                                                                        # 7-21 DTE: manda el gamma
+        if zone in (TESTED, ATM):
+            step("warn", f"{head}: rola fuera YA con crédito; si no hay crédito, cierra.")
+        elif zone == BETWEEN:
+            step("warn", f"{head}: rola si queda extrínseco; si no, cierra.")
+        else:
+            step("warn", f"{head}: deja correr hasta la pérdida máxima o cierra; rolar ya no da crédito.")
+    # cierres por pérdida, por eventos y por la tesis
+    if i.entry and i.current is not None and i.entry > 0:
+        loss = i.current - i.entry
+        max_loss = i.width - i.entry
+        if loss >= cfg.loss_multiple * i.entry or (max_loss > 0 and loss >= cfg.spread_close_loss_pct / 100 * max_loss):
+            step("warn", f"Cierra: la pérdida ({loss:.2f} $/acción) ya es {loss / i.entry:.1f} veces el crédito cobrado"
+                         + (f" y el {loss / max_loss * 100:.0f} % de la pérdida máxima" if max_loss > 0 else "")
+                         + f" (límites: {cfg.loss_multiple:g}× el crédito o el {cfg.spread_close_loss_pct:g} % de la máxima).")
+    if zone != CALM and i.next_earnings is not None and i.today is not None and i.today <= i.next_earnings <= i.expiry:
+        step("warn", f"Valora cerrar: hay resultados el {i.next_earnings:%d/%m} antes del vencimiento y el spread está testeado.")
+    if zone in (ATM, BETWEEN, BEYOND):
+        step("info", "Si la tesis está rota (noticias fundamentales o ruptura de soportes clave), cierra sin esperar.")
+    if zone != CALM and high and i.dte >= cfg.spread_close_dte:
+        step("info", f"IV Rank {i.iv_rank:.0f} %: es el momento de cualquier defensa que venda prima.")
+    return Defense(zone, delta, None, tuple(steps), i.delta is not None)
+
+
+@dataclass(frozen=True)
+class CallSpreadOption:
+    """Call spread (call vendida + call comprada más arriba, mismo ancho que el put spread) del mismo vencimiento."""
+    short_strike: float
+    long_strike: float
+    delta: float                     # |delta| de la call vendida
+    credit: float                    # call vendida (bid) - call comprada (ask), por acción
+    credit_pct: Optional[float]      # ... en % del crédito original del put spread
+    ok: Optional[bool]               # cumple `spread_call_min_credit_pct` (None sin crédito original)
+    new_credit: Optional[float]      # crédito total del iron condor resultante (put spread + call spread), por acción
+    max_loss: Optional[float]        # riesgo máximo por acción del iron condor: ancho - crédito total (solo un lado puede perder)
+
+
+def rank_call_spreads(width: float, entry: Optional[float], expiry: date, shorts: Sequence[RollQuote], longs: dict[float, RollQuote],
+                      cfg: DefenseSettings) -> tuple[CallSpreadOption, ...]:
+    """Call spreads candidatos de la defensa: call vendida de |delta| `call_delta_min`-`call_delta_max` (`shorts`) con la comprada `width` por encima
+    (`longs`, por strike); crédito = bid de la vendida - ask de la comprada. Primero los que alcanzan `spread_call_min_credit_pct` del crédito original y,
+    entre ellos, el de delta más cercana a la mitad de la banda. Como mucho tres. El ancho es el del put spread: el riesgo máximo no aumenta."""
+    mid = (cfg.call_delta_min + cfg.call_delta_max) / 2
+    out = []
+    for q in shorts:
+        if q.expiry != expiry or q.bid is None or q.bid <= 0 or q.delta is None or not cfg.call_delta_min - 1e-9 <= abs(q.delta) <= cfg.call_delta_max + 1e-9:
+            continue
+        long = longs.get(round(q.strike + width, 4))
+        if long is None or long.ask is None or long.ask <= 0 or long.expiry != expiry:
+            continue
+        credit = q.bid - long.ask
+        if credit <= 0:
+            continue
+        pct = credit / entry * 100 if entry else None
+        ok = None if pct is None else pct >= cfg.spread_call_min_credit_pct - 1e-9
+        total = (entry or 0.0) + credit
+        out.append(CallSpreadOption(q.strike, long.strike, abs(q.delta), credit, pct, ok, total if entry else None, width - total if entry else None))
+    out.sort(key=lambda o: (o.ok is not True, abs(o.delta - mid)))
+    return tuple(out[:MAX_CANDIDATES])
 
 
 # ---- protección (put comprada) y call (strangle) ------------------------------------------------------------------------------
@@ -298,3 +469,6 @@ class RollEvaluation:
     protections: tuple[ProtectOption, ...] = ()
     calls: tuple[CallOption, ...] = ()
     calls_quoted: int = 0                  # calls candidatas que contestaron (0 = el proveedor no las cotizó)
+    kind: str = "put"                      # `put` (desnuda) | `spread` (put spread: `strike` es la vendida)
+    long_strike: Optional[float] = None    # spread: put comprada
+    call_spreads: tuple = ()               # spread: `CallSpreadOption` candidatos

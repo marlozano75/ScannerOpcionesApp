@@ -133,10 +133,15 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         alerts.append(Alert("info", "En pérdida: recomprarla cuesta más que la prima cobrada."))
     spread = p.hedge_strike is not None
     defense = None
-    if r.defense and not spread:
+    if r.defense:
         c = defense_ctx or {}
-        defense = defense_mod.assess(DefenseInput(o.expiry, o.strike, dte, underlying, entry, current, c.get("iv_rank"), c.get("iv30"),
-                                                  c.get("next_earnings"), c.get("ex_dividend_in"), today, live_delta), cfg.defense)
+        if not spread:
+            defense = defense_mod.assess(DefenseInput(o.expiry, o.strike, dte, underlying, entry, current, c.get("iv_rank"), c.get("iv30"),
+                                                      c.get("next_earnings"), c.get("ex_dividend_in"), today, live_delta), cfg.defense)
+        else:      # matriz del spread: delta de la put VENDIDA x DTE x IV Rank
+            defense = defense_mod.assess_spread(defense_mod.SpreadInput(
+                o.expiry, o.strike, p.hedge_strike, dte, underlying, entry, current, live_delta, c.get("iv_rank"), c.get("iv30"),
+                c.get("next_earnings"), today), cfg.defense)
         if defense is not None:
             alerts.extend(Alert(level, text) for level, text in defense.steps)
     if spread and r.stop_multiple is not None and entry and current is not None and current >= r.stop_multiple * entry:
@@ -149,8 +154,8 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         if p.hedge_strike is not None and underlying <= p.hedge_strike:
             alerts.append(Alert("warn", f"Pérdida máxima: el precio ({underlying:.2f}) está por debajo de la put comprada ({p.hedge_strike:g}); "
                                         f"el spread ya vale su ancho ({o.strike - p.hedge_strike:g})."))
-        elif underlying <= o.strike and defense is not None and defense.zone in (defense_mod.ATM, defense_mod.DEEP):
-            pass     # la defensa ya dice qué hacer con una put en el dinero
+        elif underlying <= o.strike and defense is not None and (spread or defense.zone in (defense_mod.ATM, defense_mod.DEEP)):
+            pass     # la defensa ya dice qué hacer con una put (o un spread) en el dinero
         elif underlying <= o.strike:
             todo = ("Mantener sin rolar: no se rola; si te asignan, reevalúa la tesis y valora vender calls." if r.itm_action == "hold"
                     else "Valora cerrar antes que esperar la asignación.")

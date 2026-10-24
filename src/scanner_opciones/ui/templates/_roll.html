@@ -1,7 +1,7 @@
 {# Fragmento de la evaluación de un roll (se carga en la capa del Panel al pulsar «Evaluar roll») #}
 {% if error %}<p class="banner warn" style="margin:0">{{ error }}</p>
-{% else %}{% set d = ev.defense %}{% set cn = ev.contracts * 100 %}
-<p style="margin:0 0 6px"><b>{{ ev.ticker }}</b> · put {{ ev.strike|num }} · venc. {{ ev.expiry.strftime('%d/%m/%Y') }} ({{ ev.dte }} d) · {{ ev.contracts }} contrato{{ '' if ev.contracts == 1 else 's' }}
+{% else %}{% set d = ev.defense %}{% set cn = ev.contracts * 100 %}{% set sp = ev.kind == 'spread' %}
+<p style="margin:0 0 6px"><b>{{ ev.ticker }}</b> · {{ ('spread ' ~ (ev.strike|num) ~ '/' ~ (ev.long_strike|num)) if sp else ('put ' ~ (ev.strike|num)) }} · venc. {{ ev.expiry.strftime('%d/%m/%Y') }} ({{ ev.dte }} d) · {{ ev.contracts }} contrato{{ '' if ev.contracts == 1 else 's' }}
   · precio {{ ev.underlying|num }}</p>
 <p class="muted" style="margin:0 0 8px;font-size:13px">
   {% if d %}<b>{{ d.label|capitalize }}</b>{% endif %}{% if ev.delta is not none %} · |Δ| {{ '%.2f'|format(ev.delta) }}{% endif %}{% if d and d.extrinsic is not none %} · extrínseco {{ '%.2f'|format(d.extrinsic) }} $/acción{% endif %}
@@ -12,16 +12,34 @@
 <div class="banner {{ 'ok' if ev.report.verdict == 'roll' else 'info' if ev.report.verdict == 'extend' else 'warn' }}" style="margin:8px 0">{{ ev.report.text }}</div>
 {% if ev.report.best %}
 <table>
-  <tr><th>Vencimiento</th><th>DTE</th><th>Strike</th><th title="|Δ| de la put destino: la idea es volver a 0,30–0,40">|Δ|</th><th title="Lo que cobras por la nueva (bid)">Cobras</th>
-    <th title="Cobras por la nueva menos lo que cuesta cerrar la actual (ask). Por acción y total">Crédito neto</th><th title="Frente al crédito original">% orig.</th><th></th></tr>
+  <tr><th>Vencimiento</th><th>DTE</th><th>{{ 'Vendida/comprada' if sp else 'Strike' }}</th><th title="|Δ| de la put (vendida) destino: la idea es 0,30–0,40 o lo más baja posible con crédito">|Δ|</th><th title="{{ 'Crédito del nuevo spread: bid de la vendida menos ask de la comprada' if sp else 'Lo que cobras por la nueva (bid)' }}">{{ 'Crédito spread' if sp else 'Cobras' }}</th>
+    <th title="{{ 'Crédito del nuevo spread menos lo que cuesta cerrar el actual' if sp else 'Cobras por la nueva menos lo que cuesta cerrar la actual (ask)' }}. Por acción y total">Crédito neto</th><th title="Frente al crédito original">% orig.</th><th></th></tr>
   {% for o in ev.report.best %}
-  <tr><td>{{ o.expiry.strftime('%d/%m/%Y') }}</td><td>{{ o.dte }}</td><td>{{ o.strike|num }}</td><td>{{ '%.2f'|format(o.delta) if o.delta is not none else '—' }}</td><td>{{ '%.2f'|format(o.bid) }}</td>
+  <tr><td>{{ o.expiry.strftime('%d/%m/%Y') }}</td><td>{{ o.dte }}</td><td>{{ (o.strike|num) ~ '/' ~ (o.long_strike|num) if sp and o.long_strike is not none else o.strike|num }}</td><td>{{ '%.2f'|format(o.delta) if o.delta is not none else '—' }}</td><td>{{ '%.2f'|format(o.bid) }}</td>
     <td><span class="mg {{ 'ok' if o.ok else 'warn' }}" style="display:inline">{{ '%+.2f'|format(o.net_credit) }}</span> <span class="muted">({{ '%+.0f'|format(o.net_credit * cn) }} $)</span></td>
     <td>{{ '%.0f'|format(o.credit_pct) ~ ' %' if o.credit_pct is not none else '—' }}</td>
     <td class="wrap">{% for n in o.notes %}<span class="mg info">{{ n }}</span>{% endfor %}{% if not o.ok %}<span class="mg warn">crédito insuficiente</span>{% endif %}</td></tr>
   {% endfor %}
 </table>
 {% endif %}
+{% if sp %}
+<h3 style="margin:14px 0 4px;font-size:14px">Añadir un call spread (iron condor)</h3>
+{% if ev.call_spreads %}
+<table>
+  <tr><th title="Call vendida / call comprada: mismo vencimiento y mismo ancho que el put spread, para no aumentar el riesgo máximo">Vendida/comprada</th><th title="|Δ| de la call vendida: 0,20–0,30">|Δ|</th>
+    <th title="Call vendida (bid) menos call comprada (ask)">Crédito</th><th title="Frente al crédito original del put spread: debe ser al menos el 25–30 %">% orig.</th>
+    <th title="Crédito total del iron condor: put spread + call spread">Crédito total</th><th title="Ancho menos el crédito total: solo un lado puede perder">Riesgo máx.</th></tr>
+  {% for c in ev.call_spreads %}
+  <tr><td>{{ c.short_strike|num }}/{{ c.long_strike|num }}</td><td>{{ '%.2f'|format(c.delta) }}</td><td>{{ '%.2f'|format(c.credit) }} <span class="muted">({{ '%+.0f'|format(c.credit * cn) }} $)</span></td>
+    <td><span class="mg {{ 'ok' if c.ok else 'warn' if c.ok is false else 'info' }}" style="display:inline">{{ '%.0f'|format(c.credit_pct) ~ ' %' if c.credit_pct is not none else '—' }}</span>{% if c.ok is false %} <span class="muted">no merece la pena</span>{% endif %}</td>
+    <td>{{ '%.2f'|format(c.new_credit) if c.new_credit is not none else '—' }}</td>
+    <td>{{ '%.2f'|format(c.max_loss) if c.max_loss is not none else '—' }}{% if c.max_loss is not none %} <span class="muted">({{ '%.0f'|format(c.max_loss * cn) }} $)</span>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+<p class="muted" style="font-size:12px;margin:4px 0 0">Mejor tras un rebote, nunca en plena caída. Si el crédito es menor del 25–30 % del original, no merece la pena.</p>
+{% elif ev.calls_quoted == 0 %}<p class="muted" style="font-size:13px;margin:0">El proveedor no cotizó calls de este valor: mira el call spread en tu broker (mismo vencimiento y ancho, call vendida de Δ 0,20–0,30).</p>
+{% else %}<p class="muted" style="font-size:13px;margin:0">Ningún call spread cotizado del mismo vencimiento y ancho tiene la call vendida con |Δ| de 0,20 a 0,30 y crédito.</p>{% endif %}
+{% else %}
 <h3 style="margin:14px 0 4px;font-size:14px">Vender la call (strangle)</h3>
 {% if ev.calls %}
 <table>
@@ -53,7 +71,8 @@
 </table>
 <p class="muted" style="font-size:12px;margin:4px 0 0">Útil antes de un evento binario cercano o si la posición pesa demasiado en la cuenta. Strike del mismo vencimiento, 5–10 % por debajo de la vendida.</p>
 {% else %}<p class="muted" style="font-size:13px;margin:0">Sin puts cotizadas del mismo vencimiento entre el 5 y el 10 % por debajo de la vendida.</p>{% endif %}
+{% endif %}
 
-<p class="muted" style="font-size:12px;margin:10px 0 0">Se cotizaron {{ ev.quoted }} de {{ ev.checked }} puts candidatas del roll (strikes del actual hacia abajo). El crédito es conservador: bid de la nueva menos ask de la actual, sin comisiones.
+<p class="muted" style="font-size:12px;margin:10px 0 0">Se cotizaron {{ ev.quoted }} de {{ ev.checked }} {{ 'spreads' if sp else 'puts' }} candidatos del roll (strikes del actual hacia abajo). El crédito es conservador: bid de la nueva menos ask de la actual, sin comisiones.
   Los créditos y primas son a precio de ahora y las comisiones no están incluidas. Información, no asesoramiento ni órdenes.</p>
 {% endif %}
