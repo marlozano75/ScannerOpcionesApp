@@ -44,6 +44,7 @@ class RefreshReport:
     bid_sizes_checked: int = 0   # contratos cuyo bid size se pidió a TWS
     bid_sizes_changed: int = 0   # de ellos, los que tenían un tamaño distinto al del proveedor
     margin_streak: int = 0    # what-if fallidos seguidos; al llegar a MARGIN_MAX_FAILURES no se piden más en el ciclo
+    margin_ok: bool = False   # TWS ya respondió a algún what-if del ciclo: el resto se pide en paralelo
     errors: dict[str, str] = field(default_factory=dict)  # ticker -> motivo
 
 
@@ -71,6 +72,8 @@ class RefreshJob:
         self.ticker_info = ticker_info
         self.settings = settings
         self.now = now
+        self._margin_sem = asyncio.Semaphore(max(1, settings.refresh.margin_concurrency))
+        self._margin_probe = asyncio.Lock()
 
     def default_scope(self) -> list[ScanCriteria]:
         """Por defecto se cotizan solo los contratos que encajan con los valores iniciales del filtro del scanner
@@ -149,19 +152,25 @@ class RefreshJob:
                         report.errors[t] = str(quotes)
                     log.warning("Cotizaciones fallidas: %s", quotes)
                     continue
-                ready: list[ContractSnapshot] = []
+                built: list[tuple[ContractSnapshot, Optional[ContractSnapshot]]] = []
+                for contract in batch:
+                    quote = quotes.get(contract)
+                    if quote is None:
+                        report.without_quote += 1
+                        continue
+                    previous = prev.get(self._snap_key(contract))
+                    snap = self._build_snapshot(contract, quote, infos.get(contract.ticker), previous)
+                    if snap.updated_at != self.now():
+                        report.quotes_kept += 1
+                    built.append((snap, previous))
+                # los what-if de TWS (~0,25 s cada uno) van en paralelo: pedirlos de uno en uno eran 500-900 s por ciclo
+                results = await asyncio.gather(
+                    *(self._maybe_add_margin(snap, infos.get(snap.contract.ticker), criteria, report, previous) for snap, previous in built),
+                    return_exceptions=True)
+                ready = [r for r in results if isinstance(r, ContractSnapshot)]
                 try:
-                    for contract in batch:
-                        quote = quotes.get(contract)
-                        if quote is None:
-                            report.without_quote += 1
-                            continue
-                        previous = prev.get(self._snap_key(contract))
-                        snap = self._build_snapshot(contract, quote, infos.get(contract.ticker), previous)
-                        if snap.updated_at != self.now():
-                            report.quotes_kept += 1
-                        ready.append(await self._maybe_add_margin(
-                            snap, infos.get(contract.ticker), criteria, report, previous))
+                    if (failure := next((r for r in results if isinstance(r, BaseException)), None)) is not None:
+                        raise failure
                 finally:   # una sola transacción por lote; si se pierde la conexión a mitad, se guarda lo ya hecho
                     report.refreshed += self.snapshots.upsert_many(ready)
                     saved.extend(ready)
@@ -234,13 +243,14 @@ class RefreshJob:
         criteria = list(criteria) if criteria else self.default_scope()
         infos = self.ticker_info.all()
         today = self.now().date()
-        ready: list[ContractSnapshot] = []
-        for snap in self.snapshots.all():
-            if not self._in_scope(snap.contract, infos.get(snap.contract.ticker), criteria, today):
-                continue
-            new = await self._maybe_add_margin(snap, infos.get(snap.contract.ticker), criteria, report, snap)
-            if new.margin_at != snap.margin_at or new.initial_margin != snap.initial_margin:
-                ready.append(new)
+        todo = [snap for snap in self.snapshots.all() if self._in_scope(snap.contract, infos.get(snap.contract.ticker), criteria, today)]
+        results = await asyncio.gather(
+            *(self._maybe_add_margin(snap, infos.get(snap.contract.ticker), criteria, report, snap) for snap in todo), return_exceptions=True)
+        ready = [new for snap, new in zip(todo, results)
+                 if isinstance(new, ContractSnapshot) and (new.margin_at != snap.margin_at or new.initial_margin != snap.initial_margin)]
+        if (failure := next((r for r in results if isinstance(r, BaseException)), None)) is not None:
+            self.snapshots.upsert_many(ready)
+            raise failure
         report.refreshed = self.snapshots.upsert_many(ready)
         log.info("Márgenes pendientes: %d pedidos, %d reutilizados, %d guardados",
                  report.margins_requested, report.margins_reused, report.refreshed)
@@ -391,8 +401,17 @@ class RefreshJob:
         stale = snap
         if previous is not None and previous.initial_margin is not None:
             stale = replace(snap, initial_margin=previous.initial_margin, margin_at=previous.margin_at)
-        if report.margin_streak >= MARGIN_MAX_FAILURES or self._offline():
-            return stale   # TWS no responde (o no está): no se espera por cada contrato; se queda el margen guardado
+        if self._offline():
+            return stale   # sin TWS: no se espera por cada contrato; se queda el margen guardado
+        if report.margin_ok:
+            async with self._margin_sem:
+                return await self._ask_margin(snap, stale, report)
+        async with self._margin_probe:   # hasta que TWS responda una vez va de uno en uno: si está caído no se lanzan cientos a la vez
+            return await self._ask_margin(snap, stale, report)
+
+    async def _ask_margin(self, snap, stale, report: RefreshReport) -> ContractSnapshot:
+        if report.margin_streak >= MARGIN_MAX_FAILURES:
+            return stale   # TWS no responde: no se espera por cada contrato; se queda el margen guardado
         try:
             report.margins_requested += 1
             margin = await self.gateway.what_if_margin(snap.contract, 1)
@@ -405,4 +424,5 @@ class RefreshJob:
                 log.warning("%d what-if seguidos fallidos: no se piden más márgenes en este ciclo", MARGIN_MAX_FAILURES)
             return stale
         report.margin_streak = 0
+        report.margin_ok = True
         return replace(snap, initial_margin=margin, margin_at=self.now() if margin is not None else None)

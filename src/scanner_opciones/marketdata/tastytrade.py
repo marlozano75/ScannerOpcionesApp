@@ -29,7 +29,7 @@ Fetch = Callable[[Sequence[str]], Awaitable[Sequence[Any]]]
 CandleFetch = Callable[[Sequence[str], int, float], Awaitable[dict[str, DailyBars]]]   # símbolos, días, espera por lote
 CANDLE_RETRY_WAIT = 5.0  # segundos antes del primer reintento (x2 en el segundo)
 CANDLE_RETRIES = 2      # reintentos (con una conexión nueva) de los símbolos que no responden
-NO_CANDLES_TTL = 6 * 3600   # un símbolo que no respondió a ninguna de las pasadas no se vuelve a pedir hasta pasado este tiempo (segundos)
+NO_CANDLES_TTL = 24 * 3600   # un símbolo que no respondió a ninguna de las pasadas no se vuelve a pedir hasta pasado este tiempo (segundos; se guarda entre ejecuciones: un valor sin velas como WBD costaba ~85 s en cada arranque)
 CANDLE_BATCH_SIZE = 50   # suscripciones a velas por lote (con todos a la vez tastytrade corta: «subscription size too big»)
 
 
@@ -128,7 +128,7 @@ class TastytradeVolatility:
     ) -> None:
         self._client_secret = client_secret
         self._refresh_token = refresh_token
-        self._no_candles: dict[str, float] = {}      # símbolo -> cuándo (monotonic) dejó de responder a las velas en todas las pasadas
+        self.no_candles: dict[str, float] = {}      # símbolo -> cuándo (epoch) dejó de responder a las velas en todas las pasadas; la app lo guarda entre ejecuciones
         self._fetch = fetch or self._sdk_fetch
         self._fetch_quotes = fetch_quotes or self._sdk_fetch_quotes
         self._fetch_candles = fetch_candles or self._sdk_fetch_candles
@@ -173,9 +173,9 @@ class TastytradeVolatility:
         petición da 50/50 y luego 0/50), así que los símbolos sin respuesta se piden de nuevo, hasta `CANDLE_RETRIES` veces,
         con una conexión nueva."""
         out: dict[str, OhlcBars] = {}
-        now = time.monotonic()
+        now = time.time()
         # los que no respondieron en TODAS las pasadas hace poco (índices, símbolos sin velas...) no vuelven a abrir 3 conexiones cada vez
-        todo = [s for s in symbols if now - self._no_candles.get(s, -NO_CANDLES_TTL) >= NO_CANDLES_TTL]
+        todo = [s for s in symbols if now - self.no_candles.get(s, 0.0) >= NO_CANDLES_TTL]
         if len(todo) < len(symbols):
             log.info("Velas: %d tickers sin respuesta reciente, no se vuelven a pedir ahora", len(symbols) - len(todo))
         for attempt in range(1 + CANDLE_RETRIES):
@@ -191,9 +191,9 @@ class TastytradeVolatility:
         if todo:
             log.info("Velas: siguen sin respuesta %d tickers: %s", len(todo), ", ".join(sorted(todo)[:40]))
             for s in todo:
-                self._no_candles[s] = time.monotonic()
+                self.no_candles[s] = now
         for s in out:
-            self._no_candles.pop(s, None)
+            self.no_candles.pop(s, None)
         return out
 
     async def _candles_pass(self, symbols: Sequence[str], days: int, timeout: float, keep_partial: bool

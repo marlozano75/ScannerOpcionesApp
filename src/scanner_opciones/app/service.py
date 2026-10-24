@@ -105,6 +105,7 @@ COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JS
 COMMUNITY_LIVE = "community_live"   # clave de `meta`: última cotización en directo de las ideas (pickle en base64)
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
 SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
+NO_CANDLES = "no_candles"   # clave de `meta`: símbolos que tastytrade no responde con velas (JSON {símbolo: epoch}); no se reintentan en cada arranque
 PUT_OPENED = "put_opened"   # clave de `meta`: día en que la app vio por primera vez cada put vendida (JSON {put_key: AAAA-MM-DD})
 PUT_ENTRY_FIT = "put_entry_fit"   # clave de `meta`: estrategia reconocida al abrir cada put/spread (JSON {put_key: EntryFit})
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
@@ -1114,14 +1115,31 @@ class AppService:
         """Histórico de cierres de toda la watchlist (los que ya están al día no piden nada). Un fallo no
         interrumpe la actualización diaria: los filtros técnicos avisan de que falta histórico."""
         self.state.activity = "Descargando histórico de cierres"
+        self._load_no_candles()
         try:
             await self.daily.update_history(self.history_scope())
             self.record_today_prices()
         except Exception:
             log.exception("No se pudo actualizar el histórico de cierres")
         finally:
+            self._save_no_candles()
             self.state.activity = None
             self.state.data_version += 1
+
+    def _load_no_candles(self) -> None:
+        """Recupera los símbolos sin velas de la ejecución anterior (un ticker sin velas, como WBD, hacía esperar ~85 s en cada arranque)."""
+        candles = self.daily.candles
+        if candles is None or not hasattr(candles, "no_candles") or candles.no_candles:
+            return
+        try:
+            candles.no_candles.update({k: float(v) for k, v in json.loads(self.meta.get(NO_CANDLES) or "{}").items()})
+        except (ValueError, TypeError, AttributeError):
+            pass
+
+    def _save_no_candles(self) -> None:
+        candles = self.daily.candles
+        if candles is not None and isinstance(getattr(candles, "no_candles", None), dict):
+            self.meta.set(NO_CANDLES, json.dumps(candles.no_candles))
 
     async def _update_history_and_fundamentals(self) -> None:
         await self._update_history()
