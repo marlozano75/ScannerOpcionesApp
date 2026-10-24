@@ -26,6 +26,7 @@ class ExitRules:
     warn_position_pct: float              # peso por acción tras asignación sobre el NLV: aviso
     max_position_pct: float               # ... y alerta
     itm_action: str                       # `close` | `hold`
+    defense: bool = False                 # puts desnudas: avisos de defensa (testeada / en el dinero / muy dentro) y evaluación de rolls (`portfolio/defense.py`)
 
     @property
     def holds_to_expiry(self) -> bool:
@@ -44,16 +45,16 @@ FIELDS = (
     ("warn_position_pct", "Peso por acción: aviso", "pct", False, "% del NLV que supondría la acción si te asignan todas sus puts."),
     ("max_position_pct", "Peso por acción: alerta", "pct", False, "% del NLV a partir del cual se da alerta."),
 )
-KEYS = tuple(k for k, *_ in FIELDS) + ("itm_action",)
+KEYS = tuple(k for k, *_ in FIELDS) + ("itm_action", "defense")
 
 
 def defaults(style: str, cfg: ManagementSettings) -> ExitRules:
     """Reglas de un estilo base con los valores de `management` de la configuración."""
     if style == "tpc":
         return ExitRules(None, None, None, cfg.tpc_close_capture_pct, None, cfg.pin_dte, cfg.pin_buffer_pct,
-                         cfg.tpc_warn_position_pct, cfg.tpc_max_position_pct, "hold")
+                         cfg.tpc_warn_position_pct, cfg.tpc_max_position_pct, "hold", False)
     return ExitRules(cfg.take_profit_pct, cfg.take_profit_max_pct, cfg.review_dte, None, cfg.spread_stop_value_multiple, cfg.pin_dte,
-                     cfg.pin_buffer_pct, cfg.warn_position_pct, cfg.max_position_pct, "close")
+                     cfg.pin_buffer_pct, cfg.warn_position_pct, cfg.max_position_pct, "close", True)
 
 
 def resolve(style: str, overrides: dict, cfg: ManagementSettings) -> ExitRules:
@@ -99,6 +100,9 @@ def check_overrides(raw: dict) -> dict:
         if k == "itm_action":
             if v in ITM_ACTIONS:
                 out[k] = v
+        elif k == "defense":
+            if isinstance(v, bool):
+                out[k] = v
         elif k in KEYS and (v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))):
             out[k] = v
     return out
@@ -126,5 +130,11 @@ def describe(r: ExitRules) -> list[str]:
     out.append(f"Spreads: riesgo de pin en los últimos {r.pin_dte} días si el precio está a ≤ {r.pin_buffer_pct:g} % del strike vendido.")
     out.append("En el dinero: " + ("valorar cerrar antes que esperar la asignación." if r.itm_action == "close"
                                   else "no se rola; si te asignan, reevaluar la tesis y valorar vender calls."))
+    if r.defense:
+        out.append("Defensa de las puts desnudas según su delta, los días y el IV Rank: testeada (Δ 0,30+) esperar o vender la call; en el dinero (Δ 0,50+) rolar "
+                   "abajo y fuera con crédito neto; muy dentro (Δ 0,70+) rolar solo hacia fuera o asignación; a ≤ 21 DTE o sin extrínseco, gestionar ya. "
+                   "Evaluación de rolls con cotizaciones en vivo desde el Panel.")
+    else:
+        out.append("Sin avisos de defensa: no se rola ni se defiende la put.")
     out.append(f"Peso por acción tras asignación: aviso por encima del {r.warn_position_pct:g} % del NLV y alerta por encima del {r.max_position_pct:g} %.")
     return out

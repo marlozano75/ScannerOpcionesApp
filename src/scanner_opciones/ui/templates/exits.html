@@ -60,6 +60,11 @@
               <option value="close" {{ 'selected' if c.rules.itm_action == 'close' }}>Valorar cerrar</option>
               <option value="hold" {{ 'selected' if c.rules.itm_action == 'hold' }}>Mantener, no rolar</option>
             </select>
+            <label title="Avisos de defensa de las puts desnudas (testeada, en el dinero, muy dentro, extrínseco, dividendo, resultados) y evaluación de rolls con cotizaciones en vivo desde el Panel. Un perfil que mantiene hasta el vencimiento (TPC) no rola." class="{{ 'chg' if 'defense' in c.changed }}">Defensa de la put</label>
+            <select name="pf{{ i }}_defense">
+              <option value="on" {{ 'selected' if c.rules.defense }}>Activada</option>
+              <option value="off" {{ 'selected' if not c.rules.defense }}>Desactivada</option>
+            </select>
           </div>
           {% if c.changed %}<label style="font-size:12px;display:block;margin-top:8px"><input type="checkbox" name="pf{{ i }}_reset"> Restaurar los valores del estilo</label>{% endif %}
         </div>
@@ -80,7 +85,7 @@
         var card = document.getElementById(sel.dataset.card), vals = defs[sel.value];
         Object.keys(vals).forEach(function (key) {
           var el = card.querySelector('[name$="_' + key + '"]');
-          if (el) el.value = vals[key] === null ? "" : String(vals[key]);
+          if (el) el.value = vals[key] === null ? "" : typeof vals[key] === "boolean" ? (vals[key] ? "on" : "off") : String(vals[key]);
         });
         var list = card.querySelector(".ex-text");       // «Qué hace» pasa a describir el estilo elegido
         list.textContent = "";

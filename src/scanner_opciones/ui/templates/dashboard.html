@@ -47,7 +47,7 @@
       <td{% if s.margin is not none %} data-sort="{{ s.margin }}" title="{{ 'Pérdida máxima del spread' if s.margin_exact else 'Margen what-if de una put igual (estimación)' }}"{% endif %}>{{ s.margin|num(0) if s.margin is not none else '—' }}</td>
       <td data-sort="{{ s.assigned }}"{% if s.opened %} title="Abierta el {{ s.opened.strftime('%d/%m/%Y') }} ({{ 'fecha exacta de Tortuga' if s.opened_exact else 'estimada: primera vez que la app la vio' }}) · {{ (s.expiry - s.opened).days }} DTE al abrir{% if s.assign_note %}&#10;{{ s.assign_note }}{% endif %}"{% elif s.assign_note %} title="{{ s.assign_note }}"{% endif %}><form method="post" action="/management/profile" style="margin:0">{% if profile_colors.get(s.assigned) %}<span class="pdot" style="background:{{ profile_colors[s.assigned] }}"></span>{% endif %}<input type="hidden" name="key" value="{{ s.key }}">
         <select name="profile" onchange="this.form.submit()" style="font-size:12px">{% for n in profile_names %}<option value="{{ n }}" {{ 'selected' if s.assigned == n }}>{{ n }}</option>{% endfor %}</select></form></td>
-      <td class="wrap">{% for a in s.alerts %}<span class="mg {{ a.level }}">{{ a.text }}</span>{% else %}<span class="muted">—</span>{% endfor %}</td></tr>
+      <td class="wrap">{% if s.defense %}<span class="mg info" title="{{ 'Delta real de tastytrade' if s.defense.delta_live else 'Delta estimada (Black-Scholes con la IV que implica el precio de la put; sin cotización en vivo)' }}. Zonas: testeada Δ ≥ {{ mgmt_cfg.defense.tested_delta }}, en el dinero ≥ {{ mgmt_cfg.defense.atm_delta }}, muy dentro ≥ {{ mgmt_cfg.defense.deep_delta }}.">{% if s.defense.delta is not none %}Δ {{ '%.2f'|format(s.defense.delta) }}{{ '' if s.defense.delta_live else '~' }} · {% endif %}{{ s.defense.label }}{% if s.defense.zone != 'calm' %} · <a href="#" class="roll-btn" data-key="{{ s.key }}" data-title="Roll de {{ s.ticker }} {{ s.strike|num }}">Evaluar roll</a>{% endif %}</span>{% endif %}{% for a in s.alerts %}<span class="mg {{ a.level }}">{{ a.text }}</span>{% else %}{% if not s.defense %}<span class="muted">—</span>{% endif %}{% endfor %}</td></tr>
     {% endfor %}
   </table>
   </div>
@@ -98,6 +98,18 @@
       title.textContent = src.getAttribute('data-ticker');
       body.innerHTML = src.innerHTML;
       overlay.hidden = false;
+      return;
+    }
+    var r = e.target.closest && e.target.closest('a.roll-btn');
+    if (r) {
+      e.preventDefault();
+      title.textContent = r.getAttribute('data-title') || 'Roll';
+      body.textContent = 'Cotizando la cadena en vivo… (unos segundos)';
+      overlay.hidden = false;
+      fetch('/management/roll?key=' + encodeURIComponent(r.getAttribute('data-key')))
+        .then(function (res) { return res.text(); })
+        .then(function (html) { if (!overlay.hidden) body.innerHTML = html; })
+        .catch(function () { body.textContent = 'No se pudo evaluar el roll.'; });
       return;
     }
     if (e.target === overlay || (e.target.closest && e.target.closest('#pos-close'))) close();

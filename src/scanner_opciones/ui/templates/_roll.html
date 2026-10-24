@@ -1,0 +1,27 @@
+{# Fragmento de la evaluación de un roll (se carga en la capa del Panel al pulsar «Evaluar roll») #}
+{% if error %}<p class="banner warn" style="margin:0">{{ error }}</p>
+{% else %}{% set d = ev.defense %}{% set cn = ev.contracts * 100 %}
+<p style="margin:0 0 6px"><b>{{ ev.ticker }}</b> · put {{ ev.strike|num }} · venc. {{ ev.expiry.strftime('%d/%m/%Y') }} ({{ ev.dte }} d) · {{ ev.contracts }} contrato{{ '' if ev.contracts == 1 else 's' }}
+  · precio {{ ev.underlying|num }}</p>
+<p class="muted" style="margin:0 0 8px;font-size:13px">
+  {% if d %}<b>{{ d.label|capitalize }}</b>{% endif %}{% if ev.delta is not none %} · |Δ| {{ '%.2f'|format(ev.delta) }}{% endif %}{% if d and d.extrinsic is not none %} · extrínseco {{ '%.2f'|format(d.extrinsic) }} $/acción{% endif %}
+  {% if ev.iv_rank is not none %} · IV Rank {{ '%.0f'|format(ev.iv_rank) }} %{% endif %}
+  · cerrar cuesta {{ '%.2f'|format(ev.close_cost) }} $/acción{{ ' (ask en vivo)' if ev.close_live else ' (valor en la cartera: sin cotización en vivo)' }}
+  {% if ev.entry %} · cobraste {{ '%.2f'|format(ev.entry) }}{% endif %}</p>
+{% if d %}{% for level, text in d.steps %}<span class="mg {{ level }}">{{ text }}</span>{% endfor %}{% endif %}
+<div class="banner {{ 'ok' if ev.report.verdict == 'roll' else 'info' if ev.report.verdict == 'extend' else 'warn' }}" style="margin:8px 0">{{ ev.report.text }}</div>
+{% if ev.report.best %}
+<table>
+  <tr><th>Vencimiento</th><th>DTE</th><th>Strike</th><th title="|Δ| de la put destino: la idea es volver a 0,30–0,40">|Δ|</th><th title="Lo que cobras por la nueva (bid)">Cobras</th>
+    <th title="Cobras por la nueva menos lo que cuesta cerrar la actual (ask). Por acción y total">Crédito neto</th><th title="Frente al crédito original">% orig.</th><th></th></tr>
+  {% for o in ev.report.best %}
+  <tr><td>{{ o.expiry.strftime('%d/%m/%Y') }}</td><td>{{ o.dte }}</td><td>{{ o.strike|num }}</td><td>{{ '%.2f'|format(o.delta) if o.delta is not none else '—' }}</td><td>{{ '%.2f'|format(o.bid) }}</td>
+    <td><span class="mg {{ 'ok' if o.ok else 'warn' }}" style="display:inline">{{ '%+.2f'|format(o.net_credit) }}</span> <span class="muted">({{ '%+.0f'|format(o.net_credit * cn) }} $)</span></td>
+    <td>{{ '%.0f'|format(o.credit_pct) ~ ' %' if o.credit_pct is not none else '—' }}</td>
+    <td class="wrap">{% for n in o.notes %}<span class="mg info">{{ n }}</span>{% endfor %}{% if not o.ok %}<span class="mg warn">crédito insuficiente</span>{% endif %}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+<p class="muted" style="font-size:12px;margin:8px 0 0">Se cotizaron {{ ev.quoted }} de {{ ev.checked }} puts candidatas (strikes del actual hacia abajo). El crédito es conservador: bid de la nueva menos ask de la actual, sin comisiones.
+  La app no cotiza calls: si vas a vender la call de la defensa, mira su prima en tu broker (mismo vencimiento, Δ 0,20–0,30). Información, no asesoramiento ni órdenes.</p>
+{% endif %}

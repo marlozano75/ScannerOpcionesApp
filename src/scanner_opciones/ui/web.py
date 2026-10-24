@@ -644,7 +644,7 @@ def create_app(
         mgmt = manage_puts(service.state.positions, nlv, service.now().date(),
                            {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
                            service.put_management(), service.put_assignments(), service.put_open_dates(), service.put_margins(),
-                           service.put_assignment_notes(), service.put_exit_rules())
+                           service.put_assignment_notes(), service.put_exit_rules(), service.defense_context(), service.state.position_deltas)
         today = service.now().date()
         by_ticker: dict[str, list] = {}
         for s in mgmt.puts:
@@ -667,6 +667,15 @@ def create_app(
         return render(request, "dashboard.html", wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
+
+    @app.get("/management/roll", response_class=HTMLResponse)
+    async def management_roll(request: Request, key: str = ""):
+        """Evalúa en vivo el roll de una put desnuda del Panel (cotiza la cadena); fragmento para la capa del Panel."""
+        try:
+            ev = await service.roll_evaluation(key)
+        except ValueError as exc:
+            return render(request, "_roll.html", error=str(exc), ev=None)
+        return render(request, "_roll.html", error=None, ev=ev)
 
     @app.post("/management/profile")
     async def management_profile(request: Request):
@@ -1560,6 +1569,8 @@ def create_app(
                         vals[key] = _read_num(raw, int if kind == "int" else float, f"«{orig.name}» · {label}")
                 if f"pf{i}_itm_action" in form:
                     vals["itm_action"] = str(form.get(f"pf{i}_itm_action"))
+                if f"pf{i}_defense" in form:
+                    vals["defense"] = str(form.get(f"pf{i}_defense")) == "on"
                 try:
                     rules = exits_mod.validate(replace(current, **vals))
                 except ValueError as exc:

@@ -11,7 +11,7 @@ import logging
 import re
 from dataclasses import dataclass, field, replace
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
@@ -36,6 +36,7 @@ from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key,
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, classify_dte
 from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry
+from scanner_opciones.portfolio import defense as defense_mod
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
 from scanner_opciones.portfolio.spreads import with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
@@ -141,6 +142,8 @@ class AppState:
     activity: Optional[str] = None   # tarea en curso (se muestra en la interfaz)
     last_account_refresh: Optional[datetime] = None   # último refresco de cuenta, posiciones y VIX
     data_version: int = 0            # sube al terminar un refresco: las páginas abiertas lo consultan para recargarse
+    position_deltas: dict[str, float] = field(default_factory=dict)   # |delta| real (tastytrade) de cada put desnuda vendida de la cartera, por `put_key`
+    position_deltas_at: Optional[datetime] = None                     # cuándo se cotizaron (aunque alguna no respondiera)
 
 
 def _to_float(value) -> Optional[float]:
@@ -223,6 +226,7 @@ class AppService:
         self._tasty_lists_syncing = False
         self.admission_report: Optional[AdmissionReport] = None
         self.admission_running = False
+        self._position_delta_keys: set[str] = set()      # puts cuya delta real se pidió en la última cotización
         self.admission_error: Optional[str] = None
         self._admission_closes: dict = {}
         self._admission_iv: dict = {}
@@ -2413,6 +2417,7 @@ class AppService:
         if not include_market:
             ok = await self.refresh_account(skip_closed_vix=True)
             if ok:   # mercado cerrado: el refresco solo de cuenta es el refresco del ciclo
+                await self.refresh_position_deltas()
                 self.state.last_refresh = self.now()
                 self.state.data_version += 1
             return ok
@@ -2433,6 +2438,7 @@ class AppService:
             finally:
                 self.state.activity = None
                 await asyncio.gather(account, return_exceptions=True)
+            await self.refresh_position_deltas()
             self.state.last_refresh = self.now()
             self.state.data_version += 1
             return True
@@ -2672,6 +2678,120 @@ class AppService:
         compartido por el filtro, el aviso de datos que faltan y el panel de impacto."""
         return self._memo("atr", lambda: self.bars.atr(
             set(self.watchlist.list()) | {s.contract.ticker for s in self._scan_snapshots()}, self.settings.scanner.technical.atr_period))
+
+    def defense_context(self) -> dict[str, dict]:
+        """Datos del subyacente para la defensa de las puts del Panel, por ticker de la posición (con el símbolo de IBKR): IV Rank, IV a 30 días en
+        fracción, próximos resultados y días hasta el ex-dividendo (el guardado por la actualización diaria, descontados los días pasados desde entonces)."""
+        today = self.now().date()
+        out: dict[str, dict] = {}
+        for p in self.state.positions:
+            if p.option is None or p.option.right is not OptionRight.PUT or p.quantity >= 0 or p.ticker in out:
+                continue
+            info = self.ticker_info.get(p.ticker.replace(" ", "-"))
+            if info is None:
+                continue
+            ex = None
+            if info.days_to_ex_dividend is not None and info.updated_daily_at is not None:
+                ex = info.days_to_ex_dividend - (today - info.updated_daily_at.date()).days
+            out[p.ticker] = dict(iv_rank=info.iv_rank, iv30=info.iv30 / 100 if info.iv30 else None, ex_dividend_in=ex if ex is not None and ex >= 0 else None,
+                                 next_earnings=info.next_earnings if info.next_earnings and info.next_earnings >= today else None)
+        return out
+
+    def _naked_short_puts(self) -> dict[str, OptionContract]:
+        """Puts desnudas vendidas de la cartera (los spreads no entran) como contratos con el símbolo de la app, por `put_key`."""
+        out: dict[str, OptionContract] = {}
+        for p in with_spreads(self.state.positions):
+            o = p.option
+            if o is not None and o.right is OptionRight.PUT and p.quantity < 0 and p.hedge_strike is None:
+                out[put_key_of(p)] = OptionContract(o.ticker.replace(" ", "-"), o.expiry, o.strike, OptionRight.PUT, o.multiplier)
+        return out
+
+    def _position_deltas_fresh(self, keys: set[str]) -> bool:
+        at = self.state.position_deltas_at
+        if at is None or not keys <= self._position_delta_keys:
+            return False
+        if self._paused():      # mercado cerrado: vale lo cotizado tras el último cierre (no cambia hasta la apertura)
+            return at.astimezone() >= self.market.last_close(self.now())
+        return self.now() - at < timedelta(minutes=self.settings.management.defense.greeks_max_age_minutes)
+
+    async def refresh_position_deltas(self, force: bool = False) -> bool:
+        """Cotiza por DXLink (tastytrade) las puts desnudas vendidas de la cartera y guarda su |delta| real para el Panel: son pocas (una conexión) y
+        su contrato casi nunca está en la ventana de contratos guardados (strikes >= 5 % por debajo). Se reutiliza `greeks_max_age_minutes` con el
+        mercado abierto y, cerrado, una vez tras el cierre. Un fallo conserva lo anterior y el Panel estima la delta con Black-Scholes."""
+        contracts = self._naked_short_puts()
+        if not contracts:
+            self.state.position_deltas, self.state.position_deltas_at = {}, None
+            return False
+        if not force and self._position_deltas_fresh(set(contracts)):
+            return False
+        if self._known_disconnected() and not self._offline_capable():
+            return False
+        try:
+            quotes = await asyncio.wait_for(self.gateway.get_quotes(list(contracts.values())), 45)
+        except (BrokerError, asyncio.TimeoutError) as exc:
+            log.info("Delta real de las puts de la cartera no disponible, el Panel la estima: %s", exc or "tiempo agotado")
+            return False
+        self.state.position_deltas = {k: abs(q.delta) for k, c in contracts.items() if (q := quotes.get(c)) is not None and q.delta is not None}
+        self.state.position_deltas_at = self.now()
+        self._position_delta_keys = set(contracts)
+        return True
+
+    ROLL_MAX_EXPIRIES = 8       # vencimientos candidatos del roll cotizados a la vez
+    ROLL_MAX_STRIKES = 40       # strikes candidatos por vencimiento (los más cercanos al actual)
+
+    async def roll_evaluation(self, key: str) -> "defense_mod.RollEvaluation":
+        """Evalúa en vivo el roll de una put desnuda de la cartera (`put_key`): cotiza la propia put y las candidatas (del strike actual hacia abajo,
+        vencimientos de `roll_dte_min` a `roll_dte_far` días) y devuelve la defensa aconsejada y el mejor roll con crédito neto. Solo lee cotizaciones.
+        `ValueError` con un mensaje para el usuario si la posición ya no existe, es un spread o faltan datos."""
+        cfg = self.settings.management.defense
+        today = self.now().date()
+        pos = next((p for p in with_spreads(self.state.positions) if p.option is not None and p.option.right is OptionRight.PUT and p.quantity < 0
+                    and put_key_of(p) == key), None)
+        if pos is None:
+            raise ValueError("Esa put ya no está en la cartera.")
+        if pos.hedge_strike is not None:
+            raise ValueError("Es un spread: la evaluación de rolls es para puts desnudas.")
+        o = pos.option
+        ticker = o.ticker.replace(" ", "-")
+        info = self.ticker_info.get(ticker)
+        underlying = info.underlying_price if info else None
+        if not underlying:
+            raise ValueError(f"Sin precio de {ticker}: espera a que se actualicen los precios.")
+        contracts = int(abs(pos.quantity))
+        mark = abs(pos.market_value) / (contracts * o.multiplier) if contracts else 0.0
+        entry = abs(pos.avg_cost) / o.multiplier if pos.avg_cost else None
+        current = OptionContract(ticker, o.expiry, o.strike, OptionRight.PUT, o.multiplier)
+        try:
+            chain = await asyncio.wait_for(self.gateway.get_option_chain(ticker), 30)
+        except (BrokerError, asyncio.TimeoutError) as exc:
+            raise ValueError(f"No se pudo leer la cadena de {ticker}: {exc or 'tiempo agotado'}") from None
+        expiries = [e for e in chain.expiries if e > o.expiry and cfg.roll_dte_min <= (e - today).days <= cfg.roll_dte_far][:self.ROLL_MAX_EXPIRIES]
+        floor = underlying * (1 - cfg.roll_strikes_below_pct / 100)
+        strikes = sorted((k for k in chain.strikes if floor <= k <= o.strike), key=lambda k: o.strike - k)[:self.ROLL_MAX_STRIKES]
+        wanted = [OptionContract(ticker, e, k, OptionRight.PUT, o.multiplier) for e in expiries for k in strikes]
+        try:
+            quotes = await asyncio.wait_for(self.gateway.get_quotes([current, *wanted]), 90) if wanted else {}
+        except (BrokerError, asyncio.TimeoutError) as exc:
+            raise ValueError(f"No se pudieron cotizar las candidatas del roll: {exc or 'tiempo agotado'}") from None
+        live = quotes.get(current)
+        close_live = live is not None and live.ask is not None and live.ask > 0
+        close_cost = live.ask if close_live else mark
+        delta = abs(live.delta) if live is not None and live.delta is not None else None
+        iv30 = info.iv30 / 100 if info and info.iv30 else None
+        defense = defense_mod.assess(defense_mod.DefenseInput(
+            o.expiry, o.strike, (o.expiry - today).days, underlying, entry, close_cost, info.iv_rank if info else None, iv30,
+            info.next_earnings if info and info.next_earnings and info.next_earnings >= today else None, None, today, delta), cfg)
+        if delta is None and defense is not None:
+            delta = defense.delta
+        rollq = [defense_mod.RollQuote(c.expiry, c.strike, q.bid, q.ask, abs(q.delta) if q.delta is not None else None)
+                 for c in wanted if (q := quotes.get(c)) is not None]
+        report = defense_mod.rank_rolls(o.strike, entry, close_cost, rollq, today, cfg)
+        earnings = info.next_earnings if info and info.next_earnings and info.next_earnings >= today else None
+        if earnings is not None:      # evitar meter resultados en el nuevo vencimiento salvo que sea a propósito
+            report = replace(report, best=tuple(
+                replace(b, notes=b.notes + (f"incluye resultados del {earnings:%d/%m}",)) if o.expiry < earnings <= b.expiry else b for b in report.best))
+        return defense_mod.RollEvaluation(o.ticker, o.expiry, o.strike, (o.expiry - today).days, contracts, underlying, entry, close_cost, close_live, delta,
+                                          info.iv_rank if info else None, defense, report, len(wanted), len(rollq), today)
 
     def put_margins(self) -> dict[str, float]:
         """Margen what-if guardado (por contrato) de las puts vendidas de la cartera, por `put_key` (en un spread, de la pata vendida).

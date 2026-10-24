@@ -101,7 +101,8 @@ def test_review_at_21_dte_when_the_target_was_not_reached_and_not_when_it_was():
 
 
 def test_in_the_money_near_the_strike_and_losses():
-    assert "En el dinero" in alerts(put_status(short_put(), TODAY, 89.0, CFG))["warn"]
+    itm = put_status(short_put(), TODAY, 89.0, CFG)
+    assert "En el dinero" in " ".join(a.text for a in itm.alerts if a.level == "warn")      # con la defensa activada lo dice ella (zona + qué hacer)
     assert "menos de 2 %" in alerts(put_status(short_put(), TODAY, 91.0, CFG))["info"]
     loss = put_status(short_put(market_value=-440.0), TODAY, 100.0, CFG)
     assert loss.captured_pct == pytest.approx(-100.0) and "En pérdida" in alerts(loss)["info"]
@@ -151,7 +152,8 @@ def test_tpc_holds_to_expiry_without_take_profit_or_review_alerts():
 def test_tpc_does_not_suggest_rolling_when_in_the_money():
     text = alerts(put_status(short_put(), TODAY, 89.0, CFG, "tpc"))["warn"]
     assert "no se rola" in text and "vender calls" in text
-    assert "Valora cerrar" in alerts(put_status(short_put(), TODAY, 89.0, CFG))["warn"]
+    tasty = " ".join(a.text for a in put_status(short_put(), TODAY, 89.0, CFG).alerts)
+    assert "rolar abajo y fuera" in tasty and "no se rola" not in tasty             # Tastytrade sí defiende (la defensa sustituye al «Valora cerrar»)
 
 
 def test_tpc_weights_use_the_looser_ceiling_only_when_every_put_of_the_stock_is_tpc():

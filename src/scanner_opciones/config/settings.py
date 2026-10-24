@@ -555,6 +555,51 @@ class MarketSettings(_Model):
         return self
 
 
+class DefenseSettings(_Model):
+    """Defensa de las puts vendidas (aviso en el Panel y evaluación de rolls): cada defensa tiene su momento según lo dentro del dinero que esté la put
+    (|delta|), los días que le quedan y la volatilidad implícita (IV Rank). Referencias habituales, no reglas exactas; avisos, nunca órdenes."""
+    tested_delta: float = Field(0.30, gt=0, lt=1)      # |delta| desde la que la put está «testeada» (todavía OTM): esperar o vender la call; rolar rinde poco
+    atm_delta: float = Field(0.50, gt=0, lt=1)         # ... desde la que está en el dinero o ligeramente dentro: momento de rolar abajo y fuera
+    deep_delta: float = Field(0.70, gt=0, lt=1)        # ... desde la que está muy dentro: rolar solo hacia fuera o valorar la asignación
+    gamma_dte: int = Field(21, ge=0)                   # a ≤ N DTE el gamma se acelera: gestionar aunque la pérdida no sea extrema
+    min_extrinsic: float = Field(0.10, ge=0)           # $/acción; con menos extrínseco en una put dentro del dinero hay riesgo de asignación anticipada
+    ex_dividend_days: int = Field(7, ge=0)             # ... y más si el ex-dividendo cae en los próximos N días
+    event_days: int = Field(10, ge=0)                  # resultados en los próximos N días (antes del vencimiento): evento binario, valorar protección o cerrar
+    loss_multiple: float = Field(2.0, gt=0)            # pérdida de N veces el crédito cobrado: valorar cerrar...
+    hard_loss_multiple: float = Field(3.0, gt=0)       # ... y de N veces: cerrar
+    ivr_good: float = Field(30, ge=0, le=100)          # IV Rank desde el que rolar paga más (el vencimiento lejano cobra más)
+    ivr_high: float = Field(40, ge=0, le=100)          # ... y desde el que es el mejor momento
+    roll_dte_min: int = Field(30, ge=1)                # vencimiento del roll: de N a N días...
+    roll_dte_max: int = Field(60, ge=1)
+    roll_dte_far: int = Field(90, ge=1)                # ... y, si en ese rango no hay crédito, se alarga hasta aquí (más allá se ata mucho tiempo por poco crédito)
+    roll_min_credit_pct: float = Field(10, ge=0)       # crédito neto del roll: al menos este % del crédito original (10-20 %)...
+    roll_min_credit: float = Field(0.05, ge=0)         # ... y al menos esto por acción (por encima de las comisiones)
+    roll_target_delta_min: float = Field(0.30, ge=0, lt=1)   # |delta| deseada tras rolar: volver a 0,30-0,40
+    roll_target_delta_max: float = Field(0.40, gt=0, lt=1)
+    roll_strikes_below_pct: float = Field(15, gt=0, lt=100)  # strikes candidatos del roll: hasta este % por debajo del precio
+    call_delta_min: float = Field(0.20, gt=0, lt=1)    # call de la defensa (mismo vencimiento que la put): |delta| 0,20-0,30
+    call_delta_max: float = Field(0.30, gt=0, lt=1)
+    protect_strike_pct_min: float = Field(5, gt=0)     # put comprada de protección: strike entre N y N % por debajo...
+    protect_strike_pct_max: float = Field(10, gt=0)
+    protect_max_debit_pct: float = Field(50, gt=0, le=100)   # ... con un débito que no se coma más de este % del crédito original
+    risk_free_rate: float = Field(0.04, ge=0, lt=1)    # tasa para estimar la delta (Black-Scholes) cuando no hay la real
+    greeks_max_age_minutes: float = Field(10, ge=0)    # la delta real de las puts del Panel (cotizadas por DXLink) se reutiliza hasta esta edad con el mercado abierto
+
+    @model_validator(mode="after")
+    def _check(self) -> "DefenseSettings":
+        if not self.tested_delta < self.atm_delta < self.deep_delta:
+            raise ValueError("tested_delta < atm_delta < deep_delta")
+        if self.loss_multiple > self.hard_loss_multiple:
+            raise ValueError("loss_multiple no puede superar hard_loss_multiple")
+        if not self.roll_dte_min <= self.roll_dte_max <= self.roll_dte_far:
+            raise ValueError("roll_dte_min <= roll_dte_max <= roll_dte_far")
+        if self.roll_target_delta_min > self.roll_target_delta_max or self.call_delta_min > self.call_delta_max:
+            raise ValueError("el mínimo de una banda de delta no puede superar su máximo")
+        if self.protect_strike_pct_min > self.protect_strike_pct_max:
+            raise ValueError("protect_strike_pct_min no puede superar protect_strike_pct_max")
+        return self
+
+
 class ManagementSettings(_Model):
     """Gestión de las puts vendidas (tarjeta del Panel): avisos, no órdenes. Orientativos, no reglas exactas."""
     take_profit_pct: float = Field(50, gt=0, le=100)    # recoger beneficios al capturar este % de la prima cobrada
@@ -574,6 +619,7 @@ class ManagementSettings(_Model):
     tpc_close_capture_pct: float = Field(90, gt=0, le=100)   # TPC: aviso (info) de que casi toda la prima está ganada: cerrar o seguir hasta el vencimiento
     tpc_warn_position_pct: float = Field(10, gt=0)      # TPC: peso por acción tras asignación, aviso (techo del método: 15 %)
     tpc_max_position_pct: float = Field(15, gt=0)       # y alerta
+    defense: DefenseSettings = DefenseSettings()        # defensa de las puts testeadas / dentro del dinero (perfiles con la defensa activada)
 
     @model_validator(mode="after")
     def _check(self) -> "ManagementSettings":

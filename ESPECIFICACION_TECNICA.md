@@ -381,6 +381,9 @@ Decisiones del usuario: anchos en $ (no en %) y conmutador Put/Spread (no filas 
 - Se retira la pestaña Contratos. La pestaña RankedStocks pasa a ser **Universo** (RF-37). Menú: Panel · Universo · Watchlist · Scanner.
 - Rediseño: tema cálido (crema/azul marino), tarjetas numeradas agrupadas por secciones (Contrato, Tendencia y niveles, Liquidez y volatilidad) con nota explicativa con barra ámbar, como referencia `imagenes/Trendandlevels.png` y `Min_Days_Since_Last_Touch.png`; los ids y nombres del formulario del scanner no cambian.
 
+### Defensa de las puts vendidas (2026-10-24)
+Avisos de defensa en el Panel para las puts desnudas de los perfiles con la defensa activada (estilo Tastytrade; TPC no rola) y evaluación de rolls bajo demanda con cotizaciones en vivo. Zonas por |delta| estimada (testeada ≥ 0,30, en el dinero ≥ 0,50, muy dentro ≥ 0,70), días (≤ 21 DTE), extrínseco casi nulo y dividendo (asignación anticipada), pérdida (2×/3× el crédito), IV Rank (30/40) y resultados. El roll exige crédito neto (bid de la nueva − ask de la actual ≥ 10 % del crédito original y ≥ 0,05 $), vencimiento a 30–60 DTE (hasta 90 si no hay crédito), strike lo más bajo posible y |Δ| final de 0,30–0,40; sin crédito, cerrar o aceptar la asignación. Umbrales en `management.defense`. Solo avisos: la aplicación no envía órdenes.
+
 ### Símbolos con clase de acciones (2026-10-06)
 - Al hablar con IBKR, `.` y `-` del ticker se sustituyen por un espacio (`BRK.B` → `BRK B`); el ticker guardado no cambia. Pendiente de verificar contra TWS con opciones de esas clases.
 
