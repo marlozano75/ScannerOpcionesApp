@@ -110,7 +110,7 @@ PUT_OPENED = "put_opened"   # clave de `meta`: día en que la app vio por primer
 PUT_ENTRY_FIT = "put_entry_fit"   # clave de `meta`: estrategia reconocida al abrir cada put/spread (JSON {put_key: EntryFit})
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
-SCAN_MEMO_SECONDS = 120.0                           # vida de las lecturas reutilizadas entre cálculos del Scanner (`_memo`)
+SCAN_MEMO_SECONDS = 1800.0                          # vida de las lecturas reutilizadas entre cálculos del Scanner (`_memo`)
 KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
 MAX_SOURCE_NAME = 40  # longitud máxima del nombre de una fuente manual
 MAX_HISTORY = 200     # cargas que recuerda el historial del Universo
@@ -1616,8 +1616,7 @@ class AppService:
             finally:
                 self.admission_running = False
                 if self.state.activity and self.state.activity.startswith("Admisión"):
-                    self.state.activity = None
-                self.state.data_version += 1
+                    self.state.activity = None      # sin subir data_version: nada de lo que escanea el Scanner cambió y invalidaría sus cachés
 
         self.launch(run())
         return True
@@ -2553,12 +2552,13 @@ class AppService:
         """Lectura costosa (snapshots, cierres, ATR) reutilizada entre los cálculos de una misma petición del Scanner: «Ambos» escanea dos
         veces y el aviso de resultados vacíos una más. Caduca a los `SCAN_MEMO_SECONDS` o si cambian los datos (`data_version`)."""
         now = time.monotonic()
-        key = (name, self.state.data_version, self.watchlist.db.conn.total_changes)     # total_changes: cualquier escritura en la base invalida
+        key = (name, self.state.data_version, self.watchlist.db.data_changes)     # data_changes: cualquier escritura en la base invalida
         hit = self._scan_memo.get(key)
         if hit is not None and now - hit[0] < SCAN_MEMO_SECONDS:
             return hit[1]
         value = build()
-        self._scan_memo = {k: v for k, v in self._scan_memo.items() if now - v[0] < SCAN_MEMO_SECONDS}
+        # solo se conserva lo de la versión actual de los datos: lo de las anteriores ya no puede acertar y ocuparía memoria (~60 MB de snapshots)
+        self._scan_memo = {k: v for k, v in self._scan_memo.items() if k[1:] == key[1:] and now - v[0] < SCAN_MEMO_SECONDS}
         self._scan_memo[key] = (now, value)
         return value
 

@@ -211,6 +211,7 @@ class Database:
     """Envoltorio fino sobre sqlite3. `path=':memory:'` para tests."""
 
     def __init__(self, path: str | Path = ":memory:") -> None:
+        self.quiet_changes = 0   # escrituras que no alteran los datos del Scanner (ver `MetaRepo.QUIET_KEYS`): no invalidan sus cachés
         self.path = str(path)   # dónde vive realmente esta base de datos (el Universo guarda sus ficheros a su lado)
         if str(path) != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -218,6 +219,11 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.migrate()
+
+    @property
+    def data_changes(self) -> int:
+        """Escrituras acumuladas que SÍ pueden cambiar lo que escanea el Scanner (todas menos las periódicas de `meta` que no le afectan)."""
+        return self.conn.total_changes - self.quiet_changes
 
     def migrate(self) -> None:
         current = self.conn.execute("PRAGMA user_version").fetchone()[0]

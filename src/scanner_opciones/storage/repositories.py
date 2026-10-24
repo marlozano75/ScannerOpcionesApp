@@ -37,13 +37,19 @@ class MetaRepo:
         r = self.db.conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
         return r["value"] if r else None
 
+    # copias que se reescriben cada minuto (cuenta y VIX) y no alteran lo que escanea el Scanner: no deben invalidar sus cachés
+    QUIET_KEYS = frozenset({"portfolio_cache", "vix_cache"})
+
     def set(self, key: str, value: str) -> None:
+        before = self.db.conn.total_changes
         with self.db.conn:
             self.db.conn.execute(
                 "INSERT INTO meta (key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+        if key in self.QUIET_KEYS:
+            self.db.quiet_changes += self.db.conn.total_changes - before
 
 
 class WatchlistRepo:
@@ -703,22 +709,29 @@ class SnapshotRepo:
         return len(rows)
 
     def all(self, ticker: Optional[str] = None) -> list[ContractSnapshot]:
+        # columnas explícitas y filas como tuplas: con ~65.000 contratos, leer por nombre y reconstruir fechas y enums por fila costaba ~1,5 s
         sql = (
-            "SELECT c.*, s.* FROM snapshots s JOIN contracts c ON c.id = s.contract_id"
+            "SELECT c.ticker, c.expiry, c.strike, c.right, c.multiplier, c.con_id, s.updated_at, s.bid, s.ask, s.last, s.delta, s.iv, "
+            "s.open_interest, s.spread_pct, s.yield_pct, s.yield_annualized_pct, s.iv_rank, s.iv_percentile, s.initial_margin, s.bid_size, "
+            "s.margin_at, s.bid_size_tws_at FROM snapshots s JOIN contracts c ON c.id = s.contract_id"
         )
         params: tuple = ()
         if ticker:
             sql += " WHERE c.ticker = ?"
             params = (ticker,)
-        rows = self.db.conn.execute(sql + " ORDER BY c.ticker, c.expiry, c.strike", params).fetchall()
-        return [
-            ContractSnapshot(
-                contract=ContractRepo._row(r), updated_at=datetime.fromisoformat(r["updated_at"]),
-                bid=r["bid"], ask=r["ask"], last=r["last"], delta=r["delta"], iv=r["iv"],
-                open_interest=r["open_interest"], spread_pct=r["spread_pct"], yield_pct=r["yield_pct"],
-                yield_annualized_pct=r["yield_annualized_pct"], iv_rank=r["iv_rank"],
-                iv_percentile=r["iv_percentile"], initial_margin=r["initial_margin"], bid_size=r["bid_size"],
-                margin_at=_dt(r["margin_at"]), bid_size_tws_at=_dt(r["bid_size_tws_at"]),
-            )
-            for r in rows
-        ]
+        days: dict[str, date] = {}          # unos pocos vencimientos distintos
+        rights: dict[str, OptionRight] = {}
+        out: list[ContractSnapshot] = []
+        for (tk, expiry, strike, right, mult, con_id, updated, bid, ask, last, delta, iv, oi, sp, yp, yap, ivr, ivp, margin, bsize, margin_at,
+             tws_at) in self.db.conn.execute(sql + " ORDER BY c.ticker, c.expiry, c.strike", params):
+            if (d := days.get(expiry)) is None:
+                d = days[expiry] = date.fromisoformat(expiry)
+            if (rt := rights.get(right)) is None:
+                rt = rights[right] = OptionRight(right)
+            out.append(ContractSnapshot(
+                contract=OptionContract(ticker=tk, expiry=d, strike=strike, right=rt, multiplier=mult, con_id=con_id),
+                updated_at=datetime.fromisoformat(updated), bid=bid, ask=ask, last=last, delta=delta, iv=iv, open_interest=oi, spread_pct=sp,
+                yield_pct=yp, yield_annualized_pct=yap, iv_rank=ivr, iv_percentile=ivp, initial_margin=margin, bid_size=bsize,
+                margin_at=_dt(margin_at), bid_size_tws_at=_dt(tws_at),
+            ))
+        return out

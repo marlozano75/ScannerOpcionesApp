@@ -32,12 +32,18 @@ def is_exempt(info: Optional[TickerInfo], exempt_sectors: Sequence[str] = DEFAUL
     return any(part in sector for part in exempt_sectors if not part.startswith("="))
 
 
+def exemption(info: Optional[TickerInfo], exempt_sectors: Sequence[str] = DEFAULT_EXEMPT) -> tuple[bool, bool]:
+    """(es ETF/índice, está exento) de un ticker: no dependen del filtro, así que quien evalúa muchos filtros sobre el mismo ticker lo calcula una vez."""
+    return is_fund(info, exempt_sectors), is_exempt(info, exempt_sectors)
+
+
 def ticker_quality_reject(
     info: Optional[TickerInfo], criteria: ScanCriteria, exempt_sectors: Sequence[str] = DEFAULT_EXEMPT,
+    flags: Optional[tuple[bool, bool]] = None,
 ) -> Optional[str]:
     """Motivo por el que el ticker no pasa los filtros de calidad de la EMPRESA (todos menos el de resultados, que
     depende del vencimiento de cada contrato), o None. Es lo que usa la vista del Universo."""
-    fund = is_fund(info, exempt_sectors)     # un ETF no tiene beneficios ni trimestres: solo se le pide la liquidez de opciones
+    fund, exempt = flags if flags is not None else exemption(info, exempt_sectors)   # un ETF no tiene beneficios ni trimestres: solo se le pide la liquidez
     if criteria.require_profitable and not fund and (info is None or info.eps_ttm is None or info.eps_ttm <= 0):
         return "sin beneficios (EPS 12 m ≤ 0 o sin dato)"
     n = criteria.min_positive_quarters
@@ -47,7 +53,7 @@ def ticker_quality_reject(
         info is None or info.option_liquidity is None or info.option_liquidity < criteria.min_option_liquidity
     ):
         return f"liquidez de opciones inferior a {criteria.min_option_liquidity}"
-    if is_exempt(info, exempt_sectors):
+    if exempt:
         return None
     if criteria.max_liabilities_to_equity is not None and (
         info is None or info.liabilities_to_equity is None

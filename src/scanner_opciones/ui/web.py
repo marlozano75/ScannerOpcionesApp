@@ -247,14 +247,15 @@ def quality_counts(infos: dict, tickers: list[str], base, qcfg) -> dict:
     falta no pasa). Sirve para ver de antemano cuánto descarta una selección. Los filtros de calidad ven al ticker, no
     al contrato, así que el recuento es de tickers."""
     from scanner_opciones.domain.models import TickerInfo
-    from scanner_opciones.scanner.quality import ticker_quality_reject
+    from scanner_opciones.scanner.quality import exemption, ticker_quality_reject
 
     exempt = qcfg.exempt_entries      # una propiedad que arma la tupla: fuera del bucle por ticker
     fichas = [infos.get(t) or TickerInfo(t) for t in tickers]
+    flags = [exemption(info, exempt) for info in fichas]       # la exención no depende del filtro: una vez por ticker, no por opción
 
     def passing(**overrides) -> int:
         c = base.with_filters(**overrides)
-        return sum(1 for info in fichas if ticker_quality_reject(info, c, exempt) is None)
+        return sum(1 for info, f in zip(fichas, flags) if ticker_quality_reject(info, c, exempt, f) is None)
 
     by: dict = {("require_profitable", True): passing(require_profitable=True),
                 ("require_positive_fcf", True): passing(require_positive_fcf=True),
