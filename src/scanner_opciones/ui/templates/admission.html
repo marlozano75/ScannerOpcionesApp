@@ -35,7 +35,10 @@
   .ad-chip { white-space:nowrap; line-height:1.5; }
   .ad-rules td, .ad-rules th { padding:3px 6px; font-size:12px; text-align:center; white-space:nowrap; } .ad-rules td.txt, .ad-rules th.txt { text-align:left; }
   .ad-rules th.grp-tpc { background:#dff3e6; color:#1d6b3f; } .ad-rules th.grp-tasty { background:#fdf0d8; color:#8a5a00; } .ad-rules th.grp-dir { background:#e3ecfb; color:#1f4f9a; }
-  .ad-rules .gs { border-left:3px solid var(--mute); } .ad-sch td, .ad-sch th { padding:4px 8px; font-size:12px; text-align:left; vertical-align:top; }
+  .ad-rules .gs { border-left:3px solid var(--mute); }
+  .ad-rules tr.is-direct td.fl { background:repeating-linear-gradient(45deg, rgba(127,127,127,.20) 0 6px, rgba(127,127,127,.08) 6px 12px); }
+  .ad-rules tr.is-direct td.fl input { opacity:.35; } .ad-rules tr.is-direct td.fl:not(.gs) { text-decoration:line-through; }
+  .ad-rules td.fl.none:not(.gs) { background:rgba(127,127,127,.10); } .ad-sch td, .ad-sch th { padding:4px 8px; font-size:12px; text-align:left; vertical-align:top; }
   .ad-sch input[type=number] { width:70px; } .ad-sch input[type=text] { width:130px; }
   .ad-wrap { margin:0; }
   .ad-src-tbl td.num, .ad-src-tbl th { text-align:right; white-space:nowrap; } .ad-src-tbl th.txt { text-align:left; }
@@ -90,22 +93,67 @@
   <form method="post" action="/admission/rules">
     <div class="scroll"><table class="ad-rules">
       <tr><th rowspan="2" class="txt">Fuente</th><th rowspan="2">Tickers</th><th rowspan="2" class="gs" title="Comprobar que el ticker tiene contratos de opciones (también en las directas)">Comprobar opciones</th><th rowspan="2" class="grp-dir gs">Pasa directo</th>
-        <th colspan="{{ tpc_filters|length }}" class="grp-tpc gs">TPC · filtros que aplica</th><th colspan="{{ tasty_filters|length }}" class="grp-tasty gs">Tastytrade · filtros que aplica</th></tr>
-      <tr>{% for key, label in tpc_filters %}<th class="grp-tpc{{ ' gs' if loop.first }}">{{ label }}</th>{% endfor %}
-        {% for key, label in tasty_filters %}<th class="grp-tasty{{ ' gs' if loop.first }}">{{ label }}</th>{% endfor %}</tr>
+        <th colspan="{{ tpc_filters|length + 1 }}" class="grp-tpc gs">TPC · filtros que aplica</th><th colspan="{{ tasty_filters|length + 1 }}" class="grp-tasty gs">Tastytrade · filtros que aplica</th></tr>
+      <tr><th class="grp-tpc gs" title="Marcar o quitar de golpe todos los filtros de TPC de la fuente">Todos</th>{% for key, label in tpc_filters %}<th class="grp-tpc">{{ label }}</th>{% endfor %}
+        <th class="grp-tasty gs" title="Marcar o quitar de golpe todos los filtros de Tastytrade de la fuente">Todos</th>{% for key, label in tasty_filters %}<th class="grp-tasty">{{ label }}</th>{% endfor %}</tr>
       {% for name, rule, n in rule_rows %}{% set i = loop.index0 %}
-      <tr><td class="txt"><input type="hidden" name="src" value="{{ name }}"><b>{{ name }}</b>{% if name in direct_builtin %} <span class="ad-chip src" title="Directa por la configuración (admission.direct_sources); aquí se puede cambiar">config</span>{% endif %}</td>
+      <tr class="{{ 'is-direct' if rule.direct }}"><td class="txt"><input type="hidden" name="src" value="{{ name }}"><b>{{ name }}</b>{% if name in direct_builtin %} <span class="ad-chip src" title="Directa por la configuración (admission.direct_sources); aquí se puede cambiar">config</span>{% endif %}</td>
         <td>{{ n }}</td>
         <td class="gs"><input type="checkbox" name="options_{{ i }}" value="1" {{ 'checked' if rule.options }} title="Si no tiene opciones, esta fuente no lo admite"></td>
         <td class="gs"><input type="checkbox" name="direct_{{ i }}" value="1" {{ 'checked' if rule.direct }} title="Los tickers de esta fuente pasan sin medir nada"></td>
-        {% for key, label in tpc_filters %}<td class="{{ 'gs' if loop.first }}"><input type="checkbox" name="tpc_{{ i }}" value="{{ key }}" {{ 'checked' if key in rule.tpc }}></td>{% endfor %}
-        {% for key, label in tasty_filters %}<td class="{{ 'gs' if loop.first }}"><input type="checkbox" name="tasty_{{ i }}" value="{{ key }}" {{ 'checked' if key in rule.tasty }}></td>{% endfor %}</tr>
+        <td class="gs fl"><input type="checkbox" class="ad-all" data-style="tpc" {{ 'checked' if rule.tpc|length == tpc_filters|length }} title="Todos los filtros de TPC (quitar la marca los quita todos)"></td>
+        {% for key, label in tpc_filters %}<td class="fl"><input type="checkbox" name="tpc_{{ i }}" value="{{ key }}" data-style="tpc" {{ 'checked' if key in rule.tpc }}></td>{% endfor %}
+        <td class="gs fl"><input type="checkbox" class="ad-all" data-style="tasty" {{ 'checked' if rule.tasty|length == tasty_filters|length }} title="Todos los filtros de Tastytrade (quitar la marca los quita todos)"></td>
+        {% for key, label in tasty_filters %}<td class="fl"><input type="checkbox" name="tasty_{{ i }}" value="{{ key }}" data-style="tasty" {{ 'checked' if key in rule.tasty }}></td>{% endfor %}</tr>
       {% endfor %}
     </table></div>
+    <p class="muted" style="margin:6px 0">En todas las fuentes a la vez:
+      <button type="button" class="secondary ad-bulk" data-style="tpc" data-on="0">Quitar los filtros de TPC</button>
+      <button type="button" class="secondary ad-bulk" data-style="tasty" data-on="0">Quitar los filtros de Tastytrade</button>
+      <button type="button" class="secondary ad-bulk" data-style="all" data-on="1">Marcar todos</button>
+      <span>(solo cambia las casillas; se aplica al guardar)</span></p>
     <p><button type="submit">Guardar reglas</button>
       <button type="submit" class="secondary" formaction="/admission/rules/reset" formnovalidate onclick="return confirmClick(this, 'Todas las fuentes vuelven a su valor de la configuración y a todos los filtros. ¿Restaurar?')">Restaurar</button>
-      <span class="muted">Si marcas «Pasa directo», los filtros de esa fila se ignoran pero se conservan.</span></p>
+      <span class="muted">Si marcas «Pasa directo», los filtros de esa fila se ignoran (salen en gris y tachados) pero se conservan.</span></p>
   </form>
+  <script>
+    (function () {
+      var rows = document.querySelectorAll('table.ad-rules tr');
+      function boxes(tr, style) { return tr.querySelectorAll('input[data-style="' + style + '"]:not(.ad-all)'); }
+      function sync(tr) {
+        var d = tr.querySelector('input[name^="direct_"]');
+        if (d) tr.classList.toggle('is-direct', d.checked);
+        ['tpc', 'tasty'].forEach(function (st) {
+          var all = tr.querySelector('.ad-all[data-style="' + st + '"]'), bs = boxes(tr, st);
+          if (!all) return;
+          var n = Array.prototype.filter.call(bs, function (b) { return b.checked; }).length;
+          all.checked = n === bs.length; all.indeterminate = n > 0 && n < bs.length;
+          Array.prototype.forEach.call(bs, function (b) { b.parentNode.classList.toggle('none', n === 0); });
+        });
+      }
+      rows.forEach(function (tr) {
+        if (!tr.querySelector('input[name^="direct_"]')) return;
+        sync(tr);
+        tr.addEventListener('change', function (e) {
+          var t = e.target;
+          if (t.classList.contains('ad-all')) boxes(tr, t.dataset.style).forEach(function (b) { b.checked = t.checked; });
+          sync(tr);
+        });
+      });
+      document.querySelectorAll('.ad-bulk').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var on = btn.dataset.on === '1';
+          rows.forEach(function (tr) {
+            if (!tr.querySelector('input[name^="direct_"]')) return;
+            (btn.dataset.style === 'all' ? ['tpc', 'tasty'] : [btn.dataset.style]).forEach(function (st) {
+              boxes(tr, st).forEach(function (b) { b.checked = on; });
+            });
+            sync(tr);
+          });
+        });
+      });
+    })();
+  </script>
   {% else %}<p class="muted">Todavía no hay fuentes en el Universo.</p>{% endif %}
 </div>
 
