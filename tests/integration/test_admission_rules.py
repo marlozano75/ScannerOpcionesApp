@@ -137,3 +137,18 @@ async def test_a_source_can_require_that_its_tickers_have_options(tmp_path):
     svc.set_admission_rules({"Libres": SourceRule(direct=True, options=False)})        # sin comprobar las opciones, pasa directo
     by = {v.ticker: v for v in (await run(svc)).verdicts}
     assert by["NOOPT2"].passes and by["NOOPT2"].via == ("Directa",)
+
+
+def test_forms_with_thousands_of_fields_are_accepted(tmp_path):
+    async def go():
+        svc, _, _ = make(tmp_path)
+        await prepare(svc)
+        return svc
+
+    svc = asyncio.run(go())
+    client = TestClient(create_app(svc), follow_redirects=False)
+    names = [s.name for s in svc.universe_sources]
+    form = {"src": names * 150}                                                       # 1.500 campos solo en `src`
+    assert client.post("/admission/rules", data=form).status_code == 303
+    assert client.post("/admission/apply", data={"sel": [f"T{i}" for i in range(1500)]}).status_code == 303
+    assert "Too many fields" not in client.post("/admission/rules", data=form, follow_redirects=True).text

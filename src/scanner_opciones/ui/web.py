@@ -51,6 +51,7 @@ from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
 log = logging.getLogger(__name__)
+MAX_FORM_FIELDS = 100_000      # Starlette corta en 1000 campos; las tablas con casillas (Admisión, Universo) mandan más (una por ticker o por fuente y filtro)
 IDEAS_WAIT_SECONDS = 10     # lo que espera la pestaña Ideas a que terminen las cotizaciones en directo antes de mostrarse con lo que haya
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -660,7 +661,7 @@ def create_app(
     @app.post("/management/profile")
     async def management_profile(request: Request):
         """Cambia el perfil del Scanner (y con él las reglas de gestión) de una put vendida del Panel."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         try:
             service.set_put_profile(str(form.get("key", "")), str(form.get("profile", "")))
         except ValueError:
@@ -750,7 +751,7 @@ def create_app(
     @app.post("/tortuga/run")
     async def tortuga_run(request: Request):
         """Lanza a mano una rutina de Tortuga (o todas las que toquen si no se indica) sin esperar a su hora."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         key = str(form.get("key", ""))
         if key not in {"all", *(r.key for r in ROUTINES)}:
             return Response("Rutina desconocida", status_code=400)
@@ -762,7 +763,7 @@ def create_app(
     @app.post("/ideas/perm")
     async def ideas_perm(request: Request):
         """Añade a la fuente permanente del Universo los tickers de las ideas marcadas (con su trader y su mejor estrategia)."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         back = {k: str(form.get(k)) for k in ("solo", "venc", "trader", "strategy") if form.get(k)}
         try:
             res = await service.add_community_perm([str(k) for k in form.getlist("idea")])
@@ -990,7 +991,7 @@ def create_app(
     @app.post("/universe/source/direct")
     async def universe_source_direct(request: Request):
         """Marca (`on=1`) o desmarca una fuente como directa: sus tickers pasan a la Watchlist sin más filtro (pantalla Admisión)."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         source, on = str(form.get("src", "")), str(form.get("on", "")) == "1"
         try:
             service.set_direct_source(source, on)
@@ -1016,7 +1017,7 @@ def create_app(
     @app.post("/admission/rules")
     async def admission_rules(request: Request):
         """Regla de cada fuente: directa o qué filtros de cada estilo aplica (campos `direct_<i>`, `tpc_<i>`, `tasty_<i>` por el orden de `src`)."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         rules = {}
         for i, name in enumerate(str(n) for n in form.getlist("src")):
             rules[name] = SourceRule(direct=form.get(f"direct_{i}") == "1", options=form.get(f"options_{i}") == "1", tpc=frozenset(str(k) for k in form.getlist(f"tpc_{i}")),
@@ -1035,7 +1036,7 @@ def create_app(
 
     @app.post("/admission/off")
     async def admission_off(request: Request):
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         on = form.get("off") == "1"
         service.set_admission_filters_off(on)
         msg = _grp("warn", "Filtros de admisión quitados", [], "al evaluar pasará todo el Universo; las reglas por fuente se conservan") if on else             _grp("ok", "Filtros de admisión activados", [], "cada fuente vuelve a usar su regla")
@@ -1044,7 +1045,7 @@ def create_app(
     @app.post("/admission/schedule")
     async def admission_schedule(request: Request):
         """Periodicidad de las fuentes API/MCP (campos `in_<clave>`, `out_<clave>`, `times_<clave>`, `close_<clave>`)."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         try:
             schedules = {}
             for feed in service.admission_feeds():
@@ -1071,7 +1072,7 @@ def create_app(
 
     @app.post("/admission/apply")
     async def admission_apply(request: Request):
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         new = await service.admission_apply([str(t) for t in form.getlist("sel")])
         msg = _grp("ok", f"{len(new)} tickers añadidos a la Watchlist", new, "su actualización diaria va en segundo plano") if new else \
             _grp("warn", "No se ha añadido nada", [], "ninguno de los marcados cumple o ya estaba")
@@ -1079,7 +1080,7 @@ def create_app(
 
     @app.post("/admission/remove")
     async def admission_remove(request: Request):
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         removed, protected = service.admission_remove([str(t) for t in form.getlist("sel")])
         parts = []
         if removed:
@@ -1092,7 +1093,7 @@ def create_app(
     @app.post("/universe/source/spread")
     async def universe_source_spread(request: Request):
         """Marca (`on=1`) o desmarca una fuente como apta para spreads."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         source, on = str(form.get("src", "")), str(form.get("on", "")) == "1"
         try:
             service.set_spread_source(source, on)
@@ -1117,7 +1118,7 @@ def create_app(
     @app.post("/universe/source/remove")
     async def universe_source_remove(request: Request):
         """Quita de una fuente los tickers marcados (`scope=selected`) o todos (`scope=all`)."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         source, scope = str(form.get("src", "")), str(form.get("scope", "selected"))
         try:
             n = service.remove_source(source) if scope == "all" else                 service.remove_source_tickers(source, [str(t) for t in form.getlist("sel")])
@@ -1132,7 +1133,7 @@ def create_app(
     @app.post("/universe/apply")
     async def universe_apply(request: Request):
         """Añade a la watchlist (o la sustituye por) los tickers marcados."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         mode = str(form.get("mode", "add"))
         msg = await apply_watchlist(parse_tokens([str(t) for t in form.getlist("sel")]), mode)
         return RedirectResponse(f"/watchlist?{urlencode({'message': msg})}", status_code=303)
@@ -1432,7 +1433,7 @@ def create_app(
     @app.post("/scanner/profile/save")
     async def scanner_profile_save(request: Request):
         """Guarda los filtros actuales del formulario en un perfil (existente o nuevo): el juego del instrumento que se está viendo."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         name = str(form.get("name", "")).strip()
         qp = dict(parse_qsl(str(form.get("query", "")), keep_blank_values=True))
         mode = qp.get("mode", "put") if qp.get("mode") in ("put", "spread", "both") else "put"
@@ -1457,7 +1458,7 @@ def create_app(
     @app.post("/scanner/profiles")
     async def scanner_profiles_save(request: Request):
         """Nombre, color, orden, instrumentos activos, gestión, duplicado, borrado y perfil inicial de los perfiles (los filtros se guardan desde el Scanner)."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         profiles, default = get_profiles()
         by_name = {p.name: p for p in profiles}
         rows: list[tuple[float, int, Profile]] = []      # (orden elegido, posición, perfil)
@@ -1513,7 +1514,7 @@ def create_app(
     async def exits_save(request: Request):
         """Guarda la estrategia de salida de cada perfil: solo lo que cambia respecto a su estilo base. Cambiar el estilo (o «Restaurar») vuelve a los
         valores del estilo."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         cfg = service.settings.management
         profiles, default = get_profiles()
         try:
@@ -1576,7 +1577,7 @@ def create_app(
     @app.post("/scanner/config")
     async def scanner_config_save(request: Request):
         """Aviso del VIX del Panel (lo único de la estrategia que se edita aquí; los filtros viven en los perfiles)."""
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         try:
             strategy = service.settings.scanner.strategy.model_dump()
             for key, label, _ in VIX_FIELDS:
@@ -1739,7 +1740,7 @@ def create_app(
 
     @app.post("/simulate", response_class=HTMLResponse)
     async def simulate(request: Request):
-        form = await request.form()
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
         selected: list[SelectedContract] = []
         for raw in form.getlist("sel"):
             ticker, expiry, strike, *long_strike = str(raw).split("|")   # un spread añade el strike de la comprada
