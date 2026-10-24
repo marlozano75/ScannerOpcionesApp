@@ -90,7 +90,7 @@ def test_migration_v19_adds_the_columns_without_losing_data(tmp_path):
     raw.close()
     db = Database(path)
     row = db.conn.execute("SELECT * FROM ticker_info WHERE ticker = 'AAPL'").fetchone()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 25
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 26
     assert row["iv_rank"] == 40 and row["hv30"] is None and {"hv30", "iv30", "iv_change_5d"} <= set(row.keys())
 
 

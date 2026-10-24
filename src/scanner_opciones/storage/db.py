@@ -204,6 +204,14 @@ MIGRATIONS: list[str] = [
         curated_at TEXT
     );
     """,
+    # v26: lista de puts que existen de cada ticker (la «cadena» de tastytrade), para no volver a pedirla tras un reinicio con el mercado cerrado
+    """
+    CREATE TABLE chain_cache (
+        ticker TEXT PRIMARY KEY,
+        fetched_at TEXT NOT NULL,
+        data BLOB NOT NULL
+    );
+    """,
 ]
 
 

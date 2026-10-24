@@ -298,3 +298,59 @@ async def test_a_provider_without_call_listing_simply_returns_no_calls():
     gw, _, _ = build(PutsOnly())
     got = await gw.get_quotes([contract(200), OptionContract("AAPL", E1, 205, OptionRight.CALL)])
     assert set(got) == {contract(200)}
+
+
+# ---- caché de cadenas en disco y recuento de peticiones --------------------------------------------------------------------------
+from datetime import timedelta, timezone  # noqa: E402
+
+from scanner_opciones.broker.base import chain_origin  # noqa: E402
+from scanner_opciones.storage.db import Database  # noqa: E402
+from scanner_opciones.storage.repositories import ChainCacheRepo  # noqa: E402
+
+
+def build_stored(store, closed_since, now=None, provider=None):
+    inner = FakeGateway(connected=True)
+    provider = provider or FakeOptionData(listings={"AAPL": listing((E1, 200), (E2, 210))})
+    clock = [0.0]
+    now = now or datetime(2026, 10, 24, 12, tzinfo=timezone.utc)
+    gw = HybridGateway(inner, provider, MarketDataSettings(), now=lambda: now, clock=lambda: clock[0],
+                       chain_store=store, closed_since=lambda: closed_since)
+    return gw, provider, clock
+
+
+async def test_a_listing_fetched_after_the_close_survives_a_restart():
+    db = Database()
+    close = datetime(2026, 10, 23, 20, tzinfo=timezone.utc)
+    gw, prov, _ = build_stored(ChainCacheRepo(db), close)
+    await gw.get_option_chain("AAPL")
+    assert len([c for c in prov.calls if c[0] == "get_put_listing"]) == 1
+    before = db.data_changes
+    gw2, prov2, _ = build_stored(ChainCacheRepo(db), close)          # app nueva: memoria vacía, misma base de datos
+    chain = await gw2.get_option_chain("AAPL")
+    assert chain.expiries == [E1, E2] and chain.strikes == [200.0, 210.0]
+    assert not [c for c in prov2.calls if c[0] == "get_put_listing"]  # sin petición al proveedor
+    assert db.data_changes == before                                  # y la caché no invalida la del Scanner
+
+
+async def test_a_listing_older_than_the_close_or_with_the_market_open_is_requested_again():
+    db = Database()
+    old = datetime(2026, 10, 23, 12, tzinfo=timezone.utc)
+    gw, prov, _ = build_stored(ChainCacheRepo(db), None, now=old)    # guardada antes del cierre
+    await gw.get_option_chain("AAPL")
+    close = datetime(2026, 10, 23, 20, tzinfo=timezone.utc)
+    gw2, prov2, _ = build_stored(ChainCacheRepo(db), close)
+    await gw2.get_option_chain("AAPL")
+    assert len([c for c in prov2.calls if c[0] == "get_put_listing"]) == 1
+    gw3, prov3, _ = build_stored(ChainCacheRepo(db), None)           # mercado abierto: nunca se reutiliza lo guardado
+    await gw3.get_option_chain("AAPL")
+    assert len([c for c in prov3.calls if c[0] == "get_put_listing"]) == 1
+
+
+async def test_chain_origin_counts_fetched_and_reused(caplog):
+    gw, prov, _ = build_stored(ChainCacheRepo(Database()), None)
+    with caplog.at_level("INFO", logger="scanner_opciones.broker.base"):
+        with chain_origin("prueba") as tally:
+            await gw.get_option_chain("AAPL")
+            await gw.get_option_chain("AAPL")
+    assert (tally.fetched, tally.reused) == (1, 1)
+    assert "Cadenas de opciones (prueba): 1 pedidas al proveedor, 1 reutilizadas" in caplog.text

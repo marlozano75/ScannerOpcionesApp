@@ -15,7 +15,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Callable, Optional, Sequence
 
-from scanner_opciones.broker.base import BrokerGateway
+from scanner_opciones.broker.base import BrokerGateway, note_chain
 from scanner_opciones.config.settings import MarketDataSettings
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import (
@@ -42,6 +42,7 @@ class HybridGateway:
         self, inner: BrokerGateway, provider: OptionDataProvider, settings: MarketDataSettings,
         now: Callable[[], datetime] = datetime.now, clock: Callable[[], float] = time.monotonic,
         fallback_batch: int = 50, sectors: Optional[SectorProvider] = None,
+        chain_store=None, closed_since: Callable[[], Optional[datetime]] = lambda: None,
     ) -> None:
         self.inner = inner
         self.fallback_batch = fallback_batch      # contratos por petición cuando se cae a IBKR (límite de líneas de TWS)
@@ -54,6 +55,10 @@ class HybridGateway:
         self._call_listings: dict[str, tuple[float, OptionListing]] = {}   # ticker -> (instante, calls existentes); solo si hay quien las pida
         self.sectors = sectors          # sector sin TWS (EDGAR, Yahoo); TWS queda como último recurso
         self._sector_cache: dict[str, tuple[str, Optional[str]]] = {}
+        # Caché en disco (`ChainCacheRepo`) de las listas de puts: con el mercado cerrado (`closed_since()` da el último cierre; None con el
+        # mercado abierto) una lista pedida después de ese cierre no puede haber cambiado, así que se reutiliza aunque la app se reinicie.
+        self.chain_store = chain_store
+        self.closed_since = closed_since
 
     # ---- lo que es siempre del broker ------------------------------------------------------
     async def connect(self) -> None:
@@ -204,10 +209,34 @@ class HybridGateway:
         """Puts que existen de `ticker`, cacheados `listing_ttl_minutes`. Lanza OptionDataError si el proveedor falla."""
         cached = self._listings.get(ticker)
         if cached is not None and self._clock() - cached[0] < self.s.listing_ttl_minutes * 60:
+            note_chain(False)
             return cached[1]
+        stored = self._stored_listing(ticker)
+        if stored is not None:
+            self._listings[ticker] = (self._clock(), stored)
+            note_chain(False)
+            return stored
+        note_chain(True)
         listing = await self.provider.get_put_listing(ticker)
         self._listings[ticker] = (self._clock(), listing)
+        if self.chain_store is not None and listing:
+            try:
+                self.chain_store.put(ticker, self._now().astimezone(), listing)
+            except Exception:   # la caché en disco es un extra: un fallo no debe romper la cadena
+                log.exception("No se pudo guardar la cadena de %s", ticker)
         return listing
+
+    def _stored_listing(self, ticker: str) -> Optional[OptionListing]:
+        """La lista guardada en disco si es posterior al último cierre y el mercado está cerrado; si no, None."""
+        close = self.closed_since() if self.chain_store is not None else None
+        if close is None:
+            return None
+        try:
+            hit = self.chain_store.get(ticker)
+        except Exception:
+            log.exception("No se pudo leer la cadena guardada de %s", ticker)
+            return None
+        return hit[1] if hit is not None and hit[0].astimezone() >= close else None
 
     async def _call_listing(self, ticker: str) -> OptionListing:
         """Calls que existen de `ticker` (cacheadas igual que las puts). Vacío si el proveedor no las lista. Lanza OptionDataError si falla."""

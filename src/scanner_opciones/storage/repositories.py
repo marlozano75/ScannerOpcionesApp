@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import zlib
 from datetime import date, datetime
 from typing import Iterable, Optional, Sequence
 
@@ -735,3 +736,32 @@ class SnapshotRepo:
                 margin_at=_dt(margin_at), bid_size_tws_at=_dt(tws_at),
             ))
         return out
+
+
+class ChainCacheRepo:
+    """Lista de puts que existen de cada ticker (`{(vencimiento, strike): símbolo}`), comprimida, con el instante en que se pidió al
+    proveedor. Sirve para no repetir la petición tras reiniciar la app con el mercado cerrado. No altera lo que escanea el Scanner."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def get(self, ticker: str) -> Optional[tuple[datetime, dict[tuple[date, float], str]]]:
+        row = self.db.conn.execute("SELECT fetched_at, data FROM chain_cache WHERE ticker = ?", (ticker,)).fetchone()
+        if row is None:
+            return None
+        try:
+            items = json.loads(zlib.decompress(row["data"]))
+            return datetime.fromisoformat(row["fetched_at"]), {(date.fromisoformat(e), float(k)): sym for e, k, sym in items}
+        except (zlib.error, ValueError, TypeError):
+            return None   # dato dañado: se vuelve a pedir
+
+    def put(self, ticker: str, when: datetime, listing: dict[tuple[date, float], str]) -> None:
+        blob = zlib.compress(json.dumps([[e.isoformat(), k, sym] for (e, k), sym in listing.items()], separators=(",", ":")).encode())
+        before = self.db.conn.total_changes
+        with self.db.conn:
+            self.db.conn.execute(
+                "INSERT INTO chain_cache (ticker, fetched_at, data) VALUES (?, ?, ?) "
+                "ON CONFLICT(ticker) DO UPDATE SET fetched_at = excluded.fetched_at, data = excluded.data",
+                (ticker, when.isoformat(), blob),
+            )
+        self.db.quiet_changes += self.db.conn.total_changes - before

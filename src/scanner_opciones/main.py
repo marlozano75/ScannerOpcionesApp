@@ -9,6 +9,7 @@ import asyncio
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
+from datetime import datetime
 from pathlib import Path
 
 import uvicorn
@@ -22,13 +23,14 @@ from scanner_opciones.config.settings import Settings, load_settings
 from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.errors import ConfigError
 from scanner_opciones.jobs.scheduler import PeriodicRunner
+from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.marketdata.edgar import EdgarFinancialsProvider
 from scanner_opciones.marketdata.sectors import ChainedSectors
 from scanner_opciones.marketdata.finnhub import FinnhubNews
 from scanner_opciones.marketdata.yahoo import YahooAnalysts, YahooDescriptions, YahooSectors
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
-from scanner_opciones.storage.repositories import MetaRepo
+from scanner_opciones.storage.repositories import ChainCacheRepo, MetaRepo
 from scanner_opciones.tortuga.routines import RoutineRunner
 from scanner_opciones.ui.web import create_app
 
@@ -65,10 +67,19 @@ def build_app(settings: Settings):
             sector_providers.append(YahooSectors(settings.analysts.concurrency))
     sectors = ChainedSectors(sector_providers) if sector_providers else None
 
+    calendar = MarketCalendar.from_settings(settings.market)
+
+    def closed_since():
+        """Último cierre de sesión si el mercado está cerrado ahora; None con el mercado abierto."""
+        now = datetime.now().astimezone()
+        return None if calendar.is_open(now) else calendar.last_close(now)
+
     def factory(mode: AccountMode) -> BrokerGateway:
         ibkr = IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
         # «tastytrade»: cadena, cotizaciones, precios y ex-dividendos de tastytrade; cuenta, margen, sector y VIX de IBKR
-        return HybridGateway(ibkr, tasty, md, fallback_batch=settings.refresh.batch_size, sectors=sectors) if md.source == "tastytrade" else ibkr
+        return (HybridGateway(ibkr, tasty, md, fallback_batch=settings.refresh.batch_size, sectors=sectors,
+                              chain_store=ChainCacheRepo(db), closed_since=closed_since)
+                if md.source == "tastytrade" else ibkr)
 
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty,
                          fundamentals=tasty, financials=financials, names=tasty, watchlists=tasty,

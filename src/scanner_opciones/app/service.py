@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-from scanner_opciones.broker.base import BrokerGateway
+from scanner_opciones.broker.base import BrokerGateway, chain_origin
 from scanner_opciones.config.settings import ScannerPreset, Settings, SpreadSettings, StrategySettings
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError, VolatilityError, WatchlistError
@@ -1094,12 +1094,13 @@ class AppService:
         async with self._lock:
             try:
                 self.cleanup_orphans()
-                if tickers is not None:
-                    report = await self.daily.run(tickers, self._progress, revalidate=revalidate)
-                else:
-                    # mercado cerrado: los datos no cambian hasta la próxima sesión, así que basta con haberlos bajado desde la última
-                    since = self.market.last_close(self.now()).date() if self._paused() else None
-                    report = await self.daily.run_pending(self._progress, since)
+                with chain_origin("actualización diaria"):
+                    if tickers is not None:
+                        report = await self.daily.run(tickers, self._progress, revalidate=revalidate)
+                    else:
+                        # mercado cerrado: los datos no cambian hasta la próxima sesión, así que basta con haberlos bajado desde la última
+                        since = self.market.last_close(self.now()).date() if self._paused() else None
+                        report = await self.daily.run_pending(self._progress, since)
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return None
@@ -2429,7 +2430,8 @@ class AppService:
             try:
                 self.state.activity = "Refrescando cartera, VIX y cotizaciones"
                 self.cleanup_orphans()
-                self.state.last_refresh_report = await self.refresh_job.run()
+                with chain_origin("refresco completo"):
+                    self.state.last_refresh_report = await self.refresh_job.run()
                 self.record_today_prices()
                 self.meta.set(LAST_FULL_REFRESH, self.now().isoformat())
             except BrokerDisconnectedError as exc:
@@ -2475,7 +2477,8 @@ class AppService:
         async with self._lock:
             try:
                 self.state.activity = "Cotizando los contratos nuevos (mercado cerrado)"
-                self.state.last_refresh_report = await self.refresh_job.run(only_unquoted=True)
+                with chain_origin("cotizar contratos nuevos"):
+                    self.state.last_refresh_report = await self.refresh_job.run(only_unquoted=True)
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return False
@@ -2823,7 +2826,8 @@ class AppService:
         entry = abs(pos.avg_cost) / o.multiplier if pos.avg_cost else None
         current = OptionContract(ticker, o.expiry, o.strike, OptionRight.PUT, o.multiplier)
         try:
-            chain = await asyncio.wait_for(self.gateway.get_option_chain(ticker), 30)
+            with chain_origin(f"evaluar roll {ticker}"):
+                chain = await asyncio.wait_for(self.gateway.get_option_chain(ticker), 30)
         except (BrokerError, asyncio.TimeoutError) as exc:
             raise ValueError(f"No se pudo leer la cadena de {ticker}: {exc or 'tiempo agotado'}") from None
         if pos.hedge_strike is not None:
