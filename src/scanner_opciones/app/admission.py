@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
-from scanner_opciones.scanner.admission import AdmissionReport, Verdict, tasty_failures, tasty_reject, tpc_failures, tpc_quality_reject, tpc_trend_reject
+from scanner_opciones.scanner.admission import (NO_FILTERS_NOTE, NOT_APPLIED_NOTE, TREND_LABELS, AdmissionReport, SourceRule, Verdict, canon, reason_label,
+                                                tasty_failure_reasons, tpc_failure_reasons, tpc_trend_reject)
 
 log = logging.getLogger(__name__)
 CLOSES_TTL_HOURS = 6        # los cierres pedidos para medir la tendencia se reutilizan (evaluar dos veces seguidas no repite la descarga)
@@ -18,16 +19,29 @@ MIN_STORED_SESSIONS = 230   # 200 sesiones de la media más las 20 de su pendien
 
 
 async def evaluate(svc: Any) -> AdmissionReport:
-    """Evalúa Universo + Watchlist. `svc` es el `AppService` (se usa su estado, repositorios y proveedores)."""
+    """Evalúa Universo + Watchlist. `svc` es el `AppService` (se usa su estado, repositorios y proveedores). Cada fuente tiene su `SourceRule` (directa o
+    qué filtros de cada estilo aplica); un ticker pasa si lo admite la regla de alguna de sus fuentes (sin fuente: todos los filtros). Con «sin filtros»
+    (`svc.admission_filters_off()`) pasa todo y no se mide nada."""
     cfg = svc.settings.admission
     now: datetime = svc.now()
     watchlist = set(svc.watchlist.list())
     lists = svc.ticker_lists()
     tickers = sorted(watchlist | set(lists))
-    direct_names = svc.direct_source_names()
-    direct = {t for t in tickers if any(n in direct_names for n in lists.get(t, ()))}
-    todo = [t for t in tickers if t not in direct]
+    rules = {n: svc.admission_rule(n) for n in {n for names in lists.values() for n in names}}
+    held = {p.ticker.replace(" ", "-") for p in svc.state.positions}
     notes: list[str] = []
+
+    if svc.admission_filters_off():
+        notes.append("Los filtros de admisión están quitados: pasa todo el Universo.")
+        verdicts = [Verdict(t, t in watchlist, tuple(lists.get(t, ())), False, NO_FILTERS_NOTE, NO_FILTERS_NOTE, protected=t in held,
+                            via=("Sin filtros",), passed_sources=tuple(lists.get(t, ()))) for t in tickers]
+        return AdmissionReport(now, tuple(verdicts), tuple(notes), rules, filters_off=True)
+
+    def rules_of(t: str) -> list[SourceRule]:
+        return [rules[n] for n in lists.get(t, ())] or [SourceRule()]
+
+    direct = {t for t in tickers if any(r.direct for r in rules_of(t)) and t in lists}
+    todo = [t for t in tickers if t not in direct]
 
     qinfos, winfos, ident, exempt = svc.quality.all(), svc.ticker_info.all(), svc.universe_identity(), svc.quality_exempt()
 
@@ -37,13 +51,18 @@ async def evaluate(svc: Any) -> AdmissionReport:
             info = replace(info, sector=ident[t][1])
         return info
 
-    # TPC: primero la calidad (barata, con lo guardado) y solo a los que pasan se les mide la tendencia
+    # TPC: primero la calidad (barata, con lo guardado) y solo a quienes les falta la tendencia por medir (la calidad que exige alguna de sus fuentes la pasan) se les mide
     tpc_cfg = cfg.tpc if svc.settings.edgar.contact.strip() else cfg.tpc.model_copy(update={"require_positive_fcf": False})
     if not svc.settings.edgar.contact.strip():
         notes.append("Sin edgar.contact no hay flujo de caja libre: el estilo TPC no lo exige.")
     md = svc.settings.scanner.quality.manageable_debt
-    tpc: dict[str, object] = {t: tpc_quality_reject(info_of(t), tpc_cfg, exempt, (md.max_debt_to_equity, md.min_interest_coverage)) for t in todo}
-    candidates = [t for t in todo if tpc[t] is None]
+    manageable = (md.max_debt_to_equity, md.min_interest_coverage)
+    quality = {t: tpc_failure_reasons(info_of(t), tpc_cfg, exempt, manageable, None) for t in todo}      # etiqueta → motivo, sin la tendencia
+
+    def needs_trend(t: str) -> bool:
+        return tpc_cfg.require_uptrend and any("Tendencia" in r.tpc_labels and not (set(quality[t]) & (r.tpc_labels - {"Tendencia"})) for r in rules_of(t))
+
+    candidates = [t for t in todo if needs_trend(t)]
     closes = {t: [px for _, px in bars] for t, bars in svc.bars.all_closes(candidates).items()}
     lacking = [t for t in candidates if len(closes.get(t, ())) < MIN_STORED_SESSIONS]
     if lacking:
@@ -54,46 +73,62 @@ async def evaluate(svc: Any) -> AdmissionReport:
                 closes[t] = values
     spread = svc.settings.spread_universe
     trend_args = (tpc_cfg, spread.uptrend_ma, spread.uptrend_slope_days, spread.uptrend_fallback_ma)
-    for t in candidates:
-        tpc[t] = tpc_trend_reject(closes.get(t, []), *trend_args)
     # cada filtro por separado: la tendencia se mide también en quien falló la calidad, pero solo con los cierres que ya hay guardados (no se descargan)
     stored = svc.bars.all_closes([t for t in todo if t not in candidates])
-    trend_all: dict[str, object] = {}
+    trend: dict[str, object] = {}
     for t in todo:
         values = closes.get(t) or [px for _, px in stored.get(t, ())]
-        if t in candidates:
-            trend_all[t] = tpc[t] if tpc[t] is None or "tendencia" in str(tpc[t]) or "histórico" in str(tpc[t]) else tpc_trend_reject(values, *trend_args)
-        elif len(values) >= MIN_STORED_SESSIONS:
-            trend_all[t] = tpc_trend_reject(values, *trend_args)
+        if t in candidates or len(values) >= MIN_STORED_SESSIONS:
+            trend[t] = tpc_trend_reject(values, *trend_args)
         else:
-            trend_all[t] = None         # sin cierres suficientes guardados no se puede medir: no cuenta como rechazo
+            trend[t] = None         # sin cierres suficientes guardados no se puede medir: no cuenta como rechazo
 
     # Tastytrade: IV Rank / Percentile (guardados en la Watchlist; del Universo se piden juntos) y liquidez de opciones
     svc.state.activity = "Admisión: IV Rank e IV Percentile del Universo"
-    ivs = await _ivs(svc, [t for t in todo if t not in watchlist or (winfos.get(t) is None or winfos[t].iv_rank is None)], now, notes)
-    tasty: dict[str, object] = {}
-    for t in todo:
-        info, iv = info_of(t), ivs.get(t)
-        rank = (iv.iv_rank if iv is not None else None)
-        pct = (iv.iv_percentile if iv is not None else None)
-        if rank is None and pct is None and winfos.get(t) is not None:
-            rank, pct = winfos[t].iv_rank, winfos[t].iv_percentile
-        tasty[t] = tasty_reject(rank, pct, info.option_liquidity if info is not None else None, cfg.tastytrade)
-
-    tpc_all = {t: tpc_failures(info_of(t), tpc_cfg, exempt, (md.max_debt_to_equity, md.min_interest_coverage), trend_all[t]) for t in todo}
-    tasty_all = {}
+    uses_iv = [t for t in todo if any("iv" in r.tasty for r in rules_of(t))]
+    ivs = await _ivs(svc, [t for t in uses_iv if t not in watchlist or (winfos.get(t) is None or winfos[t].iv_rank is None)], now, notes)
+    tpc_why: dict[str, dict] = {}
+    tasty_why: dict[str, dict] = {}
     for t in todo:
         info, iv = info_of(t), ivs.get(t)
         rank, pct = (iv.iv_rank, iv.iv_percentile) if iv is not None else (None, None)
         if rank is None and pct is None and winfos.get(t) is not None:
             rank, pct = winfos[t].iv_rank, winfos[t].iv_percentile
-        tasty_all[t] = tasty_failures(rank, pct, info.option_liquidity if info is not None else None, cfg.tastytrade)
+        tpc_why[t] = dict(quality[t])
+        if trend[t] is not None:
+            tpc_why[t].setdefault(reason_label(str(trend[t])), str(trend[t]))
+        tasty_why[t] = tasty_failure_reasons(rank, pct, info.option_liquidity if info is not None else None, cfg.tastytrade)
 
-    held = {p.ticker.replace(" ", "-") for p in svc.state.positions}
-    verdicts = [Verdict(t, t in watchlist, tuple(lists.get(t, ())), t in direct,
-                        DIRECT_NOTE if t in direct else tpc[t], DIRECT_NOTE if t in direct else tasty[t],
-                        protected=t in held, tpc_all=tpc_all.get(t, ()), tasty_all=tasty_all.get(t, ())) for t in tickers]
-    return AdmissionReport(now, tuple(verdicts), tuple(notes))
+    def shown(why: dict, enabled: set[str], applied: bool) -> Optional[str]:
+        """Motivo que se enseña: el primero de los filtros que alguna de sus fuentes aplica; None = los cumple."""
+        if not applied:
+            return NOT_APPLIED_NOTE
+        for label, reason in why.items():
+            if TREND_LABELS.get(label, label) in enabled:
+                return reason
+        return None
+
+    verdicts = []
+    for t in tickers:
+        names = tuple(lists.get(t, ()))
+        if t in direct:
+            verdicts.append(Verdict(t, t in watchlist, names, True, DIRECT_NOTE, DIRECT_NOTE, protected=t in held, via=("Directa",), passed_sources=names))
+            continue
+        tpc_fail, tasty_fail = canon(tpc_why[t]), set(tasty_why[t])
+        via: dict[str, None] = {}
+        passed = []
+        for n in names or (None,):
+            ok, why = (rules[n] if n is not None else SourceRule()).evaluate(tpc_fail, tasty_fail)
+            if ok:
+                via.update(dict.fromkeys(why))
+                if n is not None:
+                    passed.append(n)
+        rs = rules_of(t)
+        tpc_on = set().union(*(r.tpc_labels for r in rs))
+        tasty_on = set().union(*(r.tasty_labels for r in rs))
+        verdicts.append(Verdict(t, t in watchlist, names, False, shown(tpc_why[t], tpc_on, bool(tpc_on)), shown(tasty_why[t], tasty_on, bool(tasty_on)),
+                                protected=t in held, tpc_all=tuple(tpc_why[t]), tasty_all=tuple(tasty_why[t]), via=tuple(via), passed_sources=tuple(passed)))
+    return AdmissionReport(now, tuple(verdicts), tuple(notes), rules)
 
 
 async def _closes(svc: Any, tickers: list[str], days: int, now: datetime, notes: list[str]) -> dict[str, list[float]]:

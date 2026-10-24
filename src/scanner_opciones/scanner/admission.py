@@ -46,11 +46,11 @@ def tpc_trend_reject(closes: Sequence[float], cfg: AdmissionTpc, ma: int = 200, 
     return None
 
 
-def tpc_failures(info: Optional[TickerInfo], cfg: AdmissionTpc, exempt: Sequence[str], manageable: tuple[float, float],
-                 trend_reason: Optional[str]) -> tuple[str, ...]:
-    """Etiquetas de TODOS los filtros TPC que el ticker incumple, cada uno evaluado por separado (no solo el primero). `trend_reason` es el motivo
-    de `tpc_trend_reject` (None = cumple o no se midió)."""
-    out = []
+def tpc_failure_reasons(info: Optional[TickerInfo], cfg: AdmissionTpc, exempt: Sequence[str], manageable: tuple[float, float],
+                        trend_reason: Optional[str]) -> dict[str, str]:
+    """Etiqueta → motivo de TODOS los filtros TPC que el ticker incumple, cada uno evaluado por separado (no solo el primero). `trend_reason` es el
+    motivo de `tpc_trend_reject` (None = cumple o no se midió)."""
+    out: dict[str, str] = {}
     base = tpc_quality_criteria(cfg, manageable)
     for field in ("require_profitable", "min_positive_quarters", "require_positive_fcf", "require_manageable_debt", "min_option_liquidity"):
         value = getattr(base, field)
@@ -60,20 +60,31 @@ def tpc_failures(info: Optional[TickerInfo], cfg: AdmissionTpc, exempt: Sequence
                             manageable_max_de=manageable[0], manageable_min_cover=manageable[1], **{field: value})
         reason = ticker_quality_reject(info, only, exempt)
         if reason is not None:
-            out.append(reason_label(reason))
+            out.setdefault(reason_label(reason), reason)
     if trend_reason is not None:
-        out.append(reason_label(trend_reason))
-    return tuple(out)
+        out.setdefault(reason_label(trend_reason), trend_reason)
+    return out
+
+
+def tpc_failures(info: Optional[TickerInfo], cfg: AdmissionTpc, exempt: Sequence[str], manageable: tuple[float, float],
+                 trend_reason: Optional[str]) -> tuple[str, ...]:
+    """Etiquetas de TODOS los filtros TPC que el ticker incumple (ver `tpc_failure_reasons`)."""
+    return tuple(tpc_failure_reasons(info, cfg, exempt, manageable, trend_reason))
+
+
+def tasty_failure_reasons(iv_rank: Optional[float], iv_percentile: Optional[float], liquidity: Optional[int], cfg: AdmissionTastytrade) -> dict[str, str]:
+    """Etiqueta → motivo de los filtros Tastytrade que incumple, cada uno por separado: liquidez de opciones e IV (Rank / Percentile)."""
+    out: dict[str, str] = {}
+    if liquidity is None or liquidity < cfg.min_option_liquidity:
+        out["Liquidez"] = f"liquidez de opciones inferior a {cfg.min_option_liquidity} (o sin dato)"
+    iv = tasty_reject(iv_rank, iv_percentile, 10 ** 6, cfg)
+    if iv is not None:
+        out["IV bajo"] = iv
+    return out
 
 
 def tasty_failures(iv_rank: Optional[float], iv_percentile: Optional[float], liquidity: Optional[int], cfg: AdmissionTastytrade) -> tuple[str, ...]:
-    """Etiquetas de los filtros Tastytrade que incumple, cada uno por separado: liquidez de opciones e IV (Rank / Percentile)."""
-    out = []
-    if liquidity is None or liquidity < cfg.min_option_liquidity:
-        out.append("Liquidez")
-    if tasty_reject(iv_rank, iv_percentile, 10 ** 6, cfg) is not None:
-        out.append("IV bajo")
-    return tuple(out)
+    return tuple(tasty_failure_reasons(iv_rank, iv_percentile, liquidity, cfg))
 
 
 def tasty_reject(iv_rank: Optional[float], iv_percentile: Optional[float], liquidity: Optional[int], cfg: AdmissionTastytrade) -> Optional[str]:
@@ -94,6 +105,64 @@ def _f(value: Optional[float]) -> str:
     return "—" if value is None else f"{value:.0f}"
 
 
+# Filtros que se pueden activar o quitar en cada fuente: clave → etiqueta con la que aparecen en los rechazos
+TPC_FILTERS = (("profitable", "Beneficios"), ("quarters", "Trimestres"), ("fcf", "FCF"), ("debt", "Deuda"), ("liquidity", "Liquidez"), ("trend", "Tendencia"))
+TASTY_FILTERS = (("liquidity", "Liquidez"), ("iv", "IV bajo"))
+TREND_LABELS = {"Sin cierres": "Tendencia"}      # no tener cierres para medir la tendencia es un fallo del filtro de tendencia
+NO_FILTERS_NOTE = "sin filtros: pasa todo"
+NOT_APPLIED_NOTE = "este estilo no se aplica a sus fuentes"
+
+
+def canon(labels) -> set[str]:
+    return {TREND_LABELS.get(label, label) for label in labels}
+
+
+@dataclass(frozen=True)
+class SourceRule:
+    """Cómo se admiten los tickers de UNA fuente: `direct` = pasan sin más; si no, qué filtros de cada estilo se aplican (claves de `TPC_FILTERS` y
+    `TASTY_FILTERS`). Un estilo sin ningún filtro marcado no se aplica; sin ningún filtro en ninguno de los dos pasa todo. Con filtros de los dos estilos,
+    basta con cumplir todos los de uno."""
+    direct: bool = False
+    tpc: frozenset = frozenset(k for k, _ in TPC_FILTERS)
+    tasty: frozenset = frozenset(k for k, _ in TASTY_FILTERS)
+
+    @property
+    def tpc_labels(self) -> set[str]:
+        return {label for key, label in TPC_FILTERS if key in self.tpc}
+
+    @property
+    def tasty_labels(self) -> set[str]:
+        return {label for key, label in TASTY_FILTERS if key in self.tasty}
+
+    @property
+    def no_filters(self) -> bool:
+        return not self.direct and not self.tpc and not self.tasty
+
+    def evaluate(self, tpc_fail: set[str], tasty_fail: set[str]) -> tuple[bool, tuple[str, ...]]:
+        """(¿pasa?, por qué: «Directa», «TPC», «Tastytrade» o «Sin filtros») con las etiquetas de los filtros que incumple (`tpc_fail` ya en `canon`)."""
+        if self.direct:
+            return True, ("Directa",)
+        if self.no_filters:
+            return True, ("Sin filtros",)
+        via = []
+        if self.tpc and not (tpc_fail & self.tpc_labels):
+            via.append("TPC")
+        if self.tasty and not (tasty_fail & self.tasty_labels):
+            via.append("Tastytrade")
+        return bool(via), tuple(via)
+
+    def to_json(self) -> dict:
+        return {"direct": self.direct, "tpc": sorted(self.tpc), "tasty": sorted(self.tasty)}
+
+    @classmethod
+    def from_json(cls, data: object) -> "SourceRule":
+        if not isinstance(data, dict):
+            return cls()
+        tpc_ok, tasty_ok = {k for k, _ in TPC_FILTERS}, {k for k, _ in TASTY_FILTERS}
+        return cls(bool(data.get("direct")), frozenset(k for k in data.get("tpc", tpc_ok) if k in tpc_ok),
+                   frozenset(k for k in data.get("tasty", tasty_ok) if k in tasty_ok))
+
+
 @dataclass(frozen=True)
 class Verdict:
     """Resultado de un ticker: `tpc` y `tasty` son el motivo por el que NO cumple ese estilo (None = cumple); `direct` = viene de una fuente directa."""
@@ -106,9 +175,13 @@ class Verdict:
     protected: bool = False          # tiene posiciones: nunca se propone quitarla
     tpc_all: tuple[str, ...] = ()    # etiquetas de TODOS los filtros TPC que incumple (cada uno evaluado por separado)
     tasty_all: tuple[str, ...] = ()
+    via: Optional[tuple] = None                  # por qué pasa («Directa», «TPC», «Tastytrade», «Sin filtros») según las reglas de sus fuentes
+    passed_sources: tuple[str, ...] = ()         # fuentes cuya regla lo admite
 
     @property
     def styles(self) -> list[str]:
+        if self.via is not None:
+            return list(self.via)
         out = []
         if self.direct:
             out.append("Directa")
@@ -158,6 +231,8 @@ class AdmissionReport:
     generated_at: object                      # datetime
     verdicts: tuple[Verdict, ...] = ()
     notes: tuple[str, ...] = field(default_factory=tuple)
+    rules: dict = field(default_factory=dict)      # fuente → SourceRule con la que se evaluó
+    filters_off: bool = False                      # «sin filtros»: pasa todo
 
     @property
     def to_add(self) -> list[Verdict]:
@@ -186,15 +261,17 @@ class AdmissionReport:
                 groups.setdefault(name, []).append(v)
         out = []
         for name, vs in groups.items():
+            rule = self.rules.get(name, SourceRule())
             tpc: dict[str, int] = {}
             tasty: dict[str, int] = {}
             for v in vs:
                 if v.direct:
                     continue
-                for labels, bucket in ((v.tpc_all, tpc), (v.tasty_all, tasty)):
+                for labels, bucket, enabled in ((v.tpc_all, tpc, rule.tpc_labels), (v.tasty_all, tasty, rule.tasty_labels)):
                     for label in labels:
-                        bucket[label] = bucket.get(label, 0) + 1
-            ok = [v for v in vs if v.passes]
+                        if TREND_LABELS.get(label, label) in enabled:      # un filtro quitado en esa fuente no cuenta como rechazo
+                            bucket[label] = bucket.get(label, 0) + 1
+            ok = [v for v in vs if name in v.passed_sources]
             out.append(SourceSummary(name, len(vs), len(ok), sum(v.in_watchlist for v in ok), sum(v.in_watchlist for v in vs),
-                                     all(v.direct for v in vs), tpc, tasty))
+                                     rule.direct, tpc, tasty))
         return sorted(out, key=lambda r: -r.total)

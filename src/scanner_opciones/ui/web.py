@@ -35,6 +35,8 @@ from scanner_opciones.ui.position_charts import exit_plan, position_chart, posit
 from scanner_opciones.scanner.engine import ScanOutput
 from scanner_opciones.tortuga.radar import passes as radar_passes
 from scanner_opciones.tortuga.routines import ROUTINES
+from scanner_opciones.tortuga.schedule import FeedSchedule, ScheduleError, describe as describe_schedule, parse_times
+from scanner_opciones.scanner.admission import TASTY_FILTERS, TPC_FILTERS, SourceRule
 from scanner_opciones.scanner.impact import explain_empty
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, dte_range
 from scanner_opciones.scanner.profiles import Profile
@@ -1006,7 +1008,59 @@ def create_app(
         return render(request, "admission.html", report=report, running=service.admission_running, error=service.admission_error,
                       cfg=service.settings.admission, message=message, groups=message_groups(message), ident=ident,
                       direct=sorted(service.direct_source_names()), direct_builtin=service.direct_builtin_names(),
-                      edgar_on=bool(service.settings.edgar.contact.strip()), watchlist_size=len(service.watchlist.list()))
+                      edgar_on=bool(service.settings.edgar.contact.strip()), watchlist_size=len(service.watchlist.list()),
+                      filters_off=service.admission_filters_off(), feeds=service.admission_feeds(), describe=describe_schedule,
+                      tpc_filters=TPC_FILTERS, tasty_filters=TASTY_FILTERS,
+                      rule_rows=[(s.name, service.admission_rule(s.name), len(s.table.rows)) for s in service.universe_sources])
+
+    @app.post("/admission/rules")
+    async def admission_rules(request: Request):
+        """Regla de cada fuente: directa o qué filtros de cada estilo aplica (campos `direct_<i>`, `tpc_<i>`, `tasty_<i>` por el orden de `src`)."""
+        form = await request.form()
+        rules = {}
+        for i, name in enumerate(str(n) for n in form.getlist("src")):
+            rules[name] = SourceRule(direct=form.get(f"direct_{i}") == "1", tpc=frozenset(str(k) for k in form.getlist(f"tpc_{i}")),
+                                     tasty=frozenset(str(k) for k in form.getlist(f"tasty_{i}")))
+        try:
+            service.set_admission_rules({n: SourceRule.from_json(r.to_json()) for n, r in rules.items()})
+            msg = _grp("ok", "Reglas de admisión guardadas", [], "se aplican en la próxima evaluación")
+        except WatchlistError as exc:
+            msg = _grp("err", "No se han guardado", [], str(exc))
+        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
+
+    @app.post("/admission/rules/reset")
+    async def admission_rules_reset():
+        service.reset_admission_rules()
+        return RedirectResponse(f"/admission?{urlencode({'message': _grp('ok', 'Reglas restauradas', [], 'cada fuente vuelve a su valor de la configuración y a todos los filtros')})}", status_code=303)
+
+    @app.post("/admission/off")
+    async def admission_off(request: Request):
+        form = await request.form()
+        on = form.get("off") == "1"
+        service.set_admission_filters_off(on)
+        msg = _grp("warn", "Filtros de admisión quitados", [], "al evaluar pasará todo el Universo; las reglas por fuente se conservan") if on else             _grp("ok", "Filtros de admisión activados", [], "cada fuente vuelve a usar su regla")
+        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
+
+    @app.post("/admission/schedule")
+    async def admission_schedule(request: Request):
+        """Periodicidad de las fuentes API/MCP (campos `in_<clave>`, `out_<clave>`, `times_<clave>`, `close_<clave>`)."""
+        form = await request.form()
+        try:
+            schedules = {}
+            for feed in service.admission_feeds():
+                k = feed["key"]
+                schedules[k] = FeedSchedule.from_json({"in_market": form.get(f"in_{k}") or None, "out_market": form.get(f"out_{k}") or None,
+                                                      "times": parse_times(str(form.get(f"times_{k}") or "")), "after_close": form.get(f"close_{k}") == "1"})
+            service.set_feed_schedules(schedules)
+            msg = _grp("ok", "Periodicidad guardada", [], "se aplica en el próximo ciclo de refresco")
+        except ScheduleError as exc:
+            msg = _grp("err", "No se ha guardado la periodicidad", [], str(exc))
+        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
+
+    @app.post("/admission/schedule/reset")
+    async def admission_schedule_reset():
+        service.reset_feed_schedules()
+        return RedirectResponse(f"/admission?{urlencode({'message': _grp('ok', 'Periodicidad restaurada', [], 'vuelve a lo de config.yaml')})}", status_code=303)
 
     @app.post("/admission/run")
     async def admission_run():

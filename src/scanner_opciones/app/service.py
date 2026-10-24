@@ -57,6 +57,9 @@ from scanner_opciones.storage.repositories import (
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystProvider
 from scanner_opciones.marketdata.filings import FilingAlert
+from scanner_opciones.scanner.admission import SourceRule
+from scanner_opciones.tortuga.api import API_ROUTINES
+from scanner_opciones.tortuga.schedule import LISTS_KEY, MIN_MINUTES, FeedSchedule, load_schedule, reset_schedules, save_schedule
 from scanner_opciones.tortuga.radar import RadarData, RadarError, load_radar, passes as radar_passes
 from scanner_opciones.tortuga.routines import BY_KEY as TORTUGA_ROUTINES, RoutineRunner
 from scanner_opciones.marketdata.financials import FinancialsProvider
@@ -89,6 +92,8 @@ CHART_HISTORY_TIMEOUT = 25.0   # segundos que espera el gráfico a que se descar
 POSITION_HISTORY_RETRY_HOURS = 6   # un subyacente de la cartera sin velas en tastytrade no se vuelve a pedir antes
 INACTIVE_CHECKED = "universe_inactive_checked_at"   # clave de `meta`: última vez que se buscaron tickers deslistados en el Universo
 INACTIVE_RECHECK_DAYS = 7
+ADMISSION_RULES = "admission_rules"         # clave de `meta`: regla de Admisión de cada fuente (directa / filtros que aplica)
+ADMISSION_OFF = "admission_filters_off"    # clave de `meta`: "1" = sin filtros de admisión, pasa todo
 TASTY_LISTS_CHECKED = "tasty_lists_checked_at"   # clave de `meta`: última lectura de las listas públicas de tastytrade
 TASTY_LIST_PREFIX = "tasty_list_synced_"         # + nombre de la fuente: huella de los tickers ya volcados
 DIRECT_SOURCES = "direct_sources"             # clave de `meta`: fuentes del Universo marcadas a mano como directas (pasan a la Watchlist sin más filtro)
@@ -394,6 +399,9 @@ class AppService:
                 self.universe_info.setdefault(clean_ticker(raw_ticker), {})["name"] = text
                 added += 1
         failures = 0
+        prime = getattr(self.gateway, "prime_sectors", None)
+        if prime is not None and no_sector:
+            await prime([lookup[t] for t in no_sector])           # EDGAR / Yahoo en paralelo: sin esperar a TWS uno a uno
         for ticker in no_sector:
             if failures >= 3:                                     # IBKR no responde: no se espera por cada ticker
                 break
@@ -804,6 +812,9 @@ class AppService:
         watch = set(self.watchlist.list())
         todo = [t for t, i in self.ticker_info.all().items() if i.sector is None and t in watch]
         done, failures = 0, 0
+        prime = getattr(self.gateway, "prime_sectors", None)
+        if prime is not None and todo:
+            await prime(todo)
         for ticker in todo:
             if failures >= 3:
                 break
@@ -1431,19 +1442,98 @@ class AppService:
         return set(self.settings.admission.direct_sources)
 
     def direct_source_names(self) -> set[str]:
-        """Fuentes cuyos tickers pasan a la Watchlist sin más filtro: las de la configuración y las que el usuario marcó."""
+        """Fuentes cuyos tickers pasan a la Watchlist sin más filtro: las de la configuración y las que el usuario marcó, salvo lo que la regla de
+        Admisión de esa fuente diga en contra."""
         try:
             marked = json.loads(self.meta.get(DIRECT_SOURCES) or "[]")
         except (ValueError, TypeError):
             marked = []
-        return self.direct_builtin_names() | {n for n in marked if isinstance(n, str)}
+        names = self.direct_builtin_names() | {n for n in marked if isinstance(n, str)}
+        for name, raw in self.admission_rules_raw().items():
+            if isinstance(raw, dict) and "direct" in raw:
+                names = names | {name} if raw["direct"] else names - {name}
+        return names
 
     def set_direct_source(self, name: str, on: bool) -> None:
         if name not in {s.name for s in self.universe_sources}:
             raise WatchlistError(f"La fuente «{name}» no existe")
-        marked = self.direct_source_names() - self.direct_builtin_names()
+        try:
+            marked = set(json.loads(self.meta.get(DIRECT_SOURCES) or "[]"))
+        except (ValueError, TypeError):
+            marked = set()
         marked = marked | {name} if on else marked - {name}
         self.meta.set(DIRECT_SOURCES, json.dumps(sorted(marked)))
+        rules = self.admission_rules_raw()
+        if name in rules:           # la regla de Admisión de esa fuente manda: se mantiene al día con el botón del Universo
+            rules[name]["direct"] = bool(on)
+            self.meta.set(ADMISSION_RULES, json.dumps(rules))
+
+    # reglas de Admisión por fuente: directa o qué filtros aplica (ver `scanner/admission.py::SourceRule`)
+    def admission_rules_raw(self) -> dict[str, dict]:
+        try:
+            data = json.loads(self.meta.get(ADMISSION_RULES) or "{}")
+        except (ValueError, TypeError):
+            return {}
+        return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+
+    def admission_rule(self, name: str) -> SourceRule:
+        """La regla de una fuente: la guardada o, si no hay, directa según `direct_source_names` y con todos los filtros."""
+        raw = self.admission_rules_raw().get(name)
+        if raw is not None:
+            return SourceRule.from_json(raw)
+        try:
+            marked = json.loads(self.meta.get(DIRECT_SOURCES) or "[]")
+        except (ValueError, TypeError):
+            marked = []
+        return SourceRule(direct=name in self.direct_builtin_names() or name in marked)
+
+    def set_admission_rules(self, rules: dict[str, SourceRule]) -> None:
+        """Guarda la regla de cada fuente indicada (las demás se quedan como estaban); la marca «directa» también se refleja en las fuentes marcadas a mano."""
+        known = {s.name for s in self.universe_sources}
+        unknown = sorted(set(rules) - known)
+        if unknown:
+            raise WatchlistError(f"Fuente desconocida: {', '.join(unknown)}")
+        data = self.admission_rules_raw()
+        data.update({name: rule.to_json() for name, rule in rules.items()})
+        self.meta.set(ADMISSION_RULES, json.dumps(data))
+
+    def reset_admission_rules(self) -> None:
+        self.meta.set(ADMISSION_RULES, "{}")
+
+    def admission_filters_off(self) -> bool:
+        return self.meta.get(ADMISSION_OFF) == "1"
+
+    def set_admission_filters_off(self, on: bool) -> None:
+        """«Sin filtros»: pasan todos los tickers del Universo (la evaluación no mide nada). Las reglas por fuente se conservan para cuando se vuelva a activar."""
+        self.meta.set(ADMISSION_OFF, "1" if on else "0")
+
+    def feed_schedule(self, key: str) -> FeedSchedule:
+        return load_schedule(self.settings, self.meta, key)
+
+    def admission_feeds(self) -> list[dict]:
+        """Fuentes que se consultan por API o MCP, con su horario y su último resultado, para la pantalla de Admisión."""
+        cfg = self.settings
+        runner_state = self.tortuga.state() if self.tortuga is not None else {}
+        api = bool(cfg.tortuga.api_token)
+        routine_sources = {"radar_spreads": [cfg.tortuga.source_name, cfg.tortuga.puts_source_name], "comunidad": [cfg.community.source_name],
+                           "super_investors": [cfg.super_investors.source_name], "aperturas": []}
+        out = []
+        for r in TORTUGA_ROUTINES.values():
+            st = runner_state.get(r.key, {})
+            out.append({"key": r.key, "title": r.title, "origin": "API de Tortuga" if api and r.key in API_ROUTINES else "MCP de Tortuga (CLI de Claude)",
+                        "sources": routine_sources.get(r.key, []), "schedule": self.feed_schedule(r.key), "last_ok": st.get("last_ok"), "error": st.get("error"),
+                        "min": 1})
+        out.append({"key": LISTS_KEY, "title": "Listas públicas de tastytrade", "origin": "API de tastytrade", "min": MIN_MINUTES[LISTS_KEY],
+                    "sources": [x.name for x in cfg.tasty_lists.sources], "schedule": self.feed_schedule(LISTS_KEY),
+                    "last_ok": self.meta.get(TASTY_LISTS_CHECKED), "error": None})
+        return out
+
+    def set_feed_schedules(self, schedules: dict[str, FeedSchedule]) -> None:
+        for key, schedule in schedules.items():
+            save_schedule(self.meta, key, schedule)
+
+    def reset_feed_schedules(self) -> None:
+        reset_schedules(self.meta)
 
     def admission_start(self) -> bool:
         """Lanza en segundo plano la evaluación del Universo y la Watchlist. False si ya hay una en curso o está desactivada."""
@@ -1526,10 +1616,11 @@ class AppService:
                 return
             last = self.meta.get(TASTY_LISTS_CHECKED)
             try:
-                if last and (now - datetime.fromisoformat(last)).total_seconds() < cfg.refresh_minutes * 60:
-                    return
+                checked = datetime.fromisoformat(last) if last else None
             except ValueError:
-                pass
+                checked = None
+            if checked is not None and not self.feed_schedule(LISTS_KEY).is_due(now, self.market, checked, checked, cfg.refresh_minutes):
+                return
         self._tasty_lists_syncing = True
 
         async def run() -> None:

@@ -24,6 +24,7 @@ from scanner_opciones.domain.models import (
     AccountSummary, OptionChain, OptionContract, OptionQuote, Position, UnderlyingQuote, VixData,
 )
 from scanner_opciones.marketdata.options import OptionDataProvider, OptionListing, listing_key
+from scanner_opciones.marketdata.sectors import SectorProvider
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class HybridGateway:
     def __init__(
         self, inner: BrokerGateway, provider: OptionDataProvider, settings: MarketDataSettings,
         now: Callable[[], datetime] = datetime.now, clock: Callable[[], float] = time.monotonic,
-        fallback_batch: int = 50,
+        fallback_batch: int = 50, sectors: Optional[SectorProvider] = None,
     ) -> None:
         self.inner = inner
         self.fallback_batch = fallback_batch      # contratos por petición cuando se cae a IBKR (límite de líneas de TWS)
@@ -49,6 +50,8 @@ class HybridGateway:
         self._now = now
         self._clock = clock
         self._listings: dict[str, tuple[float, OptionListing]] = {}   # ticker -> (instante, puts existentes)
+        self.sectors = sectors          # sector sin TWS (EDGAR, Yahoo); TWS queda como último recurso
+        self._sector_cache: dict[str, tuple[str, Optional[str]]] = {}
 
     # ---- lo que es siempre del broker ------------------------------------------------------
     async def connect(self) -> None:
@@ -70,9 +73,29 @@ class HybridGateway:
     async def get_positions(self) -> list[Position]:
         return await self.inner.get_positions()
 
+    async def prime_sectors(self, tickers: Sequence[str]) -> int:
+        """Pide de golpe (y en paralelo) el sector de varios tickers a las fuentes sin TWS; luego `get_sector_info` los sirve de memoria. Devuelve cuántos resolvió."""
+        if self.sectors is None:
+            return 0
+        pending = [t for t in dict.fromkeys(tickers) if t not in self._sector_cache]
+        if not pending:
+            return 0
+        try:
+            found = await self.sectors.get_sectors(pending)
+        except Exception as exc:
+            log.warning("Sector: las fuentes sin TWS fallaron (%s)", str(exc)[:120])
+            return 0
+        self._sector_cache.update(found)
+        return len(found)
+
     async def get_sector_info(self, ticker: str) -> tuple[Optional[str], Optional[str]]:
+        """Sector de EDGAR o Yahoo si lo hay; si no, de TWS (sin TWS queda vacío y se completa al reconectar)."""
+        if ticker not in self._sector_cache:
+            await self.prime_sectors([ticker])
+        if ticker in self._sector_cache:
+            return self._sector_cache[ticker]
         if not self.inner.is_connected():
-            return None, None   # sin TWS no hay sector: se completa al reconectar
+            return None, None
         return await self.inner.get_sector_info(ticker)
 
     async def get_bid_sizes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, int]:

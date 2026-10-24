@@ -3,6 +3,8 @@
 {% macro verdict(reason) -%}
   {%- if reason is none -%}<span class="ad-chip ok">✓</span>
   {%- elif 'fuente directa' in reason -%}<span class="ad-chip d" title="{{ reason }}">Directa</span>
+  {%- elif 'sin filtros' in reason -%}<span class="ad-chip src" title="{{ reason }}">Sin filtros</span>
+  {%- elif 'no se aplica' in reason -%}<span class="ad-chip src" title="{{ reason }}">—</span>
   {%- else -%}
     {%- set label = 'Beneficios' if 'beneficios (EPS' in reason else 'Trimestres' if 'trimestres' in reason else 'Liquidez' if 'liquidez' in reason
         else 'FCF' if 'flujo de caja' in reason else 'Deuda' if 'deuda' in reason else 'Pasivo' if 'pasivo' in reason
@@ -30,6 +32,10 @@
   .ad-cfg td, .ad-cfg th { padding:4px 10px; text-align:left; font-size:13px; white-space:normal; vertical-align:top; line-height:1.4; }
   .ad-cfg td:first-child { white-space:nowrap; width:1%; }
   .ad-chip { white-space:nowrap; line-height:1.5; }
+  .ad-rules td, .ad-rules th { padding:3px 6px; font-size:12px; text-align:center; white-space:nowrap; } .ad-rules td.txt, .ad-rules th.txt { text-align:left; }
+  .ad-rules th.grp-tpc { background:#dff3e6; color:#1d6b3f; } .ad-rules th.grp-tasty { background:#fdf0d8; color:#8a5a00; } .ad-rules th.grp-dir { background:#e3ecfb; color:#1f4f9a; }
+  .ad-rules .gs { border-left:3px solid var(--mute); } .ad-sch td, .ad-sch th { padding:4px 8px; font-size:12px; text-align:left; vertical-align:top; }
+  .ad-sch input[type=number] { width:70px; } .ad-sch input[type=text] { width:130px; }
   .ad-wrap { margin:0; }
   .ad-src-tbl td.num, .ad-src-tbl th { text-align:right; white-space:nowrap; } .ad-src-tbl th.txt { text-align:left; }
   .ad-pct { color:var(--mute); font-size:11px; }
@@ -40,7 +46,7 @@
 <div class="card">
   <h2>Admisión a la Watchlist</h2>
   <p class="muted" style="margin-top:0">Decide qué tickers del <b>Universo</b> pasan a la <b>Watchlist</b> y cuáles de la Watchlist ya no merecen quedarse. Un ticker pasa si
-    viene de una <b>fuente directa</b> o cumple alguno de los dos estilos. Nada se añade ni se quita sin que lo confirmes con el botón de cada tabla.</p>
+    viene de una <b>fuente directa</b> o cumple alguno de los dos estilos, según la regla de cada fuente (más abajo). Nada se añade ni se quita sin que lo confirmes con el botón de cada tabla.</p>
   <table class="ad-cfg">
     <tr><th>Estilo</th><th>Qué exige (de <code>admission</code> en config.yaml)</th></tr>
     <tr><td><b>TPC</b> · The Premium Collector</td><td>Empresa de calidad —
@@ -58,6 +64,70 @@
   {% if error %}<div class="banner warn">La última evaluación falló: {{ error }}</div>{% endif %}
   {% if running %}<div class="banner info">⏳ Evaluando… la página se recarga sola.</div>
   <script>setTimeout(function () { location.reload(); }, 6000);</script>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Filtros de admisión</h2>
+  <form method="post" action="/admission/off" style="margin:0">
+    {% if filters_off %}
+    <div class="banner warn">Los filtros de admisión están <b>quitados</b>: al evaluar pasa <b>todo el Universo</b> a la Watchlist (la evaluación no mide nada). Las reglas por fuente se conservan.</div>
+    <input type="hidden" name="off" value="0"><button type="submit">Volver a aplicar los filtros</button>
+    {% else %}
+    <input type="hidden" name="off" value="1">
+    <button type="submit" class="secondary" onclick="return confirmClick(this, 'Al evaluar, pasarán todos los tickers del Universo (nada se añade sin confirmarlo en las tablas). ¿Quitar todos los filtros de admisión?')">Quitar todos los filtros (que pase todo)</button>
+    <span class="muted">Interruptor global: se puede revertir cuando quieras. Para quitar los filtros solo de ciertas fuentes, desmárcalos abajo.</span>
+    {% endif %}
+  </form>
+</div>
+
+<div class="card">
+  <h2>Reglas por fuente</h2>
+  <p class="muted" style="margin-top:0">Para cada fuente del Universo: si sus tickers <b>pasan directo</b> (sin medir nada) o qué filtros se les aplican. Un ticker pasa si lo admite la regla de <b>alguna</b> de sus fuentes.
+    Con filtros de los dos estilos basta con cumplir <b>todos los de uno</b> (TPC o Tastytrade); un estilo sin ninguna casilla no se aplica, y sin ninguna casilla marcada (ni directa) la fuente <b>pasa entera</b>.
+    El valor de cada umbral sigue en <code>admission</code> de config.yaml. Se aplica en la próxima evaluación.</p>
+  {% if rule_rows %}
+  <form method="post" action="/admission/rules">
+    <div class="scroll"><table class="ad-rules">
+      <tr><th rowspan="2" class="txt">Fuente</th><th rowspan="2">Tickers</th><th rowspan="2" class="grp-dir gs">Pasa directo</th>
+        <th colspan="{{ tpc_filters|length }}" class="grp-tpc gs">TPC · filtros que aplica</th><th colspan="{{ tasty_filters|length }}" class="grp-tasty gs">Tastytrade · filtros que aplica</th></tr>
+      <tr>{% for key, label in tpc_filters %}<th class="grp-tpc{{ ' gs' if loop.first }}">{{ label }}</th>{% endfor %}
+        {% for key, label in tasty_filters %}<th class="grp-tasty{{ ' gs' if loop.first }}">{{ label }}</th>{% endfor %}</tr>
+      {% for name, rule, n in rule_rows %}{% set i = loop.index0 %}
+      <tr><td class="txt"><input type="hidden" name="src" value="{{ name }}"><b>{{ name }}</b>{% if name in direct_builtin %} <span class="ad-chip src" title="Directa por la configuración (admission.direct_sources); aquí se puede cambiar">config</span>{% endif %}</td>
+        <td>{{ n }}</td>
+        <td class="gs"><input type="checkbox" name="direct_{{ i }}" value="1" {{ 'checked' if rule.direct }} title="Los tickers de esta fuente pasan sin medir nada"></td>
+        {% for key, label in tpc_filters %}<td class="{{ 'gs' if loop.first }}"><input type="checkbox" name="tpc_{{ i }}" value="{{ key }}" {{ 'checked' if key in rule.tpc }}></td>{% endfor %}
+        {% for key, label in tasty_filters %}<td class="{{ 'gs' if loop.first }}"><input type="checkbox" name="tasty_{{ i }}" value="{{ key }}" {{ 'checked' if key in rule.tasty }}></td>{% endfor %}</tr>
+      {% endfor %}
+    </table></div>
+    <p><button type="submit">Guardar reglas</button>
+      <button type="submit" class="secondary" formaction="/admission/rules/reset" formnovalidate onclick="return confirmClick(this, 'Todas las fuentes vuelven a su valor de la configuración y a todos los filtros. ¿Restaurar?')">Restaurar</button>
+      <span class="muted">Si marcas «Pasa directo», los filtros de esa fila se ignoran pero se conservan.</span></p>
+  </form>
+  {% else %}<p class="muted">Todavía no hay fuentes en el Universo.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Periodicidad de las fuentes por API / MCP</h2>
+  <p class="muted" style="margin-top:0">Las fuentes que la aplicación consulta sola mientras está abierta. <b>En mercado</b>: cada N minutos con el mercado abierto. <b>Fuera de mercado</b>: cada N minutos en día hábil con el mercado cerrado.
+    <b>Descargas especiales</b>: horas fijas (HH:MM, hora local, separadas por comas) en día hábil, una vez cada una. <b>Tras el cierre</b>: una lectura más con la foto del último cierre (también al abrir la app fuera de sesión).
+    Vacío = esa modalidad no se usa; sin ninguna, solo se actualiza a mano. Fin de semana y festivo no hay lecturas automáticas. Se comprueba en cada ciclo de refresco y, tras un fallo, se espera unos minutos antes de reintentar.</p>
+  <form method="post" action="/admission/schedule">
+    <div class="scroll"><table class="ad-sch">
+      <tr><th>Consulta</th><th>Origen</th><th>Alimenta</th><th>En mercado (min)</th><th>Fuera de mercado (min)</th><th>Descargas especiales</th><th>Tras el cierre</th><th>Última vez</th></tr>
+      {% for f in feeds %}{% set sc = f.schedule %}
+      <tr><td><b>{{ f.title }}</b><br><span class="muted">{{ describe(sc) }}</span></td><td>{{ f.origin }}</td>
+        <td>{% for n in f.sources %}<span class="ad-chip src">{{ n }}</span>{% else %}—{% endfor %}</td>
+        <td><input type="number" min="{{ f.min }}" name="in_{{ f.key }}" value="{{ sc.in_market or '' }}"></td>
+        <td><input type="number" min="{{ f.min }}" name="out_{{ f.key }}" value="{{ sc.out_market or '' }}"></td>
+        <td><input type="text" name="times_{{ f.key }}" value="{{ sc.times|join(', ') }}" placeholder="11:15, 22:30"></td>
+        <td><input type="checkbox" name="close_{{ f.key }}" value="1" {{ 'checked' if sc.after_close }}></td>
+        <td class="muted">{{ f.last_ok[:16].replace('T', ' ') if f.last_ok else 'nunca' }}{% if f.error %}<br><span class="tr-err" title="{{ f.error }}">Falló: {{ f.error[:60] }}</span>{% endif %}</td></tr>
+      {% endfor %}
+    </table></div>
+    <p><button type="submit">Guardar periodicidad</button>
+      <button type="submit" class="secondary" formaction="/admission/schedule/reset" formnovalidate onclick="return confirmClick(this, 'La periodicidad vuelve a lo que dice config.yaml. ¿Restaurar?')">Restaurar</button></p>
+  </form>
 </div>
 
 {% if report %}
@@ -119,7 +189,7 @@
       <tbody id="ad-add">{% for v in add %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ v.ticker }}" checked></td>
         <td class="tk" title="{{ company(v) }}"><b>{{ v.ticker }}</b></td><td class="txt ad-co" title="{{ company(v) }}">{{ company(v) }}</td>
-        <td class="txt">{% for s in v.styles %}<span class="ad-chip {{ 'd' if s == 'Directa' else 't' if s == 'TPC' else 's' }}">{{ s }}</span>{% endfor %}</td>
+        <td class="txt">{% for s in v.styles %}<span class="ad-chip {{ 'd' if s == 'Directa' else 't' if s == 'TPC' else 's' if s == 'Tastytrade' else 'src' }}">{{ s }}</span>{% endfor %}</td>
         <td class="txt ad-src">{{ sources(v.sources) }}</td>
         <td class="txt">{{ verdict(v.tpc) }}</td><td class="txt">{{ verdict(v.tasty) }}</td></tr>
       {% endfor %}</tbody>

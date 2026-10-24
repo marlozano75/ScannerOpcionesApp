@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable, Optional
 from scanner_opciones.domain.errors import FinancialsError
 from scanner_opciones.marketdata.filings import FilingAlert, classify_filings
 from scanner_opciones.marketdata.financials import NO_LIMIT, Financials
+from scanner_opciones.marketdata.sectors import sic_to_sector
 
 log = logging.getLogger(__name__)
 
@@ -454,6 +455,41 @@ class EdgarFinancialsProvider:
                     log.info("EDGAR: presentaciones de %s no disponibles: %s", ticker, exc)
                     return
             out[ticker] = classify_filings(((data or {}).get("filings") or {}).get("recent") or {}, today, window_days)
+
+        results = await asyncio.gather(*(one(t) for t in tickers), return_exceptions=True)
+        for r in results:
+            if isinstance(r, FinancialsError):
+                raise r
+        return out
+
+    async def get_sectors(self, tickers: list[str]) -> dict[str, tuple[str, Optional[str]]]:
+        """Sector de IBKR (por el código SIC de la empresa) y, como categoría, la descripción del SIC. Una petición pequeña por empresa."""
+        try:
+            await self._ticker_map()
+        except FinancialsError:
+            raise
+        except Exception as exc:
+            raise FinancialsError(f"SEC EDGAR: {type(exc).__name__}: {str(exc)[:200]}") from exc
+        self._blocked = False
+        out: dict[str, tuple[str, Optional[str]]] = {}
+
+        async def one(ticker: str) -> None:
+            cik = self._cik(ticker)
+            if cik is None:
+                return
+            async with self._sem:
+                if self._blocked:
+                    return
+                try:
+                    data = await self._fetch_json(SUBMISSIONS_URL.format(cik=cik))
+                except FinancialsError:
+                    raise
+                except Exception as exc:
+                    log.info("EDGAR: sector de %s no disponible: %s", ticker, exc)
+                    return
+            sector = sic_to_sector((data or {}).get("sic"))
+            if sector:
+                out[ticker] = (sector, (data or {}).get("sicDescription") or None)
 
         results = await asyncio.gather(*(one(t) for t in tickers), return_exceptions=True)
         for r in results:

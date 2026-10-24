@@ -23,7 +23,8 @@ from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.errors import ConfigError
 from scanner_opciones.jobs.scheduler import PeriodicRunner
 from scanner_opciones.marketdata.edgar import EdgarFinancialsProvider
-from scanner_opciones.marketdata.yahoo import YahooAnalysts
+from scanner_opciones.marketdata.sectors import ChainedSectors
+from scanner_opciones.marketdata.yahoo import YahooAnalysts, YahooSectors
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import MetaRepo
@@ -55,10 +56,18 @@ def build_app(settings: Settings):
         logging.getLogger(__name__).info(
             "Sin edgar.contact en config.yaml: no se consulta SEC EDGAR (filtros de apalancamiento y flujo de caja sin datos)")
 
+    sector_providers = []
+    for name in md.sector_sources:
+        if name == "edgar" and financials is not None:
+            sector_providers.append(financials)
+        elif name == "yahoo":
+            sector_providers.append(YahooSectors(settings.analysts.concurrency))
+    sectors = ChainedSectors(sector_providers) if sector_providers else None
+
     def factory(mode: AccountMode) -> BrokerGateway:
         ibkr = IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
         # «tastytrade»: cadena, cotizaciones, precios y ex-dividendos de tastytrade; cuenta, margen, sector y VIX de IBKR
-        return HybridGateway(ibkr, tasty, md, fallback_batch=settings.refresh.batch_size) if md.source == "tastytrade" else ibkr
+        return HybridGateway(ibkr, tasty, md, fallback_batch=settings.refresh.batch_size, sectors=sectors) if md.source == "tastytrade" else ibkr
 
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty,
                          fundamentals=tasty, financials=financials, names=tasty, watchlists=tasty,

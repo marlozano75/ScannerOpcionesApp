@@ -458,6 +458,9 @@ class MarketDataSettings(_Model):
     settle_seconds: float = Field(3, gt=0)        # sin datos nuevos durante tanto tiempo, el lote se da por terminado
     quote_batch_size: int = Field(2500, ge=1, le=3000)  # contratos por conexión DXLink (probado: 3000 sí, 4000 no) y por petición de cotizaciones
     listing_ttl_minutes: float = Field(30, gt=0)  # cuánto se reutiliza la lista de contratos de un ticker
+    # de dónde sale el sector antes de preguntar a TWS (lento y exige conexión), en este orden: «edgar» (código SIC; necesita `edgar.contact`) y «yahoo»
+    # (yfinance, no oficial). Lista vacía = solo IBKR
+    sector_sources: list[Literal["edgar", "yahoo"]] = ["edgar", "yahoo"]
 
 
 class EdgarSettings(_Model):
@@ -570,7 +573,8 @@ class TortugaSettings(_Model):
     comunidad, aperturas propias y radar de Bull Put Spreads. Sustituyen a las tareas programadas de `scripts/`.
     Cada una se ejecuta una vez al día a su hora (hora local) mientras la aplicación está abierta y solo en días hábiles (fin de semana y festivo esperan al siguiente), y también a mano desde la pestaña Tortuga."""
     enabled: bool = True
-    command: str = "claude"                  # ejecutable de la CLI de Claude (debe estar en el PATH y con la sesión iniciada)
+    api_token: str = Field("", repr=False)   # token `tt_live_…` de la API de Tortuga (https://tortugatrades.app/api/v1); vacío = sin API
+    command: str = "claude"                # ejecutable de la CLI de Claude (debe estar en el PATH y con la sesión iniciada)
     model: str = "sonnet"
     timeout_seconds: int = Field(900, ge=60)  # tiempo máximo de cada rutina
     retry_minutes: int = Field(120, ge=1)     # tras un fallo no se reintenta hasta pasado este tiempo

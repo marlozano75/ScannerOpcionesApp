@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, datetime
-from typing import Callable
+from typing import Callable, Optional
 
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystError, classify_changes
+from scanner_opciones.marketdata.sectors import yahoo_to_sector
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +66,47 @@ class YahooAnalysts:
                     return
             failures = 0
             out[ticker] = classify_changes(rows_from_frame(frame), self.today(), window_days)
+
+        await asyncio.gather(*(one(t) for t in tickers))
+        if failures >= MAX_FAILURES:
+            raise AnalystError("Yahoo Finance no responde o limita las peticiones")
+        return out
+
+
+class YahooSectors:
+    """Implementa `SectorProvider` con `Ticker.info` de Yahoo (sector e industria), traducido a los nombres de IBKR. Una petición por ticker (~0,5 s)."""
+
+    def __init__(self, concurrency: int = 4) -> None:
+        self.concurrency = concurrency
+
+    async def get_sectors(self, tickers) -> dict[str, tuple[str, Optional[str]]]:
+        try:
+            import yfinance
+        except ImportError as exc:
+            raise AnalystError("Falta la librería yfinance (pip install yfinance)") from exc
+        logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+        sem = asyncio.Semaphore(self.concurrency)
+        out: dict[str, tuple[str, Optional[str]]] = {}
+        failures = 0
+
+        def fetch(symbol: str) -> dict:
+            return yfinance.Ticker(symbol).info or {}
+
+        async def one(ticker: str) -> None:
+            nonlocal failures
+            if failures >= MAX_FAILURES:
+                return
+            async with sem:
+                try:
+                    info = await asyncio.to_thread(fetch, yahoo_symbol(ticker))
+                except Exception as exc:
+                    failures += 1
+                    log.debug("Yahoo: sin sector de %s (%s)", ticker, exc)
+                    return
+            failures = 0
+            sector = yahoo_to_sector(info.get("sector"))
+            if sector:
+                out[ticker] = (sector, info.get("industry") or None)
 
         await asyncio.gather(*(one(t) for t in tickers))
         if failures >= MAX_FAILURES:
