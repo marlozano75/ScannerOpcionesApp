@@ -120,10 +120,15 @@ async def test_daily_updater_queries_only_stale_tickers_and_keeps_what_it_has_wh
 
 
 def test_ticker_tooltip_shows_the_full_company_name_first():
-    from scanner_opciones.ui.web import tk_title
+    from scanner_opciones.ui.web import TEMPLATES
+
+    def title(names, ticker, extra="", **ctx):
+        return TEMPLATES.env.from_string("{{ tk_title(names, ticker, extra) }}").render(names=names, ticker=ticker, extra=extra, **ctx)
+
     names = {"BRKB": "Berkshire Hathaway Inc. Class B", "QQQ": "Invesco QQQ Trust"}
-    assert tk_title(names, "BRK-B", "Ver el historial") == "Berkshire Hathaway Inc. Class B\nVer el historial"
-    assert tk_title(names, "QQQ") == "Invesco QQQ Trust" and tk_title(names, "ZZZ", "solo esto") == "solo esto" and tk_title(None, "QQQ") == ""
+    assert title(names, "BRK-B", "Ver el historial") == "Berkshire Hathaway Inc. Class B\nVer el historial"
+    assert title(names, "QQQ") == "Invesco QQQ Trust" and title(names, "ZZZ", "solo esto") == "solo esto" and title(None, "QQQ") == ""
+    assert title(names, "QQQ", "x", company_notes={"QQQ": "Sigue el Nasdaq-100."}) == "Invesco QQQ Trust\nx\nSigue el Nasdaq-100."
 
 
 async def test_analysts_and_sec_alerts_are_not_requeried_on_weekends_once_the_friday_close_is_covered():

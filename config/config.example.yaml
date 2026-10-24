@@ -251,3 +251,7 @@ logging:
   file: logs/scanner.log   # además de la consola; null = solo consola (rotación: file_max_mb x file_backups)
   file_max_mb: 5
   file_backups: 3
+
+# Noticias de cada empresa (tooltip del ticker). Clave gratuita en https://finnhub.io (60 peticiones/minuto). Sin clave solo sale la descripción.
+finnhub:
+  api_token: ""

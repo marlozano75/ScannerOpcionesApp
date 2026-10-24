@@ -79,3 +79,16 @@ async def test_gateway_falls_back_to_tws_only_when_the_free_sources_do_not_know_
     assert await gw.get_sector_info("BAC") == ("Financial", None)
     assert await gw.get_sector_info("KO") == ("Consumer, Non-cyclical", "Beverages")
     assert await gw.prime_sectors(["BAC", "KO", "KO"]) == 0                          # BAC ya está en memoria; KO no lo resuelven las fuentes
+
+
+def test_etf_sector_is_the_main_sector_or_a_generic_label():
+    from scanner_opciones.marketdata.sectors import etf_sector
+    assert etf_sector({"technology": 1.0, "energy": 0.0}, "Technology") == ("Technology", "Technology")
+    assert etf_sector({"financial_services": 0.5, "realestate": 0.2, "technology": 0.3}, None)[0] == "Financial"   # varias claves = un sector de IBKR
+    assert etf_sector({"technology": 0.31, "financial_services": 0.13, "healthcare": 0.1}, "Large Blend") == ("ETF diversificado", "Large Blend")
+    assert etf_sector(None, "Commodities Focused")[0] == "Materias primas"
+    assert etf_sector({"technology": 0.0}, "Long Government")[0] == "Renta fija"
+    assert etf_sector({"utilities": 0.996}, "High Yield Bond")[0] == "Renta fija"
+    assert etf_sector(None, "Derivative Income")[0] == "ETF diversificado"
+    assert etf_sector(None, None) == (None, None)
+    assert not is_exempt(TickerInfo("X", sector="ETF diversificado"))

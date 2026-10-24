@@ -56,6 +56,7 @@ from scanner_opciones.storage.repositories import (
 )
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystProvider
+from scanner_opciones.marketdata.company import DescriptionProvider, NewsProvider, tooltip as company_tooltip
 from scanner_opciones.marketdata.filings import FilingAlert
 from scanner_opciones.scanner.admission import SourceRule
 from scanner_opciones.tortuga.api import API_ROUTINES
@@ -165,6 +166,8 @@ class AppService:
         tortuga: Optional[RoutineRunner] = None,
         analysts: Optional[AnalystProvider] = None,
         watchlists: Optional[WatchlistProvider] = None,
+        descriptions: Optional[DescriptionProvider] = None,
+        news: Optional[NewsProvider] = None,
     ) -> None:
         self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
@@ -180,9 +183,11 @@ class AppService:
         self.bars = BarRepo(db)
         syncer = ContractSyncer(gateway, self.contracts, settings)  # comparte la cadena en caché
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.contracts, settings,
-                                  now, volatility, prices, candles, self.bars, syncer, fundamentals, financials, analysts)
+                                  now, volatility, prices, candles, self.bars, syncer, fundamentals, financials, analysts,
+                                  descriptions, news)
         self.filing_alerts = self.daily.filing_alerts
         self.analyst_changes = self.daily.analyst_changes
+        self.company_notes = self.daily.company_notes
         self.refresh_job = RefreshJob(
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
             volatility, prices, syncer, self.market,
@@ -799,6 +804,8 @@ class AppService:
             await self.refresh_all()
         self.update_financials_in_background()
         self.sync_community_in_background()
+        if self._offline_capable():
+            self.launch(self.fill_missing_sectors())      # ETF y demás sin sector: EDGAR/Yahoo no necesitan TWS
         if self.manual_sources:
             self.launch(self.complete_info())
         if self.settings.daily_update.run_on_startup:
@@ -947,6 +954,14 @@ class AppService:
                 out[norm_ticker(ticker)] = recent
         return out
 
+    def company_notes_map(self) -> dict[str, str]:
+        """{ticker normalizado: texto} con a qué se dedica la empresa y sus noticias recientes con fecha, para el tooltip del ticker."""
+        def build() -> dict[str, str]:
+            cfg = self.settings.company
+            texts = ((norm_ticker(t), company_tooltip(n, cfg.description_chars)) for t, n in self.company_notes.all().items())
+            return {t: text for t, text in texts if text}
+        return self._memo("company_notes", build)
+
     def company_name_map(self) -> dict[str, str]:
         """{ticker normalizado: nombre completo de la acción o ETF} para el tooltip de los tickers: el que traen las fuentes del Universo y
         el completado con tastytrade (`universe_info`)."""
@@ -1010,6 +1025,7 @@ class AppService:
             "quality": self.quality.purge_except(self.quality_scope()),
             "filing_alerts": self.filing_alerts.purge_except(self.quality_scope()),
             "analyst_changes": self.analyst_changes.purge_except(self.quality_scope()),
+            "company_notes": self.company_notes.purge_except(self.quality_scope()),
         }
         if any(removed.values()):
             log.info("Limpieza de tickers fuera de la watchlist: %s", removed)
@@ -1150,18 +1166,21 @@ class AppService:
 
     def update_financials_in_background(self) -> None:
         """Lanza la consulta a SEC EDGAR (la primera vez dura minutos) sin esperar y sin solaparse consigo misma."""
-        if (self.daily.financials is None and self.daily.analysts is None and self.names is None) or self._financials_running:
+        if (self.daily.financials is None and self.daily.analysts is None and self.names is None and self.daily.descriptions is None
+                and self.daily.news is None) or self._financials_running:
             return
         self._financials_running = True
 
         async def run() -> None:
             try:
                 changed = await self.daily.update_financials(self.quality_scope()) if self.daily.financials is not None else 0
-                scope = sorted({*self.quality_scope(), *(p.ticker for p in self.state.positions)})
+                held = {p.ticker for p in self.state.positions}      # las fichas de la cartera se piden primero
+                scope = sorted({*self.quality_scope(), *held})
                 await self.fill_company_names(scope)
                 alerts = await self.daily.update_filing_alerts(scope)
                 analysts = await self.daily.update_analysts(scope)
-                if alerts or analysts or changed:
+                notes = await self.daily.update_company_notes(sorted(scope, key=lambda t: t not in held), self.company_name_map())
+                if alerts or analysts or notes or changed:
                     self.state.data_version += 1
             except Exception:
                 log.exception("No se pudieron actualizar el balance y el flujo de caja")

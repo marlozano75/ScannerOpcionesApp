@@ -37,6 +37,41 @@ YAHOO_SECTORS = {
 }
 
 
+# ETF: nombres propios para lo que no es un sector de empresas (no existen en IBKR, no activan ninguna exención)
+ETF_DIVERSIFIED, ETF_COMMODITIES, ETF_BONDS = "ETF diversificado", "Materias primas", "Renta fija"
+ETF_MIN_WEIGHT = 0.6        # peso del sector principal para llamar «sectorial» a un ETF; por debajo, diversificado (SPY: tecnología ~31 %)
+# Claves de `funds_data.sector_weightings` de Yahoo -> nombre de IBKR
+YAHOO_WEIGHT_KEYS = {
+    "technology": TECH, "financial_services": FIN, "realestate": FIN, "energy": ENERGY, "utilities": UTIL, "basic_materials": MAT,
+    "industrials": IND, "consumer_cyclical": CYC, "consumer_defensive": NONCYC, "healthcare": NONCYC, "communication_services": COMM,
+}
+_BOND_WORDS = ("bond", "government", "treasury", "inflation", "high yield", "muni", "loan", "mortgage", "ultrashort", "short-term", "short term")
+
+
+def etf_sector(weights: Optional[dict], category: object) -> tuple[Optional[str], Optional[str]]:
+    """(sector, categoría) de un ETF: el sector principal si pesa ≥ `ETF_MIN_WEIGHT` de la cartera (varias claves de Yahoo pueden dar el mismo
+    sector de IBKR: se suman); si no, «ETF diversificado», «Materias primas» o «Renta fija» según la categoría de Yahoo. La categoría es la de Yahoo."""
+    cat = str(category or "").strip() or None
+    low = (cat or "").lower()
+    if any(w in low for w in _BOND_WORDS):         # Yahoo da pesos por sector absurdos a los de bonos (HYG: 99,6 % «utilities»)
+        return ETF_BONDS, cat
+    totals: dict[str, float] = {}
+    for key, value in (weights or {}).items():
+        name = YAHOO_WEIGHT_KEYS.get(str(key))
+        try:
+            weight = float(value)
+        except (TypeError, ValueError):
+            continue
+        if name and weight > 0:
+            totals[name] = totals.get(name, 0.0) + weight
+    if totals:
+        top, weight = max(totals.items(), key=lambda kv: kv[1])
+        return (top if weight >= ETF_MIN_WEIGHT else ETF_DIVERSIFIED), cat
+    if "commodit" in low or "precious" in low or "gold" in low or "natural res" in low:
+        return ETF_COMMODITIES, cat
+    return (ETF_DIVERSIFIED if cat else None), cat
+
+
 def sic_to_sector(sic: object) -> Optional[str]:
     try:
         code = int(sic)

@@ -8,7 +8,8 @@ from datetime import date, datetime
 from typing import Callable, Optional
 
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystError, classify_changes
-from scanner_opciones.marketdata.sectors import yahoo_to_sector
+from scanner_opciones.marketdata.company import CompanyNotesError
+from scanner_opciones.marketdata.sectors import etf_sector, yahoo_to_sector
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +91,15 @@ class YahooSectors:
         failures = 0
 
         def fetch(symbol: str) -> dict:
-            return yfinance.Ticker(symbol).info or {}
+            ticker = yfinance.Ticker(symbol)
+            info = ticker.info or {}
+            if not info.get("sector") and str(info.get("quoteType") or "").upper() in ("ETF", "MUTUALFUND"):
+                try:        # los ETF no traen sector: se deduce de los pesos de su cartera
+                    info = {**info, "_weights": ticker.funds_data.sector_weightings}
+                except Exception as exc:
+                    log.debug("Yahoo: sin pesos por sector de %s (%s)", symbol, exc)
+                    info = {**info, "_weights": None}
+            return info
 
         async def one(ticker: str) -> None:
             nonlocal failures
@@ -105,10 +114,52 @@ class YahooSectors:
                     return
             failures = 0
             sector = yahoo_to_sector(info.get("sector"))
+            if not sector and "_weights" in info:
+                sector, category = etf_sector(info["_weights"], info.get("category"))
+                if sector:
+                    out[ticker] = (sector, category)
+                return
             if sector:
                 out[ticker] = (sector, info.get("industry") or None)
 
         await asyncio.gather(*(one(t) for t in tickers))
         if failures >= MAX_FAILURES:
             raise AnalystError("Yahoo Finance no responde o limita las peticiones")
+        return out
+
+
+class YahooDescriptions:
+    """Implementa `DescriptionProvider` con `Ticker.info['longBusinessSummary']` de Yahoo (en inglés). Una petición por ticker (~0,5 s)."""
+
+    def __init__(self, concurrency: int = 4) -> None:
+        self.concurrency = concurrency
+
+    async def get_descriptions(self, tickers: list[str]) -> dict[str, str]:
+        try:
+            import yfinance
+        except ImportError as exc:
+            raise CompanyNotesError("Falta la librería yfinance (pip install yfinance)") from exc
+        logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+        sem = asyncio.Semaphore(self.concurrency)
+        out: dict[str, str] = {}
+        failures = 0
+
+        def fetch(symbol: str) -> str:
+            return str((yfinance.Ticker(symbol).info or {}).get("longBusinessSummary") or "")
+
+        async def one(ticker: str) -> None:
+            nonlocal failures
+            if failures >= MAX_FAILURES:
+                return
+            async with sem:
+                try:
+                    out[ticker] = await asyncio.to_thread(fetch, yahoo_symbol(ticker))
+                    failures = 0
+                except Exception as exc:
+                    failures += 1
+                    log.debug("Yahoo: sin descripción de %s (%s)", ticker, exc)
+
+        await asyncio.gather(*(one(t) for t in tickers))
+        if failures >= MAX_FAILURES:
+            raise CompanyNotesError("Yahoo Finance no responde o limita las peticiones")
         return out

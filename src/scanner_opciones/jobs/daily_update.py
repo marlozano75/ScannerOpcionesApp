@@ -20,12 +20,14 @@ from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.price_history import update_history
 from scanner_opciones.marketdata.analysts import AnalystError, AnalystProvider
+from scanner_opciones.marketdata.company import CompanyNotesError, DescriptionProvider, NewsProvider, mention_pattern, select_news
+from scanner_opciones.portfolio.openings import norm_ticker
 from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
 from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider, resolve_eps
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.storage.repositories import (
-    QualityRepo, FilingAlertRepo, AnalystRepo,
+    QualityRepo, FilingAlertRepo, AnalystRepo, CompanyNotesRepo,
     BarRepo, ContractRepo, MetaRepo, TickerInfoRepo, WatchlistRepo,
 )
 
@@ -69,6 +71,8 @@ class DailyUpdater:
         fundamentals: Optional[FundamentalsProvider] = None,
         financials: Optional[FinancialsProvider] = None,
         analysts: Optional[AnalystProvider] = None,
+        descriptions: Optional[DescriptionProvider] = None,
+        news: Optional[NewsProvider] = None,
     ) -> None:
         self.fundamentals = fundamentals
         self.financials = financials
@@ -76,6 +80,9 @@ class DailyUpdater:
         self.filing_alerts = FilingAlertRepo(ticker_info.db)
         self.analysts = analysts
         self.analyst_changes = AnalystRepo(ticker_info.db)
+        self.descriptions = descriptions
+        self.news = news
+        self.company_notes = CompanyNotesRepo(ticker_info.db)
         self.meta = MetaRepo(ticker_info.db)
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
@@ -391,6 +398,51 @@ class DailyUpdater:
                 break
             done += self.analyst_changes.save(found, now)
         log.info("Analistas (Yahoo): %d de %d tickers consultados en %.1f s", done, len(stale), time.monotonic() - started)
+        return done
+
+    async def update_company_notes(self, tickers: list[str], names: Optional[dict[str, str]] = None) -> int:
+        """Descripción del negocio (Yahoo, cada `company.description_refresh_days` días) y noticias filtradas (Finnhub, cada `company.news_refresh_hours`
+        horas) de los tickers que lo necesiten. Las noticias se piden en serie al ritmo del plan gratuito y se guardan por lotes: lo hecho se conserva
+        si la pasada se corta. Devuelve cuántos tickers actualizó (descripciones + noticias)."""
+        cfg = self.settings.company
+        if not tickers or not cfg.enabled or (self.descriptions is None and self.news is None):
+            return 0
+        now = self.now()
+        today = now.date()
+        known = self.company_notes.all()
+        done = 0
+        started = time.monotonic()
+        if self.descriptions is not None:
+            stale = [t for t in tickers if t not in known or known[t].description_at is None
+                     or (today - known[t].description_at).days >= cfg.description_refresh_days]
+            for k in range(0, len(stale), 100):
+                try:
+                    done += self.company_notes.save_descriptions(await self.descriptions.get_descriptions(stale[k:k + 100]), today)
+                except CompanyNotesError as exc:
+                    log.warning("Descripciones (Yahoo) no disponibles, se conservan las guardadas: %s", exc)
+                    break
+        if self.news is not None:
+            def due(t: str) -> bool:
+                if t not in known or known[t].news_at is None:
+                    return True
+                last = datetime.combine(known[t].news_at, datetime.min.time())
+                return ((now - last).total_seconds() >= cfg.news_refresh_hours * 3600
+                        and not self.market.quiet_since(last, now, cfg.settle_hours))
+
+            stale = [t for t in tickers if due(t)]
+            since = today - timedelta(days=cfg.news_window_days)
+            for k in range(0, len(stale), 25):
+                try:
+                    found = await self.news.get_news(stale[k:k + 25], since, today)
+                except CompanyNotesError as exc:
+                    log.warning("Noticias (Finnhub) no disponibles, se conservan las guardadas: %s", exc)
+                    break
+                done += self.company_notes.save_news(
+                    {t: select_news(items, today, cfg.news_window_days, cfg.news_max_items, cfg.news_keywords, cfg.news_exclude,
+                                    mention=mention_pattern(t, (names or {}).get(norm_ticker(t), "")))
+                     for t, items in found.items()}, today)
+        if done:
+            log.info("Ficha de empresa: %d actualizaciones en %.1f s", done, time.monotonic() - started)
         return done
 
     async def update_history(self, tickers: list[str]) -> int:

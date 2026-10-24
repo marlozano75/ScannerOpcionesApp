@@ -191,6 +191,19 @@ MIGRATIONS: list[str] = [
         changes TEXT NOT NULL
     );
     """,
+    # v25: ficha informativa por empresa (descripción del negocio y noticias con fecha, automáticas y revisadas a mano)
+    """
+    CREATE TABLE company_notes (
+        ticker TEXT PRIMARY KEY,
+        description TEXT NOT NULL DEFAULT '',
+        description_at TEXT,
+        news TEXT NOT NULL DEFAULT '[]',
+        news_at TEXT,
+        summary TEXT,
+        curated TEXT,
+        curated_at TEXT
+    );
+    """,
 ]
 
 

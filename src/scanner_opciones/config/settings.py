@@ -484,6 +484,36 @@ class AnalystSettings(_Model):
     concurrency: int = Field(4, ge=1, le=16)             # peticiones a Yahoo a la vez
 
 
+class FinnhubSettings(_Model):
+    """Finnhub (titulares por empresa). La clave gratuita da 60 peticiones por minuto; sin clave no hay noticias automáticas."""
+    api_token: str = Field("", repr=False)
+
+
+class CompanySettings(_Model):
+    """Ficha de cada empresa en el tooltip del ticker: a qué se dedica (Yahoo) y noticias recientes con su fecha (Finnhub, filtradas por palabras
+    clave). Solo informa, no filtra. Lo escrito a mano (`python -m scanner_opciones.marketdata.company_cli`) manda sobre lo automático."""
+    enabled: bool = True
+    description_chars: int = Field(320, ge=60)           # largo máximo de la descripción en el tooltip
+    description_refresh_days: int = Field(90, ge=1)      # el negocio casi no cambia
+    news_window_days: int = Field(90, ge=1)              # noticias de los últimos N días
+    news_max_items: int = Field(4, ge=1, le=10)
+    news_refresh_hours: float = Field(24, gt=0)
+    settle_hours: float = Field(0, ge=0)                 # como `analysts.settle_hours`: sin consulta en fin de semana ni festivo si la última es posterior al cierre
+    calls_per_minute: float = Field(50, gt=0, le=60)     # Finnhub gratuito: 60
+    concurrency: int = Field(4, ge=1, le=16)             # peticiones a Yahoo a la vez
+    # un titular solo cuenta si menciona alguna de estas palabras (en inglés, sin distinguir mayúsculas) y ninguna de las de `news_exclude`
+    # (se busca al comienzo de una palabra: «acquir» vale para acquire/acquires/acquired)
+    news_keywords: tuple[str, ...] = (
+        "earnings", "guidance", "outlook", "forecast", "revenue", "profit", "loss", "downgrade", "upgrade", "price target", "lawsuit", "sues", "sued",
+        "probe", "investigation", "subpoena", "doj", "fda", "recall", "bankruptcy", "default", "offering", "dilution", "buyback",
+        "dividend", "acquir", "acquisition", "merger", "takeover", "ceo", "cfo", "resign", "steps down", "layoff", "job cuts", "plunge",
+        "tumble", "soar", "short seller", "short report", "delist", "restructur", "going concern", "warning", "approval", "contract",
+        "tariff", "banned", "fined", "settlement", "spin-off", "stake")
+    news_exclude: tuple[str, ...] = (
+        "here's why", "here is why", "should you", "stock to buy", "stocks to buy", "better buy", "buy now", "is it a buy", "right now",
+        "prediction", "what to expect", "preview", "reports next week", "what you need to know", "key metrics", "could make you", "millionaire", "motley fool", "zacks", "why is", "what to know", "top stocks")
+
+
 class TrendSettings(_Model):
     """Histórico de cierres diarios de tastytrade (DXLink) en el que se basan los filtros técnicos del scanner."""
     history_days: int = Field(1400, ge=30)          # días naturales de cierres que se guardan (~3,8 años: lo máximo que da tastytrade)
@@ -699,6 +729,8 @@ class Settings(_Model):
     market_data: MarketDataSettings = MarketDataSettings()
     edgar: EdgarSettings = EdgarSettings()
     analysts: AnalystSettings = AnalystSettings()
+    finnhub: FinnhubSettings = FinnhubSettings()
+    company: CompanySettings = CompanySettings()
     trend: TrendSettings = TrendSettings()
     storage: StorageSettings = StorageSettings()
     logging: LoggingSettings = LoggingSettings()

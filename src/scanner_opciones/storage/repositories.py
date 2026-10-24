@@ -8,6 +8,7 @@ from typing import Iterable, Optional, Sequence
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, TickerInfo
 from scanner_opciones.marketdata.analysts import AnalystChange
+from scanner_opciones.marketdata.company import CompanyNotes, NewsItem
 from scanner_opciones.marketdata.filings import FilingAlert
 from scanner_opciones.storage.db import Database
 
@@ -251,6 +252,60 @@ class AnalystRepo:
                 return self.db.conn.execute("DELETE FROM analyst_changes").rowcount
             marks = ",".join("?" * len(keep))
             return self.db.conn.execute(f"DELETE FROM analyst_changes WHERE ticker NOT IN ({marks})", keep).rowcount
+
+
+class CompanyNotesRepo:
+    """Descripción del negocio y noticias con fecha por ticker. Las columnas automáticas (`description`, `news`) y las escritas a mano
+    (`summary`, `curated`) se guardan por separado: una pasada automática nunca pisa lo revisado."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def save_descriptions(self, found: dict[str, str], at: date) -> int:
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO company_notes (ticker, description, description_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(ticker) DO UPDATE SET description = excluded.description, description_at = excluded.description_at",
+                [(t, d, at.isoformat()) for t, d in found.items()])
+        return len(found)
+
+    def save_news(self, found: dict[str, list[NewsItem]], at: date) -> int:
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO company_notes (ticker, news, news_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(ticker) DO UPDATE SET news = excluded.news, news_at = excluded.news_at",
+                [(t, json.dumps([n.to_json() for n in items]), at.isoformat()) for t, items in found.items()])
+        return len(found)
+
+    def save_curated(self, ticker: str, summary: Optional[str], curated: Optional[list[NewsItem]], at: date) -> None:
+        """Resumen y noticias revisadas a mano; `None` deja lo que hubiera."""
+        with self.db.conn:
+            self.db.conn.execute("INSERT INTO company_notes (ticker) VALUES (?) ON CONFLICT(ticker) DO NOTHING", (ticker,))
+            if summary is not None:
+                self.db.conn.execute("UPDATE company_notes SET summary = ? WHERE ticker = ?", (summary or None, ticker))
+            if curated is not None:
+                self.db.conn.execute("UPDATE company_notes SET curated = ?, curated_at = ? WHERE ticker = ?",
+                                     (json.dumps([n.to_json() for n in curated]) if curated else None, at.isoformat(), ticker))
+
+    def all(self) -> dict[str, CompanyNotes]:
+        def day(v):
+            return date.fromisoformat(v[:10]) if v else None
+        out = {}
+        for r in self.db.conn.execute("SELECT * FROM company_notes"):
+            out[r["ticker"]] = CompanyNotes(
+                r["description"] or "", day(r["description_at"]), tuple(NewsItem.from_json(n) for n in json.loads(r["news"] or "[]")),
+                day(r["news_at"]), r["summary"] or "", tuple(NewsItem.from_json(n) for n in json.loads(r["curated"] or "[]")), day(r["curated_at"]))
+        return out
+
+    def purge_except(self, keep: Iterable[str]) -> int:
+        """Borra las fichas automáticas de lo que ya no se sigue; lo escrito a mano (resumen o noticias revisadas) se conserva."""
+        keep = list(keep)
+        with self.db.conn:
+            if not keep:
+                return self.db.conn.execute("DELETE FROM company_notes WHERE summary IS NULL AND curated IS NULL").rowcount
+            marks = ",".join("?" * len(keep))
+            return self.db.conn.execute(
+                f"DELETE FROM company_notes WHERE ticker NOT IN ({marks}) AND summary IS NULL AND curated IS NULL", keep).rowcount
 
 
 class QualityRepo:

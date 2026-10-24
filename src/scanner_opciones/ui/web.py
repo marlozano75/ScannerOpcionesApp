@@ -14,6 +14,7 @@ from typing import Awaitable, Callable, Optional
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 from markupsafe import Markup, escape
 
 from pydantic import ValidationError
@@ -77,10 +78,13 @@ def sec_flag(alerts, ticker):
 TEMPLATES.env.globals["sec_flag"] = sec_flag
 
 
-def tk_title(names, ticker, extra=""):
-    """Texto al pasar el ratón por un ticker: el nombre completo de la acción o ETF (si se conoce) y, debajo, `extra`."""
-    name = (names or {}).get(norm_ticker(ticker), "")
-    return "\n".join(p for p in (name, extra) if p)
+@pass_context
+def tk_title(ctx, names, ticker, extra=""):
+    """Texto al pasar el ratón por un ticker: el nombre completo de la acción o ETF (si se conoce), `extra` y, debajo, a qué se dedica la empresa
+    y sus noticias recientes con fecha (`company_notes` del contexto de la página)."""
+    key = norm_ticker(ticker)
+    note = (ctx.get("company_notes") or {}).get(key, "")
+    return "\n".join(p for p in ((names or {}).get(key, ""), extra, note) if p)
 
 
 TEMPLATES.env.globals["tk_title"] = tk_title
@@ -620,6 +624,7 @@ def create_app(
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()), path=request.url.path,
             excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(), analyst_alerts=service.analyst_map(), company_names=service.company_name_map(),
+            company_notes=service.company_notes_map(),
         )
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 
