@@ -24,6 +24,7 @@ CALM, TESTED, ATM, DEEP = "calm", "tested", "atm", "deep"
 BETWEEN, BEYOND = "between", "beyond"          # spreads: entre los dos strikes / por debajo de ambos
 ZONE_LABELS = {CALM: "tranquila", TESTED: "testeada", ATM: "en el dinero", DEEP: "muy dentro del dinero",
                BETWEEN: "entre los dos strikes", BEYOND: "por debajo de ambos strikes"}
+ZONE_SHORT = {CALM: "Tranquila", TESTED: "Testeada", ATM: "En el dinero", DEEP: "Muy dentro", BETWEEN: "Entre strikes", BEYOND: "Bajo ambos"}
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,10 @@ class Defense:
     @property
     def label(self) -> str:
         return ZONE_LABELS[self.zone]
+
+    @property
+    def short_label(self) -> str:
+        return ZONE_SHORT[self.zone]
 
 
 def zone_of(delta: Optional[float], underlying: Optional[float], strike: float, cfg: DefenseSettings) -> str:

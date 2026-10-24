@@ -10,6 +10,7 @@ La prima capturada necesita el coste medio de la posición (`Position.avg_cost`)
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from datetime import date
 from typing import Optional, Sequence
@@ -34,10 +35,54 @@ def put_key(p: Position) -> str:
     return f"{p.ticker}|{o.expiry.isoformat()}|{o.strike:g}"
 
 
+# (patrón del comienzo del aviso, etiqueta corta): la primera que coincide manda. El texto completo se ve en el tooltip.
+_SHORT_LABELS = (
+    (r"Recoger beneficios", "Recoger beneficios"), (r"Casi toda la prima", "Prima casi ganada"), (r"Revisar:", "Revisar / rolar"),
+    (r"En pérdida", "En pérdida"), (r"Put testeada", "Testeada: esperar"), (r"En el dinero \(", "Rolar abajo y fuera"),
+    (r"Muy dentro", "Muy dentro: rolar fuera"), (r"Quedan \d+ días", "Gamma: gestionar ya"),
+    (r"Extrínseco casi cero", "Asignación anticipada"), (r"Ex-dividendo", "Ex-dividendo cerca"), (r"Pérdida de", "Pérdida alta"),
+    (r"IV Rank", "IV Rank"), (r"Resultados", "Resultados antes del venc."), (r"Stop:", "Stop: valorar cerrar"),
+    (r"Riesgo de pin", "Riesgo de pin"), (r"Pérdida máxima:", "Pérdida máxima"), (r"En el dinero:", "En el dinero"),
+    (r"El precio", "Cerca del strike"), (r"Cierra:", "Cerrar"), (r"Valora cerrar", "Valorar cerrar"),
+    (r"Con tanto tiempo", "Sin prisa: no rolar"), (r"Si la tesis", "Revisar la tesis"),
+)
+# Avisos de un spread (empiezan por «Δ 0,30: …»): se resumen por la acción que aconsejan.
+_SPREAD_ACTIONS = (
+    ("cierra siempre", "Cerrar (pin)"), ("cierra o deja que se ejerzan", "Cerrar o ejercer"), ("deja expirar", "Dejar expirar"),
+    ("añade un call spread", "Añadir call spread"), ("rola fuera YA", "Rolar ya con crédito"), ("rola abajo y fuera", "Rolar abajo y fuera"),
+    ("rola", "Rolar con crédito"), ("espera a", "Esperar a 21 DTE"), ("espera", "Esperar"), ("déjalo expirar", "Dejar expirar"),
+    ("cierra o déjalo", "Cerrar o dejar correr"), ("deja correr", "Dejar correr o cerrar"),
+)
+_ICONS = {"warn": "⚠", "ok": "✔", "info": "ⓘ"}
+_URGENCY = {"warn": 3, "ok": 2, "info": 1}
+
+
 @dataclass(frozen=True)
 class Alert:
     level: str    # ok | info | warn
     text: str
+
+    @property
+    def icon(self) -> str:
+        return _ICONS.get(self.level, "ⓘ")
+
+    @property
+    def short(self) -> str:
+        """Resumen de pocas palabras para la tabla del Panel; el texto completo queda para el tooltip."""
+        if self.text.startswith("Δ ") or self.text.startswith("sin delta"):
+            tail = self.text.split(": ", 1)[-1]
+            for key, label in _SPREAD_ACTIONS:
+                if key in tail:
+                    return label
+            return "Gestionar"
+        for pattern, label in _SHORT_LABELS:
+            m = re.match(pattern, self.text)
+            if m:
+                if label == "IV Rank":
+                    n = re.match(r"IV Rank (\d+)", self.text)
+                    return f"IV Rank {n.group(1)} %" if n else label
+                return label
+        return self.text.split(":")[0][:28]
 
 
 @dataclass(frozen=True)
@@ -63,6 +108,17 @@ class PutStatus:
     assign_note: str = ""                # cómo se reconoció el perfil de la posición (por los filtros al abrir o a mano)
     rules: Optional[ExitRules] = None    # estrategia de salida aplicada (la del perfil; None = la del estilo `profile`)
     defense: Optional[Defense] = None    # zona de la put (testeada / en el dinero / muy dentro) y defensa aconsejada; None si el perfil no la usa o es un spread
+
+    @property
+    def main_alert(self) -> Optional[Alert]:
+        """El aviso más urgente (warn > ok > info; a igualdad, el primero): es el que se ve en la tabla."""
+        return min(self.alerts, key=lambda a: -_URGENCY.get(a.level, 0), default=None)    # min conserva el primero en los empates
+
+    @property
+    def urgency(self) -> int:
+        """3 = actuar (warn), 2 = cerrar con ganancia (ok), 1 = informativo, 0 = sin avisos."""
+        a = self.main_alert
+        return _URGENCY.get(a.level, 0) if a else 0
 
 
 @dataclass(frozen=True)
