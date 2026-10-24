@@ -77,7 +77,7 @@ def test_the_panel_shows_the_zone_and_the_roll_button_and_the_route_renders(clie
     svc.save_profiles([Profile("Tasty", ("put",), management="tastytrade"), Profile("Tpc", ("put",), management="tpc")], "Tasty")
     svc.set_put_profile(put_key(pos), "Tasty")
     page = client.get("/").text
-    assert 'class="roll-btn"' in page and "En el dinero" in page and "↻ roll" in page
+    assert 'class="roll-btn"' in page and "En el dinero" in page and "↻</a>" in page
     frag = client.get("/management/roll", params={"key": put_key(pos)}).text
     assert "Roll viable" in frag and "Crédito neto" in frag and "95" in frag and "<html" not in frag
     assert "ya no está en la cartera" in client.get("/management/roll", params={"key": "MSFT|2026-11-20|100"}).text
@@ -134,10 +134,10 @@ def test_the_panel_marks_a_real_delta_and_an_estimated_one(client_and_service):
     svc.save_profiles([Profile("Tasty", ("put",), management="tastytrade")], "Tasty")
     svc.set_put_profile(put_key(pos), "Tasty")
     est = client.get("/").text
-    assert "Delta estimada" in est and "~ ·" in est
+    assert "Delta estimada" in est and __import__("re").search(r"Δ\d\.\d\d~ ", est)
     svc.state.position_deltas = {put_key(pos): 0.58}
     real = client.get("/").text
-    assert "Delta real de tastytrade" in real and "Δ 0.58 ·" in real and "Δ 0.58~" not in real
+    assert "Delta real de tastytrade" in real and "Δ0.58 " in real and "Δ0.58~" not in real
 
 
 async def test_roll_evaluation_offers_concrete_protection_puts_and_calls():
@@ -242,7 +242,7 @@ def test_the_panel_offers_the_defense_of_a_spread_and_the_window_renders(client_
     svc.set_put_profile(put_key(short), "Tasty")
     svc.state.position_deltas = {put_key(short): 0.55}              # delta real de la vendida (sin ella el precio igual al strike sale «cómodo»)
     page = client.get("/").text
-    assert 'class="roll-btn"' in page and "↻ roll" in page and "rola fuera YA con crédito" in page
+    assert 'class="roll-btn"' in page and "↻</a>" in page and "rola fuera YA con crédito" in page
     frag = client.get("/management/roll", params={"key": put_key(short)}).text
     assert "spread 100.00/95.00" in frag and "Vendida/comprada" in frag and "97.50/92.50" in frag
     assert "Añadir un call spread (iron condor)" in frag and "Riesgo máx." in frag and "Vender la call (strangle)" not in frag
