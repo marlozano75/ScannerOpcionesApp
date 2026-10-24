@@ -3,6 +3,7 @@
 {% macro verdict(reason) -%}
   {%- if reason is none -%}<span class="ad-chip ok">✓</span>
   {%- elif 'fuente directa' in reason -%}<span class="ad-chip d" title="{{ reason }}">Directa</span>
+  {%- elif 'sin contratos' in reason -%}<span class="ad-chip no" title="{{ reason }}">✗ Sin opciones</span>
   {%- elif 'sin filtros' in reason -%}<span class="ad-chip src" title="{{ reason }}">Sin filtros</span>
   {%- elif 'no se aplica' in reason -%}<span class="ad-chip src" title="{{ reason }}">—</span>
   {%- else -%}
@@ -88,13 +89,14 @@
   {% if rule_rows %}
   <form method="post" action="/admission/rules">
     <div class="scroll"><table class="ad-rules">
-      <tr><th rowspan="2" class="txt">Fuente</th><th rowspan="2">Tickers</th><th rowspan="2" class="grp-dir gs">Pasa directo</th>
+      <tr><th rowspan="2" class="txt">Fuente</th><th rowspan="2">Tickers</th><th rowspan="2" class="gs" title="Comprobar que el ticker tiene contratos de opciones (también en las directas)">Comprobar opciones</th><th rowspan="2" class="grp-dir gs">Pasa directo</th>
         <th colspan="{{ tpc_filters|length }}" class="grp-tpc gs">TPC · filtros que aplica</th><th colspan="{{ tasty_filters|length }}" class="grp-tasty gs">Tastytrade · filtros que aplica</th></tr>
       <tr>{% for key, label in tpc_filters %}<th class="grp-tpc{{ ' gs' if loop.first }}">{{ label }}</th>{% endfor %}
         {% for key, label in tasty_filters %}<th class="grp-tasty{{ ' gs' if loop.first }}">{{ label }}</th>{% endfor %}</tr>
       {% for name, rule, n in rule_rows %}{% set i = loop.index0 %}
       <tr><td class="txt"><input type="hidden" name="src" value="{{ name }}"><b>{{ name }}</b>{% if name in direct_builtin %} <span class="ad-chip src" title="Directa por la configuración (admission.direct_sources); aquí se puede cambiar">config</span>{% endif %}</td>
         <td>{{ n }}</td>
+        <td class="gs"><input type="checkbox" name="options_{{ i }}" value="1" {{ 'checked' if rule.options }} title="Si no tiene opciones, esta fuente no lo admite"></td>
         <td class="gs"><input type="checkbox" name="direct_{{ i }}" value="1" {{ 'checked' if rule.direct }} title="Los tickers de esta fuente pasan sin medir nada"></td>
         {% for key, label in tpc_filters %}<td class="{{ 'gs' if loop.first }}"><input type="checkbox" name="tpc_{{ i }}" value="{{ key }}" {{ 'checked' if key in rule.tpc }}></td>{% endfor %}
         {% for key, label in tasty_filters %}<td class="{{ 'gs' if loop.first }}"><input type="checkbox" name="tasty_{{ i }}" value="{{ key }}" {{ 'checked' if key in rule.tasty }}></td>{% endfor %}</tr>
@@ -159,7 +161,7 @@
     <td class="num {{ cls }}" {% if n %}style="background:rgba(214,69,50,{{ '%.2f' % ([pct / 100 * 0.85, 0.08]|max if pct >= 5 else 0.0) }})"{% endif %} title="{{ n }} de {{ total }}">{{ n }}{% if n %} <span class="ad-pct">({{ pct|round|int }} %)</span>{% endif %}</td>
   {%- endmacro %}
   <div class="scroll"><table class="ad-tbl ad-src-tbl">
-    <tr><th rowspan="2" class="txt">Fuente</th><th rowspan="2">Total</th><th rowspan="2">Pasan</th><th rowspan="2">Pasan y en Watchlist</th><th rowspan="2">En Watchlist</th>
+    <tr><th rowspan="2" class="txt">Fuente</th><th rowspan="2">Total</th><th rowspan="2">Pasan</th><th rowspan="2">Pasan y en Watchlist</th><th rowspan="2">En Watchlist</th><th rowspan="2" title="Tickers de la fuente sin contratos de opciones (si la fuente lo comprueba)">Sin opciones</th>
       {% if tl %}<th colspan="{{ tl|length }}" class="grp-tpc gs">TPC · rechazados por</th>{% endif %}
       {% if yl %}<th colspan="{{ yl|length }}" class="grp-tasty gs">Tastytrade · rechazados por</th>{% endif %}</tr>
     <tr>{% for l in tl %}<th class="grp-tpc{{ ' gs' if loop.first }}" title="Rechazados por este filtro del estilo TPC">{{ l }}</th>{% endfor %}
@@ -169,6 +171,7 @@
       <td class="num">{{ r.passing }} <span class="ad-pct">({{ (r.passing * 100 / r.total)|round|int }} %)</span></td>
       <td class="num">{{ r.passing_in_watchlist }}{% if r.passing %} <span class="ad-pct">({{ (r.passing_in_watchlist * 100 / r.passing)|round|int }} %)</span>{% endif %}</td>
       <td class="num">{{ r.in_watchlist }} <span class="ad-pct">({{ (r.in_watchlist * 100 / r.total)|round|int }} %)</span></td>
+      <td class="num">{{ r.no_options or '' }}</td>
       {% for l in tl %}{{ cell(r.tpc.get(l, 0), r.total, 'grp-tpc-c' ~ (' gs' if loop.first else '')) }}{% endfor %}
       {% for l in yl %}{{ cell(r.tasty.get(l, 0), r.total, 'grp-tasty-c' ~ (' gs' if loop.first else '')) }}{% endfor %}</tr>{% endfor %}
   </table></div>

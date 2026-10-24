@@ -111,6 +111,7 @@ TASTY_FILTERS = (("liquidity", "Liquidez"), ("iv", "IV bajo"))
 TREND_LABELS = {"Sin cierres": "Tendencia"}      # no tener cierres para medir la tendencia es un fallo del filtro de tendencia
 NO_FILTERS_NOTE = "sin filtros: pasa todo"
 NOT_APPLIED_NOTE = "este estilo no se aplica a sus fuentes"
+NO_OPTIONS_NOTE = "sin contratos de opciones"
 
 
 def canon(labels) -> set[str]:
@@ -123,6 +124,7 @@ class SourceRule:
     `TASTY_FILTERS`). Un estilo sin ningún filtro marcado no se aplica; sin ningún filtro en ninguno de los dos pasa todo. Con filtros de los dos estilos,
     basta con cumplir todos los de uno."""
     direct: bool = False
+    options: bool = True          # comprobar que el ticker tiene opciones: si no las tiene, esta fuente no lo admite (ni siquiera siendo directa)
     tpc: frozenset = frozenset(k for k, _ in TPC_FILTERS)
     tasty: frozenset = frozenset(k for k, _ in TASTY_FILTERS)
 
@@ -152,14 +154,14 @@ class SourceRule:
         return bool(via), tuple(via)
 
     def to_json(self) -> dict:
-        return {"direct": self.direct, "tpc": sorted(self.tpc), "tasty": sorted(self.tasty)}
+        return {"direct": self.direct, "options": self.options, "tpc": sorted(self.tpc), "tasty": sorted(self.tasty)}
 
     @classmethod
     def from_json(cls, data: object) -> "SourceRule":
         if not isinstance(data, dict):
             return cls()
         tpc_ok, tasty_ok = {k for k, _ in TPC_FILTERS}, {k for k, _ in TASTY_FILTERS}
-        return cls(bool(data.get("direct")), frozenset(k for k in data.get("tpc", tpc_ok) if k in tpc_ok),
+        return cls(bool(data.get("direct")), bool(data.get("options", True)), frozenset(k for k in data.get("tpc", tpc_ok) if k in tpc_ok),
                    frozenset(k for k in data.get("tasty", tasty_ok) if k in tasty_ok))
 
 
@@ -177,6 +179,7 @@ class Verdict:
     tasty_all: tuple[str, ...] = ()
     via: Optional[tuple] = None                  # por qué pasa («Directa», «TPC», «Tastytrade», «Sin filtros») según las reglas de sus fuentes
     passed_sources: tuple[str, ...] = ()         # fuentes cuya regla lo admite
+    no_options: bool = False                     # se sabe que no tiene opciones (cuenta en las fuentes que lo comprueban)
 
     @property
     def styles(self) -> list[str]:
@@ -224,6 +227,7 @@ class SourceSummary:
     direct: bool
     tpc: dict
     tasty: dict
+    no_options: int = 0          # tickers sin opciones, si la fuente lo comprueba
 
 
 @dataclass(frozen=True)
@@ -273,5 +277,5 @@ class AdmissionReport:
                             bucket[label] = bucket.get(label, 0) + 1
             ok = [v for v in vs if name in v.passed_sources]
             out.append(SourceSummary(name, len(vs), len(ok), sum(v.in_watchlist for v in ok), sum(v.in_watchlist for v in vs),
-                                     rule.direct, tpc, tasty))
+                                     rule.direct, tpc, tasty, sum(v.no_options for v in vs) if rule.options else 0))
         return sorted(out, key=lambda r: -r.total)

@@ -118,3 +118,22 @@ def test_admission_page_edits_rules_off_switch_and_schedule(tmp_path):
     assert bad.status_code == 303 and svc.feed_schedule("comunidad").times == ("10:00", "22:30")      # no se guarda nada si algo no vale
     client.post("/admission/schedule/reset")
     assert svc.feed_schedule("radar_spreads") == FeedSchedule(in_market=30, after_close=True)
+
+
+async def test_a_source_can_require_that_its_tickers_have_options(tmp_path):
+    svc, vol, _ = make(tmp_path)
+    await prepare(svc)
+    svc.manual_sources["Sueltos"] = ["NOOPT", "TPCOK"]                        # NOOPT quedó sin comprobar al entrar: tastytrade no lo conoce
+    assert "NOOPT" not in svc._has_options
+    svc.set_admission_rules({"Sueltos": SourceRule(direct=True)})              # directa, pero con la comprobación de opciones (por defecto)
+    report = await run(svc)
+    by = {v.ticker: v for v in report.verdicts}
+    assert not by["NOOPT"].passes and by["NOOPT"].no_options and by["NOOPT"].tpc == "sin contratos de opciones"
+    assert by["TPCOK"].passes                                                  # tiene opciones
+    row = next(r for r in report.by_source() if r.name == "Sueltos")
+    assert row.no_options == 1 and row.passing == 1
+    assert svc._has_options["NOOPT"] is False                                  # el resultado se recuerda y el Universo lo descarta en adelante
+    svc.manual_sources["Libres"] = ["NOOPT2"]
+    svc.set_admission_rules({"Libres": SourceRule(direct=True, options=False)})        # sin comprobar las opciones, pasa directo
+    by = {v.ticker: v for v in (await run(svc)).verdicts}
+    assert by["NOOPT2"].passes and by["NOOPT2"].via == ("Directa",)

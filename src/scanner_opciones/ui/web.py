@@ -1019,7 +1019,7 @@ def create_app(
         form = await request.form()
         rules = {}
         for i, name in enumerate(str(n) for n in form.getlist("src")):
-            rules[name] = SourceRule(direct=form.get(f"direct_{i}") == "1", tpc=frozenset(str(k) for k in form.getlist(f"tpc_{i}")),
+            rules[name] = SourceRule(direct=form.get(f"direct_{i}") == "1", options=form.get(f"options_{i}") == "1", tpc=frozenset(str(k) for k in form.getlist(f"tpc_{i}")),
                                      tasty=frozenset(str(k) for k in form.getlist(f"tasty_{i}")))
         try:
             service.set_admission_rules({n: SourceRule.from_json(r.to_json()) for n, r in rules.items()})

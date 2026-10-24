@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any, Optional
 
-from scanner_opciones.scanner.admission import (NO_FILTERS_NOTE, NOT_APPLIED_NOTE, TREND_LABELS, AdmissionReport, SourceRule, Verdict, canon, reason_label,
+from scanner_opciones.scanner.admission import (NO_FILTERS_NOTE, NO_OPTIONS_NOTE, NOT_APPLIED_NOTE, TREND_LABELS, AdmissionReport, SourceRule, Verdict, canon, reason_label,
                                                 tasty_failure_reasons, tpc_failure_reasons, tpc_trend_reject)
 
 log = logging.getLogger(__name__)
@@ -40,7 +40,18 @@ async def evaluate(svc: Any) -> AdmissionReport:
     def rules_of(t: str) -> list[SourceRule]:
         return [rules[n] for n in lists.get(t, ())] or [SourceRule()]
 
-    direct = {t for t in tickers if any(r.direct for r in rules_of(t)) and t in lists}
+    # ¿tiene opciones? Casi siempre ya se comprobó al entrar en el Universo; aquí solo se pide lo que quedó sin comprobar (una petición, recordada)
+    to_check = [t for t in tickers if t in lists and any(r.options for r in rules_of(t))]
+    status = await svc.options_status(to_check) if to_check else {}
+    if status is None:
+        notes.append("No se pudo comprobar qué tickers tienen opciones: no se descarta ninguno por eso.")
+        status = {}
+    without = {t for t, ok in status.items() if not ok}
+
+    def admits(t: str, r: SourceRule) -> bool:
+        return not (r.options and t in without)
+
+    direct = {t for t in tickers if t in lists and any(r.direct and admits(t, r) for r in rules_of(t))}
     todo = [t for t in tickers if t not in direct]
 
     qinfos, winfos, ident, exempt = svc.quality.all(), svc.ticker_info.all(), svc.universe_identity(), svc.quality_exempt()
@@ -112,22 +123,26 @@ async def evaluate(svc: Any) -> AdmissionReport:
     for t in tickers:
         names = tuple(lists.get(t, ()))
         if t in direct:
-            verdicts.append(Verdict(t, t in watchlist, names, True, DIRECT_NOTE, DIRECT_NOTE, protected=t in held, via=("Directa",), passed_sources=names))
+            verdicts.append(Verdict(t, t in watchlist, names, True, DIRECT_NOTE, DIRECT_NOTE, protected=t in held, via=("Directa",),
+                                    passed_sources=tuple(n for n in names if admits(t, rules[n])), no_options=t in without))
             continue
         tpc_fail, tasty_fail = canon(tpc_why[t]), set(tasty_why[t])
         via: dict[str, None] = {}
         passed = []
         for n in names or (None,):
-            ok, why = (rules[n] if n is not None else SourceRule()).evaluate(tpc_fail, tasty_fail)
-            if ok:
+            rule = rules[n] if n is not None else SourceRule()
+            ok, why = rule.evaluate(tpc_fail, tasty_fail)
+            if ok and admits(t, rule):
                 via.update(dict.fromkeys(why))
                 if n is not None:
                     passed.append(n)
         rs = rules_of(t)
         tpc_on = set().union(*(r.tpc_labels for r in rs))
         tasty_on = set().union(*(r.tasty_labels for r in rs))
-        verdicts.append(Verdict(t, t in watchlist, names, False, shown(tpc_why[t], tpc_on, bool(tpc_on)), shown(tasty_why[t], tasty_on, bool(tasty_on)),
-                                protected=t in held, tpc_all=tuple(tpc_why[t]), tasty_all=tuple(tasty_why[t]), via=tuple(via), passed_sources=tuple(passed)))
+        none = t in without and not passed and any(r.options for r in rs)
+        verdicts.append(Verdict(t, t in watchlist, names, False, NO_OPTIONS_NOTE if none else shown(tpc_why[t], tpc_on, bool(tpc_on)),
+                                NO_OPTIONS_NOTE if none else shown(tasty_why[t], tasty_on, bool(tasty_on)), protected=t in held, tpc_all=tuple(tpc_why[t]),
+                                tasty_all=tuple(tasty_why[t]), via=tuple(via), passed_sources=tuple(passed), no_options=t in without))
     return AdmissionReport(now, tuple(verdicts), tuple(notes), rules)
 
 

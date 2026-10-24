@@ -582,6 +582,14 @@ class AppService:
             self.meta.set("universe_options", json.dumps(self._has_options))
         return {t for t in tickers if self._has_options.get(t)}
 
+    async def options_status(self, tickers) -> Optional[dict[str, bool]]:
+        """{ticker: ¿tiene opciones?} de los dados. Lo ya comprobado se reutiliza (al entrar en el Universo); lo demás se pide a tastytrade de una vez. None si
+        no se puede comprobar (sin proveedor o falla)."""
+        found = await self._with_options([clean_ticker(t) for t in tickers])
+        if found is None:
+            return None
+        return {t: clean_ticker(t) in found for t in tickers}
+
     async def _inactive(self, tickers: list[str]) -> set[str]:
         """Tickers que tastytrade marca como inactivos (deslistados o adquiridos; las listas públicas y los ficheros los arrastran). Sin
         proveedor o si falla, ninguno: no se descarta nada sin poder comprobarlo."""
