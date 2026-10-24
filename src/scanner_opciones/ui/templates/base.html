@@ -349,6 +349,7 @@
   function poll() {
     fetch('/data-version', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
       if (d.version === current || d.busy) return;
+      if (document.querySelector('dialog[open], #pos-overlay:not([hidden])')) return;     // con un gráfico abierto no se recarga: lo cerraría; se reintenta en 10 s
       if (!dirty) { location.reload(); return; }
       if (notified) return;
       notified = true;
