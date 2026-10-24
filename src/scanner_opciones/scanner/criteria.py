@@ -157,6 +157,10 @@ class ScanCriteria:
     price_spread_pct: float = 25.0
     min_put_credit: Optional[float] = None         # crédito mínimo de la put desnuda: precio de venta de referencia × multiplicador, en $
     max_capital_risk_pct: Optional[float] = None   # capital en riesgo de la put desnuda ((strike − prima) × multiplicador) como % del NLV; sin NLV en USD no se aplica
+    # calidad mínima de la put desnuda (de cada perfil): quien no la cumple solo se escanea como spread. Sin ninguna marcada, no se exige nada
+    floor_eps: bool = False                        # beneficios de los últimos 12 meses > 0
+    floor_quarters: int = 0                        # trimestres con beneficios de los últimos 4 (0 = no se exige)
+    floor_fcf: bool = False                        # flujo de caja libre de 12 meses > 0 (sin `edgar.contact` no hay dato y se ignora)
     # modo spread (ver scanner/spreads.py): put vendida (filtros de arriba) + put comprada `ancho` $ por debajo
     spread_mode: bool = False
     spread_widths: tuple[float, ...] = ()
@@ -175,6 +179,10 @@ class ScanCriteria:
     mixed: bool = False
     max_naked_strike: Optional[float] = None       # strike máximo de la put desnuda ($)
 
+    @property
+    def floor_active(self) -> bool:
+        return self.floor_eps or self.floor_quarters > 0 or self.floor_fcf
+
     def with_filters(self, **overrides) -> "ScanCriteria":
         """Copia con filtros modificados (p. ej. desde la UI)."""
         return replace(self, **overrides)
@@ -184,7 +192,10 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
     """Valores iniciales del filtro (todos editables en el formulario)."""
     f = settings.scanner.filters
     ini = settings.scanner.initial
+    floor = settings.scanner.quality.put_floor      # valor inicial de la calidad mínima de la put; cada perfil guarda el suyo
     return ScanCriteria(
+        floor_eps=floor.enabled and floor.require_profitable, floor_quarters=floor.min_positive_quarters if floor.enabled else 0,
+        floor_fcf=floor.enabled and floor.require_positive_fcf,
         strike_below_pct_min=ini.strike_below_pct_min,
         strike_below_pct_max=ini.strike_below_pct_max,
         min_yield_pct=ini.min_yield_pct,

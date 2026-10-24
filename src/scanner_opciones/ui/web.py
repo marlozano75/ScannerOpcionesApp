@@ -1172,6 +1172,7 @@ def create_app(
             "credit": ("min_put_credit", float, base.min_put_credit),
             "risk": ("max_capital_risk_pct", float, base.max_capital_risk_pct),
         }
+        form.update(fl_eps=base.floor_eps, fl_q=str(base.floor_quarters), fl_fcf=base.floor_fcf)       # calidad mínima de la put (de cada perfil)
         fv = service.settings.scanner.filter_values
         shown = {"oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
                  "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile, "credit": fv.min_put_credit, "risk": fv.max_capital_risk_pct}
@@ -1264,6 +1265,11 @@ def create_app(
                     form[f"use_{key}"] = f"use_{key}" in qp
                     # un perfil (o enlace) que no trae la caja la muestra con su valor preconfigurado, desmarcada
                     form[key] = qp.get(key, _fmt(shown[key])).strip()
+                if "fl" in qp:      # bloque enviado: lo marcado manda; una URL sin él (perfiles guardados antes) usa la calidad mínima inicial de la configuración
+                    form["fl_eps"], form["fl_fcf"] = "fl_eps" in qp, "fl_fcf" in qp
+                    form["fl_q"] = qp.get("fl_q", "0").strip()
+                    if form["fl_q"] not in ("0", "1", "2", "3", "4"):
+                        raise ValueError("trimestres con beneficios: valor no permitido")
                 for key in ("use_delta", "use_near", "use_rsi", "use_boll", "use_bw", "use_ivhv", "use_ivchg", "use_atr", "use_exp", "iv_any"):
                     form[key] = key in qp
                 for key in ("delta_min", "delta_max", "near_pct", "rsi_max", "boll_pctb", "boll_width",
@@ -1295,6 +1301,7 @@ def create_app(
             for key, (field_name, cast, _) in optional.items():
                 # sin marcar = filtro desactivado, aunque la configuración tenga un valor
                 overrides[field_name] = _required(form[key], cast, field_name) if form[f"use_{key}"] else None
+            overrides.update(floor_eps=bool(form["fl_eps"]), floor_quarters=int(form["fl_q"] or 0), floor_fcf=bool(form["fl_fcf"]))
             if form["use_delta"]:   # basta con un máximo (o un mínimo): la caja vacía no se aplica
                 lo = _required(form["delta_min"], float, "Delta mín.") if form["delta_min"] else None
                 hi = _required(form["delta_max"], float, "Delta máx.") if form["delta_max"] else None
@@ -1343,6 +1350,8 @@ def create_app(
             if set_name == "spread":     # los filtros propios del spread solo existen en su juego de filtros
                 overrides["min_put_credit"], form["use_credit"] = None, False      # el crédito del spread lo fija «Crédito mín.» (use_mc)
                 overrides["max_capital_risk_pct"], form["use_risk"] = None, False   # el capital en riesgo del spread es su «Pérdida máxima (% del NLV)» (use_mn)
+                overrides.update(floor_eps=False, floor_quarters=0, floor_fcf=False)    # la calidad mínima es de la put desnuda; el spread tiene el riesgo acotado
+                form.update(fl_eps=False, fl_q="0", fl_fcf=False)
                 overrides.update(spread_mode=True, spread_widths=tuple(sorted(set(sp.width_options))), best_width=bool(form["best_width"]))
                 for use, key, field_name, label, upper in (
                         ("use_rr", "rr", "min_return_on_risk_pct", "Retorno s/ riesgo mín. (%)", None),
@@ -1646,7 +1655,7 @@ def create_app(
             }[c.price_reference]
         if c is not None:
             parsed["warnings"].extend(service.filter_data_gaps(c))
-            if (floor_notice := service.put_floor_notice()) is not None:
+            if (floor_notice := service.put_floor_notice(pair['put']['criteria'] if mode in ('put', 'both') else None)) is not None:
                 parsed["warnings"].append(floor_notice)
             if (stale := service.community_stale()) is not None:
                 parsed["warnings"].append(f"Los datos de la comunidad de Tortuga tienen {stale / 24:.0f} días: la rutina diaria no se ha ejecutado "

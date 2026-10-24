@@ -14,4 +14,4 @@ def _no_put_floor(request, monkeypatch):
     todas. Los tests de ese filtro lo piden con `@pytest.mark.put_floor`."""
     if request.node.get_closest_marker("put_floor") is None:
         from scanner_opciones.app.service import AppService
-        monkeypatch.setattr(AppService, "put_floor_reasons", lambda self: {})
+        monkeypatch.setattr(AppService, "put_floor_reasons", lambda self, criteria=None: {})

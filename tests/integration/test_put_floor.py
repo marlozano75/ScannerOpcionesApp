@@ -83,3 +83,28 @@ async def test_the_floor_can_be_switched_off_and_the_watchlist_shows_the_modes()
     object.__setattr__(svc.settings.scanner.quality, "put_floor", svc.settings.scanner.quality.put_floor.model_copy(update={"enabled": False}))
     svc._scan_memo.clear()
     assert svc.put_floor_reasons() == {}
+
+
+async def test_the_floor_belongs_to_each_profile_through_its_criteria_and_form():
+    from urllib.parse import urlencode
+    from fastapi.testclient import TestClient
+    from scanner_opciones.ui.web import create_app
+    svc, gw = await started_service()
+    crit = svc.criteria().with_filters(strike_below_pct_min=1, strike_below_pct_max=40, min_yield_pct=0, dte_min=1, dte_max=45)
+    assert crit.floor_eps and crit.floor_quarters == 3 and crit.floor_fcf                                  # valor inicial: el de la configuración
+    assert svc.scan(crit).results == []                                                                      # sin datos de calidad: bloqueada
+    none = crit.with_filters(floor_eps=False, floor_quarters=0, floor_fcf=False)
+    assert len(svc.scan(none).results) == 2 and svc.put_floor_reasons(none) == {} and svc.put_floor_notice(none) is None     # otro perfil: sin calidad mínima
+    only_eps = crit.with_filters(floor_quarters=0, floor_fcf=False)
+    assert "AAPL" in svc.put_floor_reasons(only_eps) and "FCF" not in svc.put_floor_reasons(only_eps)["AAPL"]
+    assert "beneficios 12 m" in svc.put_floor_notice(only_eps) and "FCF" not in svc.put_floor_notice(only_eps)
+    # el formulario: sin el bloque (perfil antiguo) manda la configuración; con él, lo marcado
+    client = TestClient(create_app(svc))
+    base = {"submitted": 1, "mode": "put", "discount": 1, "dte_min": 1, "dte_max": 45, "min_yield": 0, "ref": "bid", "trend_window": 24, "trend_days": 30}
+    assert 'name="fl_eps" checked' in client.get("/scanner?" + urlencode(base)).text
+    off = client.get("/scanner?" + urlencode({**base, "fl": 1})).text
+    assert 'name="fl_eps" checked' not in off and 'name="fl_fcf" checked' not in off and 'value="0" selected' in off
+    on = client.get("/scanner?" + urlencode({**base, "fl": 1, "fl_eps": "on", "fl_q": 2})).text
+    assert 'name="fl_eps" checked' in on and 'value="2" selected' in on
+    bad = client.get("/scanner?" + urlencode({**base, "fl": 1, "fl_q": 9})).text
+    assert "no permitido" in bad

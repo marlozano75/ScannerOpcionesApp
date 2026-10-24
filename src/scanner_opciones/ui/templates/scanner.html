@@ -87,6 +87,7 @@
 {% for o in optional %}{% set _ = chips.append(('sec-optional', o)) %}{% endfor %}
 {% if form.use_credit and form.set != 'spread' %}{% set _ = chips.append(('sec-credit', 'Crédito ≥ ' ~ form.credit ~ ' $')) %}{% endif %}
 {% if form.use_risk and form.set != 'spread' %}{% set _ = chips.append(('sec-risk', 'Capital en riesgo ≤ ' ~ form.risk ~ ' % NLV')) %}{% endif %}
+{% if form.set != 'spread' and (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = chips.append(('sec-floor', 'Calidad mínima de la put')) %}{% endif %}
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto) #}
 {% set offs = [] %}
 {% if form.set == 'spread' %}
@@ -100,6 +101,7 @@
   {% if not form[use] and (use not in ('use_credit', 'use_risk') or form.set != 'spread') %}{% set _ = offs.append((sec, label)) %}{% endif %}
 {% endfor %}
 {% if not form.q_liq %}{% set _ = offs.append(('sec-optional', 'Liquidez')) %}{% endif %}
+{% if form.set != 'spread' and not (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = offs.append(('sec-floor', 'Calidad mínima de la put')) %}{% endif %}
 {% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia')) %}{% endif %}
 {% if not form.support %}{% set _ = offs.append(('sec-levels', 'Soporte')) %}{% endif %}
 {% if not form.touch %}{% set _ = offs.append(('sec-levels', 'Último toque')) %}{% endif %}
@@ -287,6 +289,18 @@
         <label class="opt opt-row" title="(strike − prima de referencia) × 100 acciones, sobre el NLV en USD"><span class="check"><input type="checkbox" name="use_risk" {{ 'checked' if form.use_risk }}> Capital en riesgo máx. (% del NLV)</span>
           <input name="risk" value="{{ form.risk }}" inputmode="decimal"></label>
         <p class="note">Lo que pierdes por contrato si el subyacente llega a 0: (strike − prima) × 100, sobre el NLV. Si no hay NLV en USD no se aplica. En un spread es su «Pérdida máx. (% NLV)».</p>
+      {% endcall %}
+      {% endif %}
+
+      {% if form.set != 'spread' %}
+      {% set floor_parts = [] %}{% if form.fl_eps %}{% set _ = floor_parts.append('beneficios') %}{% endif %}{% if form.fl_q != '0' %}{% set _ = floor_parts.append('≥ ' ~ form.fl_q ~ ' trim.') %}{% endif %}{% if form.fl_fcf %}{% set _ = floor_parts.append('FCF') %}{% endif %}
+      {% call section('sec-floor', 'Calidad mínima de la put', (floor_parts | join(' · ')) or 'Sin filtro', floor_parts|length > 0) %}
+        <input type="hidden" name="fl" value="1">
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="fl_eps" {{ 'checked' if form.fl_eps }}> Beneficios de los últimos 12 meses &gt; 0</span></label>
+        <label class="opt opt-row"><span>Trimestres con beneficios (de los últimos 4)</span>
+          <select name="fl_q">{% for n in ('0', '1', '2', '3', '4') %}<option value="{{ n }}" {{ 'selected' if form.fl_q == n }}>{{ 'No se exige' if n == '0' else '≥ ' ~ n }}</option>{% endfor %}</select></label>
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="fl_fcf" {{ 'checked' if form.fl_fcf }}> Flujo de caja libre &gt; 0</span></label>
+        <p class="note">Solo para la put desnuda: quien no lo cumple no sale como put, solo como spread (el riesgo está acotado). Un dato que falta cuenta como «no cumple»; los ETF no se miden y las financieras y sectores exentos no miden el FCF. Sin <code>edgar.contact</code> no hay FCF y esa casilla no se aplica. Cada perfil guarda la suya.</p>
       {% endcall %}
       {% endif %}
 
