@@ -127,7 +127,7 @@ class RoutineRunner:
         self.meta.set(STATE_KEY, json.dumps(state))
 
     def due(self) -> list[Routine]:
-        """Rutinas que tocan ya según su horario (`tortuga/schedule.py`: el de la configuración o el editado en Admisión): en mercado y fuera de él
+        """Rutinas que tocan ya según su horario (`tortuga/schedule.py`: el de la configuración o el editado en el Universo): en mercado y fuera de él
         cada N minutos, a horas fijas, y una pasada tras el cierre. Tras un fallo se espera `tortuga.retry_minutes`."""
         cfg, now, state = self.settings.tortuga, self.now(), self.state()
         out = []

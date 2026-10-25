@@ -107,6 +107,51 @@
   {% else %}<p class="muted">Aún no se ha cargado nada.</p>{% endif %}
 </div>
 {% elif not table %}<p class="muted" style="margin-top:18px">Aún no hay fuentes: carga un fichero (.xlsx o .html) o añade tickers a mano con el menú de la izquierda.</p>{% endif %}
+{% if wl_sync and view != 'history' %}{% set p = wl_sync.plan %}
+<div class="banner {{ 'warn' if wl_sync.held else 'info' }}" id="wl-sync">
+  <form method="post" action="/universe/watchlist-sync" style="margin:0">
+    {% if wl_sync.held %}<b>La sincronización automática quitaría muchos tickers de la Watchlist y está en espera.</b>
+    {% else %}<b>La Watchlist pasará a ser todo lo que haya en las fuentes del Universo con opciones.</b> Todavía no se ha aplicado nada.{% endif %}
+    Añadiría <b>{{ p.add|length }}</b> y quitaría <b>{{ p.remove|length }}</b> ({{ p.kept }} se quedan{% if p.protected %}; {{ p.protected|length }} con posiciones abiertas o instrumento propio se conservan{% endif %}).
+    {% if p.add %}<details><summary>Se añadirían ({{ p.add|length }})</summary><span class="muted">{{ p.add|join(', ') }}</span></details>{% endif %}
+    {% if p.remove %}<details><summary>Se quitarían, con sus contratos y ficha ({{ p.remove|length }})</summary><span class="muted">{{ p.remove|join(', ') }}</span></details>{% endif %}
+    {% if p.protected %}<details><summary>Se conservan aunque ninguna fuente los lista ({{ p.protected|length }})</summary><span class="muted">{{ p.protected|join(', ') }}</span></details>{% endif %}
+    <p style="margin:6px 0 0">
+      <button type="submit" name="on" value="1" onclick="return confirmClick(this, 'La Watchlist quedará igual que las fuentes con opciones ({{ p.add|length }} añadidos, {{ p.remove|length }} quitados) y las fuentes nuevas entrarán solas. ¿Aplicar?')">Aplicar y mantener sincronizada</button>
+      {% if not wl_sync.held %}<button type="submit" name="on" value="0" class="secondary" title="La Watchlist se sigue cambiando a mano desde el Universo">No, la gestiono a mano</button>{% endif %}
+    </p>
+  </form>
+</div>
+{% endif %}
+{% if feeds and view != 'history' %}
+<details class="card" id="feed-schedule">
+  <summary>Periodicidad de las fuentes por API / MCP</summary>
+  <style>
+    .ad-sch td, .ad-sch th { padding:4px 8px; font-size:12px; text-align:left; vertical-align:top; }
+    .ad-sch input[type=number] { width:70px; } .ad-sch input[type=text] { width:130px; }
+    .ad-chip { display:inline-block; padding:0 7px; border-radius:9px; font-size:11px; font-weight:700; margin:1px 3px 1px 0; white-space:nowrap; background:rgba(127,127,127,.16); color:var(--mute); }
+  </style>
+  <p class="muted" style="margin-top:0">Las fuentes que la aplicación consulta sola mientras está abierta. <b>En mercado</b>: cada N minutos con el mercado abierto. <b>Fuera de mercado</b>: cada N minutos en día hábil con el mercado cerrado.
+    <b>Descargas especiales</b>: horas fijas (HH:MM, hora local, separadas por comas) en día hábil, una vez cada una. <b>Tras el cierre</b>: una lectura más con la foto del último cierre (también al abrir la app fuera de sesión).
+    Vacío = esa modalidad no se usa; sin ninguna, solo se actualiza a mano. Fin de semana y festivo no hay lecturas automáticas. Se comprueba en cada ciclo de refresco y, tras un fallo, se espera unos minutos antes de reintentar.</p>
+  <form method="post" action="/universe/schedule">
+    <div class="scroll"><table class="ad-sch">
+      <tr><th>Consulta</th><th>Origen</th><th>Alimenta</th><th>En mercado (min)</th><th>Fuera de mercado (min)</th><th>Descargas especiales</th><th>Tras el cierre</th><th>Última vez</th></tr>
+      {% for f in feeds %}{% set sc = f.schedule %}
+      <tr><td><b>{{ f.title }}</b><br><span class="muted">{{ describe(sc) }}</span></td><td>{{ f.origin }}</td>
+        <td>{% for n in f.sources %}<span class="ad-chip">{{ n }}</span>{% else %}—{% endfor %}</td>
+        <td><input type="number" min="{{ f.min }}" name="in_{{ f.key }}" value="{{ sc.in_market or '' }}"></td>
+        <td><input type="number" min="{{ f.min }}" name="out_{{ f.key }}" value="{{ sc.out_market or '' }}"></td>
+        <td><input type="text" name="times_{{ f.key }}" value="{{ sc.times|join(', ') }}" placeholder="11:15, 22:30"></td>
+        <td><input type="checkbox" name="close_{{ f.key }}" value="1" {{ 'checked' if sc.after_close }}></td>
+        <td class="muted">{{ f.last_ok[:16].replace('T', ' ') if f.last_ok else 'nunca' }}{% if f.error %}<br><span class="tr-err" title="{{ f.error }}">Falló: {{ f.error[:60] }}</span>{% endif %}</td></tr>
+      {% endfor %}
+    </table></div>
+    <p><button type="submit">Guardar periodicidad</button>
+      <button type="submit" class="secondary" formaction="/universe/schedule/reset" formnovalidate onclick="return confirmClick(this, 'La periodicidad vuelve a lo que dice config.yaml. ¿Restaurar?')">Restaurar</button></p>
+  </form>
+</details>
+{% endif %}
 {% if table and view != 'history' %}
 <details class="card qbar" id="qbar" open>
   <summary>Filtros de calidad de la empresa <span class="muted">· {{ n_active }} activo{{ '' if n_active == 1 else 's' }} · pasan {{ rows|length }} de {{ total_rows }}</span></summary>
@@ -225,19 +270,6 @@
     {% else %}
     <button class="secondary" type="submit" formaction="/universe/source/spread" name="on" value="1"
             title="En una fuente apta para spreads no se miden los beneficios ni la solvencia (el riesgo del spread está definido): solo liquidez de opciones y precio. Sus tickers solo salen en el Scanner como spread, nunca como put desnuda.">Marcar como fuente apta para spreads</button>
-    {% endif %}
-  </p>
-  <p>
-    {% if src in direct_sources %}
-    <b title="Se consulta varias veces al día y se supone que ya cumple los criterios: sus tickers pasan a la Watchlist sin más filtro (pantalla Admisión).">✓ Fuente directa</b>
-    {% if src not in direct_builtin %}
-    <button class="secondary" type="submit" formaction="/universe/source/direct" name="on" value="0">Dejar de marcarla como directa</button>
-    {% else %}
-    <span class="muted">Viene de la configuración (<code>admission.direct_sources</code>).</span>
-    {% endif %}
-    {% else %}
-    <button class="secondary" type="submit" formaction="/universe/source/direct" name="on" value="1"
-            title="Sus tickers pasarán a la Watchlist sin comprobar calidad, tendencia ni IV: úsalo solo con fuentes que ya filtran (listas de tastytrade, radar de Tortuga).">Marcar como fuente directa</button>
     {% endif %}
   </p>
   {% endif %}

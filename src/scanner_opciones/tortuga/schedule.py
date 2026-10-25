@@ -1,6 +1,6 @@
 """Periodicidad de las fuentes que se consultan por API o MCP (rutinas de Tortuga y listas públicas de tastytrade).
 
-Cada una tiene el mismo modelo de horario, editable desde Admisión (se guarda en `meta.feed_schedules`; lo que no se toca sale de la configuración):
+Cada una tiene el mismo modelo de horario, editable desde el Universo (se guarda en `meta.feed_schedules`; lo que no se toca sale de la configuración):
 - **en mercado**: cada N minutos mientras el mercado está abierto;
 - **fuera de mercado**: cada N minutos en día hábil con el mercado cerrado;
 - **descargas especiales**: horas fijas (hora local) de los días hábiles, una vez cada una;

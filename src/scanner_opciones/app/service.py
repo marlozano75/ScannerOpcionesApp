@@ -62,7 +62,6 @@ from scanner_opciones.marketdata.history import DividendProvider, EarningsHistor
 from scanner_opciones.marketdata.history_html import history_html
 from scanner_opciones.marketdata.company import DescriptionProvider, NewsProvider, card_html, tooltip as company_tooltip
 from scanner_opciones.marketdata.filings import FilingAlert
-from scanner_opciones.scanner.admission import SourceRule
 from scanner_opciones.tortuga.api import API_ROUTINES
 from scanner_opciones.tortuga.schedule import LISTS_KEY, MIN_MINUTES, FeedSchedule, load_schedule, reset_schedules, save_schedule
 from scanner_opciones.tortuga.radar import RadarData, RadarError, load_radar, passes as radar_passes
@@ -75,8 +74,7 @@ from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.marketdata.watchlists import WatchlistProvider
-from scanner_opciones.app.admission import evaluate as evaluate_admission
-from scanner_opciones.scanner.admission import AdmissionReport
+from scanner_opciones.app.watchlist_sync import SyncPlan, plan as sync_plan
 from scanner_opciones.tortuga.investors import InvestorsData, InvestorsError, load_investors, quality_holdings
 from scanner_opciones.rankedstocks.loader import build_table, clean_ticker
 from scanner_opciones.universe.sources import MANUAL, SOURCE_COLUMN, Source, identities, load_sources
@@ -98,11 +96,9 @@ CHART_HISTORY_TIMEOUT = 25.0   # segundos que espera el gráfico a que se descar
 POSITION_HISTORY_RETRY_HOURS = 6   # un subyacente de la cartera sin velas en tastytrade no se vuelve a pedir antes
 INACTIVE_CHECKED = "universe_inactive_checked_at"   # clave de `meta`: última vez que se buscaron tickers deslistados en el Universo
 INACTIVE_RECHECK_DAYS = 7
-ADMISSION_RULES = "admission_rules"         # clave de `meta`: regla de Admisión de cada fuente (directa / filtros que aplica)
-ADMISSION_OFF = "admission_filters_off"    # clave de `meta`: "1" = sin filtros de admisión, pasa todo
 TASTY_LISTS_CHECKED = "tasty_lists_checked_at"   # clave de `meta`: última lectura de las listas públicas de tastytrade
 TASTY_LIST_PREFIX = "tasty_list_synced_"         # + nombre de la fuente: huella de los tickers ya volcados
-DIRECT_SOURCES = "direct_sources"             # clave de `meta`: fuentes del Universo marcadas a mano como directas (pasan a la Watchlist sin más filtro)
+WATCHLIST_SYNC = "watchlist_sync"             # clave de `meta`: "" = sin decidir (solo se muestra el resumen), "on" = la Watchlist sigue al Universo, "off" = a mano
 INVESTORS_SYNCED = "super_investors_synced"   # clave de `meta`: huella de la fuente SuperInvestors ya volcada
 INVESTORS_INFO = "super_investors_info"       # clave de `meta`: {ticker: {managers, max_weight}} de esa fuente (columnas del Universo)
 RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
@@ -231,12 +227,10 @@ class AppService:
         self._radar_syncing = False
         self.watchlists = watchlists
         self._tasty_lists_syncing = False
-        self.admission_report: Optional[AdmissionReport] = None
-        self.admission_running = False
         self._position_delta_keys: set[str] = set()      # puts cuya delta real se pidió en la última cotización
-        self.admission_error: Optional[str] = None
-        self._admission_closes: dict = {}
-        self._admission_iv: dict = {}
+        self._wl_sync_running = False
+        self._wl_sync_again = False
+        self.wl_sync_held: Optional[SyncPlan] = None     # pasada automática que superó el límite de seguridad: espera confirmación
         self._investors: Optional[tuple[float, InvestorsData]] = None
         self._investors_error: Optional[str] = None
         self._investors_syncing = False
@@ -550,6 +544,8 @@ class AppService:
             self.record_load(name, "manual", len(new), "sustituido" if replace_source else "añadido")
             await self.complete_info(new)
             self.kick_quality_update()
+        if new or removed:
+            self.sync_watchlist_in_background()
         return {"source": name, "added": new, "new_in_universe": [t for t in new if clean_ticker(t) not in in_universe],
                 "already": already, "no_options": no_options, "checked": checked, "removed": removed, "kept": kept}
 
@@ -566,6 +562,7 @@ class AppService:
             else:
                 del self.manual_sources[source]
             self._save_manual()
+            self.sync_watchlist_in_background()
             return removed
         current = next((s for s in self.universe_sources if s.name == source), None)
         if current is None:
@@ -574,6 +571,7 @@ class AppService:
         if hit:
             self.source_excluded.setdefault(source, set()).update(hit)
             self._save_excluded()
+            self.sync_watchlist_in_background()
         return len(hit)
 
     def remove_source(self, source: str) -> int:
@@ -712,6 +710,7 @@ class AppService:
             folder.mkdir(parents=True, exist_ok=True)
             (folder / file).write_bytes(content)
             self._save_universe_index()
+        self.sync_watchlist_in_background()
 
     def _drop_universe_file(self, file: str) -> None:
         self.universe_files.pop(file, None)
@@ -816,6 +815,7 @@ class AppService:
             await self.refresh_all()
         self.update_financials_in_background()
         self.sync_community_in_background()
+        self.sync_watchlist_in_background()
         if self._offline_capable():
             self.launch(self.fill_missing_sectors())      # ETF y demás sin sector: EDGAR/Yahoo no necesitan TWS
         if self.manual_sources:
@@ -1530,82 +1530,77 @@ class AppService:
 
         self.launch(run())
 
-    # ---- Admisión a la Watchlist: del Universo a la Watchlist según los estilos TPC y Tastytrade ---------------
-    def direct_builtin_names(self) -> set[str]:
-        """Fuentes directas de la configuración (`admission.direct_sources`): no se pueden desmarcar desde la interfaz."""
-        return set(self.settings.admission.direct_sources)
+    # ---- Watchlist = unión de las fuentes del Universo con opciones ----------------------------------------
+    def watchlist_sync_mode(self) -> str:
+        """«» (sin decidir: solo se enseña el resumen), «on» (la Watchlist sigue al Universo) u «off» (a mano)."""
+        mode = self.meta.get(WATCHLIST_SYNC) or ""
+        return mode if mode in ("on", "off") else ""
 
-    def direct_source_names(self) -> set[str]:
-        """Fuentes cuyos tickers pasan a la Watchlist sin más filtro: las de la configuración y las que el usuario marcó, salvo lo que la regla de
-        Admisión de esa fuente diga en contra."""
+    def watchlist_sync_plan(self) -> SyncPlan:
+        """Qué habría que añadir y quitar para que la Watchlist sea la unión de las fuentes. Se quedan los tickers con posiciones abiertas
+        (acciones u opciones) y los instrumentos propios (ESTX50...), aunque ninguna fuente los liste."""
+        held = {p.ticker.replace(" ", "-") for p in self.state.positions}
+        return sync_plan(self.ticker_lists().keys(), self.watchlist.list(), held | set(self.settings.instruments))
+
+    def sync_watchlist_in_background(self) -> None:
+        """Si el usuario activó la sincronización, la lanza en segundo plano (una a la vez; si llega otra petición mientras corre, repite)."""
+        if self.watchlist_sync_mode() != "on":
+            return
         try:
-            marked = json.loads(self.meta.get(DIRECT_SOURCES) or "[]")
-        except (ValueError, TypeError):
-            marked = []
-        names = self.direct_builtin_names() | {n for n in marked if isinstance(n, str)}
-        for name, raw in self.admission_rules_raw().items():
-            if isinstance(raw, dict) and "direct" in raw:
-                names = names | {name} if raw["direct"] else names - {name}
-        return names
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._wl_sync_running:
+            self._wl_sync_again = True
+            return
+        self._wl_sync_running = True
 
-    def set_direct_source(self, name: str, on: bool) -> None:
-        if name not in {s.name for s in self.universe_sources}:
-            raise WatchlistError(f"La fuente «{name}» no existe")
-        try:
-            marked = set(json.loads(self.meta.get(DIRECT_SOURCES) or "[]"))
-        except (ValueError, TypeError):
-            marked = set()
-        marked = marked | {name} if on else marked - {name}
-        self.meta.set(DIRECT_SOURCES, json.dumps(sorted(marked)))
-        rules = self.admission_rules_raw()
-        if name in rules:           # la regla de Admisión de esa fuente manda: se mantiene al día con el botón del Universo
-            rules[name]["direct"] = bool(on)
-            self.meta.set(ADMISSION_RULES, json.dumps(rules))
+        async def run() -> None:
+            try:
+                while True:
+                    self._wl_sync_again = False
+                    await self.apply_watchlist_sync(automatic=True)
+                    if not self._wl_sync_again:
+                        break
+            except Exception:
+                log.exception("No se pudo sincronizar la Watchlist con el Universo")
+            finally:
+                self._wl_sync_running = False
 
-    # reglas de Admisión por fuente: directa o qué filtros aplica (ver `scanner/admission.py::SourceRule`)
-    def admission_rules_raw(self) -> dict[str, dict]:
-        try:
-            data = json.loads(self.meta.get(ADMISSION_RULES) or "{}")
-        except (ValueError, TypeError):
-            return {}
-        return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
+        self.launch(run())
 
-    def admission_rule(self, name: str) -> SourceRule:
-        """La regla de una fuente: la guardada o, si no hay, directa según `direct_source_names` y con todos los filtros."""
-        raw = self.admission_rules_raw().get(name)
-        if raw is not None:
-            return SourceRule.from_json(raw)
-        try:
-            marked = json.loads(self.meta.get(DIRECT_SOURCES) or "[]")
-        except (ValueError, TypeError):
-            marked = []
-        return SourceRule(direct=name in self.direct_builtin_names() or name in marked)
+    async def apply_watchlist_sync(self, automatic: bool = False) -> SyncPlan:
+        """Añade a la Watchlist lo que está en las fuentes y quita lo que ya no está en ninguna (salvo posiciones). Una pasada automática que
+        quitaría demasiado (`SyncPlan.exceeds_guard`) no se aplica: queda en `wl_sync_held` esperando confirmación."""
+        plan = self.watchlist_sync_plan()
+        if automatic and plan.exceeds_guard(len(self.watchlist.list())):
+            self.wl_sync_held = plan
+            log.warning("Watchlist: la sincronización quitaría %d tickers; espera confirmación en el Universo", len(plan.remove))
+            return SyncPlan()
+        self.wl_sync_held = None
+        for ticker in plan.remove:
+            self.remove_ticker(ticker)
+        if plan.add:
+            await self.add_watchlist(parse_tokens(list(plan.add)), background=True)
+        if not plan.empty:
+            log.info("Watchlist sincronizada con el Universo: %d añadidos, %d quitados, %d con posiciones se conservan",
+                     len(plan.add), len(plan.remove), len(plan.protected))
+            self.state.data_version += 1
+        return plan
 
-    def set_admission_rules(self, rules: dict[str, SourceRule]) -> None:
-        """Guarda la regla de cada fuente indicada (las demás se quedan como estaban); la marca «directa» también se refleja en las fuentes marcadas a mano."""
-        known = {s.name for s in self.universe_sources}
-        unknown = sorted(set(rules) - known)
-        if unknown:
-            raise WatchlistError(f"Fuente desconocida: {', '.join(unknown)}")
-        data = self.admission_rules_raw()
-        data.update({name: rule.to_json() for name, rule in rules.items()})
-        self.meta.set(ADMISSION_RULES, json.dumps(data))
-
-    def reset_admission_rules(self) -> None:
-        self.meta.set(ADMISSION_RULES, "{}")
-
-    def admission_filters_off(self) -> bool:
-        return self.meta.get(ADMISSION_OFF) == "1"
-
-    def set_admission_filters_off(self, on: bool) -> None:
-        """«Sin filtros»: pasan todos los tickers del Universo (la evaluación no mide nada). Las reglas por fuente se conservan para cuando se vuelva a activar."""
-        self.meta.set(ADMISSION_OFF, "1" if on else "0")
+    async def set_watchlist_sync(self, on: bool) -> SyncPlan:
+        """Decisión del usuario tras ver el resumen: activar (aplica ya el plan y sigue a las fuentes) o dejar la Watchlist a mano."""
+        self.meta.set(WATCHLIST_SYNC, "on" if on else "off")
+        if not on:
+            self.wl_sync_held = None
+            return SyncPlan()
+        return await self.apply_watchlist_sync()
 
     def feed_schedule(self, key: str) -> FeedSchedule:
         return load_schedule(self.settings, self.meta, key)
 
-    def admission_feeds(self) -> list[dict]:
-        """Fuentes que se consultan por API o MCP, con su horario y su último resultado, para la pantalla de Admisión."""
+    def feed_rows(self) -> list[dict]:
+        """Fuentes que se consultan por API o MCP, con su horario y su último resultado, para el Universo."""
         cfg = self.settings
         runner_state = self.tortuga.state() if self.tortuga is not None else {}
         api = bool(cfg.tortuga.api_token)
@@ -1628,69 +1623,6 @@ class AppService:
 
     def reset_feed_schedules(self) -> None:
         reset_schedules(self.meta)
-
-    def admission_start(self) -> bool:
-        """Lanza en segundo plano la evaluación del Universo y la Watchlist. False si ya hay una en curso o está desactivada."""
-        if self.admission_running or not self.settings.admission.enabled:
-            return False
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return False
-        self.admission_running, self.admission_error = True, None
-
-        async def run() -> None:
-            try:
-                self.admission_report = await evaluate_admission(self)
-            except Exception as exc:
-                log.exception("Falló la evaluación de la admisión a la Watchlist")
-                self.admission_error = f"{type(exc).__name__}: {str(exc)[:200]}"
-            finally:
-                self.admission_running = False
-                if self.state.activity and self.state.activity.startswith("Admisión"):
-                    self.state.activity = None      # sin subir data_version: nada de lo que escanea el Scanner cambió y invalidaría sus cachés
-
-        self.launch(run())
-        return True
-
-    def admission_view(self) -> Optional[AdmissionReport]:
-        """El último informe con la pertenencia a la Watchlist al día (se pueden haber añadido o quitado tickers desde que se evaluó)."""
-        report = self.admission_report
-        if report is None:
-            return None
-        watchlist = set(self.watchlist.list())
-        held = {p.ticker.replace(" ", "-") for p in self.state.positions}
-        return replace(report, verdicts=tuple(replace(v, in_watchlist=v.ticker in watchlist, protected=v.ticker in held) for v in report.verdicts))
-
-    async def admission_apply(self, tickers) -> list[str]:
-        """Añade a la Watchlist los tickers marcados, solo si el informe dice que pasan y aún no están (la actualización diaria va en segundo plano)."""
-        view = self.admission_view()
-        allowed = {v.ticker for v in view.to_add} if view is not None else set()
-        wanted = [t for t in dict.fromkeys(tickers) if t in allowed]
-        if not wanted:
-            return []
-        new = await self.add_watchlist(parse_tokens(wanted), background=True)
-        self.state.data_version += 1
-        return new
-
-    def admission_remove(self, tickers) -> tuple[list[str], list[str]]:
-        """Quita de la Watchlist los tickers marcados que el informe da por no cumplidos. Los que tienen posiciones abiertas NUNCA se quitan.
-        Devuelve (quitados, protegidos)."""
-        view = self.admission_view()
-        droppable = {v.ticker: v for v in view.to_drop} if view is not None else {}
-        removed, protected = [], []
-        for t in dict.fromkeys(tickers):
-            v = droppable.get(t)
-            if v is None:
-                continue
-            if v.protected:
-                protected.append(t)
-                continue
-            self.remove_ticker(t)
-            removed.append(t)
-        if removed:
-            self.state.data_version += 1
-        return removed, protected
 
     # ---- Listas públicas de tastytrade como fuentes del Universo --------------------------------------
     def sync_tasty_lists_in_background(self) -> None:
@@ -2431,6 +2363,7 @@ class AppService:
         self.sync_investors_in_background()      # ídem con los Super Investors: fuente SuperInvestors (empresas de calidad para puts)
         self.sync_tasty_lists_in_background()    # listas públicas de tastytrade (Dividend Champions, Hourly, Fast Movers...): fuentes del Universo
         self.sync_radar_in_background()          # ídem con el radar de Bull Put Spreads: fuente TortugaSpreads y watchlist
+        self.sync_watchlist_in_background()      # la Watchlist sigue a las fuentes del Universo (si el usuario lo activó)
         if not self._paused() or self._capture_needed():
             return await self.refresh_all()
         log.info("Mercado cerrado: se refrescan solo cartera y VIX")

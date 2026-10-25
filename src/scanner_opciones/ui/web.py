@@ -38,7 +38,6 @@ from scanner_opciones.scanner.engine import ScanOutput
 from scanner_opciones.tortuga.radar import passes as radar_passes
 from scanner_opciones.tortuga.routines import ROUTINES
 from scanner_opciones.tortuga.schedule import FeedSchedule, ScheduleError, describe as describe_schedule, parse_times
-from scanner_opciones.scanner.admission import TASTY_FILTERS, TPC_FILTERS, SourceRule
 from scanner_opciones.scanner.impact import explain_empty
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, dte_range
 from scanner_opciones.scanner.profiles import Profile
@@ -53,7 +52,7 @@ from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text, parse_tokens
 
 log = logging.getLogger(__name__)
-MAX_FORM_FIELDS = 100_000      # Starlette corta en 1000 campos; las tablas con casillas (Admisión, Universo) mandan más (una por ticker o por fuente y filtro)
+MAX_FORM_FIELDS = 100_000      # Starlette corta en 1000 campos; las tablas con casillas (Universo) mandan más (una por ticker o por fuente y filtro)
 IDEAS_WAIT_SECONDS = 10     # lo que espera la pestaña Ideas a que terminen las cotizaciones en directo antes de mostrarse con lo que haya
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -877,8 +876,11 @@ def create_app(
         criteria = base.with_filters(**overrides)
         total_rows = len(rows)
         exempt_tickers: set[str] = set()
+        wl_mode = service.watchlist_sync_mode()
+        wl_plan = service.wl_sync_held or (service.watchlist_sync_plan() if wl_mode == "" else None)      # resumen previo la primera vez
+        wl_sync = {"plan": wl_plan, "held": service.wl_sync_held is not None} if wl_plan is not None and (service.wl_sync_held or not wl_plan.empty) else None
         exempt_entries = service.quality_exempt()
-        spread_only = service.spread_only_tickers()      # solo en fuentes aptas para spreads: liquidez y precio en vez de calidad de la empresa
+        spread_only = service.spread_only_tickers()    # solo en fuentes aptas para spreads: liquidez y precio en vez de calidad de la empresa
         sucfg = service.settings.spread_universe
         shown = []
         for row in rows:
@@ -910,7 +912,7 @@ def create_app(
         identity_cols = {"company", "empresa", "sector"} | set(SYMBOL_HEADERS)   # van delante: no se repiten al final
         skip = {i for i, c in enumerate(table.columns) if _plain(c.name) in identity_cols} if table else set()
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message, groups=message_groups(message),
-                      ident=ident, skip=skip,
+                      ident=ident, skip=skip, wl_sync=wl_sync,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
                       all_count=len(member), manual=[(n, len(t)) for n, t in service.manual_sources.items()],
@@ -918,7 +920,7 @@ def create_app(
                       qinfos=qinfos, with_quality=with_quality, edgar=bool(service.settings.edgar.contact.strip()),
                       exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors),
                       spread_only=spread_only, spread_sources=service.spread_source_names(),
-                      direct_sources=service.direct_source_names(), direct_builtin=service.direct_builtin_names(),
+                      feeds=service.feed_rows(), describe=describe_schedule,
                       spread_cfg=sucfg, spread_builtin=service.spread_builtin_names(),
                       renamable=bool(current) and service.is_renamable_source(current.name),
                       total_rows=total_rows, qform=form, filter_error=filter_error, n_active=n_active, q_presets=q_presets,
@@ -1013,67 +1015,27 @@ def create_app(
         remembered.pop("universe", None)
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
 
-    @app.post("/universe/source/direct")
-    async def universe_source_direct(request: Request):
-        """Marca (`on=1`) o desmarca una fuente como directa: sus tickers pasan a la Watchlist sin más filtro (pantalla Admisión)."""
+    @app.post("/universe/watchlist-sync")
+    async def universe_watchlist_sync(request: Request):
+        """Decisión tras el resumen previo: la Watchlist sigue al Universo (`on=1`, aplica el plan ya) o se gestiona a mano (`on=0`)."""
         form = await request.form(max_fields=MAX_FORM_FIELDS)
-        source, on = str(form.get("src", "")), str(form.get("on", "")) == "1"
-        try:
-            service.set_direct_source(source, on)
-        except WatchlistError as exc:
-            return RedirectResponse(f"/universe?{urlencode({'message': _grp('err', 'Error', [], str(exc))})}", status_code=303)
+        on = str(form.get("on", "")) == "1"
+        plan = await service.set_watchlist_sync(on)
         remembered.pop("universe", None)
-        msg = _grp("ok", f"{source}: {'fuente directa' if on else 'ya no es una fuente directa'}", [], "se aplica en la próxima evaluación de Admisión")
-        return RedirectResponse(f"/universe?{urlencode({'message': msg, 'src': source})}", status_code=303)
+        if on:
+            msg = _grp("ok", "Watchlist sincronizada con el Universo", [], f"{len(plan.add)} añadidos (actualización diaria en segundo plano), {len(plan.remove)} quitados")
+        else:
+            msg = _grp("skip", "Watchlist a mano", [], "no se cambia nada solo; el resumen no vuelve a salir")
+        return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
 
-    # ---- admisión a la watchlist ---------------------------------------------------------------------
-    @app.get("/admission", response_class=HTMLResponse)
-    async def admission(request: Request, message: str = ""):
-        report = service.admission_view()
-        ident = service.universe_identity()
-        return render(request, "admission.html", report=report, running=service.admission_running, error=service.admission_error,
-                      cfg=service.settings.admission, message=message, groups=message_groups(message), ident=ident,
-                      direct=sorted(service.direct_source_names()), direct_builtin=service.direct_builtin_names(),
-                      edgar_on=bool(service.settings.edgar.contact.strip()), watchlist_size=len(service.watchlist.list()),
-                      filters_off=service.admission_filters_off(), feeds=service.admission_feeds(), describe=describe_schedule,
-                      tpc_filters=TPC_FILTERS, tasty_filters=TASTY_FILTERS,
-                      rule_rows=[(s.name, service.admission_rule(s.name), len(s.table.rows)) for s in service.universe_sources])
-
-    @app.post("/admission/rules")
-    async def admission_rules(request: Request):
-        """Regla de cada fuente: directa o qué filtros de cada estilo aplica (campos `direct_<i>`, `tpc_<i>`, `tasty_<i>` por el orden de `src`)."""
-        form = await request.form(max_fields=MAX_FORM_FIELDS)
-        rules = {}
-        for i, name in enumerate(str(n) for n in form.getlist("src")):
-            rules[name] = SourceRule(direct=form.get(f"direct_{i}") == "1", options=form.get(f"options_{i}") == "1", tpc=frozenset(str(k) for k in form.getlist(f"tpc_{i}")),
-                                     tasty=frozenset(str(k) for k in form.getlist(f"tasty_{i}")))
-        try:
-            service.set_admission_rules({n: SourceRule.from_json(r.to_json()) for n, r in rules.items()})
-            msg = _grp("ok", "Reglas de admisión guardadas", [], "se aplican en la próxima evaluación")
-        except WatchlistError as exc:
-            msg = _grp("err", "No se han guardado", [], str(exc))
-        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
-
-    @app.post("/admission/rules/reset")
-    async def admission_rules_reset():
-        service.reset_admission_rules()
-        return RedirectResponse(f"/admission?{urlencode({'message': _grp('ok', 'Reglas restauradas', [], 'cada fuente vuelve a su valor de la configuración y a todos los filtros')})}", status_code=303)
-
-    @app.post("/admission/off")
-    async def admission_off(request: Request):
-        form = await request.form(max_fields=MAX_FORM_FIELDS)
-        on = form.get("off") == "1"
-        service.set_admission_filters_off(on)
-        msg = _grp("warn", "Filtros de admisión quitados", [], "al evaluar pasará todo el Universo; las reglas por fuente se conservan") if on else             _grp("ok", "Filtros de admisión activados", [], "cada fuente vuelve a usar su regla")
-        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
-
-    @app.post("/admission/schedule")
-    async def admission_schedule(request: Request):
+    # ---- periodicidad de las fuentes API / MCP (Universo) ----------------------------------------------------
+    @app.post("/universe/schedule")
+    async def universe_schedule(request: Request):
         """Periodicidad de las fuentes API/MCP (campos `in_<clave>`, `out_<clave>`, `times_<clave>`, `close_<clave>`)."""
         form = await request.form(max_fields=MAX_FORM_FIELDS)
         try:
             schedules = {}
-            for feed in service.admission_feeds():
+            for feed in service.feed_rows():
                 k = feed["key"]
                 schedules[k] = FeedSchedule.from_json({"in_market": form.get(f"in_{k}") or None, "out_market": form.get(f"out_{k}") or None,
                                                       "times": parse_times(str(form.get(f"times_{k}") or "")), "after_close": form.get(f"close_{k}") == "1"})
@@ -1081,39 +1043,12 @@ def create_app(
             msg = _grp("ok", "Periodicidad guardada", [], "se aplica en el próximo ciclo de refresco")
         except ScheduleError as exc:
             msg = _grp("err", "No se ha guardado la periodicidad", [], str(exc))
-        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
+        return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)
 
-    @app.post("/admission/schedule/reset")
-    async def admission_schedule_reset():
+    @app.post("/universe/schedule/reset")
+    async def universe_schedule_reset():
         service.reset_feed_schedules()
-        return RedirectResponse(f"/admission?{urlencode({'message': _grp('ok', 'Periodicidad restaurada', [], 'vuelve a lo de config.yaml')})}", status_code=303)
-
-    @app.post("/admission/run")
-    async def admission_run():
-        started = service.admission_start()
-        msg = _grp("ok", "Evaluando el Universo", [], "puede tardar un par de minutos (cierres de los candidatos)") if started else \
-            _grp("warn", "No se ha iniciado", [], "ya hay una evaluación en curso o la admisión está desactivada")
-        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
-
-    @app.post("/admission/apply")
-    async def admission_apply(request: Request):
-        form = await request.form(max_fields=MAX_FORM_FIELDS)
-        new = await service.admission_apply([str(t) for t in form.getlist("sel")])
-        msg = _grp("ok", f"{len(new)} tickers añadidos a la Watchlist", new, "su actualización diaria va en segundo plano") if new else \
-            _grp("warn", "No se ha añadido nada", [], "ninguno de los marcados cumple o ya estaba")
-        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
-
-    @app.post("/admission/remove")
-    async def admission_remove(request: Request):
-        form = await request.form(max_fields=MAX_FORM_FIELDS)
-        removed, protected = service.admission_remove([str(t) for t in form.getlist("sel")])
-        parts = []
-        if removed:
-            parts.append(_grp("del", f"{len(removed)} tickers quitados de la Watchlist", removed, "con sus contratos y cotizaciones"))
-        if protected:
-            parts.append(_grp("skip", "No se quitan: tienen posiciones abiertas", protected, ""))
-        msg = "\n".join(parts) or _grp("warn", "No se ha quitado nada", [], "")
-        return RedirectResponse(f"/admission?{urlencode({'message': msg})}", status_code=303)
+        return RedirectResponse(f"/universe?{urlencode({'message': _grp('ok', 'Periodicidad restaurada', [], 'vuelve a lo de config.yaml')})}", status_code=303)
 
     @app.post("/universe/source/spread")
     async def universe_source_spread(request: Request):

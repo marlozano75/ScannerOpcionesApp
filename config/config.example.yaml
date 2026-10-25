@@ -212,11 +212,6 @@ community:
 #     - {list: "Liquid Symbols", name: TastyLiquid, spreads: true}
 #     - {list: "tasty IVR", name: TastyIVR, spreads: true}
 #     - {list: "Tom's Watchlist", name: TastyTom, spreads: true}
-# Admisión a la Watchlist (pestaña Admisión): qué pasa del Universo a la Watchlist. Pasa lo que viene de una fuente directa o cumple TPC o Tastytrade.
-# admission:
-#   direct_sources: [TortugaSpreads, TortugaPuts, TastyHourly, TastyFastMovers]   # las que se refrescan varias veces al día
-#   tpc: {require_profitable: true, min_positive_quarters: 3, require_positive_fcf: true, require_manageable_debt: true, min_option_liquidity: 2, require_uptrend: true}
-#   tastytrade: {min_iv_rank: 30, min_iv_percentile: 30, iv_rank_pct_any: true, min_option_liquidity: 3}
 # Super Investors (13F) de gestores de calidad y valor: fuente de empresas de calidad para puts (rutina semanal con la CLI de Claude).
 # super_investors:
 #   enabled: true

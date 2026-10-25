@@ -967,3 +967,24 @@ def test_sosnoff_filters_long_delta_credit_over_width_and_fixed_widths(client_an
     for bad in ("&use_ld=on&ld=abc", "&use_ld=on&ld=2", "&use_cw=on&cw=0", "&use_cw=on&cw=30&cwx=20", "&use_cw=on&cw=30&cwx=100",
                 "&use_wd=on&wd=abc", "&use_wd=on&wd="):
         assert "Parámetro no válido" in client.get(q + bad).text, bad
+
+
+def test_universe_has_the_schedule_card_and_admission_is_gone(client_and_service):
+    client, svc, gw, _ = client_and_service
+    load_rank(client)
+    page = client.get("/universe").text
+    assert 'id="feed-schedule"' in page and "Periodicidad de las fuentes" in page            # antes vivía en Admisión
+    assert client.get("/admission").status_code == 404 and 'href="/admission"' not in page
+    r = client.post("/universe/schedule", data={"in_radar_spreads": "20", "close_radar_spreads": "1"}, follow_redirects=False)
+    assert r.status_code == 303 and svc.feed_schedule("radar_spreads").in_market == 20
+    assert client.post("/universe/schedule/reset", follow_redirects=False).status_code == 303
+    assert svc.feed_schedule("radar_spreads").in_market != 20
+
+
+def test_universe_shows_the_watchlist_sync_summary_until_decided(client_and_service):
+    client, svc, gw, _ = client_and_service
+    load_rank(client)
+    page = client.get("/universe").text
+    assert 'id="wl-sync"' in page and "Todavía no se ha aplicado nada" in page
+    assert client.post("/universe/watchlist-sync", data={"on": "0"}, follow_redirects=False).status_code == 303
+    assert 'id="wl-sync"' not in client.get("/universe").text and svc.watchlist_sync_mode() == "off"
