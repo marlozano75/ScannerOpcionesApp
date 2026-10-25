@@ -770,6 +770,7 @@ class TastyListsSettings(_Model):
         TastyListSource(list="Dividend Champions", name="DividendChampions"),
         TastyListSource(list="tasty Hourly Top Equities", name="TastyHourly"),
         TastyListSource(list="tasty Fast Movers", name="TastyFastMovers"),
+        TastyListSource(list="tasty default", name="TastyDefault"),
         TastyListSource(list="Liquid Symbols", name="TastyLiquid"),
         TastyListSource(list="tasty IVR", name="TastyIVR"),
         TastyListSource(list="Tom's Watchlist", name="TastyTom"),

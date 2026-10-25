@@ -209,6 +209,7 @@ community:
 #     - {list: "Dividend Champions", name: DividendChampions}
 #     - {list: "tasty Hourly Top Equities", name: TastyHourly}
 #     - {list: "tasty Fast Movers", name: TastyFastMovers}
+#     - {list: "tasty default", name: TastyDefault}
 #     - {list: "Liquid Symbols", name: TastyLiquid}
 #     - {list: "tasty IVR", name: TastyIVR}
 #     - {list: "Tom's Watchlist", name: TastyTom}
