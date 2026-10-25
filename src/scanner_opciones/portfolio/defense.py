@@ -82,13 +82,25 @@ def momentum_step(m: Optional[Momentum], cfg: DefenseSettings) -> Optional[tuple
     """Aviso sobre si es buen momento para vender una call (strangle o call spread) según `momentum`; None sin caída fuerte."""
     if m is None:
         return None
-    head = f"El valor cayó un {m.fall_pct:.1f} % en las últimas {cfg.freefall_lookback} sesiones"
+    head = f"Cayó {m.fall_pct:.0f} % en {cfg.freefall_lookback} sesiones"
     if m.state == FREEFALL:
-        return ("warn", f"{head} y sigue marcando mínimos (mínimo hace {m.days_since_low} d, rebote {m.bounce_pct:.1f} % < {cfg.rebound_pct:g} %): "
-                        "caída libre, NO vendas la call ahora; espera a un rebote o a que se frene.")
+        return ("warn", f"{head} y sigue en mínimos: caída libre, NO vendas la call ahora. Acción: espera un rebote ≥ {cfg.rebound_pct:g} % y vuelve a evaluar; mientras, mantén la put.")
     if m.state == REBOUND:
-        return ("info", f"{head} y ya rebota {m.bounce_pct:.1f} % desde el mínimo: buen momento para la call, que cobra más prima y deja menos riesgo si sigue el rebote.")
-    return ("info", f"{head} y se ha frenado (mínimo hace {m.days_since_low} d, rebote {m.bounce_pct:.1f} %): la call es posible, mejor con algo de rebote.")
+        return ("info", f"{head} y rebota {m.bounce_pct:.1f} %: buen momento para la call. Acción: vende una call de Δ 0,20–0,30 (ver «Evaluar roll»).")
+    return ("info", f"{head} y se ha frenado: Acción: espera algo de rebote antes de vender la call; si prefieres actuar ya, call de Δ ≤ 0,25.")
+
+
+def roll_timing(m: Momentum, i: "DefenseInput", cfg: DefenseSettings) -> str:
+    """Cuándo rolar una put testeada según la caída del subyacente (el crédito real se ve en «Evaluar roll», ↻)."""
+    iv = f" IV Rank {i.iv_rank:.0f} %: el roll paga." if i.iv_rank is not None and i.iv_rank >= cfg.ivr_good else ""
+    if 0 <= i.dte <= cfg.gamma_dte:
+        return f"Roll ya: quedan {i.dte} d, no esperes al rebote. Pulsa ↻: rola abajo y fuera con crédito o cierra.{iv}"
+    if m.state == FREEFALL:
+        return (f"Roll no aún: rolarías a un strike que la caída volvería a testear. Rola abajo y fuera (↻) si la Δ llega a {cfg.atm_delta:g} "
+                f"o a {cfg.gamma_dte} DTE; antes, espera el rebote.{iv}")
+    if m.state == REBOUND:
+        return f"Roll sin prisa: el rebote baja la Δ. Si quieres reducir riesgo, ahora el crédito es mayor (↻).{iv}"
+    return f"Roll sin prisa: reevalúa si la Δ llega a {cfg.atm_delta:g} o a {cfg.gamma_dte} DTE (↻).{iv}"
 
 
 @dataclass(frozen=True)
@@ -145,8 +157,11 @@ def assess(i: DefenseInput, cfg: DefenseSettings) -> Optional[Defense]:
     elif zone == DEEP:
         steps.append(("warn", f"Muy dentro del dinero ({d}, {ext}): rola solo hacia fuera (mismo strike o casi) o valora la asignación; "
                               "con tan poco extrínseco los rolls dan poco crédito."))
-    if zone == TESTED and (m := momentum_step(momentum(i.closes, cfg), cfg)) is not None:
-        steps.append(m)
+    if zone == TESTED:
+        mom = momentum(i.closes, cfg)
+        if (m := momentum_step(mom, cfg)) is not None:
+            steps.append(m)
+            steps.append(("info", roll_timing(mom, i, cfg)))
     # 2. tiempo
     if zone != CALM and 0 <= i.dte <= cfg.gamma_dte:
         steps.append(("warn", f"Quedan {i.dte} días (≤ {cfg.gamma_dte}): gestiónala ya aunque la pérdida no sea extrema; a partir de aquí el gamma se acelera."))

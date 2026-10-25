@@ -45,6 +45,8 @@ _SHORT_LABELS = (
     (r"Riesgo de pin", "Riesgo de pin"), (r"Pérdida máxima:", "Pérdida máxima"), (r"En el dinero:", "En el dinero"),
     (r"El precio", "Cerca del strike"), (r"Cierra:", "Cerrar"), (r"Valora cerrar", "Valorar cerrar"),
     (r"Con tanto tiempo", "Sin prisa: no rolar"), (r"Si la tesis", "Revisar la tesis"),
+    (r"Cayó .*NO vendas", "Caída libre: no vender call"), (r"Cayó .*buen momento", "Rebote: vender call"),
+    (r"Cayó ", "Frenado: esperar rebote"), (r"Roll ya:", "Roll ya: ↻"), (r"Roll no aún:", "Roll: aún no"), (r"Roll sin prisa:", "Roll: sin prisa"),
 )
 # Avisos de un spread (empiezan por «Δ 0,30: …»): se resumen por la acción que aconsejan.
 _SPREAD_ACTIONS = (
