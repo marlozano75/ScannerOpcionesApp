@@ -28,7 +28,8 @@ from scanner_opciones.marketdata.edgar import EdgarFinancialsProvider
 from scanner_opciones.marketdata.sectors import ChainedSectors
 from scanner_opciones.marketdata.finnhub import FinnhubNews
 from scanner_opciones.marketdata.yahoo_financials import FallbackFinancials
-from scanner_opciones.marketdata.yahoo import YahooAnalysts, YahooDescriptions, YahooEarningsHistory, YahooFinancials, YahooFx, YahooSectors
+from scanner_opciones.marketdata.candles import SplitCandles
+from scanner_opciones.marketdata.yahoo import YahooAnalysts, YahooCandles, YahooDescriptions, YahooEarningsHistory, YahooFinancials, YahooFx, YahooSectors
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import ChainCacheRepo, MetaRepo
@@ -83,13 +84,16 @@ def build_app(settings: Settings):
         return None if calendar.is_open(now) else calendar.last_close(now)
 
     def factory(mode: AccountMode) -> BrokerGateway:
-        ibkr = IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}))
+        ibkr = IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}), instruments=settings.instruments)
         # «tastytrade»: cadena, cotizaciones, precios y ex-dividendos de tastytrade; cuenta, margen, sector y VIX de IBKR
         return (HybridGateway(ibkr, tasty, md, fallback_batch=settings.refresh.batch_size, sectors=sectors,
-                              chain_store=ChainCacheRepo(db), closed_since=closed_since)
+                              chain_store=ChainCacheRepo(db), closed_since=closed_since, instruments=settings.instruments)
                 if md.source == "tastytrade" else ibkr)
 
-    service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty,
+    yahoo_symbols = {t: i.yahoo_symbol for t, i in settings.instruments.items() if i.yahoo_symbol}
+    candles = SplitCandles(tasty, YahooCandles(yahoo_symbols), yahoo_symbols) if yahoo_symbols else tasty   # índices (Euro Stoxx 50): cierres de Yahoo
+
+    service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=candles,
                          fundamentals=tasty, financials=balance_provider, names=tasty, watchlists=tasty,
                          analysts=YahooAnalysts(settings.analysts.concurrency) if settings.analysts.enabled else None,
                          earnings_history=YahooEarningsHistory(settings.history.concurrency) if settings.history.enabled else None,

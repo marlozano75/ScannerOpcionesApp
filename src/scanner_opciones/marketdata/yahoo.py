@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Callable, Optional
 
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystError, classify_changes
 from scanner_opciones.marketdata.company import CompanyNotesError
-from scanner_opciones.domain.errors import FinancialsError
+from scanner_opciones.domain.errors import CandleError, FinancialsError
+from scanner_opciones.marketdata.candles import OhlcBars
 from scanner_opciones.marketdata.financials import Financials
 from scanner_opciones.marketdata.fx import FxError, FxProvider, RateBook
 from scanner_opciones.marketdata.history import EarningsQuarter, HistoryError, last_quarters
@@ -308,3 +309,66 @@ class YahooDescriptions:
         if failures >= MAX_FAILURES:
             raise CompanyNotesError("Yahoo Finance no responde o limita las peticiones")
         return out
+
+
+def ohlc_from_frame(frame) -> OhlcBars:
+    """Velas diarias (día, cierre, máximo, mínimo) del DataFrame de `Ticker.history` (índice = fecha de la sesión, en la zona de la bolsa).
+    Se saltan las filas sin cierre; un máximo o mínimo que falta queda en None."""
+    if frame is None or len(frame) == 0:
+        return []
+    out: OhlcBars = []
+    for stamp, r in frame.iterrows():
+        close = r.get("Close")
+        if close is None or close != close or close <= 0:
+            continue
+        hi, lo = r.get("High"), r.get("Low")
+        out.append((stamp.date() if hasattr(stamp, "date") else stamp, float(close),
+                    float(hi) if hi is not None and hi == hi else None, float(lo) if lo is not None and lo == lo else None))
+    return sorted(out)
+
+
+class YahooCandles:
+    """Implementa `CandleProvider` para los instrumentos que tastytrade no cubre (índices como el Euro Stoxx 50). `symbols` traduce el ticker de la app al de Yahoo
+    (`^STOXX50E`). Los cierres no se ajustan (un índice no tiene splits ni dividendos). Una petición por ticker, en hilos porque `yfinance` es síncrono."""
+
+    def __init__(self, symbols: dict[str, str], concurrency: int = 4, today: Callable[[], date] = lambda: datetime.now().date()) -> None:
+        self.symbols = dict(symbols)
+        self.concurrency = concurrency
+        self.today = today
+
+    async def get_daily_ohlc(self, tickers: list[str], days: int) -> dict[str, OhlcBars]:
+        try:
+            import yfinance
+        except ImportError as exc:
+            raise CandleError("Falta la librería yfinance (pip install yfinance)") from exc
+        logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+        start = self.today() - timedelta(days=days)
+        end = self.today() + timedelta(days=1)
+        sem = asyncio.Semaphore(self.concurrency)
+        out: dict[str, OhlcBars] = {}
+        failed: list[str] = []
+
+        def fetch(symbol: str):
+            return yfinance.Ticker(symbol).history(start=start.isoformat(), end=end.isoformat(), interval="1d", auto_adjust=False)
+
+        async def one(ticker: str) -> None:
+            symbol = self.symbols.get(ticker)
+            if symbol is None:
+                return
+            async with sem:
+                try:
+                    bars = ohlc_from_frame(await asyncio.to_thread(fetch, symbol))
+                except Exception as exc:
+                    log.warning("Yahoo: sin velas de %s (%s)", ticker, exc)
+                    failed.append(ticker)
+                    return
+            if bars:
+                out[ticker] = bars
+
+        await asyncio.gather(*(one(t) for t in tickers))
+        if failed and not out:
+            raise CandleError("Yahoo Finance no devolvió velas de " + ", ".join(failed))
+        return out
+
+    async def get_daily_closes(self, tickers: list[str], days: int) -> dict[str, list[tuple[date, float]]]:
+        return {t: [(d, px) for d, px, *_ in bars] for t, bars in (await self.get_daily_ohlc(tickers, days)).items()}

@@ -255,3 +255,10 @@ logging:
 # Noticias de cada empresa (tooltip del ticker). Clave gratuita en https://finnhub.io (60 peticiones/minuto). Sin clave solo sale la descripción.
 finnhub:
   api_token: ""
+
+# Subyacentes que no son acciones de EE. UU. en USD (índices): cadena, cotizaciones, precio y margen salen de TWS y los cierres diarios de Yahoo.
+# El Euro Stoxx 50 viene por defecto (opciones OESX de Eurex, en euros, multiplicador 10); para usarlo hay que añadir ESTX50 a la watchlist.
+# TWS no da datos de Eurex en tiempo real sin suscripción: la app abre una segunda conexión (clientId + ibkr.instruments_client_offset) con datos
+# diferidos y completa el último bid/ask con la principal. Sin esta sección se usan los valores por defecto; `instruments: {}` los desactiva.
+# instruments:
+#   ESTX50: { symbol: ESTX50, exchange: EUREX, currency: EUR, multiplier: 10, trading_class: OESX, yahoo_symbol: "^STOXX50E", sector: Índice Europa }

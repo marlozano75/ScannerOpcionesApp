@@ -11,13 +11,13 @@ from collections import Counter
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import date, datetime, timedelta
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from ib_async import IB, Future, Index, MarketOrder, Option, Stock
 
 from scanner_opciones.broker import ibkr_mapper as m
 from scanner_opciones.broker.rate_limiter import AsyncRateLimiter
-from scanner_opciones.config.settings import IbkrSettings
+from scanner_opciones.config.settings import IbkrSettings, InstrumentSettings
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import (
     BrokerDisconnectedError, BrokerError, DataUnavailableError, UnsupportedTickerError,
@@ -72,11 +72,13 @@ def _quiet_unknown_contracts():
 
 
 class IBKRGateway:
-    def __init__(self, settings: IbkrSettings, now=datetime.now) -> None:
+    def __init__(self, settings: IbkrSettings, now=datetime.now, instruments: Optional[Mapping[str, InstrumentSettings]] = None) -> None:
         self.s = settings
+        self.instruments: Mapping[str, InstrumentSettings] = dict(instruments or {})   # índices y otros subyacentes que no son acciones de EE. UU.
+        self._ib_aux: Optional[IB] = None     # segunda conexión para los datos de mercado de los instrumentos (ver `_aux_ib`)
         self.ib = IB()
         self.now = now
-        self._stocks: dict[str, Stock] = {}
+        self._stocks: dict[str, Stock | Index] = {}
         self._updates_account: Optional[str] = None   # cuenta suscrita con reqAccountUpdates (la de `portfolio()`)
         self._sector_cache: dict[str, tuple[Optional[str], Optional[str]]] = {}
         self._vix_futures_cache: Optional[tuple[date, list]] = None
@@ -100,6 +102,8 @@ class IBKRGateway:
         self._updates_account = None    # la suscripción de la conexión anterior ya no vale
 
     async def disconnect(self) -> None:
+        if self._ib_aux is not None and self._ib_aux.isConnected():
+            self._ib_aux.disconnect()
         if self.ib.isConnected():
             self.ib.disconnect()
 
@@ -121,6 +125,33 @@ class IBKRGateway:
     def _require(self) -> None:
         if not self.ib.isConnected():
             raise BrokerDisconnectedError("Sin conexión con TWS")
+
+    # ---- instrumentos que no son acciones de EE. UU. ----------------------------------------
+    async def _aux_ib(self) -> IB:
+        """Conexión aparte para los datos de mercado de los instrumentos (índices de Eurex...). Medido contra TWS (2026-10-25): sin suscripción de la bolsa,
+        los datos diferidos (tipo 3) traen el open interest y la delta, y los congelados (tipo 2) el último bid/ask pero SIN open interest; y una vez que una
+        conexión ha pedido datos congelados, TWS responde congelado también a los pedidos con tipo 3. La conexión principal usa `market_data_type`
+        (2), así que los instrumentos necesitan la suya, que solo pide `instruments_market_data_type`."""
+        if self._ib_aux is None:
+            self._ib_aux = IB()
+        if not self._ib_aux.isConnected():
+            try:
+                await self._ib_aux.connectAsync(self.s.host, self.s.port, clientId=self.s.client_id + self.s.instruments_client_offset,
+                                                timeout=self.s.connect_timeout_seconds)
+            except (ConnectionRefusedError, asyncio.TimeoutError, OSError) as exc:
+                raise BrokerDisconnectedError(f"No se pudo abrir la conexión de datos de los instrumentos en {self.s.host}:{self.s.port}: {exc!r}") from exc
+            self._ib_aux.reqMarketDataType(self.s.instruments_market_data_type)
+        return self._ib_aux
+
+    async def _market_ib(self, ticker: str) -> IB:
+        """Conexión con la que se piden los datos de mercado de `ticker`; si la de los instrumentos no se puede abrir, la principal (datos congelados)."""
+        if ticker not in self.instruments:
+            return self.ib
+        try:
+            return await self._aux_ib()
+        except BrokerDisconnectedError as exc:
+            log.warning("%s: se piden los datos de %s por la conexión principal (sin open interest): %s", type(self).__name__, ticker, exc)
+            return self.ib
 
     # ---- cuenta ---------------------------------------------------------------------------
     def _account_id(self) -> str:
@@ -217,9 +248,10 @@ class IBKRGateway:
         d = bar.date
         return d.date() if isinstance(d, datetime) else d
 
-    async def _live_price(self, contract) -> Optional[float]:
+    async def _live_price(self, contract, ticker: str = "") -> Optional[float]:
         """Precio por streaming con espera acotada (nunca se cuelga). None si no hay datos."""
-        tick = self.ib.reqMktData(contract, "", False, False)
+        ib = await self._market_ib(ticker)
+        tick = ib.reqMktData(contract, "", False, False)
         try:
             waited, step = 0.0, 0.25
             while waited < self.s.quote_wait_seconds:
@@ -230,18 +262,20 @@ class IBKRGateway:
                 waited += step
             return m.num(tick.close)
         finally:
-            self.ib.cancelMktData(contract)
+            ib.cancelMktData(contract)
 
     async def _last_close(self, contract, use_rth: bool = True, kind: str = "precio") -> Optional[float]:
         bars = await self._historical(contract, "1 W", "TRADES", use_rth=use_rth, kind=kind)
         return m.num(bars[-1].close) if bars else None
 
     # ---- subyacente -----------------------------------------------------------------------
-    async def _stock(self, ticker: str) -> Stock:
+    async def _stock(self, ticker: str) -> Stock | Index:
         if ticker in self._stocks:
             return self._stocks[ticker]
         self._require()
-        stock = Stock(m.ib_symbol(ticker), "SMART", "USD")   # «BRK.B» -> «BRK B»
+        inst = self.instruments.get(ticker)
+        stock = (Index(inst.symbol, inst.exchange, inst.currency) if inst is not None
+                 else Stock(m.ib_symbol(ticker), "SMART", "USD"))   # «BRK.B» -> «BRK B»
         qualified = await self.ib.qualifyContractsAsync(stock)
         if not qualified or not stock.conId:
             raise UnsupportedTickerError(f"Ticker no reconocido por IBKR: {ticker}")
@@ -251,6 +285,9 @@ class IBKRGateway:
     async def get_sector_info(self, ticker: str) -> tuple[Optional[str], Optional[str]]:
         if ticker in self._sector_cache:
             return self._sector_cache[ticker]
+        if (inst := self.instruments.get(ticker)) is not None:
+            await self._stock(ticker)      # comprueba que existe
+            return (inst.sector, None)
         stock = await self._stock(ticker)
         details = await self.ib.reqContractDetailsAsync(stock)
         if not details:
@@ -262,7 +299,7 @@ class IBKRGateway:
 
     async def get_underlying_price(self, ticker: str) -> Optional[float]:
         stock = await self._stock(ticker)
-        price = await self._live_price(stock)
+        price = await self._live_price(stock, ticker)
         if price is None:  # sin suscripción en tiempo real: último cierre
             price = await self._last_close(stock)
         return price
@@ -280,23 +317,33 @@ class IBKRGateway:
             except DataUnavailableError:
                 continue
         out: dict[str, UnderlyingQuote] = {}
-        items = list(stocks.items())
+        own = [it for it in stocks.items() if it[0] in self.instruments]
+        rest = [it for it in stocks.items() if it[0] not in self.instruments]
+        if rest:
+            out.update(await self._underlying_batches(rest, self.ib))
+        if own:
+            out.update(await self._underlying_batches(own, await self._market_ib(own[0][0])))
+        return out
+
+    async def _underlying_batches(self, items: list, ib: IB) -> dict[str, UnderlyingQuote]:
+        out: dict[str, UnderlyingQuote] = {}
         for i in range(0, len(items), self.PRICE_BATCH):
             chunk = items[i : i + self.PRICE_BATCH]
-            ticks = {t: self.ib.reqMktData(s, "106", False, False) for t, s in chunk}  # 106 = IV de opciones
+            # 106 = IV de opciones; en un índice no se espera: el precio basta
+            ticks = {t: ib.reqMktData(s, "" if t in self.instruments else "106", False, False) for t, s in chunk}
             try:
                 waited, step = 0.0, 0.25
                 while waited < self.s.quote_wait_seconds:
                     if all(
-                        m.num(tk.marketPrice()) is not None and m.num(tk.impliedVolatility) is not None
-                        for tk in ticks.values()
+                        m.num(tk.marketPrice()) is not None and (t in self.instruments or m.num(tk.impliedVolatility) is not None)
+                        for t, tk in ticks.items()
                     ):
                         break
                     await asyncio.sleep(step)
                     waited += step
             finally:
                 for _, s in chunk:
-                    self.ib.cancelMktData(s)
+                    ib.cancelMktData(s)
             for t, tk in ticks.items():
                 q = UnderlyingQuote(price=m.num(tk.marketPrice()), iv=m.num(tk.impliedVolatility))
                 if q.price is not None or q.iv is not None:
@@ -306,13 +353,16 @@ class IBKRGateway:
     async def get_option_chain(self, ticker: str) -> OptionChain:
         stock = await self._stock(ticker)
         chains = await self.ib.reqSecDefOptParamsAsync(stock.symbol, "", stock.secType, stock.conId)
-        chain = m.pick_chain(chains, ticker)
+        inst = self.instruments.get(ticker)
+        chain = m.pick_chain(chains, ticker, inst.exchange if inst else "SMART", inst.trading_class if inst else None, inst.multiplier if inst else 100)
         if chain is None:
             raise UnsupportedTickerError(f"Sin cadena de opciones para {ticker}")
         expiries = sorted(m.parse_expiry(e) for e in chain.expirations)
-        return OptionChain(ticker, expiries, sorted(float(s) for s in chain.strikes), int(chain.multiplier or 100))
+        return OptionChain(ticker, expiries, sorted(float(s) for s in chain.strikes), int(chain.multiplier or (inst.multiplier if inst else 100)))
 
     async def get_days_to_ex_dividend(self, ticker: str) -> Optional[int]:
+        if ticker in self.instruments:      # un índice no reparte dividendos
+            return None
         stock = await self._stock(ticker)
         tick = self.ib.reqMktData(stock, "456", False, False)  # 456 = IB Dividends
         try:
@@ -330,11 +380,13 @@ class IBKRGateway:
         self._require()
         stocks: dict[str, Stock] = {}
         for t in tickers:
+            if t in self.instruments:
+                continue
             try:
                 stocks[t] = await self._stock(t)
             except DataUnavailableError:
                 continue
-        out: dict[str, Optional[int]] = {}
+        out: dict[str, Optional[int]] = {t: None for t in tickers if t in self.instruments}
         items = list(stocks.items())
         for i in range(0, len(items), self.PRICE_BATCH):
             chunk = items[i : i + self.PRICE_BATCH]
@@ -354,10 +406,14 @@ class IBKRGateway:
         return out
 
     # ---- opciones -------------------------------------------------------------------------
-    @staticmethod
-    def _ib_option(c: OptionContract) -> Option:
-        opt = Option(m.ib_symbol(c.ticker), m.format_expiry(c.expiry), c.strike, c.right.value, "SMART",
-                     multiplier=str(c.multiplier), currency="USD")
+    def _ib_option(self, c: OptionContract) -> Option:
+        inst = self.instruments.get(c.ticker)
+        if inst is not None:
+            opt = Option(inst.symbol, m.format_expiry(c.expiry), c.strike, c.right.value, inst.exchange,
+                         multiplier=str(c.multiplier), currency=inst.currency, tradingClass=inst.trading_class)
+        else:
+            opt = Option(m.ib_symbol(c.ticker), m.format_expiry(c.expiry), c.strike, c.right.value, "SMART",
+                         multiplier=str(c.multiplier), currency="USD")
         if c.con_id:
             opt.conId = c.con_id  # ya validado: no hace falta volver a cualificar
         return opt
@@ -391,6 +447,34 @@ class IBKRGateway:
 
     async def get_quotes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, OptionQuote]:
         self._require()
+        own = [c for c in contracts if c.ticker in self.instruments]
+        rest = [c for c in contracts if c.ticker not in self.instruments]
+        out = await self._quotes_group(rest, self.ib) if rest else {}
+        if own:
+            out.update(await self._instrument_quotes(own))
+        return out
+
+    async def _instrument_quotes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, OptionQuote]:
+        """Cotizaciones de los instrumentos: por la conexión de datos diferidos (open interest, delta y, con el mercado abierto, bid/ask). Con el mercado cerrado
+        el diferido no trae bid/ask: a los contratos que llegan sin bid ni ask se les pide el último con la conexión principal (datos congelados, sin open
+        interest) y se completan; el open interest y la delta del primer intento se conservan."""
+        ib = await self._market_ib(contracts[0].ticker)
+        got = await self._quotes_group(contracts, ib)
+        if ib is self.ib:
+            return got
+        empty = [c for c, q in got.items() if q.bid is None and q.ask is None]
+        if not empty:
+            return got
+        out = dict(got)
+        for c, q2 in (await self._quotes_group(empty, self.ib)).items():
+            q1 = out[c]
+            out[c] = replace(q1, bid=q2.bid, ask=q2.ask, last=q1.last if q1.last is not None else q2.last,
+                             bid_size=q1.bid_size if q1.bid_size is not None else q2.bid_size,
+                             delta=q1.delta if q1.delta is not None else q2.delta, iv=q1.iv if q1.iv is not None else q2.iv,
+                             open_interest=q1.open_interest if q1.open_interest is not None else q2.open_interest)
+        return out
+
+    async def _quotes_group(self, contracts: Sequence[OptionContract], ib: IB) -> dict[OptionContract, OptionQuote]:
         pairs = [(c, self._ib_option(c)) for c in contracts]
         todo = [o for _, o in pairs if not o.conId]  # normalmente vacío: se validaron en la actualización diaria
         if todo:
@@ -404,10 +488,10 @@ class IBKRGateway:
                 name = getattr(contract, "symbol", None) or "?"
                 competing[name] = competing.get(name, 0) + 1
 
-        self.ib.errorEvent += on_error
+        ib.errorEvent += on_error
         try:
             with _quiet(_COMPETING_FILTER):
-                tickers = {c: self.ib.reqMktData(o, "101", False, False) for c, o in valid}  # 101 = open interest
+                tickers = {c: ib.reqMktData(o, "101", False, False) for c, o in valid}  # 101 = open interest
                 try:
                     # espera hasta `quote_wait_seconds`, pero sale en cuanto todos tienen sus datos
                     waited, step = 0.0, 0.25
@@ -418,9 +502,9 @@ class IBKRGateway:
                         waited += step
                 finally:
                     for _, o in valid:
-                        self.ib.cancelMktData(o)
+                        ib.cancelMktData(o)
         finally:
-            self.ib.errorEvent -= on_error
+            ib.errorEvent -= on_error
         if competing:
             log.warning(
                 "Error 10197 (IBKR cree que otra sesión recibe datos en directo) en %d de %d contratos del lote: %s. "

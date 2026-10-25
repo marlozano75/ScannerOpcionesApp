@@ -53,6 +53,8 @@ class IbkrSettings(_Model):
     quote_wait_seconds: float = Field(4, gt=0)  # espera de ticks tras pedir cotizaciones
     what_if_timeout_seconds: float = Field(15, gt=0)  # tiempo máximo de un what-if de margen (TWS puede dejar de responder)
     historical_requests_per_10min: int = Field(50, ge=1)  # límite de pacing de IBKR: 60
+    instruments_market_data_type: int = Field(3, ge=1, le=4)   # datos de los instrumentos (`instruments`, p. ej. Eurex) sin suscripción de la bolsa: diferidos (3). Tienen su propia conexión de TWS
+    instruments_client_offset: int = Field(10, ge=1)     # ... con el clientId de la principal más este desplazamiento
     account_tags: AccountTags = AccountTags()
 
     @property
@@ -67,6 +69,25 @@ class IbkrSettings(_Model):
     def delay_minutes(self) -> float:
         """Retraso de los datos de mercado: `delayed_minutes` con datos diferidos (3/4), 0 si no."""
         return self.delayed_minutes if self.market_data_type in (3, 4) else 0.0
+
+
+class InstrumentSettings(_Model):
+    """Subyacente que NO es una acción de EE. UU. en USD (p. ej. un índice europeo): su cadena, cotizaciones, precio y margen salen de TWS (tastytrade no
+    lo cubre) y los cierres diarios de Yahoo. La clave del mapa `Settings.instruments` es el ticker de la app."""
+    kind: Literal["index"] = "index"
+    symbol: str                                  # símbolo en IBKR («ESTX50»)
+    exchange: str                                # bolsa del subyacente y de sus opciones («EUREX»)
+    currency: str                                # moneda de strikes, primas y margen («EUR»)
+    multiplier: int = Field(10, ge=1)            # multiplicador de las opciones
+    trading_class: str                           # clase de las opciones de la cadena de IBKR («OESX»: mensuales, semanales y de fin de mes)
+    yahoo_symbol: Optional[str] = None           # símbolo de Yahoo para los cierres diarios; None = sin histórico
+    sector: str = "Índice"                       # IBKR no da sector a los índices
+    name: Optional[str] = None
+
+
+def default_instruments() -> dict[str, InstrumentSettings]:
+    return {"ESTX50": InstrumentSettings(symbol="ESTX50", exchange="EUREX", currency="EUR", multiplier=10, trading_class="OESX",
+                                         yahoo_symbol="^STOXX50E", sector="Índice Europa", name="Euro Stoxx 50")}
 
 
 class RefreshSettings(_Model):
@@ -330,6 +351,9 @@ class QualitySettings(_Model):
     etf_index_symbols: list[str] = [
         "SPY", "QQQ", "IWM", "DIA", "XSP", "SMH", "GLD", "SLV", "TLT", "HYG", "USO", "IBIT", "EEM", "EFA", "FXI", "EWZ", "GDX", "XBI", "KRE",
         "XLE", "XLF", "XLK", "XLV", "XLU", "XLI", "XLP", "XLY", "XLC", "XLB", "XLRE",
+        "TQQQ", "SQQQ", "VXX", "KWEB",      # apalancados / volatilidad / China
+        "FEZ", "EZU", "VGK",                # Euro Stoxx 50, eurozona y Europa (ETF en dólares con opciones en EE. UU.)
+        "ESTX50",                           # Euro Stoxx 50 (índice de Eurex en euros, ver `instruments`)
     ]
 
     @property
@@ -829,6 +853,7 @@ class Settings(_Model):
     tasty_lists: TastyListsSettings = TastyListsSettings()
     super_investors: SuperInvestorsSettings = SuperInvestorsSettings()
     admission: AdmissionSettings = AdmissionSettings()
+    instruments: dict[str, InstrumentSettings] = Field(default_factory=default_instruments)   # índices y otros subyacentes de TWS (ticker de la app -> ajustes)
 
     @property
     def refresh_interval_minutes(self) -> float:

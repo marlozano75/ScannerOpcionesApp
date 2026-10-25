@@ -40,3 +40,33 @@ class FakeCandles:
     async def get_daily_ohlc(self, tickers: list[str], days: int) -> dict[str, OhlcBars]:
         closes = await self.get_daily_closes(tickers, days)
         return {t: [(d, px, *self.ranges.get(t, {}).get(d, (px, px))) for d, px in bars] for t, bars in closes.items()}   # sin rangos: máx. = mín. = cierre
+
+
+class SplitCandles:
+    """Reparte las peticiones entre dos proveedores: los `tickers` de `other` van a `other` (p. ej. Yahoo para el Euro Stoxx 50) y el resto a `primary`.
+    Un fallo de `other` no impide que `primary` devuelva lo suyo, y al revés se lanza el de `primary`."""
+
+    def __init__(self, primary: CandleProvider, other: CandleProvider, tickers) -> None:
+        self.primary = primary
+        self.other = other
+        self.tickers = frozenset(tickers)
+
+    async def _split(self, method: str, tickers: list[str], days: int) -> dict:
+        mine = [t for t in tickers if t not in self.tickers]
+        theirs = [t for t in tickers if t in self.tickers]
+        out: dict = {}
+        if mine:
+            out.update(await getattr(self.primary, method)(mine, days))
+        if theirs:
+            try:
+                out.update(await getattr(self.other, method)(theirs, days))
+            except Exception as exc:        # el histórico de un índice no debe impedir el del resto
+                import logging
+                logging.getLogger(__name__).warning("Velas de %s no disponibles: %s", ", ".join(theirs), exc)
+        return out
+
+    async def get_daily_closes(self, tickers: list[str], days: int) -> dict[str, DailyBars]:
+        return await self._split("get_daily_closes", tickers, days)
+
+    async def get_daily_ohlc(self, tickers: list[str], days: int) -> dict[str, OhlcBars]:
+        return await self._split("get_daily_ohlc", tickers, days)

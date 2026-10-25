@@ -97,13 +97,16 @@ def build_account_summary(
     )
 
 
-def pick_chain(chains: Sequence[Any], ticker: str) -> Optional[Any]:
-    """Elige la cadena SMART con tradingClass == ticker y multiplicador 100 (o la mejor disponible)."""
+def pick_chain(chains: Sequence[Any], ticker: str, exchange: str = "SMART", trading_class: Optional[str] = None, multiplier: int = 100) -> Optional[Any]:
+    """Elige la cadena de `exchange` (SMART en las acciones) con la clase de opciones `trading_class` (por defecto, el ticker) y el multiplicador
+    `multiplier` (o la mejor disponible)."""
+    wanted = trading_class or ticker
+
     def score(c) -> tuple:
         return (
-            c.exchange == "SMART",
-            c.tradingClass == ticker,
-            str(c.multiplier) == "100",
+            c.exchange == exchange,
+            c.tradingClass == wanted,
+            str(c.multiplier) == str(multiplier),
             len(c.expirations),
         )
 

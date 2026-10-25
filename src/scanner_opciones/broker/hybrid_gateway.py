@@ -13,7 +13,7 @@ import time
 from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime
-from typing import Callable, Optional, Sequence
+from typing import Callable, Collection, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway, note_chain
 from scanner_opciones.config.settings import MarketDataSettings
@@ -43,8 +43,10 @@ class HybridGateway:
         now: Callable[[], datetime] = datetime.now, clock: Callable[[], float] = time.monotonic,
         fallback_batch: int = 50, sectors: Optional[SectorProvider] = None,
         chain_store=None, closed_since: Callable[[], Optional[datetime]] = lambda: None,
+        instruments: Collection[str] = (),
     ) -> None:
         self.inner = inner
+        self.instruments = frozenset(instruments)   # índices (ESTX50...): el proveedor no los cubre, todo sale de TWS
         self.fallback_batch = fallback_batch      # contratos por petición cuando se cae a IBKR (límite de líneas de TWS)
         self.quote_batch_size = settings.quote_batch_size   # contratos por petición de cotizaciones (lo lee el refresco)
         self.provider = provider
@@ -97,6 +99,8 @@ class HybridGateway:
 
     async def get_sector_info(self, ticker: str) -> tuple[Optional[str], Optional[str]]:
         """Sector de EDGAR o Yahoo si lo hay; si no, de TWS (sin TWS queda vacío y se completa al reconectar)."""
+        if ticker in self.instruments:
+            return await self.inner.get_sector_info(ticker) if self.inner.is_connected() else (None, None)
         if ticker not in self._sector_cache:
             await self.prime_sectors([ticker])
         if ticker in self._sector_cache:
@@ -108,7 +112,7 @@ class HybridGateway:
     async def get_bid_sizes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, int]:
         if not self.inner.is_connected():
             return {}      # sin TWS se queda el tamaño del proveedor
-        return await self.inner.get_bid_sizes(contracts)
+        return await self.inner.get_bid_sizes([c for c in contracts if c.ticker not in self.instruments])   # los de TWS ya traen el suyo
 
     async def what_if_margin(self, contract: OptionContract, quantity: int = 1) -> Optional[float]:
         return await self.inner.what_if_margin(contract, quantity)   # los contratos sin con_id los cualifica IBKR
@@ -136,7 +140,15 @@ class HybridGateway:
         return self.inner.pacing_wait_seconds()
 
     # ---- subyacentes ------------------------------------------------------------------------
+    def _need_broker(self, what: str) -> None:
+        if not self.inner.is_connected():
+            raise self._no_broker(what)
+
     async def get_underlying_price(self, ticker: str) -> Optional[float]:
+        if ticker in self.instruments:
+            if not self.inner.is_connected():
+                return None
+            return await self.inner.get_underlying_price(ticker)
         try:
             price = (await self.provider.get_prices([ticker])).get(ticker)
         except PriceError as exc:
@@ -150,6 +162,13 @@ class HybridGateway:
 
     async def get_underlying_quotes(self, tickers: Sequence[str]) -> dict[str, UnderlyingQuote]:
         """Precio e IV a 30 días. Sin respuesta del proveedor para un ticker, se le pide a IBKR (solo a esos)."""
+        own = [t for t in tickers if t in self.instruments]
+        if own:     # índices: precio de TWS (diferido); los demás, del proveedor
+            rest = [t for t in tickers if t not in self.instruments]
+            out = await self.get_underlying_quotes(rest) if rest else {}
+            if self.inner.is_connected():
+                out.update(await self.inner.get_underlying_quotes(own))
+            return out
         names = list(tickers)
         try:
             prices = await self.provider.get_prices(names)
@@ -175,6 +194,8 @@ class HybridGateway:
         return out
 
     async def get_days_to_ex_dividend(self, ticker: str) -> Optional[int]:
+        if ticker in self.instruments:
+            return None
         found = await self.get_days_to_ex_dividend_many([ticker])
         if ticker in found:
             return found[ticker]
@@ -185,7 +206,7 @@ class HybridGateway:
     async def get_days_to_ex_dividend_many(self, tickers: Sequence[str]) -> dict[str, Optional[int]]:
         """Días hasta el ex-dividendo; None si la última fecha conocida ya pasó. Los que el proveedor no
         conoce, o si falla, se piden a IBKR."""
-        names = list(tickers)
+        names = [t for t in tickers if t not in self.instruments]
         try:
             extras = await self.provider.get_market_extras(names)
         except VolatilityError as exc:
@@ -251,6 +272,9 @@ class HybridGateway:
         return listing
 
     async def get_option_chain(self, ticker: str) -> OptionChain:
+        if ticker in self.instruments:
+            self._need_broker(f"Cadena de {ticker}")
+            return await self.inner.get_option_chain(ticker)
         try:
             listing = await self._listing(ticker)
         except OptionDataError as exc:
@@ -280,6 +304,11 @@ class HybridGateway:
         for c in contracts:
             by_ticker[c.ticker].append(c)
         valid: dict[tuple, OptionContract] = {}   # los validados por IBKR (fallback) traen su con_id
+        own = [c for c in contracts if c.ticker in self.instruments]
+        if own:
+            self._need_broker("Contratos de " + ", ".join(sorted({c.ticker for c in own})))
+            valid.update((ident(c), c) for c in await self.inner.qualify_contracts(own))
+            by_ticker = {t: g for t, g in by_ticker.items() if t not in self.instruments}
         for ticker, group in by_ticker.items():
             try:
                 listing = await self._listing(ticker)
@@ -293,6 +322,12 @@ class HybridGateway:
         return [valid[k] for c in contracts if (k := ident(c)) in valid]
 
     async def get_quotes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, OptionQuote]:
+        own = [c for c in contracts if c.ticker in self.instruments]
+        if own:     # índices: cotizaciones de TWS, en lotes pequeños
+            rest = [c for c in contracts if c.ticker not in self.instruments]
+            out = await self.get_quotes(rest) if rest else {}
+            out.update(await self._inner_quotes(own))
+            return out
         symbols: dict[str, OptionContract] = {}
         for ticker in {c.ticker for c in contracts}:
             mine = [c for c in contracts if c.ticker == ticker]
