@@ -42,6 +42,9 @@ def earnings_svg(quarters: Sequence[EarningsQuarter]) -> str:
     for t in _ticks(lo, hi):
         parts.append(f'<line x1="{LEFT}" x2="{WIDTH - RIGHT}" y1="{y(t):.1f}" y2="{y(t):.1f}" stroke="var(--line)" stroke-width="1"/>'
                      f'<text x="{LEFT - 5}" y="{y(t) + 3.5:.1f}" text-anchor="end" font-size="10" fill="var(--mute)">{_money(t)}</text>')
+    parts.append(f'<line x1="{LEFT}" x2="{WIDTH - RIGHT}" y1="{y(0.0):.1f}" y2="{y(0.0):.1f}" stroke="var(--mute)" stroke-width="1.5"/>')
+    if lo < 0:
+        parts.append(f'<text x="{LEFT - 5}" y="{y(0.0) + 3.5:.1f}" text-anchor="end" font-size="10" font-weight="600" fill="var(--text)">0</text>')
     for i, q in enumerate(quarters):
         cx = LEFT + slot * (i + 0.5)
         beat = q.beat
@@ -84,6 +87,13 @@ def annual_svg(years: Sequence[AnnualYear]) -> str:
     m_hi, m_lo = (max(max(margins), 0.0), min(min(margins), 0.0)) if margins else (1.0, 0.0)
     if m_hi <= m_lo:
         m_hi = m_lo + 1.0
+    # El 0 de los dos ejes (miles de millones y %) cae a la misma altura: así una sola línea de 0 vale para las barras y para el margen.
+    frac0 = -b_lo / (b_hi - b_lo)
+    if frac0 > 0:
+        if -m_lo / (m_hi - m_lo) < frac0:
+            m_lo = -frac0 * m_hi / (1 - frac0) if frac0 < 1 else m_lo
+        else:
+            m_hi = -m_lo * (1 - frac0) / frac0
     left, right = 40, 48
     height = HEIGHT + 26         # dos filas más bajo el año: variación interanual de ingresos y de beneficio neto
     plot_w, plot_h = WIDTH - left - right, HEIGHT - TOP - BOTTOM
@@ -106,6 +116,12 @@ def annual_svg(years: Sequence[AnnualYear]) -> str:
                      f'<text x="{left - 5}" y="{gy + 3.5:.1f}" text-anchor="end" font-size="10" fill="var(--mute)">{m_lo + (m_hi - m_lo) * frac:.0f} %</text>'
                      f'<text x="{WIDTH - right + 5}" y="{gy + 3.5:.1f}" font-size="10" fill="var(--mute)">{_billions(b_lo + (b_hi - b_lo) * frac)}</text>')
     zero = yb(0.0)
+    if b_lo < 0:
+        parts.append(f'<line x1="{left}" x2="{WIDTH - right}" y1="{zero:.1f}" y2="{zero:.1f}" stroke="var(--mute)" stroke-width="1.5"/>'
+                     f'<text x="{left - 5}" y="{zero + 3.5:.1f}" text-anchor="end" font-size="10" font-weight="600" fill="var(--text)">0 %</text>'
+                     f'<text x="{WIDTH - right + 5}" y="{zero + 3.5:.1f}" font-size="10" font-weight="600" fill="var(--text)">0</text>')
+    else:
+        parts.append(f'<line x1="{left}" x2="{WIDTH - right}" y1="{zero:.1f}" y2="{zero:.1f}" stroke="var(--mute)" stroke-width="1.5"/>')
     points = []
     for i, y in enumerate(years):
         cx = left + slot * (i + 0.5)
