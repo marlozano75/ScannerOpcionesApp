@@ -325,8 +325,9 @@ class DailyUpdater:
             return 0
         today = self.now().date()
         max_age = self.settings.edgar.refresh_days
+        have_annual = self.company_history.annual()      # las fichas anteriores al gráfico anual no lo tienen: se vuelven a pedir una vez
         stale = [t for t in tickers if (i := self.quality.get(t)) is None or i.financials_at is None
-                 or (today - i.financials_at.date()).days >= max_age]
+                 or (today - i.financials_at.date()).days >= max_age or t not in have_annual]
         if not stale:
             return 0
         started, done = time.monotonic(), 0
@@ -356,6 +357,7 @@ class DailyUpdater:
                     revenue_drop_years=fin.revenue_drop_years, revenue_years=fin.revenue_years,
                     earnings_volatility=fin.earnings_volatility))
             done += self.quality.save(updated)
+            self.company_history.save_annual({t: found[t].annual for t in chunk if found.get(t) is not None}, self.now())
         log.info("Balance y flujo de caja (SEC EDGAR): %d de %d fichas actualizadas en %.1f s", done, len(stale),
                  time.monotonic() - started)
         return done

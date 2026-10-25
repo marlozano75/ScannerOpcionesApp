@@ -489,6 +489,7 @@ class HistorySettings(_Model):
     """Historial de resultados (BPA real frente a estimación, Yahoo) y dividendos (tastytrade) de la ficha de los gráficos. Solo informa."""
     enabled: bool = True
     quarters: int = Field(5, ge=1, le=8)                 # trimestres que se enseñan
+    years: int = Field(4, ge=1, le=5)                    # años fiscales de ingresos y beneficio neto que se enseñan (SEC EDGAR; se guardan 5)
     earnings_refresh_hours: float = Field(24, gt=0)      # cada cuántas horas se vuelven a pedir los resultados
     dividends_refresh_hours: float = Field(20, gt=0)     # ... y los dividendos
     settle_hours: float = Field(0, ge=0)                 # como `analysts.settle_hours`: sin consulta en fin de semana ni festivo

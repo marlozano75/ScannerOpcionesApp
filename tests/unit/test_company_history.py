@@ -7,7 +7,7 @@ import pandas as pd
 from scanner_opciones.app.service import AppService
 from scanner_opciones.broker.fake_gateway import FakeGateway
 from scanner_opciones.config.settings import Settings
-from scanner_opciones.marketdata.history import (Dividend, EarningsQuarter, FakeDividends, FakeEarningsHistory, beat_summary, last_quarters)
+from scanner_opciones.marketdata.history import (AnnualYear, Dividend, EarningsQuarter, FakeDividends, FakeEarningsHistory, beat_summary, last_quarters)
 from scanner_opciones.marketdata.history_html import dividend_line, history_html
 from scanner_opciones.marketdata.tastytrade import dividend_from_item
 from scanner_opciones.marketdata.yahoo import earnings_from_frame
@@ -65,3 +65,26 @@ async def test_update_company_history_refreshes_only_what_is_due():
     card = svc.history_card("KO")
     assert "1/1" in card and "15/12/2026" in card
     assert svc.history_card("ETF") == "" and svc.history_card("ZZZ") == ""
+
+
+def test_annual_chart_has_margin_line_and_handles_losses_and_gaps():
+    years = [AnnualYear(date(2022, 12, 31), 30e9, 9e9), AnnualYear(date(2023, 12, 31), 28e9, 5e9), AnnualYear(date(2024, 12, 31), 25e9, -2e9),
+             AnnualYear(date(2025, 12, 31), 27e9, None)]
+    assert round(years[0].net_margin_pct, 1) == 30.0 and years[3].net_margin_pct is None
+    html = history_html([], None, TODAY, years)
+    assert "<polyline" in html and "Resultados anuales" in html and "-8,00 %" in html and "SEC EDGAR" in html
+    assert history_html([], None, TODAY, [AnnualYear(date(2025, 12, 31))]) == ""       # sin ningún importe no hay gráfico
+
+
+def test_edgar_extracts_annual_results_from_company_facts():
+    from scanner_opciones.marketdata.edgar import _annual_results
+
+    def fact(end, val):
+        return {"start": f"{end[:4]}-01-01", "end": end, "val": val, "form": "10-K", "filed": end}
+
+    tree = {"Revenues": {"units": {"USD": [fact("2023-12-31", 10e9), fact("2024-12-31", 12e9)]}},
+            "NetIncomeLoss": {"units": {"USD": [fact("2023-12-31", 1e9), fact("2024-12-31", -1e9)]}}}
+    tags = {"revenue": ("Revenues",), "net_income": ("NetIncomeLoss",)}
+    got = _annual_results(tree, tags, "2024-01-01")
+    assert [(y.end.year, y.revenue, y.net_income) for y in got] == [(2023, 10e9, 1e9), (2024, 12e9, -1e9)]
+    assert _annual_results(tree, tags, "2030-01-01") == ()                  # datos viejos: nada

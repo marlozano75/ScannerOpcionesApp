@@ -12,7 +12,7 @@ from scanner_opciones.domain.models import ContractSnapshot, OptionContract, Tic
 from scanner_opciones.marketdata.analysts import AnalystChange
 from scanner_opciones.marketdata.company import CompanyNotes, NewsItem
 from scanner_opciones.marketdata.filings import FilingAlert
-from scanner_opciones.marketdata.history import Dividend, EarningsQuarter
+from scanner_opciones.marketdata.history import AnnualYear, Dividend, EarningsQuarter
 from scanner_opciones.storage.db import Database
 
 
@@ -285,6 +285,20 @@ class CompanyHistoryRepo:
                 "INSERT INTO company_history (ticker, dividend_at, dividend) VALUES (?, ?, ?) "
                 "ON CONFLICT(ticker) DO UPDATE SET dividend_at = excluded.dividend_at, dividend = excluded.dividend", rows)
         return len(rows)
+
+    def save_annual(self, found: dict[str, Sequence[AnnualYear]], checked_at: datetime) -> int:
+        rows = [(t, checked_at.isoformat(), json.dumps([y.to_json() for y in years])) for t, years in found.items()]
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO company_history (ticker, annual_at, annual) VALUES (?, ?, ?) "
+                "ON CONFLICT(ticker) DO UPDATE SET annual_at = excluded.annual_at, annual = excluded.annual", rows)
+        return len(rows)
+
+    def annual(self) -> dict[str, tuple[datetime, list[AnnualYear]]]:
+        out = {}
+        for r in self.db.conn.execute("SELECT ticker, annual_at, annual FROM company_history WHERE annual_at IS NOT NULL"):
+            out[r["ticker"]] = (datetime.fromisoformat(r["annual_at"]), [AnnualYear.from_json(y) for y in json.loads(r["annual"])])
+        return out
 
     def earnings(self) -> dict[str, tuple[datetime, list[EarningsQuarter]]]:
         out = {}

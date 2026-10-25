@@ -6,7 +6,7 @@ from datetime import date
 from html import escape
 from typing import Optional, Sequence
 
-from scanner_opciones.marketdata.history import Dividend, EarningsQuarter, beat_summary
+from scanner_opciones.marketdata.history import AnnualYear, Dividend, EarningsQuarter, beat_summary
 
 WIDTH, HEIGHT = 360, 120
 LEFT, RIGHT, TOP, BOTTOM = 38, 12, 12, 22
@@ -60,6 +60,67 @@ def earnings_svg(quarters: Sequence[EarningsQuarter]) -> str:
     return "".join(parts)
 
 
+def _billions(value: float) -> str:
+    return f"{value / 1e9:.2f}".replace(".", ",") + " B"
+
+
+def annual_svg(years: Sequence[AnnualYear]) -> str:
+    """Barras de ingresos y de beneficio neto por año fiscal (eje derecho, en miles de millones de $) y línea del margen neto (eje izquierdo, %)."""
+    bars = [v for y in years for v in (y.revenue, y.net_income) if v is not None]
+    margins = [m for m in (y.net_margin_pct for y in years) if m is not None]
+    if not bars:
+        return ""
+    b_hi, b_lo = max(max(bars), 0.0), min(min(bars), 0.0)
+    if b_hi <= b_lo:
+        b_hi = b_lo + 1.0
+    m_hi, m_lo = (max(max(margins), 0.0), min(min(margins), 0.0)) if margins else (1.0, 0.0)
+    if m_hi <= m_lo:
+        m_hi = m_lo + 1.0
+    left, right = 40, 48
+    plot_w, plot_h = WIDTH - left - right, HEIGHT - TOP - BOTTOM
+
+    def yb(v: float) -> float:
+        return TOP + plot_h * (1 - (v - b_lo) / (b_hi - b_lo))
+
+    def ym(v: float) -> float:
+        return TOP + plot_h * (1 - (v - m_lo) / (m_hi - m_lo))
+
+    slot = plot_w / len(years)
+    bw = min(14.0, slot / 4)
+    parts = [f'<svg viewBox="0 0 {WIDTH} {HEIGHT}" width="{WIDTH}" height="{HEIGHT}" role="img" '
+             'aria-label="Ingresos, beneficio neto y margen neto por año fiscal" style="max-width:100%;height:auto">']
+    for i in range(3):
+        frac = i / 2
+        gy = TOP + plot_h * (1 - frac)
+        parts.append(f'<line x1="{left}" x2="{WIDTH - right}" y1="{gy:.1f}" y2="{gy:.1f}" stroke="var(--line)" stroke-width="1"/>'
+                     f'<text x="{left - 5}" y="{gy + 3.5:.1f}" text-anchor="end" font-size="10" fill="var(--mute)">{m_lo + (m_hi - m_lo) * frac:.0f} %</text>'
+                     f'<text x="{WIDTH - right + 5}" y="{gy + 3.5:.1f}" font-size="10" fill="var(--mute)">{_billions(b_lo + (b_hi - b_lo) * frac)}</text>')
+    zero = yb(0.0)
+    points = []
+    for i, y in enumerate(years):
+        cx = left + slot * (i + 0.5)
+        margin = y.net_margin_pct
+        detail = " · ".join(filter(None, [
+            f"ingresos {_billions(y.revenue)} $" if y.revenue is not None else "",
+            f"beneficio neto {_billions(y.net_income)} $" if y.net_income is not None else "",
+            f"margen neto {_money(margin)} %" if margin is not None else ""]))
+        tip = escape(f"{y.end.year}|Año fiscal {y.end.strftime('%d/%m/%Y')}|{detail}".replace('"', "'"), quote=True)
+        parts.append(f'<g tabindex="0" data-tip="{tip}"><rect x="{cx - slot / 2:.1f}" y="{TOP}" width="{slot:.1f}" height="{plot_h}" fill="transparent"/>')
+        for k, (value, colour) in enumerate(((y.revenue, "#4f7cff"), (y.net_income, "#3ec9d6"))):
+            if value is not None:
+                x, top = cx - bw - 1 + k * (bw + 2), yb(value)
+                parts.append(f'<rect x="{x:.1f}" y="{min(top, zero):.1f}" width="{bw:.1f}" height="{max(abs(zero - top), 1.0):.1f}" rx="2" fill="{colour}"/>')
+        parts.append("</g>")
+        if margin is not None:
+            points.append((cx, ym(margin)))
+        parts.append(f'<text x="{cx:.1f}" y="{HEIGHT - 6}" text-anchor="middle" font-size="10" fill="var(--mute)">{y.end.strftime("%y")}</text>')
+    if len(points) > 1:
+        parts.append('<polyline fill="none" stroke="#f08a24" stroke-width="2" points="' + " ".join(f"{x:.1f},{y:.1f}" for x, y in points) + '"/>')
+    parts.extend(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="var(--panel)" stroke="#f08a24" stroke-width="1.5"/>' for x, y in points)
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 def dividend_line(dividend: Optional[Dividend], today: date) -> str:
     """«Dividendo: 2,2 % anual · 0,53 $ por pago · ex 01/12/2026 (próximo) · pago 15/12/2026»; vacío si no paga."""
     if dividend is None or dividend.empty:
@@ -76,9 +137,15 @@ def dividend_line(dividend: Optional[Dividend], today: date) -> str:
     return f'<div style="margin-top:6px"><b>Dividendo</b> <span class="muted">· {" · ".join(bits)}</span></div>'
 
 
-def history_html(quarters: Sequence[EarningsQuarter], dividend: Optional[Dividend], today: date) -> str:
-    """Resultados de los últimos trimestres (con «n/m» de veces que se alcanzó la estimación) y dividendo, para la ficha de los gráficos."""
+def history_html(quarters: Sequence[EarningsQuarter], dividend: Optional[Dividend], today: date, annual: Sequence[AnnualYear] = ()) -> str:
+    """Resultados anuales (ingresos, beneficio neto y margen), de los últimos trimestres (con «n/m» de veces que se alcanzó la estimación) y
+    dividendo, para la ficha de los gráficos."""
     out = []
+    chart = annual_svg(annual) if annual else ""
+    if chart:
+        out.append('<div style="margin-top:6px"><b>Resultados anuales</b> <span class="muted">· <span style="color:#4f7cff">■</span> ingresos '
+                   '<span style="color:#3ec9d6">■</span> beneficio neto <span style="color:#f08a24">●</span> margen neto (%) · SEC EDGAR, '
+                   f'últimos {len(annual)} años fiscales</span></div>{chart}')
     if quarters:
         summary = beat_summary(quarters)
         badge = ""

@@ -984,7 +984,8 @@ class AppService:
         key = norm_ticker(ticker)
         earnings = self._memo("history_earnings", lambda: {norm_ticker(t): q for t, (_, q) in self.company_history.earnings().items()})
         dividends = self._memo("history_dividends", lambda: {norm_ticker(t): d for t, (_, d) in self.company_history.dividends().items()})
-        return history_html(earnings.get(key, []), dividends.get(key), self.now().date())
+        annual = self._memo("history_annual", lambda: {norm_ticker(t): y for t, (_, y) in self.company_history.annual().items()})
+        return history_html(earnings.get(key, []), dividends.get(key), self.now().date(), annual.get(key, [])[-self.settings.history.years:])
 
     def next_earnings(self, ticker: str) -> Optional[date]:
         """Próxima presentación de resultados (de tastytrade), si es de hoy o posterior."""

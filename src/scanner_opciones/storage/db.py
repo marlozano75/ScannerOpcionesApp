@@ -222,6 +222,11 @@ MIGRATIONS: list[str] = [
         dividend TEXT
     );
     """,
+    # v28: ingresos y beneficio neto de los últimos años fiscales (SEC EDGAR) para el gráfico de la ficha
+    """
+    ALTER TABLE company_history ADD COLUMN annual_at TEXT;
+    ALTER TABLE company_history ADD COLUMN annual TEXT;
+    """,
 ]
 
 

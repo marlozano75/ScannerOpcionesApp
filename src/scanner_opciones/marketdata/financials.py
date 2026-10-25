@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Optional, Protocol
 
+from scanner_opciones.marketdata.history import AnnualYear
+
 
 NO_LIMIT = 999.0   # valor de un cociente cuando no hay deuda / intereses / deuda corriente que cubrir
 
@@ -29,6 +31,7 @@ class Financials:
     revenue_drop_years: Optional[int] = None        # años en que bajaron los ingresos de los últimos 10 (None con < 5 años de historia)
     revenue_years: Optional[int] = None             # años comparados con el anterior (hasta 9)
     earnings_volatility: Optional[float] = None     # desviación típica del crecimiento anual del beneficio neto (fracción)
+    annual: tuple[AnnualYear, ...] = ()             # ingresos y beneficio neto de los últimos años fiscales (del más antiguo al más reciente)
 
 
 class FinancialsProvider(Protocol):

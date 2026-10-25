@@ -20,6 +20,7 @@ from typing import Any, Awaitable, Callable, Optional
 from scanner_opciones.domain.errors import FinancialsError
 from scanner_opciones.marketdata.filings import FilingAlert, classify_filings
 from scanner_opciones.marketdata.financials import NO_LIMIT, Financials
+from scanner_opciones.marketdata.history import AnnualYear
 from scanner_opciones.marketdata.sectors import sic_to_sector
 
 log = logging.getLogger(__name__)
@@ -185,6 +186,7 @@ def _debt(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabiliti
 
 TAX_FALLBACK = 0.21        # tasa federal de EE. UU. cuando la efectiva no se puede calcular o es absurda (negativa, > 40 %)
 PROFIT_YEARS = 10          # años fiscales que se miran para contar años con pérdidas
+ANNUAL_RESULT_YEARS = 5      # años fiscales de ingresos y beneficio neto que se guardan para el gráfico
 MIN_PROFIT_YEARS = 5       # con menos historia no se juzga la estabilidad (sin dato)
 MIN_GROWTH_OBSERVATIONS = 4   # crecimientos anuales mínimos para medir su volatilidad
 
@@ -222,6 +224,14 @@ def _annual_series(tree: dict, tags: tuple[str, ...], fresh: str) -> list[tuple[
             merged.setdefault(end, val)
     ends = sorted(merged)[-PROFIT_YEARS:]
     return [] if not ends or ends[-1] < fresh else [(e, merged[e]) for e in ends]
+
+
+def _annual_results(tree: dict, tags: dict, fresh: str, years: int = ANNUAL_RESULT_YEARS) -> tuple[AnnualYear, ...]:
+    """Ingresos y beneficio neto de los últimos `years` años fiscales (los que tienen al menos uno de los dos), del más antiguo al más reciente."""
+    revenue = dict(_annual_series(tree, tags.get("revenue", ()), fresh))
+    income = dict(_annual_series(tree, tags.get("net_income", ()), fresh))
+    ends = sorted(set(revenue) | set(income))[-years:]
+    return tuple(AnnualYear(date.fromisoformat(e), revenue.get(e), income.get(e)) for e in ends)
 
 
 def _consecutive(series: list[tuple[str, float]]):
@@ -295,10 +305,11 @@ def _from_tree(tree: dict, tags: dict, today: date) -> Optional[Financials]:
             capex_val = abs(capex[0])      # el signo de las compras de inmovilizado varía entre taxonomías
             fcf, flow_end = ocf_val - capex_val, ocf[1]
     extras = _solvency(tree, tags, fresh, equity_val, liabilities_val, ocf_val, capex_val, fcf)
-    if ratio is None and fcf is None and all(v is None for v in extras.values()):
+    annual = _annual_results(tree, tags, fresh)
+    if ratio is None and fcf is None and all(v is None for v in extras.values()) and not annual:
         return None
     end = flow_end or balance_end
-    return Financials(ratio, fcf, date.fromisoformat(end) if end else None, **extras)
+    return Financials(ratio, fcf, date.fromisoformat(end) if end else None, annual=annual, **extras)
 
 
 def _solvency(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabilities: Optional[float],

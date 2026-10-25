@@ -34,6 +34,27 @@ class EarningsQuarter:
 
 
 @dataclass(frozen=True)
+class AnnualYear:
+    end: date                      # fin del año fiscal
+    revenue: Optional[float] = None       # ingresos, USD
+    net_income: Optional[float] = None    # beneficio neto, USD
+
+    def to_json(self) -> dict:
+        return {"end": self.end.isoformat(), "revenue": self.revenue, "net_income": self.net_income}
+
+    @classmethod
+    def from_json(cls, raw: Mapping) -> "AnnualYear":
+        return cls(date.fromisoformat(str(raw["end"])[:10]), raw.get("revenue"), raw.get("net_income"))
+
+    @property
+    def net_margin_pct(self) -> Optional[float]:
+        """Beneficio neto sobre ingresos, en % (None sin ingresos o sin beneficio)."""
+        if self.revenue is None or self.net_income is None or self.revenue <= 0:
+            return None
+        return self.net_income / self.revenue * 100.0
+
+
+@dataclass(frozen=True)
 class Dividend:
     yield_pct: Optional[float] = None        # rentabilidad por dividendo anual, en %
     per_payment: Optional[float] = None      # $ por acción de cada pago
