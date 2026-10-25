@@ -18,7 +18,7 @@
     El radar de Tortuga se refresca durante la sesión (precio e IV cada ~15 min, primas en pasadas de ~10 min; el OI es el del cierre anterior) y la aplicación lo relee cada {{ cfg.intervals.get('radar_spreads') }} minutos con el mercado abierto y una vez más tras el cierre (también al abrirla fuera de sesión si le falta esa foto). La lista no trae los strikes del spread que propone (solo su ficha, una por valor), así que se muestra la
     <b>put de 30Δ</b> de referencia: ✓ indica que su prima cubre al menos el <b>{{ minimum|num(2) }} % del strike hasta el vencimiento</b>, el yield del periodo del perfil «{{ cfg.profile }}».
     Los ✓ forman dos fuentes del Universo según la estrategia que propone Tortuga, y pasan a tu watchlist (solo se añaden, nunca se quitan):
-    <b>{{ cfg.source_name }}</b> (Bull Put Spread, apta para spreads) y <b>{{ cfg.puts_source_name }}</b> (venta de put; como cualquier otra fuente, sus valores pasan por la calidad mínima de las puts).
+    <b>{{ cfg.source_name }}</b> (Bull Put Spread) y <b>{{ cfg.puts_source_name }}</b> (venta de put; como cualquier otra fuente, sus valores pasan por la calidad mínima de las puts).
     Con <span class="tl tl-w" style="background:#dff3e6;color:#1d6b3f;padding:0 4px;border-radius:7px;font-size:10px;font-weight:700">W</span> los que ya están en tu watchlist y <span class="own">EN CARTERA</span> los que tienes en posiciones.
     Es información de otro motor, no una recomendación: compruébalo con los filtros del Scanner (modo Spread).</p>
   <form method="get" action="/tortuga" class="tr-bar">

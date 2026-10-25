@@ -325,7 +325,7 @@ DEFAULT_QUALITY_PRESETS = (
 
 class PutFloor(_Model):
     """Calidad mínima que se exige SIEMPRE a una put desnuda, sea cual sea su origen (watchlist, fuentes, radar de Tortuga...). Quien no la
-    cumple solo se escanea como spread (y, para eso, con tendencia alcista a largo plazo: `spread_universe.require_uptrend`). Un dato que falta
+    cumple solo se escanea como spread. Un dato que falta
     no cumple; los ETF e índices y los sectores exentos de `QualitySettings` se miden como en el Universo. Sin `edgar.contact` no hay FCF y
     ese requisito se ignora (si no, ninguna acción pasaría)."""
     enabled: bool = True
@@ -723,8 +723,7 @@ class TortugaSettings(_Model):
     prompts_dir: str = "scripts"              # carpeta de los *_prompt.md
     radar_path: str = "data/community/radar_spreads.json"
     source_name: str = "TortugaSpreads"       # fuente del Universo con los tickers del radar (Bull Put Spread) que cumplen el yield del perfil
-    # fuente con los del radar cuya estrategia propuesta es la venta de put: NO es apta para spreads, así que en el Universo se le aplica la
-    # barra de calidad de la empresa (y en el Scanner la calidad mínima de las puts)
+    # fuente con los del radar cuya estrategia propuesta es la venta de put
     puts_source_name: str = "TortugaPuts"
     profile: str = "TastyPut"                 # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
     times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "radar_spreads": "11:45", "super_investors": "11:30"}
@@ -753,7 +752,6 @@ class TastyListSource(_Model):
     """Una lista pública de tastytrade que se vuelca en una fuente del Universo."""
     list: str                   # nombre de la lista en tastytrade
     name: str                   # nombre de la fuente en el Universo
-    spreads: bool = False       # True = fuente apta para spreads (sin calidad de la empresa; liquidez, precio y tendencia larga)
 
 
 class TastyListsSettings(_Model):
@@ -763,17 +761,17 @@ class TastyListsSettings(_Model):
     refresh_minutes: int = Field(60, ge=5)
     sources: list[TastyListSource] = [
         TastyListSource(list="Dividend Champions", name="DividendChampions"),
-        TastyListSource(list="tasty Hourly Top Equities", name="TastyHourly", spreads=True),
-        TastyListSource(list="tasty Fast Movers", name="TastyFastMovers", spreads=True),
-        TastyListSource(list="Liquid Symbols", name="TastyLiquid", spreads=True),
-        TastyListSource(list="tasty IVR", name="TastyIVR", spreads=True),
-        TastyListSource(list="Tom's Watchlist", name="TastyTom", spreads=True),
+        TastyListSource(list="tasty Hourly Top Equities", name="TastyHourly"),
+        TastyListSource(list="tasty Fast Movers", name="TastyFastMovers"),
+        TastyListSource(list="Liquid Symbols", name="TastyLiquid"),
+        TastyListSource(list="tasty IVR", name="TastyIVR"),
+        TastyListSource(list="Tom's Watchlist", name="TastyTom"),
     ]
 
 
 class SuperInvestorsSettings(_Model):
     """Fuente del Universo con las mayores posiciones 13F de gestores de calidad y valor (Super Investors de Tortuga). Es una fuente de empresas
-    de calidad para puts (pasa por la barra de calidad del Universo y la calidad mínima de las puts), no apta para spreads."""
+    de calidad para puts (pasa por la barra de calidad del Universo y la calidad mínima de las puts)."""
     enabled: bool = True
     path: str = "data/community/super_investors.json"
     source_name: str = "SuperInvestors"
@@ -782,21 +780,6 @@ class SuperInvestorsSettings(_Model):
                            "firsteagle", "tweedy", "weitz", "brave", "southeastern"]
     min_weight_pct: float = Field(2.0, ge=0)   # peso mínimo en la cartera 13F del gestor para contar como posición de convicción
     min_managers: int = Field(1, ge=1)         # nº mínimo de gestores que la tienen con ese peso
-
-
-class SpreadUniverseSettings(_Model):
-    """Fuentes del Universo aptas para spreads (la del radar de Tortuga, `tortuga.source_name`, y las que se marcan a mano). Sus tickers no pasan
-    por los filtros de calidad de la empresa (en un spread el riesgo está definido): solo por liquidez de opciones y precio. En el Scanner solo salen como
-    put desnuda si cumplen la calidad mínima de las puts (`scanner.quality.put_floor`); si no, únicamente como spread."""
-    min_option_liquidity: int = Field(3, ge=0, le=5)   # liquidez de opciones mínima de tastytrade (1-5) en las fuentes aptas para spreads
-    price_min: float = Field(30, ge=0)           # por debajo, los strikes de 0,5-1 $ dan créditos de céntimos que se comen las comisiones
-    price_max: Optional[float] = Field(None, gt=0)
-    # un valor que solo puede ir como spread (fuente apta o sin la calidad mínima de las puts) debe estar en tendencia alcista a largo plazo:
-    # cierre sobre su media de `uptrend_ma` sesiones y esa media por encima de la de hace `uptrend_slope_days` sesiones. Sin histórico suficiente no pasa
-    require_uptrend: bool = False
-    uptrend_ma: int = Field(200, ge=20)
-    uptrend_fallback_ma: int = Field(100, ge=0)   # sin histórico para la media anterior (valores recién cotizados) se usa esta; 0 = no hay respaldo
-    uptrend_slope_days: int = Field(20, ge=1)
 
 
 class Settings(_Model):
@@ -820,7 +803,6 @@ class Settings(_Model):
     market: MarketSettings = MarketSettings()
     management: ManagementSettings = ManagementSettings()
     community: CommunitySettings = CommunitySettings()
-    spread_universe: SpreadUniverseSettings = SpreadUniverseSettings()
     tortuga: TortugaSettings = TortugaSettings()
     tasty_lists: TastyListsSettings = TastyListsSettings()
     super_investors: SuperInvestorsSettings = SuperInvestorsSettings()

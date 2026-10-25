@@ -29,15 +29,12 @@ def make(tmp_path, lists):
     return svc
 
 
-async def test_lists_fill_sources_and_only_the_spread_ones_are_spread_sources(tmp_path):
+async def test_lists_fill_their_sources(tmp_path):
     svc = make(tmp_path, {"Dividend Champions": ["KO", "PG"], "tasty Hourly Top Equities": ["NVDA", "SPCX"], "Liquid Symbols": ["TQQQ", "NVDA"]})
     done = await svc.sync_tasty_lists()
     assert done == {"DividendChampions": 2, "TastyHourly": 2, "TastyLiquid": 2}      # las demás listas no existen en el fake: se saltan
     assert svc.manual_sources["DividendChampions"] == ["KO", "PG"]
-    flagged = svc.spread_source_names()
-    assert {"TastyHourly", "TastyLiquid", "TastyIVR"} <= flagged and "DividendChampions" not in flagged
-    assert svc.spread_only_tickers() == {"NVDA", "SPCX", "TQQQ"}                      # KO y PG van por la calidad de la empresa
-    assert "TastyHourly" in svc.spread_builtin_names() and not svc.is_renamable_source("TastyHourly")
+    assert not svc.is_renamable_source("TastyHourly")
     assert not svc.watchlist.list()                                                    # no añaden nada a la watchlist
 
 

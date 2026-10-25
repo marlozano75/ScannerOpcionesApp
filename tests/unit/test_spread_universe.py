@@ -1,17 +1,16 @@
-"""Fuentes aptas para spreads: ETF exentos de calidad y tickers «solo spread» (nunca put desnuda)."""
+"""ETF exentos de la calidad de la empresa y tickers «solo spread» (sin la calidad mínima de las puts: nunca put desnuda)."""
 import json
 from datetime import date, datetime, timedelta
 
 import pytest
 
-from scanner_opciones.config.settings import Settings, SpreadUniverseSettings
+from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.enums import OptionRight, PriceReference
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, TickerInfo
 from scanner_opciones.scanner.criteria import criteria_from_settings
 from scanner_opciones.scanner.engine import run_scan
-from scanner_opciones.scanner.quality import is_exempt, spread_universe_reject, ticker_quality_reject
+from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 
-CFG = SpreadUniverseSettings()
 QCFG = Settings().scanner.quality
 BASE = criteria_from_settings(Settings())
 
@@ -32,16 +31,6 @@ def test_etf_still_needs_option_liquidity():
 
 def test_sector_names_never_match_the_exact_ticker_entries():
     assert not is_exempt(TickerInfo("ACME", sector="=ACME"), ("=SPY",))
-
-
-# ---- fuentes aptas para spreads: liquidez y precio -----------------------------------------------
-def test_spread_universe_filter_is_liquidity_and_price_only():
-    assert spread_universe_reject(TickerInfo("X", option_liquidity=3, underlying_price=50), 3, 30) is None
-    assert spread_universe_reject(TickerInfo("X", option_liquidity=2, underlying_price=50), 3, 30) is not None
-    assert spread_universe_reject(TickerInfo("X", underlying_price=50), 3, 30) is not None       # sin liquidez no cumple
-    assert spread_universe_reject(TickerInfo("X", option_liquidity=4, underlying_price=20), 3, 30) is not None
-    assert spread_universe_reject(TickerInfo("X", option_liquidity=4), 3, 30) is None            # sin precio no se descarta
-    assert spread_universe_reject(TickerInfo("X", option_liquidity=4, underlying_price=600), 3, 30, 500) is not None
 
 
 # ---- solo spread, nunca put desnuda ---------------------------------------------------------------

@@ -82,7 +82,7 @@ def build_mixed(
 def only_reason(spread_only, ticker: str) -> str:
     """Por qué un ticker solo puede ir como spread (`spread_only` puede ser un dict ticker → motivo o un simple conjunto)."""
     reasons = spread_only if isinstance(spread_only, dict) else {}
-    return reasons.get(ticker) or "fuente apta para spreads"
+    return reasons.get(ticker) or "sin la calidad mínima de las puts"
 
 
 def build_mixed_sets(
@@ -91,7 +91,7 @@ def build_mixed_sets(
 ) -> list[MixedRow]:
     """Modo «Ambos» con un juego de filtros para cada instrumento: sale como put desnuda la que pasa los filtros de put (`naked_shorts`) y su
     strike cabe en `max_naked_strike`; si no cabe, sale su spread, siempre que la vendida pase los filtros de spread (`spread_shorts`).
-    Los tickers de `spread_only` (solo están en fuentes aptas para spreads) nunca salen como put desnuda: solo su spread, con cualquier strike."""
+    Los tickers de `spread_only` (sin la calidad mínima de las puts) nunca salen como put desnuda: solo su spread, con cualquier strike."""
     held = ticker_exposure(positions)
     by_short: dict[int, list[SpreadResult]] = {}
     for sp in spreads:

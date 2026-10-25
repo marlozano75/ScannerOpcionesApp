@@ -25,7 +25,7 @@
   </div>
   {% endif %}
   <div class="scroll"><table class="sortable" id="watchlist-table">
-    <tr><th>Ticker</th><th>Sector</th><th>Categoría</th><th>Precio</th><th>Días ex-div.</th><th>IV Rank</th><th>IV Pctl</th><th title="Beneficios 12 meses, trimestres con beneficios y FCF positivo: lo mínimo para que el Scanner considere sus puts desnudas">Calidad puts</th><th title="Cierre sobre la media de 200 sesiones y esa media subiendo">Tend. larga</th><th title="Qué admite el Scanner: put y spread, solo spread (sin la calidad mínima, pero con tendencia alcista a largo plazo) o ninguno">Admite</th><th>Actualizado</th></tr>
+    <tr><th>Ticker</th><th>Sector</th><th>Categoría</th><th>Precio</th><th>Días ex-div.</th><th>IV Rank</th><th>IV Pctl</th><th title="Beneficios 12 meses, trimestres con beneficios y FCF positivo: lo mínimo para que el Scanner considere sus puts desnudas">Calidad puts</th><th>Actualizado</th></tr>
     {% for t in tickers %}{% set i = infos.get(t) %}
       <tr><td>{{ t }}</td><td>{{ i.sector if i and i.sector else '—' }}</td><td>{{ i.category if i and i.category else '—' }}</td>
         <td>{{ i.underlying_price|num if i else '—' }}</td>
@@ -34,11 +34,9 @@
         <td class="cb"{% if i and i.iv_percentile is not none %} style="--p:{{ i.iv_percentile|round(0)|int }}%"{% endif %}>{{ i.iv_percentile|pct(0) if i else '—' }}</td>
         {% set m = modes.get(t) %}
         <td class="{{ 'tr-ok' if m and m.quality_ok else 'tr-ko' }}"{% if m and not m.quality_ok %} title="{{ m.put_reason }}"{% endif %}>{{ '✓' if m and m.quality_ok else '✗' }}</td>
-        <td title="{{ m.trend_note if m else '' }}">{{ '—' if not m or m.trend is none else ('✓' if m.trend else '✗') }}</td>
-        <td{% if m and m.put_reason %} title="{{ m.put_reason }}"{% endif %}>{{ m.mode if m else '—' }}</td>
         <td>{{ i.updated_daily_at.strftime('%Y-%m-%d %H:%M') if i and i.updated_daily_at else 'pendiente' }}</td>
 </tr>
-    {% else %}<tr><td colspan="11" class="muted">Watchlist vacía.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="9" class="muted">Watchlist vacía.</td></tr>{% endfor %}
   </table></div>
 </div>
 {% endblock %}

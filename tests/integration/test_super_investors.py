@@ -70,14 +70,14 @@ def make(tmp_path, calls):
     return svc, runner, seen
 
 
-async def test_routine_writes_the_file_and_fills_a_put_source_that_is_not_a_spread_source(tmp_path):
+async def test_routine_writes_the_file_and_fills_a_put_source(tmp_path):
     svc, runner, seen = make(tmp_path, CALLS)
     ok, summary = await runner.run_one("super_investors")
     assert ok and "2 gestores" in summary and (tmp_path / "si.json").exists()
     assert "- buffett" in seen[0] and "- fundsmith" in seen[0]                       # los gestores salen de la configuración
     result = await svc.sync_investors_source()
     assert set(result["added"]) == {"AAPL", "BRK-B", "MSFT", "KO"}
-    assert svc.manual_sources["SuperInvestors"] and "SuperInvestors" not in svc.spread_source_names()
+    assert svc.manual_sources["SuperInvestors"]
     assert not svc.is_renamable_source("SuperInvestors") and not svc.watchlist.list()
     assert await svc.sync_investors_source() is None                                  # sin cambios, no se vuelve a volcar
     assert any(s.name == "SuperInvestors" for s in svc.universe_sources)

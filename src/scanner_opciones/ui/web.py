@@ -42,7 +42,7 @@ from scanner_opciones.scanner.impact import explain_empty
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, dte_range
 from scanner_opciones.scanner.profiles import Profile
 from scanner_opciones.scanner.market import vix_advice
-from scanner_opciones.scanner.quality import is_exempt, spread_universe_reject, ticker_quality_reject
+from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
@@ -717,7 +717,7 @@ def create_app(
     async def watchlist(request: Request, message: str = ""):
         tickers, infos = service.watchlist.list(), service.ticker_info.all()
         return render(request, "watchlist.html", tickers=tickers, infos=infos, message=message, groups=message_groups(message),
-                      ov=page_charts.watchlist_overview(tickers, infos), modes=service.watchlist_modes())
+                      ov=page_charts.watchlist_overview(tickers, infos), modes=service.put_quality())
 
     # ---- ideas de la comunidad ---------------------------------------------------------------
     @app.get("/ideas", response_class=HTMLResponse)
@@ -880,16 +880,10 @@ def create_app(
         wl_plan = service.wl_sync_held or (service.watchlist_sync_plan() if wl_mode == "" else None)      # resumen previo la primera vez
         wl_sync = {"plan": wl_plan, "held": service.wl_sync_held is not None} if wl_plan is not None and (service.wl_sync_held or not wl_plan.empty) else None
         exempt_entries = service.quality_exempt()
-        spread_only = service.spread_only_tickers()    # solo en fuentes aptas para spreads: liquidez y precio en vez de calidad de la empresa
-        sucfg = service.settings.spread_universe
         shown = []
         for row in rows:
             info = replace(qinfos.get(row.ticker) or TickerInfo(row.ticker),
                            sector=_sector_of(row, sector_col, sectors) or ident.get(row.ticker, ("", ""))[1] or None)
-            if row.ticker in spread_only:
-                if spread_universe_reject(info, sucfg.min_option_liquidity, sucfg.price_min, sucfg.price_max) is None:
-                    shown.append(row)
-                continue
             if is_exempt(info, exempt_entries):
                 exempt_tickers.add(row.ticker)
             if ticker_quality_reject(info, criteria, exempt_entries) is None:
@@ -919,9 +913,7 @@ def create_app(
                       source_info=info, in_watchlist=set(service.watchlist.list()),
                       qinfos=qinfos, with_quality=with_quality, edgar=bool(service.settings.edgar.contact.strip()),
                       exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors),
-                      spread_only=spread_only, spread_sources=service.spread_source_names(),
                       feeds=service.feed_rows(), describe=describe_schedule,
-                      spread_cfg=sucfg, spread_builtin=service.spread_builtin_names(),
                       renamable=bool(current) and service.is_renamable_source(current.name),
                       total_rows=total_rows, qform=form, filter_error=filter_error, n_active=n_active, q_presets=q_presets,
                       solvency=solvency_controls(qcfg, form), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
@@ -1049,20 +1041,6 @@ def create_app(
     async def universe_schedule_reset():
         service.reset_feed_schedules()
         return RedirectResponse(f"/universe?{urlencode({'message': _grp('ok', 'Periodicidad restaurada', [], 'vuelve a lo de config.yaml')})}", status_code=303)
-
-    @app.post("/universe/source/spread")
-    async def universe_source_spread(request: Request):
-        """Marca (`on=1`) o desmarca una fuente como apta para spreads."""
-        form = await request.form(max_fields=MAX_FORM_FIELDS)
-        source, on = str(form.get("src", "")), str(form.get("on", "")) == "1"
-        try:
-            service.set_spread_source(source, on)
-        except WatchlistError as exc:
-            return RedirectResponse(f"/universe?{urlencode({'message': _grp('err', 'Error', [], str(exc))})}", status_code=303)
-        remembered.pop("universe", None)
-        what = "apta para spreads" if on else "ya no es apta para spreads"
-        msg = _grp("ok", f"{source}: {what}", [], "")
-        return RedirectResponse(f"/universe?{urlencode({'message': msg, 'src': source})}", status_code=303)
 
     @app.post("/universe/source/rename")
     async def universe_source_rename(src: str = Form(""), new_name: str = Form("")):

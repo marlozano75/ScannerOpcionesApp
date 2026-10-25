@@ -87,8 +87,6 @@ EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos)
 MIG_TASTYPUT_TPC = "mig_tastyput_tpc"   # clave de `meta`: ya se pasó TastyPut a la gestión TPC
 VIX_CACHE = "vix_cache"   # clave de `meta`: último VIX leído (ver `app/vix_cache.py`)
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
-SPREAD_SOURCES = "spread_sources"       # clave de `meta`: fuentes del Universo marcadas a mano como aptas para spreads (JSON, lista de nombres)
-SPREAD_UNIVERSE_SYNCED = "spread_universe_synced"   # (obsoleta) marca del antiguo universo para spreads; se vacía en `remove_legacy_spread_universe`
 COMMUNITY_CANDLE_WAIT = 8.0   # segundos que se espera por lote de velas al cotizar las ideas (solo dan el «precio al abrir»; medido: con 20 s tardaban ~85 s)
 CHART_HISTORY = "chart_history_tickers"   # clave de `meta`: tickers fuera de la watchlist cuyo gráfico se ha abierto (JSON, lista); conservan su histórico
 CHART_HISTORY_MAX = 200
@@ -457,7 +455,7 @@ class AppService:
         return name in self.manual_sources and name not in managed
 
     def rename_manual_source(self, old: str, new: str) -> str:
-        """Cambia el nombre de una fuente manual (conserva su posición, sus tickers y su marca de apta para spreads). No se pueden
+        """Cambia el nombre de una fuente manual (conserva su posición y sus tickers). No se pueden
         renombrar las que gestiona la propia aplicación (comunidad y radar de Tortuga) ni las de ficheros. Devuelve el nombre final."""
         if old not in self.manual_sources:
             raise WatchlistError(f"«{old}» no es una fuente manual: solo se renombran las que escribiste a mano")
@@ -477,9 +475,6 @@ class AppService:
             raise WatchlistError(f"«{name}» ya es otra fuente: elige otro nombre")
         self.manual_sources = {(name if k == old else k): v for k, v in self.manual_sources.items()}
         self._save_manual()
-        if old in self.spread_source_names():
-            marked = self.spread_source_names() - {self.settings.tortuga.source_name, old} | {name}
-            self.meta.set(SPREAD_SOURCES, json.dumps(sorted(marked)))
         history = [{**h, "name": name} if h.get("name") == old else h for h in self._load_history()]
         self.meta.set("universe_history", json.dumps(history))
         self.state.data_version += 1
@@ -741,7 +736,6 @@ class AppService:
             return
         self.split_tastytrade_profile()
         self.tastyput_to_tpc()
-        self.remove_legacy_spread_universe()
         self._starting = True
         try:
             connected = await self._connect()
@@ -1311,35 +1305,6 @@ class AppService:
         self.meta.set(SCANNER_USER_CONFIG, "")
         self._set_scanner_config(*self._yaml_scanner)
 
-    # ---- Fuentes aptas para spreads --------------------------------------------------------------
-    def spread_source_names(self) -> set[str]:
-        """Fuentes del Universo aptas para spreads: la del radar de Tortuga (`tortuga.source_name`, siempre) y las que el usuario marcó."""
-        try:
-            marked = json.loads(self.meta.get(SPREAD_SOURCES) or "[]")
-        except (ValueError, TypeError):
-            marked = []
-        return self.spread_builtin_names() | {n for n in marked if isinstance(n, str)}
-
-    def spread_builtin_names(self) -> set[str]:
-        """Fuentes aptas para spreads que no se pueden desmarcar: la del radar de Tortuga y las listas de tastytrade con `spreads: true`."""
-        return {self.settings.tortuga.source_name, *(s.name for s in self.settings.tasty_lists.sources if s.spreads)}
-
-    def set_spread_source(self, name: str, on: bool) -> None:
-        """Marca o desmarca una fuente del Universo como apta para spreads (la del radar de Tortuga no se puede desmarcar)."""
-        if name not in {s.name for s in self.universe_sources}:
-            raise WatchlistError(f"La fuente «{name}» no existe")
-        marked = self.spread_source_names() - self.spread_builtin_names()
-        marked = marked | {name} if on else marked - {name}
-        self.meta.set(SPREAD_SOURCES, json.dumps(sorted(marked)))
-        self.state.data_version += 1
-
-    def spread_only_tickers(self) -> frozenset:
-        """Tickers que SOLO están en fuentes aptas para spreads: no pasan filtros de la empresa y solo se escanean como spread."""
-        def build() -> frozenset:
-            flagged = self.spread_source_names()
-            return frozenset(t for t, names in self.ticker_lists().items() if names and all(n in flagged for n in names))
-        return self._memo("spread_only", build)
-
     # ---- Calidad mínima de las puts desnudas ---------------------------------------------------------
     def put_floor_reasons(self, criteria: Optional[ScanCriteria] = None) -> dict[str, str]:
         """{ticker de la watchlist: motivo} de los que NO tienen la calidad mínima para vender puts desnudas (beneficios 12 m, trimestres con beneficios y
@@ -1362,40 +1327,14 @@ class AppService:
         return self._memo(f"put_floor|{eps}|{quarters}|{fcf}", build)
 
     def naked_blocked(self, criteria: Optional[ScanCriteria] = None) -> dict[str, str]:
-        """{ticker: motivo} de los que no pueden salir como put desnuda con la calidad mínima de `criteria`, vengan de donde vengan. Estar solo en una
-        fuente apta para spreads NO basta para bloquear: si cumplen la calidad, pueden salir como put."""
+        """{ticker: motivo} de los que no pueden salir como put desnuda con la calidad mínima de `criteria`, vengan de donde vengan (la
+        calidad decide, no la fuente)."""
         return dict(self.put_floor_reasons(criteria))
 
-    def _uptrend(self, tickers) -> dict[str, tuple[Optional[bool], str]]:
-        """{ticker: (¿tendencia alcista a largo plazo?, explicación)} con los cierres diarios guardados (None = sin histórico para medirla)."""
-        cfg = self.settings.spread_universe
-        closes = self.bars.all_closes(set(tickers))
-        return {t: ta.long_term_uptrend([px for _, px in closes.get(t, [])], cfg.uptrend_ma, cfg.uptrend_slope_days, cfg.uptrend_fallback_ma) for t in tickers}
-
-    def no_spread_reasons(self) -> dict[str, str]:
-        """{ticker: motivo} de los que solo podrían ir como spread (no pasan la calidad mínima de las puts) pero no están en tendencia alcista a
-        largo plazo: tampoco se escanean como spread."""
-        def build() -> dict[str, str]:
-            if not self.settings.spread_universe.require_uptrend:
-                return {}
-            blocked = self.naked_blocked()
-            trend = self._uptrend(blocked)
-            return {t: f"sin tendencia alcista a largo plazo: {trend[t][1]}" for t in blocked if trend[t][0] is not True}
-        return self._memo("no_spread", build)
-
-    def watchlist_modes(self) -> dict[str, dict]:
-        """Por ticker de la watchlist: si pasa la calidad mínima de las puts, su tendencia a largo plazo y qué admite el Scanner
-        (`Put y spread`, `Solo spread` o `Ninguno`)."""
-        tickers = self.watchlist.list()
-        blocked, floor, no_spread = self.naked_blocked(), self.put_floor_reasons(), self.no_spread_reasons()
-        trend = self._uptrend(tickers)
-        out = {}
-        for t in tickers:
-            put_ok = t not in blocked
-            out[t] = {"put_ok": put_ok, "put_reason": "" if put_ok else blocked[t], "quality_ok": t not in floor,
-                      "trend": trend[t][0], "trend_note": trend[t][1],
-                      "mode": "Put y spread" if put_ok else ("Ninguno" if t in no_spread else "Solo spread")}
-        return out
+    def put_quality(self) -> dict[str, dict]:
+        """Por ticker de la watchlist: si pasa la calidad mínima de las puts (la inicial de `scanner.quality.put_floor`) y, si no, por qué."""
+        floor = self.put_floor_reasons()
+        return {t: {"quality_ok": t not in floor, "put_reason": floor.get(t, "")} for t in self.watchlist.list()}
 
     def put_floor_notice(self, criteria: Optional[ScanCriteria] = None) -> Optional[str]:
         """Aviso del Scanner: cuántos tickers de la watchlist no pasan la calidad mínima de las puts del perfil (solo salen como spread)."""
@@ -1404,10 +1343,9 @@ class AppService:
         if not floor:
             return None
         total = len(self.watchlist.list())
-        sin = f", {len(self.no_spread_reasons())} de los bloqueados tampoco como spread (sin tendencia alcista a largo plazo)" if self.no_spread_reasons() else ""
         parts = [p for p in ("beneficios 12 m" if c.floor_eps else "", f"≥ {c.floor_quarters} trimestres con beneficios" if c.floor_quarters else "",
                              "FCF positivo" if c.floor_fcf and self.settings.edgar.contact.strip() else "") if p]
-        return (f"{len(floor)} de {total} tickers no tienen la calidad mínima para puts de este perfil ({', '.join(parts)}): solo salen como spread{sin}. "
+        return (f"{len(floor)} de {total} tickers no tienen la calidad mínima para puts de este perfil ({', '.join(parts)}): solo salen como spread. "
                 "La calidad mínima se ajusta en el bloque «Calidad mínima de la put» de los filtros.")
 
     def quality_exempt(self) -> tuple[str, ...]:
@@ -1417,29 +1355,6 @@ class AppService:
         etfs = sorted({r.ticker for r in radar.rows if (r.sector or "").upper() == "ETF"}) if radar else []
         own = [f"={t}" for t in self.settings.instruments] + [f"~{t}" for t in self.settings.instruments]    # índices de TWS: exentos y sin liquidez de tastytrade
         return (*base, *own, *(f"={t}" for t in etfs))
-
-    def remove_legacy_spread_universe(self) -> bool:
-        """Migración única: quita la fuente «Universo_BPS» del antiguo universo para spreads (lo sustituye el radar de Tortuga) y su marca
-        de volcado. Los tickers que ya estén en la watchlist no se tocan. True si había algo que quitar."""
-        legacy = "Universo_BPS"
-        changed = False
-        if legacy in self.manual_sources:
-            del self.manual_sources[legacy]
-            self._save_manual()
-            changed = True
-        if self.meta.get(SPREAD_UNIVERSE_SYNCED):
-            self.meta.set(SPREAD_UNIVERSE_SYNCED, "")
-        try:
-            marked = json.loads(self.meta.get(SPREAD_SOURCES) or "[]")
-        except (ValueError, TypeError):
-            marked = []
-        if legacy in marked:
-            self.meta.set(SPREAD_SOURCES, json.dumps(sorted(n for n in marked if n != legacy)))
-            changed = True
-        if changed:
-            self._scan_memo.clear()
-            log.info("Quitada la fuente «%s» del antiguo universo para spreads (la sustituye el radar de Tortuga)", legacy)
-        return changed
 
     # ---- Tortuga: rutinas que lanza la propia aplicación y radar de Bull Put Spreads -------------------
     def tortuga_in_background(self, force: Optional[str] = None) -> bool:
@@ -2562,7 +2477,7 @@ class AppService:
         return run_scan(
             snapshots, self.infos(criteria), with_spreads(self.state.positions), criteria,
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
-            self.quality_exempt(), self._atr(criteria, snapshots), self.nlv_usd(), self.naked_blocked(criteria), self.no_spread_reasons(),
+            self.quality_exempt(), self._atr(criteria, snapshots), self.nlv_usd(), self.naked_blocked(criteria),
         )
 
     def scan_both(self, put_criteria: ScanCriteria, spread_criteria: ScanCriteria, include_rejections: bool = False) -> ScanOutput:

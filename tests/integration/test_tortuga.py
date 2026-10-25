@@ -315,7 +315,7 @@ async def test_the_radar_fills_a_source_for_spreads_and_another_for_puts(tmp_pat
     assert svc.manual_sources["TortugaSpreads"] == ["MPC"] and svc.manual_sources["TortugaPuts"] == ["PSX"]
     assert res["added"] == ["MPC"] and res["puts"]["added"] == ["PSX"]
     await svc.wait_idle()
-    assert "TortugaPuts" not in svc.spread_source_names() and not svc.is_renamable_source("TortugaPuts")      # la de puts NO es apta para spreads
+    assert not svc.is_renamable_source("TortugaPuts")
     assert await svc.sync_radar_source() is None
 
 

@@ -110,16 +110,3 @@ def quality_reject(
         if today <= info.next_earnings <= expiry:
             return f"resultados el {info.next_earnings} antes del vencimiento"
     return None
-
-
-def spread_universe_reject(
-    info: Optional[TickerInfo], min_liquidity: int, price_min: float, price_max: Optional[float] = None,
-) -> Optional[str]:
-    """Motivo por el que un ticker de una fuente apta para spreads no sirve, o None. No se mide la empresa (en un spread el riesgo está
-    definido): solo la liquidez de opciones (sin dato no cumple) y el precio del subyacente (sin precio no se descarta: aún no se ha bajado)."""
-    if info is None or info.option_liquidity is None or info.option_liquidity < min_liquidity:
-        return f"liquidez de opciones inferior a {min_liquidity} (o sin dato)"
-    price = info.underlying_price
-    if price is not None and (price < price_min or (price_max is not None and price > price_max)):
-        return f"precio {price:g} fuera de {price_min:g}–{price_max:g}" if price_max is not None else f"precio {price:g} inferior a {price_min:g}"
-    return None

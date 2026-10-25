@@ -1,10 +1,8 @@
-"""Calidad mínima de las puts desnudas (beneficios 12 m, 3 trimestres, FCF) y tendencia alcista a largo plazo de lo que solo puede ir como spread."""
-from datetime import date, timedelta
+"""Calidad mínima de las puts desnudas (beneficios 12 m, 3 trimestres, FCF): quien no la cumple solo se escanea como spread."""
 
 import pytest
 
 from scanner_opciones.domain.models import TickerInfo
-from scanner_opciones.metrics.technical import long_term_uptrend
 from scanner_opciones.scanner.quality import put_floor_reject
 from tests.integration.test_service import TODAY, started_service
 
@@ -26,31 +24,8 @@ def test_floor_needs_profit_quarters_and_free_cash_flow():
     assert put_floor_reject(TickerInfo("SPY"), True, 3, True, ("=SPY",)) is None               # ETF: no se mide nada
 
 
-def test_long_term_uptrend_needs_price_over_a_rising_average():
-    rising = [float(i) for i in range(1, 260)]
-    assert long_term_uptrend(rising, 200, 20)[0] is True
-    assert long_term_uptrend(rising[:150], 200, 20)[0] is None                                # sin histórico
-    ok, why = long_term_uptrend(rising[:150], 200, 20, fallback_n=100)
-    assert ok is True and "media de 100 en vez de 200" in why                                 # histórico corto: respaldo con la SMA100
-    assert long_term_uptrend(rising[:120], 200, 20, fallback_n=100)[0] is True
-    assert long_term_uptrend(rising[:119], 200, 20, fallback_n=100)[0] is None                # hacen falta 100 sesiones más las 20 de la pendiente
-    assert long_term_uptrend(rising[::-1][:150], 200, 20, fallback_n=100)[0] is False
-    falling = rising[::-1]
-    ok, why = long_term_uptrend(falling, 200, 20)
-    assert ok is False and "por debajo" in why
-    bounce = falling[:240] + [falling[239] + 90.0] * 19 + [falling[239] + 91.0]               # sobre la media, pero la media aún baja
-    ok, why = long_term_uptrend(bounce, 200, 20)
-    assert ok is False and "no sube" in why
-
-
-def bars(values):
-    start = TODAY - timedelta(days=len(values))
-    return [(start + timedelta(days=i), v) for i, v in enumerate(values)]
-
-
-async def test_a_ticker_without_the_floor_is_only_scanned_as_a_spread_with_an_uptrend():
+async def test_a_ticker_without_the_floor_is_only_scanned_as_a_spread():
     svc, gw = await started_service()
-    object.__setattr__(svc.settings, "spread_universe", svc.settings.spread_universe.model_copy(update={"require_uptrend": True}))   # por defecto está apagado
     crit = svc.criteria().with_filters(strike_below_pct_min=1, strike_below_pct_max=40, min_yield_pct=0, dte_min=1, dte_max=45)
     assert svc.scan(crit).results == []                                  # sin datos de calidad no cumple: ninguna put desnuda
     assert "AAPL" in svc.put_floor_reasons() and "calidad mínima" in svc.scan(crit, include_rejections=True).rejections.popitem()[1]
@@ -60,26 +35,19 @@ async def test_a_ticker_without_the_floor_is_only_scanned_as_a_spread_with_an_up
     svc._scan_memo.clear()
     assert len(svc.scan(crit).results) == 2 and svc.put_floor_reasons() == {} and svc.put_floor_notice() is None
 
-    svc.quality.save([TickerInfo("AAPL", eps_ttm=-1, positive_quarters=4, fcf_ttm=1e9)])
-    svc.bars.upsert("AAPL", bars([float(50 + i * 0.3) for i in range(260)]))            # sin calidad, pero tendencia alcista
+    svc.quality.save([TickerInfo("AAPL", eps_ttm=-1, positive_quarters=4, fcf_ttm=1e9)])        # sin beneficios: ya no cumple
     svc._scan_memo.clear()
-    assert svc.scan(crit).results == [] and svc.no_spread_reasons() == {}
-    spread = svc.scan(crit.with_filters(spread_mode=True))
-    assert spread.results                                                # como spread, la vendida sí se escanea
-    assert svc.watchlist_modes()["AAPL"]["mode"] == "Solo spread"
-
-    svc.bars.upsert("AAPL", bars([float(130 - i * 0.3) for i in range(260)]))           # y en tendencia bajista, ni como spread
-    svc._scan_memo.clear()
-    assert svc.scan(crit.with_filters(spread_mode=True)).results == []
-    assert "sin tendencia alcista" in svc.no_spread_reasons()["AAPL"] and svc.watchlist_modes()["AAPL"]["mode"] == "Ninguno"
+    assert svc.scan(crit).results == []
+    assert svc.scan(crit.with_filters(spread_mode=True)).results                          # como spread, la vendida sí se escanea
+    assert svc.put_quality()["AAPL"]["quality_ok"] is False
 
 
-async def test_the_floor_can_be_switched_off_and_the_watchlist_shows_the_modes():
+async def test_the_floor_can_be_switched_off_and_the_watchlist_shows_the_put_quality():
     from fastapi.testclient import TestClient
     from scanner_opciones.ui.web import create_app
     svc, gw = await started_service()
     page = TestClient(create_app(svc)).get("/watchlist").text
-    assert "Calidad puts" in page and "Solo spread" in page or "Ninguno" in page
+    assert "Calidad puts" in page and "Admite" not in page and "Tend. larga" not in page
     object.__setattr__(svc.settings.scanner.quality, "put_floor", svc.settings.scanner.quality.put_floor.model_copy(update={"enabled": False}))
     svc._scan_memo.clear()
     assert svc.put_floor_reasons() == {}

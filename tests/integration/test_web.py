@@ -437,18 +437,17 @@ def test_manual_source_needs_a_name_persists_and_reports_the_ones_already_in_it(
     assert _start(tmp_path)[0].manual_sources == {"Mis ideas": ["KO", "NVDA", "AMD"]}   # sobrevive al reinicio
 
 
-def test_manual_source_can_be_renamed_keeping_tickers_and_spread_mark(tmp_path):
+def test_manual_source_can_be_renamed_keeping_tickers(tmp_path):
     svc, app = _start(tmp_path)
     with TestClient(app) as client:
         load_rank(client)
         client.post("/universe/manual", data={"text": "nvda amd", "source": "IBD"})
         client.post("/universe/manual", data={"text": "ko", "source": "Otra"})
-        svc.set_spread_source("IBD", True)
         assert 'value="IBD"' in client.get("/universe?src=IBD").text and "Renombrar fuente" in client.get("/universe?src=IBD").text
         assert "Renombrar fuente" not in client.get("/universe?src=RankedStocks").text      # solo las manuales
         ok = client.post("/universe/source/rename", data={"src": "IBD", "new_name": "  IBD_2026.10.03 "}, follow_redirects=True)
         assert "IBD_2026.10.03" in ok.text and list(svc.manual_sources) == ["IBD_2026.10.03", "Otra"]
-        assert svc.manual_sources["IBD_2026.10.03"] == ["NVDA", "AMD"] and "IBD_2026.10.03" in svc.spread_source_names()
+        assert svc.manual_sources["IBD_2026.10.03"] == ["NVDA", "AMD"]
         assert "ya es otra fuente" in client.post("/universe/source/rename", data={"src": "Otra", "new_name": "ibd_2026.10.03"}, follow_redirects=True).text
         assert "ya es otra fuente" in client.post("/universe/source/rename", data={"src": "Otra", "new_name": "rankedstocks"}, follow_redirects=True).text
         assert "no es una fuente manual" in client.post("/universe/source/rename", data={"src": "RankedStocks", "new_name": "X"}, follow_redirects=True).text
