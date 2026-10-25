@@ -227,20 +227,15 @@
 {% endif %}
 {% if not edgar %}<div class="banner info"><b>Falta <code>edgar.contact</code> en config.yaml</b>: sin él no hay datos de pasivo/patrimonio ni de flujo de caja.</div>{% endif %}
 <div class="help-scope" style="margin:0 0 14px;min-height:24px;padding-right:32px">
-  <p class="note">Las columnas de calidad salen de tastytrade y de la SEC. Los filtros de arriba ocultan las acciones que no cumplen, y solo las que se ven (marcadas) se añaden a la watchlist.
+  <p class="note">Las columnas de calidad salen de tastytrade y de la SEC. Los filtros de arriba ocultan las acciones que no cumplen, y solo las que se ven (marcadas) se quitan al pulsar «Quitar los marcados de esta fuente».
     Sectores exentos del pasivo, la solvencia y la caja (se ven como «n/a»): los que llevan «{{ exempt_names }}» en su nombre.
     Datos de calidad disponibles para <b>{{ with_quality }}</b> de {{ rows|length }} acciones mostradas.</p>
   <span class="muted" style="font-size:13px">Filtros de calidad arriba · liquidez de opciones y resultados, en el Scanner</span>
 </div>
-<form method="post" action="/universe/apply" class="card" id="rk-apply">
+<form method="post" class="card" id="rk-apply">
   <h2>{{ rows|length }} acciones{% if rows|length != total_rows %} <span class="muted">de {{ total_rows }}</span>{% endif %} <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
   {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
-  <p>
-    <button name="mode" value="add">Añadir selección a la watchlist</button>
-    <button name="mode" value="replace" class="secondary" onclick="return confirmReplace(this)"
-            title="Quita de la watchlist (con sus contratos) los tickers que no estén en la selección">Sustituir watchlist con la selección</button>
-    <span class="muted">Desmarca las que no quieras añadir.</span>
-  </p>
+  <p class="muted" style="margin:0">La Watchlist sigue sola a las fuentes del Universo (resumen arriba la primera vez). Marca los tickers para quitarlos de la fuente.</p>
   {% if src %}
   <p>
     <button class="secondary" type="submit" formaction="/universe/source/remove" name="scope" value="selected" data-removing
@@ -260,7 +255,6 @@
   </p>
   {% endif %}
   {% endif %}
-  <div class="banner info" id="rk-working" hidden>⏳ Aplicando la selección a la watchlist…</div>
   <div class="scroll"><table class="sortable sticky-tk with-sel" id="universe-table">
     <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th class="tk">Ticker</th><th>En watchlist</th><th class="txt">Fuentes (nº)</th><th class="txt">Empresa</th><th class="txt">Sector</th>
       <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th><th>Deuda/Patr.</th><th>Cobertura int.</th><th>Efectivo/Deuda CP</th><th>Flujo op./Deuda</th><th>CapEx/Flujo op.</th><th>FCF/Activos</th><th>Recompra neta</th><th>ROIC</th><th>Años con pérdidas</th><th>Caídas de ingresos</th><th>Volatilidad beneficios</th>
@@ -298,15 +292,6 @@
   </section>
 </div>
 <script>
-  function confirmReplace(btn) {
-    return confirmClick(btn, 'Se quitarán de la watchlist, con sus contratos y cotizaciones, los tickers que no estén en la selección. ¿Sustituir la watchlist?');
-  }
-  document.getElementById('rk-apply').addEventListener('submit', function (e) {
-    if (e.submitter && e.submitter.hasAttribute('data-removing')) return;      // quitar de la fuente no toca la watchlist
-    // aviso inmediato; los botones se desactivan después de enviar (desactivarlos antes quitaría «mode» del envío)
-    document.getElementById('rk-working').hidden = false;
-    setTimeout(function () { document.querySelectorAll('#rk-apply button').forEach(function (b) { b.disabled = true; }); }, 0);
-  });
   (function () {
     var boxes = function () { return document.querySelectorAll('#rk-apply input[name=sel]'); };
     var count = document.getElementById('rk-count'), all = document.getElementById('rk-all');

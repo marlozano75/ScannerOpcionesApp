@@ -503,35 +503,12 @@ def test_a_selected_source_explains_its_criteria_and_there_is_no_file_removal(cl
     assert 'action="/universe/remove"' not in todas and "Quitar toda la fuente" not in todas
 
 
-def test_apply_add_keeps_existing_and_adds_the_selection(client_and_service):
+def test_universe_has_no_manual_watchlist_buttons_but_keeps_select_all(client_and_service):
     client, svc, gw, _ = client_and_service
-    load_rank(client)
-    gw.prices["GCT"] = 52.0
-    r = client.post("/universe/apply", data={"mode": "add", "sel": ["GCT", "PAYS"]}, follow_redirects=True)
-    assert set(svc.watchlist.list()) == {"AAPL", "GCT", "PAYS"}
-    assert "Nuevos en la watchlist" in r.text and "<code>GCT</code><code>PAYS</code>" in r.text
-    assert "✓" in client.get("/universe?src=RankedStocks").text                      # la columna «En watchlist» lo marca
-
-
-def test_apply_replace_swaps_the_whole_watchlist(client_and_service):
-    client, svc, gw, _ = client_and_service
-    load_rank(client)
-    r = client.post("/universe/apply", data={"mode": "replace", "sel": ["DK", "KO"]}, follow_redirects=True)
-    assert set(svc.watchlist.list()) == {"DK", "KO"}
-    assert "Watchlist sustituida" in r.text and "Quitados de la watchlist" in r.text and "<code>AAPL</code>" in r.text
-
-
-def test_apply_with_nothing_selected_does_not_wipe_the_watchlist(client_and_service):
-    client, svc, gw, _ = client_and_service
-    load_rank(client)
-    r = client.post("/universe/apply", data={"mode": "replace"}, follow_redirects=True)
-    assert svc.watchlist.list() == ["AAPL"] and "no se ha cambiado la watchlist" in r.text
-
-
-def test_page_has_replace_confirmation_and_select_all(client_and_service):
-    client, *_ = client_and_service
     page = load_rank(client).text
-    assert 'name="mode" value="replace"' in page and "confirmReplace(this)" in page and 'id="rk-all"' in page
+    assert "/universe/apply" not in page and "Sustituir watchlist" not in page and "Añadir selección a la watchlist" not in page
+    assert 'id="rk-all"' in page and "Quitar los marcados de esta fuente" in client.get("/universe?src=RankedStocks").text
+    assert client.post("/universe/apply", data={"mode": "add", "sel": ["GCT"]}).status_code in (404, 405)
 
 
 def test_a_newer_file_of_the_same_source_replaces_the_old_one_and_files_can_be_removed(client_and_service):

@@ -814,32 +814,6 @@ def create_app(
         service.dismiss_excluded_notice()
         return Response(status_code=204)
 
-    async def apply_watchlist(parsed, mode: str) -> str:
-        """Añade los tickers a la watchlist o, con mode='replace', la sustituye por ellos. Devuelve un mensaje de `_grp`."""
-        def tail(new: list[str], kept: Optional[list[str]] = None, removed=()) -> str:
-            out = []
-            if new:
-                out.append(_grp("ok", "Nuevos en la watchlist", new, "se actualizan en segundo plano (progreso arriba)" if service.state.connected else ""))
-            else:
-                out.append(_grp("skip", "Sin tickers nuevos", [], ""))
-            if kept is not None:
-                out.append(_grp("skip", "Conservados", [], f"{len(kept)} ticker{'s' if len(kept) != 1 else ''}"))
-            if removed:
-                out.append(_grp("del", "Quitados de la watchlist", removed))
-            if parsed.duplicates:
-                out.append(_grp("skip", "Repetidos", [], f"{parsed.duplicates} en la lista"))
-            if parsed.rejected:
-                out.append(_grp("err", "Rechazados", [t for t, _ in parsed.rejected]))
-            return "\n".join(out)
-        if mode == "replace":
-            try:
-                new, kept, removed = await service.replace_watchlist(parsed, background=True)
-            except ValueError as exc:
-                return _grp("err", "Error", [], f"{exc}; no se ha cambiado la watchlist")
-            return _grp("ok", "Watchlist sustituida", [], "") + "\n" + tail(new, kept, removed)
-        new = await service.add_watchlist(parsed, background=True)
-        return tail(new)
-
     # ---- Universo (ficheros .xlsx de RankedStocks y HelloStocks elegidos por el usuario) ------
     @app.get("/universe", response_class=HTMLResponse)
     async def universe(request: Request, src: str = ALL, message: str = "", view: str = ""):
@@ -1067,14 +1041,6 @@ def create_app(
         still = any(s.name == source for s in service.universe_sources)
         query = {"message": msg, **({"src": source} if still else {})}
         return RedirectResponse(f"/universe?{urlencode(query)}", status_code=303)
-
-    @app.post("/universe/apply")
-    async def universe_apply(request: Request):
-        """Añade a la watchlist (o la sustituye por) los tickers marcados."""
-        form = await request.form(max_fields=MAX_FORM_FIELDS)
-        mode = str(form.get("mode", "add"))
-        msg = await apply_watchlist(parse_tokens([str(t) for t in form.getlist("sel")]), mode)
-        return RedirectResponse(f"/watchlist?{urlencode({'message': msg})}", status_code=303)
 
     # ---- scanner y simulador ---------------------------------------------------------------
     def parse_scan(qp, set_name: str = "put") -> dict:
