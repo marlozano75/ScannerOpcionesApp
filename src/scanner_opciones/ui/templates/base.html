@@ -131,6 +131,12 @@
   #viz-tip { position:fixed; z-index:50; pointer-events:none; background:var(--accent); color:#fff; border-radius:8px; padding:7px 10px;
              font-size:12px; line-height:1.35; display:flex; flex-direction:column; gap:1px; max-width:260px; box-shadow:0 4px 14px rgba(0,0,0,.2); }
   #viz-tip[hidden] { display:none; } #viz-tip strong { font-size:14px; } #viz-tip .t-l { opacity:.85; } #viz-tip span { opacity:.7; }
+  /* globo con formato de los `title`: etiqueta resaltada, cifras en negrita, verde = bien, rojo = mal, ámbar = aviso */
+  #viz-tip.rt { gap:3px; max-width:340px; padding:8px 11px; }
+  #viz-tip.rt .rt-l { display:block; opacity:1; } #viz-tip.rt span { opacity:1; }
+  #viz-tip.rt .rt-h { font-size:13px; font-weight:700; padding-bottom:3px; margin-bottom:1px; border-bottom:1px solid rgba(255,255,255,.22); }
+  #viz-tip .rt-k { font-weight:700; color:#a9c2f2; } #viz-tip .rt-b { font-weight:700; } #viz-tip .rt-n { font-weight:600; color:#fff; }
+  #viz-tip .rt-ok { color:#6fe0a6; } #viz-tip .rt-bad { color:#ff8f8f; } #viz-tip .rt-warn { color:#ffd166; }
   /* explicaciones bajo demanda: la nota se oculta y un botón ⓘ la muestra (sin JS se ven siempre) */
   td.cb { background-image:linear-gradient(90deg, rgba(42,120,214,.20) var(--p,0%), transparent var(--p,0%)); }
   .help-host { position:relative; } .fx-body.help-host { padding-top:30px; }   /* el botón «i» tiene su propia franja: no tapa la primera fila */
@@ -278,18 +284,77 @@
     b.addEventListener('click', function () { saved[k] = box.classList.contains('help-open'); store(); });
   });
 })();
-/* Tooltips de los gráficos: `data-tip="valor|etiqueta|detalle"`. También con el teclado. Los textos entran con textContent. */
+/* Tooltips. `data-tip="valor|etiqueta|detalle"` (gráficos) y TODOS los `title` de la app, que se convierten en un globo con formato:
+   primera línea en negrita, «Etiqueta: valor» con la etiqueta resaltada, **negritas** explícitas, cifras y signos con color
+   (+ verde, − rojo), ✓ ▲ en verde, ✗ ▼ en rojo, ⚠ y «sin dato» en ámbar. También con el teclado. Los textos entran con textContent. */
 (function () {
   var tip = document.createElement('div');
   tip.id = 'viz-tip'; tip.setAttribute('role', 'tooltip'); tip.hidden = true;
   document.body.appendChild(tip);
-  function fill(text) {
-    tip.textContent = '';
+  var TOKEN = new RegExp([
+    '\*\*(.+?)\*\*',                                              // 1: negrita explícita
+    '(✓|✔|▲|△|\bno cumple\b|\bcumple\b|\bVigente\b)',           // 2: bien (no cumple va antes, para no teñirlo de verde)
+    '(✗|✘|▼|▽|\bCERRADA\b|\bVencida\b)',                          // 3: mal
+    '(⚠|\bsin dato\b|\bsin comprobar\b|\bSin valorar\b|\bfalta[n]?\b)',  // 4: aviso
+    '((?:^|(?<=[\s(]))[+−-]\d[\d.,]*\s?(?:%|\$|pts?|días|d)?)', // 5: cifra con signo
+    '(\d[\d.,]*\s?(?:%|\$|DTE|σ|×|días)?)'                        // 6: cifra
+  ].join('|'), 'g');
+  function add(parent, text, cls) {
+    var el = document.createElement('span'); el.textContent = text;
+    if (cls) el.className = cls; parent.appendChild(el);
+  }
+  function rich(parent, text) {                                       // texto con cifras y símbolos coloreados
+    var last = 0, m; TOKEN.lastIndex = 0;
+    while ((m = TOKEN.exec(text)) !== null) {
+      if (m[0] === '') { TOKEN.lastIndex++; continue; }
+      if (m.index > last) add(parent, text.slice(last, m.index));
+      if (m[1] !== undefined) add(parent, m[1], 'rt-b');
+      else if (m[2] !== undefined) add(parent, m[2], m[2] === 'no cumple' ? 'rt-bad' : 'rt-ok');
+      else if (m[3] !== undefined) add(parent, m[3], 'rt-bad');
+      else if (m[4] !== undefined) add(parent, m[4], 'rt-warn');
+      else if (m[5] !== undefined) add(parent, m[5], /^\+/.test(m[5]) ? 'rt-ok rt-b' : 'rt-bad rt-b');
+      else add(parent, m[6], 'rt-n');
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) add(parent, text.slice(last));
+  }
+  function fillTitle(text) {
+    tip.textContent = ''; tip.className = 'rt';
+    var lines = String(text || '').split('\n').filter(function (l) { return l.trim() !== ''; });
+    lines.forEach(function (line, i) {
+      var row = document.createElement('div'); row.className = 'rt-l';
+      var m = /^([^:.\n]{2,42}):\s+(.+)$/.exec(line);
+      if (i === 0 && lines.length > 1) { row.classList.add('rt-h'); rich(row, line); }
+      else if (m) { add(row, m[1], 'rt-k'); rich(row, ' '); rich(row, m[2]); }
+      else rich(row, line);
+      tip.appendChild(row);
+    });
+  }
+  function fill(text) {                                               // data-tip: valor|etiqueta|detalle
+    tip.textContent = ''; tip.className = '';
     String(text || '').split('|').forEach(function (part, i) {
       var el = document.createElement(i === 0 ? 'strong' : 'span');
       if (i === 1) el.className = 't-l';
-      el.textContent = part; tip.appendChild(el);
+      if (i >= 2) rich(el, part); else el.textContent = part;
+      tip.appendChild(el);
     });
+  }
+  function stash(el) {                                                // quita el title nativo para que no salga el globo del navegador
+    var t = el.getAttribute('title');
+    if (t !== null) {
+      el.removeAttribute('title');
+      if (t) { el.setAttribute('data-rt', t); if (!el.hasAttribute('aria-label') && !el.textContent.trim()) el.setAttribute('aria-label', t.split('\n')[0]); }
+    }
+  }
+  function show(target, x, y, anchored) {
+    var el = target && target.closest ? target.closest('[data-tip],[title],[data-rt]') : null;
+    if (!el) { hide(); return; }
+    stash(el);
+    if (el.hasAttribute('data-tip')) fill(el.getAttribute('data-tip'));
+    else if (el.hasAttribute('data-rt')) fillTitle(el.getAttribute('data-rt'));
+    else { hide(); return; }
+    if (anchored) { var r = el.getBoundingClientRect(); x = r.left + r.width / 2; y = r.top; }
+    place(x, y);
   }
   function place(x, y) {
     tip.hidden = false;
@@ -299,17 +364,9 @@
     tip.style.left = left + 'px'; tip.style.top = top + 'px';
   }
   function hide() { tip.hidden = true; }
-  document.addEventListener('pointermove', function (e) {
-    var target = e.target.closest ? e.target : null;
-    var el = target && target.closest('[data-tip]');
-    if (el) { fill(el.getAttribute('data-tip')); place(e.clientX, e.clientY); } else hide();
-  });
+  document.addEventListener('pointermove', function (e) { show(e.target, e.clientX, e.clientY, false); });
   document.addEventListener('pointerleave', hide);
-  document.addEventListener('focusin', function (e) {
-    var el = e.target.closest && e.target.closest('[data-tip]');
-    if (!el) return;
-    var r = el.getBoundingClientRect(); fill(el.getAttribute('data-tip')); place(r.left + r.width / 2, r.top);
-  });
+  document.addEventListener('focusin', function (e) { show(e.target, 0, 0, true); });
   document.addEventListener('focusout', hide);
 })();
 </script>
