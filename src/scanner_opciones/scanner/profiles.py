@@ -102,3 +102,33 @@ def load(raw: str) -> Optional[tuple[list[Profile], str]]:
         return validate_profiles(profiles, data.get("default"))
     except Exception:
         return None
+
+
+# valores que equivalen a «sin valor» al comparar el formulario con un perfil guardado (una clave ausente es lo mismo que estas)
+_EMPTY = frozenset(("", "any", "off"))
+SMALL_CHANGE = 0.25      # variación relativa máxima de un valor numérico para marcarla como cambio pequeño
+
+
+def profile_diff(saved: dict, current: dict) -> dict[str, str]:
+    """Claves del formulario que difieren del perfil guardado: `warn` (valor numérico que varía poco, hasta `SMALL_CHANGE` en relativo) o
+    `bad` (cualquier otro cambio: filtro marcado o desmarcado, opción distinta o variación grande). Una clave ausente equivale a vacío."""
+    def norm(params: dict, key: str) -> str:
+        v = str(params.get(key, "")).strip()
+        return "" if v in _EMPTY or (key == "signals" and v == "0") else v
+    out: dict[str, str] = {}
+    for key in set(saved) | set(current):
+        if key in NOT_FILTERS or key.startswith("o_"):
+            continue
+        a, b = norm(saved, key), norm(current, key)
+        if a == b:
+            continue
+        try:
+            x, y = float(a), float(b)
+        except ValueError:
+            out[key] = "bad"
+            continue
+        if x == y:
+            continue
+        top = max(abs(x), abs(y))
+        out[key] = "warn" if top and abs(x - y) / top <= SMALL_CHANGE else "bad"
+    return out

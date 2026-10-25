@@ -26,87 +26,88 @@
 {% for k in ma_keys %}{% if form[k] and form[k] != 'any' %}{% set ns.ma_count = ns.ma_count + 1 %}{% endif %}{% endfor %}
 {% set ma_count = ns.ma_count %}
 {% set frame_names = {'daily': 'diarias', 'weekly': 'semanales', 'monthly': 'mensuales'} %}
+{# cada filtro es (texto, claves del formulario que lo definen): `sev(claves)` dice si cambió respecto al perfil guardado #}
 {% set quality = [] %}
-{% if form.q_earn %}{% set _ = quality.append('Sin resultados') %}{% endif %}
+{% if form.q_earn %}{% set _ = quality.append(('Sin resultados', 'q_earn')) %}{% endif %}
 {% set optional = [] %}
-{% if form.q_liq %}{% set _ = optional.append('Liquidez ≥ ' ~ form.q_liq) %}{% endif %}
+{% if form.q_liq %}{% set _ = optional.append(('Liquidez ≥ ' ~ form.q_liq, 'q_liq')) %}{% endif %}
 {% for key, use, label, sign in (('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤')) %}
-  {% if form[use] %}{% set _ = optional.append(label ~ ' ' ~ sign ~ ' ' ~ form[key]) %}{% endif %}
+  {% if form[use] %}{% set _ = optional.append((label ~ ' ' ~ sign ~ ' ' ~ form[key], use ~ ' ' ~ key)) %}{% endif %}
 {% endfor %}
 {# grupo de volatilidad (IV, delta) y técnico de entrada (cercanía a la media de 50 o a un soporte) #}
 {% set ivgroup = [] %}
-{% if form.use_ivr %}{% set _ = ivgroup.append('IV Rank ≥ ' ~ form.ivr) %}{% endif %}
-{% if form.use_ivp %}{% set _ = ivgroup.append('IV Pctl ≥ ' ~ form.ivp) %}{% endif %}
+{% if form.use_ivr %}{% set _ = ivgroup.append(('IV Rank ≥ ' ~ form.ivr, 'use_ivr ivr iv_any')) %}{% endif %}
+{% if form.use_ivp %}{% set _ = ivgroup.append(('IV Pctl ≥ ' ~ form.ivp, 'use_ivp ivp iv_any')) %}{% endif %}
 {% set deltagroup = [] %}
-{% if form.use_delta %}{% set _ = deltagroup.append('|Δ| ' ~ ((form.delta_min ~ '–' ~ form.delta_max) if form.delta_min and form.delta_max else (('≤ ' ~ form.delta_max) if form.delta_max else ('≥ ' ~ form.delta_min)))) %}{% endif %}
-{% if form.use_ivhv %}{% set _ = ivgroup.append('IV/HV ≥ ' ~ form.ivhv) %}{% endif %}
-{% if form.use_ivchg %}{% set _ = ivgroup.append('ΔIV 5d ≤ ' ~ form.ivchg) %}{% endif %}
+{% if form.use_delta %}{% set _ = deltagroup.append(('|Δ| ' ~ ((form.delta_min ~ '–' ~ form.delta_max) if form.delta_min and form.delta_max else (('≤ ' ~ form.delta_max) if form.delta_max else ('≥ ' ~ form.delta_min))), 'use_delta delta_min delta_max')) %}{% endif %}
+{% if form.use_ivhv %}{% set _ = ivgroup.append(('IV/HV ≥ ' ~ form.ivhv, 'use_ivhv ivhv')) %}{% endif %}
+{% if form.use_ivchg %}{% set _ = ivgroup.append(('ΔIV 5d ≤ ' ~ form.ivchg, 'use_ivchg ivchg')) %}{% endif %}
 {% set entry = [] %}
-{% if form.signals and form.signals != '0' %}{% set _ = entry.append('≥ ' ~ form.signals ~ ' señales de entrada') %}{% endif %}
-{% if form.use_near %}{% set _ = entry.append('A ≤ ' ~ form.near_pct ~ ' % de MA50 o soporte') %}{% endif %}
+{% if form.signals and form.signals != '0' %}{% set _ = entry.append(('≥ ' ~ form.signals ~ ' señales de entrada', 'signals')) %}{% endif %}
+{% if form.use_near %}{% set _ = entry.append(('A ≤ ' ~ form.near_pct ~ ' % de MA50 o soporte', 'use_near near_pct')) %}{% endif %}
 {% set atrgroup = [] %}
-{% if form.use_atr %}{% set _ = atrgroup.append('Strike a ≥ ' ~ form.atr_mult ~ ' ATR') %}{% endif %}
-{% if form.use_exp %}{% set _ = atrgroup.append('Fuera de ' ~ form.exp_mult ~ '× mov. esperado') %}{% endif %}
-{% if form.use_rsi %}{% set _ = entry.append('RSI rebota desde ≤ ' ~ form.rsi_max) %}{% endif %}
-{% if form.use_boll %}{% set _ = entry.append('Bollinger %B ≤ ' ~ form.boll_pctb) %}{% endif %}
-{% if form.use_bw %}{% set _ = entry.append('Bandas ≥ ' ~ form.boll_width ~ ' %') %}{% endif %}
+{% if form.use_atr %}{% set _ = atrgroup.append(('Strike a ≥ ' ~ form.atr_mult ~ ' ATR', 'use_atr atr_mult')) %}{% endif %}
+{% if form.use_exp %}{% set _ = atrgroup.append(('Fuera de ' ~ form.exp_mult ~ '× mov. esperado', 'use_exp exp_mult')) %}{% endif %}
+{% if form.use_rsi %}{% set _ = entry.append(('RSI rebota desde ≤ ' ~ form.rsi_max, 'use_rsi rsi_max')) %}{% endif %}
+{% if form.use_boll %}{% set _ = entry.append(('Bollinger %B ≤ ' ~ form.boll_pctb, 'use_boll boll_pctb')) %}{% endif %}
+{% if form.use_bw %}{% set _ = entry.append(('Bandas ≥ ' ~ form.boll_width ~ ' %', 'use_bw boll_width')) %}{% endif %}
 {% set spreadf = [] %}
 {% if form.set == 'spread' %}
-  {% set _ = spreadf.append('Mejor ancho por put' if form.best_width else 'Todos los anchos') %}
-  {% if form.use_mc %}{% set _ = spreadf.append('Crédito ≥ ' ~ form.mc ~ ' $') %}{% endif %}
-  {% if form.use_rr %}{% set _ = spreadf.append('Retorno/riesgo ≥ ' ~ form.rr ~ ' %') %}{% endif %}
-  {% if form.use_cs %}{% set _ = spreadf.append('Spread combo ≤ ' ~ form.cs ~ ' % del crédito') %}{% endif %}
-  {% if form.use_lo %}{% set _ = spreadf.append('OI comprada ≥ ' ~ form.lo) %}{% endif %}
-  {% if form.use_ls %}{% set _ = spreadf.append('Spread comprada ≤ ' ~ form.ls ~ ' %') %}{% endif %}
-  {% if form.use_mn %}{% set _ = spreadf.append('Pérdida máx. ≤ ' ~ form.mn ~ ' % NLV') %}{% endif %}
-  {% if form.use_ld %}{% set _ = spreadf.append('Δ comprada ≤ ' ~ form.ld) %}{% endif %}
-  {% if form.use_cw %}{% set _ = spreadf.append('Crédito/ancho ' ~ form.cw ~ (('–' ~ form.cwx) if form.cwx else '+') ~ ' %') %}{% endif %}
-  {% if form.use_wd %}{% set _ = spreadf.append('Anchos ' ~ form.wd ~ ' $') %}{% endif %}
+  {% set _ = spreadf.append(('Mejor ancho por put' if form.best_width else 'Todos los anchos', 'best_width')) %}
+  {% if form.use_mc %}{% set _ = spreadf.append(('Crédito ≥ ' ~ form.mc ~ ' $', 'use_mc mc')) %}{% endif %}
+  {% if form.use_rr %}{% set _ = spreadf.append(('Retorno/riesgo ≥ ' ~ form.rr ~ ' %', 'use_rr rr')) %}{% endif %}
+  {% if form.use_cs %}{% set _ = spreadf.append(('Spread combo ≤ ' ~ form.cs ~ ' % del crédito', 'use_cs cs')) %}{% endif %}
+  {% if form.use_lo %}{% set _ = spreadf.append(('OI comprada ≥ ' ~ form.lo, 'use_lo lo')) %}{% endif %}
+  {% if form.use_ls %}{% set _ = spreadf.append(('Spread comprada ≤ ' ~ form.ls ~ ' %', 'use_ls ls')) %}{% endif %}
+  {% if form.use_mn %}{% set _ = spreadf.append(('Pérdida máx. ≤ ' ~ form.mn ~ ' % NLV', 'use_mn mn')) %}{% endif %}
+  {% if form.use_ld %}{% set _ = spreadf.append(('Δ comprada ≤ ' ~ form.ld, 'use_ld ld')) %}{% endif %}
+  {% if form.use_cw %}{% set _ = spreadf.append(('Crédito/ancho ' ~ form.cw ~ (('–' ~ form.cwx) if form.cwx else '+') ~ ' %', 'use_cw cw cwx')) %}{% endif %}
+  {% if form.use_wd %}{% set _ = spreadf.append(('Anchos ' ~ form.wd ~ ' $', 'use_wd wd')) %}{% endif %}
   {% if form.mode == 'both' %}
-    {% if form.use_ns %}{% set _ = spreadf.append('Put si strike ≤ ' ~ form.ns) %}{% endif %}
+    {% if form.use_ns %}{% set _ = spreadf.append(('Put si strike ≤ ' ~ form.ns, 'use_ns ns')) %}{% endif %}
   {% endif %}
 {% endif %}
-{# chips de filtros activos (lado de resultados): (sección, texto) #}
+{# chips de filtros activos (lado de resultados): (sección, texto, claves) #}
 {% set chips = [] %}
-{% for o in spreadf %}{% set _ = chips.append(('sec-spread', o)) %}{% endfor %}
-{% if trend_on %}{% set _ = chips.append(('sec-trend', ('Tendencia alcista' if form.trend_dir == 'up' else 'Tendencia bajista') ~ ' · ' ~ window_label)) %}{% endif %}
-{% if form.support %}{% set _ = chips.append(('sec-levels', 'Zona de soporte')) %}{% endif %}
-{% if form.touch %}{% set _ = chips.append(('sec-levels', 'Sin toque ' ~ touch_label)) %}{% endif %}
+{% for o, k in spreadf %}{% set _ = chips.append(('sec-spread', o, k)) %}{% endfor %}
+{% if trend_on %}{% set _ = chips.append(('sec-trend', ('Tendencia alcista' if form.trend_dir == 'up' else 'Tendencia bajista') ~ ' · ' ~ window_label, 'trend_dir trend_window trend_method trend_days')) %}{% endif %}
+{% if form.support %}{% set _ = chips.append(('sec-levels', 'Zona de soporte', 'support')) %}{% endif %}
+{% if form.touch %}{% set _ = chips.append(('sec-levels', 'Sin toque ' ~ touch_label, 'touch')) %}{% endif %}
 {% set ma_names = {'ma50': 'MA50', 'ma100': 'MA100', 'ma200': 'MA200', 'ema9': 'EMA9', 'ema20': 'EMA20'} %}
 {% for k in ma_keys if form[k] and form[k] != 'any' %}
   {% if k in ma_names %}{% set text = ('▲ ' if form[k] == 'above' else '▼ ') ~ ma_names[k] %}
   {% elif k.startswith('cmp_') %}{% set a, b = k[4:].split('_') %}{% set text = a|upper ~ (' ≥ ' if form[k] == 'gte' else ' ≤ ') ~ b|upper %}
   {% else %}{% set text = ma_names[k[6:]] ~ (' ↗' if form[k] == 'up' else ' ↘') %}{% endif %}
-  {% set _ = chips.append(('sec-ma', text ~ ' ' ~ {'daily': 'D', 'weekly': 'S', 'monthly': 'M'}[form.ma_frame])) %}
+  {% set _ = chips.append(('sec-ma', text ~ ' ' ~ {'daily': 'D', 'weekly': 'S', 'monthly': 'M'}[form.ma_frame], k ~ ' ma_frame')) %}
 {% endfor %}
-{% for q in quality %}{% set _ = chips.append(('sec-quality', q)) %}{% endfor %}
-{% for o in deltagroup %}{% set _ = chips.append(('sec-delta', o)) %}{% endfor %}
-{% for o in ivgroup %}{% set _ = chips.append(('sec-iv', o)) %}{% endfor %}
-{% for o in entry %}{% set _ = chips.append(('sec-entry', o)) %}{% endfor %}
-{% for o in atrgroup %}{% set _ = chips.append(('sec-atr', o)) %}{% endfor %}
-{% for o in optional %}{% set _ = chips.append(('sec-optional', o)) %}{% endfor %}
-{% if form.use_credit and form.set != 'spread' %}{% set _ = chips.append(('sec-credit', 'Crédito ≥ ' ~ form.credit ~ ' $')) %}{% endif %}
-{% if form.use_risk and form.set != 'spread' %}{% set _ = chips.append(('sec-risk', 'Capital en riesgo ≤ ' ~ form.risk ~ ' % NLV')) %}{% endif %}
-{% if form.set != 'spread' and (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = chips.append(('sec-floor', 'Calidad mínima de la put')) %}{% endif %}
-{# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto) #}
+{% for q, k in quality %}{% set _ = chips.append(('sec-quality', q, k)) %}{% endfor %}
+{% for o, k in deltagroup %}{% set _ = chips.append(('sec-delta', o, k)) %}{% endfor %}
+{% for o, k in ivgroup %}{% set _ = chips.append(('sec-iv', o, k)) %}{% endfor %}
+{% for o, k in entry %}{% set _ = chips.append(('sec-entry', o, k)) %}{% endfor %}
+{% for o, k in atrgroup %}{% set _ = chips.append(('sec-atr', o, k)) %}{% endfor %}
+{% for o, k in optional %}{% set _ = chips.append(('sec-optional', o, k)) %}{% endfor %}
+{% if form.use_credit and form.set != 'spread' %}{% set _ = chips.append(('sec-credit', 'Crédito ≥ ' ~ form.credit ~ ' $', 'use_credit credit')) %}{% endif %}
+{% if form.use_risk and form.set != 'spread' %}{% set _ = chips.append(('sec-risk', 'Capital en riesgo ≤ ' ~ form.risk ~ ' % NLV', 'use_risk risk')) %}{% endif %}
+{% if form.set != 'spread' and (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = chips.append(('sec-floor', 'Calidad mínima de la put', 'fl_eps fl_q fl_fcf')) %}{% endif %}
+{# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto, claves) #}
 {% set offs = [] %}
 {% if form.set == 'spread' %}
-  {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_cs', 'Spread combo'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV'), ('use_ld', 'Δ comprada'), ('use_cw', 'Crédito/ancho'), ('use_wd', 'Anchos fijos')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}
-  {% if form.mode == 'both' %}{% for use, label in (('use_ns', 'Strike máx. put'),) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label)) %}{% endif %}{% endfor %}{% endif %}
+  {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_cs', 'Spread combo'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV'), ('use_ld', 'Δ comprada'), ('use_cw', 'Crédito/ancho'), ('use_wd', 'Anchos fijos')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label, use)) %}{% endif %}{% endfor %}
+  {% if form.mode == 'both' %}{% for use, label in (('use_ns', 'Strike máx. put'),) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label, use)) %}{% endif %}{% endfor %}{% endif %}
 {% endif %}
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-delta'), ('use_ivhv', 'IV/HV', 'sec-iv'),
     ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-atr'), ('use_exp', 'Mov. esperado', 'sec-atr'), ('use_rsi', 'RSI', 'sec-entry'),
     ('use_boll', 'Bollinger %B', 'sec-entry'), ('use_bw', 'Ancho de bandas', 'sec-entry'), ('use_oi', 'OI', 'sec-optional'),
     ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('use_credit', 'Crédito mín.', 'sec-credit'), ('use_risk', 'Capital en riesgo', 'sec-risk'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
-  {% if not form[use] and (use not in ('use_credit', 'use_risk') or form.set != 'spread') %}{% set _ = offs.append((sec, label)) %}{% endif %}
+  {% if not form[use] and (use not in ('use_credit', 'use_risk') or form.set != 'spread') %}{% set _ = offs.append((sec, label, use)) %}{% endif %}
 {% endfor %}
-{% if not form.q_liq %}{% set _ = offs.append(('sec-optional', 'Liquidez')) %}{% endif %}
-{% if form.set != 'spread' and not (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = offs.append(('sec-floor', 'Calidad mínima de la put')) %}{% endif %}
-{% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia')) %}{% endif %}
-{% if not form.support %}{% set _ = offs.append(('sec-levels', 'Soporte')) %}{% endif %}
-{% if not form.touch %}{% set _ = offs.append(('sec-levels', 'Último toque')) %}{% endif %}
-{% if not ma_count %}{% set _ = offs.append(('sec-ma', 'Medias')) %}{% endif %}
-{% if not form.signals or form.signals == '0' %}{% set _ = offs.append(('sec-entry', 'Mín. de señales')) %}{% endif %}
+{% if not form.q_liq %}{% set _ = offs.append(('sec-optional', 'Liquidez', 'q_liq')) %}{% endif %}
+{% if form.set != 'spread' and not (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = offs.append(('sec-floor', 'Calidad mínima de la put', 'fl_eps fl_q fl_fcf')) %}{% endif %}
+{% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia', 'trend_dir')) %}{% endif %}
+{% if not form.support %}{% set _ = offs.append(('sec-levels', 'Soporte', 'support')) %}{% endif %}
+{% if not form.touch %}{% set _ = offs.append(('sec-levels', 'Último toque', 'touch')) %}{% endif %}
+{% if not ma_count %}{% set _ = offs.append(('sec-ma', 'Medias', ma_keys | join(' '))) %}{% endif %}
+{% if not form.signals or form.signals == '0' %}{% set _ = offs.append(('sec-entry', 'Mín. de señales', 'signals')) %}{% endif %}
 
 <style>
   td.mini { padding-top:2px; padding-bottom:2px; } td.mini a.chart-link { border:0; display:block; line-height:0; } td.mini img { display:block; }
@@ -174,6 +175,9 @@
   .summary .big { font-size:28px; font-weight:700; line-height:1; letter-spacing:-.01em; }
   .summary .applied { margin:6px 0 0; font-size:12px; color:var(--mute); }
   .chips { margin-top:10px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; } .chips + .chips { margin-top:6px; }
+  .chips.chips button.chip.chg-warn, .chips.chips button.chip.chg-bad { border-width:2px; font-weight:700; }
+  .chips.chips button.chip.chg-warn { background:#ffe3c2; border-color:#e08a1e; color:#7a4300; }   /* cambio pequeño respecto al perfil guardado */
+  .chips.chips button.chip.chg-bad { background:#f7c9c9; border-color:#c0392b; color:#7a1a12; text-decoration:none; }   /* cambio grande o filtro marcado/desmarcado */
   .chips .chips-lbl { font-size:12px; font-weight:600; color:var(--mute); min-width:98px; }
   .chips button.chip { font-size:12px; padding:3px 10px; font-weight:600; background:var(--field); color:var(--ink); }
   .chips.base button.chip { background:color-mix(in srgb, var(--accent) 14%, var(--field)); border-color:var(--accent); color:var(--ink); }   /* el rango y el yield: la base de todo escaneo */
@@ -477,19 +481,19 @@
         <span>{{ 'filas (puts y spreads)' if criteria and criteria.mixed else 'spreads' if criteria and criteria.spread_mode else 'contratos' }} cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></span></div>
       {% endif %}
       {% if criteria %}
-      {% set base = [('sec-contract', 'Strike ' ~ criteria.strike_below_pct_min|num(1) ~ '–' ~ criteria.strike_below_pct_max|num(1) ~ ' % por debajo'), ('sec-contract', 'DTE ' ~ criteria.dte_min ~ '–' ~ criteria.dte_max)] %}
-      {% if not criteria.spread_mode %}{% set _ = base.append(('sec-yield', 'Yield periodo ≥ ' ~ criteria.min_yield_pct|num(1) ~ ' %')) %}{% endif %}
-      {% set _ = base.append(('sec-price', 'Subyacente ' ~ (('$' ~ (form.price_min or '0') ~ '–' ~ (form.price_max or '∞')) if price_on else 'cualquier precio'))) %}
-      {% set _ = base.append(('sec-yield', 'Precio de venta: ' ~ ref_label)) %}
+      {% set base = [('sec-contract', 'Strike ' ~ criteria.strike_below_pct_min|num(1) ~ '–' ~ criteria.strike_below_pct_max|num(1) ~ ' % por debajo', 'discount'), ('sec-contract', 'DTE ' ~ criteria.dte_min ~ '–' ~ criteria.dte_max, 'dte_min dte_max')] %}
+      {% if not criteria.spread_mode %}{% set _ = base.append(('sec-yield', 'Yield periodo ≥ ' ~ criteria.min_yield_pct|num(1) ~ ' %', 'min_yield')) %}{% endif %}
+      {% set _ = base.append(('sec-price', 'Subyacente ' ~ (('$' ~ (form.price_min or '0') ~ '–' ~ (form.price_max or '∞')) if price_on else 'cualquier precio'), 'price_min price_max')) %}
+      {% set _ = base.append(('sec-yield', 'Precio de venta: ' ~ ref_label, 'ref ref_x' if form.ref == 'bid_plus_spread' else 'ref')) %}
       <div class="chips base"><span class="chips-lbl">Base ({{ base|length }})</span>
-        {% for sec, text in base %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}
+        {% for sec, text, keys in base %}<button type="button" class="chip{{ sev(keys) }}" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}
         {% if report %}<span class="muted" style="font-size:12px">última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados)</span>{% endif %}</div>
 
       {% endif %}
       <div class="chips"><span class="chips-lbl">Activados ({{ chips|length }})</span>
-        {% for sec, text in chips %}<button type="button" class="chip" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% else %}<span class="muted">ninguno</span>{% endfor %}</div>
+        {% for sec, text, keys in chips %}<button type="button" class="chip{{ sev(keys) }}" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% else %}<span class="muted">ninguno</span>{% endfor %}</div>
       <div class="chips off"><span class="chips-lbl">Desactivados ({{ offs|length }})</span>
-        {% for sec, text in offs %}<button type="button" class="chip strat-off-chip" data-open="{{ sec }}" title="Filtro desactivado: ver este filtro">{{ text }}</button>{% else %}<span class="muted">ninguno</span>{% endfor %}</div>
+        {% for sec, text, keys in offs %}<button type="button" class="chip strat-off-chip{{ sev(keys) }}" data-open="{{ sec }}" title="Filtro desactivado: ver este filtro">{{ text }}</button>{% else %}<span class="muted">ninguno</span>{% endfor %}</div>
       {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
       {% for w in warnings %}<div class="banner info closable" data-warning><span>{{ w }}</span><button type="button" class="close" title="Quitar el aviso" aria-label="Quitar el aviso">×</button></div>{% endfor %}
       {% if criteria %}

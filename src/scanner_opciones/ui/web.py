@@ -40,7 +40,7 @@ from scanner_opciones.tortuga.routines import ROUTINES
 from scanner_opciones.tortuga.schedule import FeedSchedule, ScheduleError, describe as describe_schedule, parse_times
 from scanner_opciones.scanner.impact import explain_empty
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, dte_range
-from scanner_opciones.scanner.profiles import Profile
+from scanner_opciones.scanner.profiles import Profile, profile_diff
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, viz
@@ -1584,12 +1584,19 @@ def create_app(
         profile_buttons = [dict(name=p.name, qs=profile_link(p), on=p.name == active_name, instruments=p.instruments, color=p.color,
                                 strategy=p.put.get("use_delta") == "on") for p in profiles]
         active_profile = next((p for p in profiles if p.name == active_name), None)
+        # filtros que difieren del perfil guardado (juego visible): se marcan en naranja (cambio pequeño) o rojo
+        diff = profile_diff(active_profile.set_params(shown), split_sets(request.query_params)[1]) if active_profile else {}
+
+        def sev(keys: str) -> str:
+            worst = {diff[k] for k in keys.split() if k in diff}
+            return " chg-bad" if "bad" in worst else " chg-warn" if worst else ""
+
         qcfg = service.settings.scanner.quality
         # no depende del perfil (base de config.yaml): se reutiliza entre cargas mientras no cambien los datos
         counts = service._memo("quality_counts", lambda: quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg))
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
-        return render(request, "scanner.html", no_autorefresh=True, out=out, other_params=pair["other_params"], owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, default_qs=default_qs,
+        return render(request, "scanner.html", no_autorefresh=True, out=out, other_params=pair["other_params"], owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, sev=sev, default_qs=default_qs,
                       community=service.community_counts(), techs=service.tech_summaries(out) if out else {},
                       yield_max=yield_max, nlv_usd=service.nlv_usd(), strategy_qs=strategy_qs, strategy_on=strategy_on,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
