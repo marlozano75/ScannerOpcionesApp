@@ -20,6 +20,7 @@ from scanner_opciones.marketdata.candles import CandleProvider
 from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.price_history import update_history
 from scanner_opciones.marketdata.analysts import AnalystError, AnalystProvider
+from scanner_opciones.marketdata.history import DividendProvider, EarningsHistoryProvider, HistoryError
 from scanner_opciones.marketdata.company import CompanyNotesError, DescriptionProvider, NewsProvider, mention_pattern, select_news
 from scanner_opciones.portfolio.openings import norm_ticker
 from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
@@ -27,7 +28,7 @@ from scanner_opciones.marketdata.financials import FinancialsProvider
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider, resolve_eps
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.storage.repositories import (
-    QualityRepo, FilingAlertRepo, AnalystRepo, CompanyNotesRepo,
+    QualityRepo, FilingAlertRepo, AnalystRepo, CompanyNotesRepo, CompanyHistoryRepo,
     BarRepo, ContractRepo, MetaRepo, TickerInfoRepo, WatchlistRepo,
 )
 
@@ -73,7 +74,12 @@ class DailyUpdater:
         analysts: Optional[AnalystProvider] = None,
         descriptions: Optional[DescriptionProvider] = None,
         news: Optional[NewsProvider] = None,
+        earnings_history: Optional[EarningsHistoryProvider] = None,
+        dividends: Optional[DividendProvider] = None,
     ) -> None:
+        self.earnings_history = earnings_history
+        self.dividends = dividends
+        self.company_history = CompanyHistoryRepo(ticker_info.db)
         self.fundamentals = fundamentals
         self.financials = financials
         self.quality = QualityRepo(ticker_info.db)
@@ -398,6 +404,40 @@ class DailyUpdater:
                 break
             done += self.analyst_changes.save(found, now)
         log.info("Analistas (Yahoo): %d de %d tickers consultados en %.1f s", done, len(stale), time.monotonic() - started)
+        return done
+
+    async def update_company_history(self, tickers: list[str]) -> int:
+        """Resultados trimestrales (Yahoo, cada `history.earnings_refresh_hours`) y dividendos (tastytrade, cada `history.dividends_refresh_hours`)
+        de los tickers que lo necesiten. Si un proveedor falla se conserva lo guardado. Devuelve cuántas consultas guardó."""
+        cfg = self.settings.history
+        if not tickers or not cfg.enabled:
+            return 0
+        now = self.now()
+
+        def due(known: dict, hours: float) -> list[str]:
+            return [t for t in tickers if t not in known or ((now - known[t][0]).total_seconds() >= hours * 3600
+                                                             and not self.market.quiet_since(known[t][0], now, cfg.settle_hours))]
+
+        started, done = time.monotonic(), 0
+        if self.earnings_history is not None:
+            stale = due(self.company_history.earnings(), cfg.earnings_refresh_hours)
+            for k in range(0, len(stale), 100):
+                try:
+                    done += self.company_history.save_earnings(
+                        await self.earnings_history.get_earnings_history(stale[k:k + 100], cfg.quarters), now)
+                except HistoryError as exc:
+                    log.warning("Resultados trimestrales (Yahoo) no disponibles, se conservan los guardados: %s", exc)
+                    break
+        if self.dividends is not None:
+            stale = due(self.company_history.dividends(), cfg.dividends_refresh_hours)
+            for k in range(0, len(stale), 100):
+                try:
+                    done += self.company_history.save_dividends(await self.dividends.get_dividends(stale[k:k + 100]), now)
+                except HistoryError as exc:
+                    log.warning("Dividendos (tastytrade) no disponibles, se conservan los guardados: %s", exc)
+                    break
+        if done:
+            log.info("Historial de resultados y dividendos: %d consultas guardadas en %.1f s", done, time.monotonic() - started)
         return done
 
     async def update_company_notes(self, tickers: list[str], names: Optional[dict[str, str]] = None) -> int:

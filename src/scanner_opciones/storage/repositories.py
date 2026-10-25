@@ -12,6 +12,7 @@ from scanner_opciones.domain.models import ContractSnapshot, OptionContract, Tic
 from scanner_opciones.marketdata.analysts import AnalystChange
 from scanner_opciones.marketdata.company import CompanyNotes, NewsItem
 from scanner_opciones.marketdata.filings import FilingAlert
+from scanner_opciones.marketdata.history import Dividend, EarningsQuarter
 from scanner_opciones.storage.db import Database
 
 
@@ -260,6 +261,50 @@ class AnalystRepo:
                 return self.db.conn.execute("DELETE FROM analyst_changes").rowcount
             marks = ",".join("?" * len(keep))
             return self.db.conn.execute(f"DELETE FROM analyst_changes WHERE ticker NOT IN ({marks})", keep).rowcount
+
+
+class CompanyHistoryRepo:
+    """Resultados trimestrales (real y estimación) y dividendo por ticker. Cada parte tiene su fecha de consulta: una lista de resultados vacía
+    significa «consultado y sin historial»; `None` en la fecha, «nunca consultado»."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def save_earnings(self, found: dict[str, list[EarningsQuarter]], checked_at: datetime) -> int:
+        rows = [(t, checked_at.isoformat(), json.dumps([q.to_json() for q in qs])) for t, qs in found.items()]
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO company_history (ticker, earnings_at, earnings) VALUES (?, ?, ?) "
+                "ON CONFLICT(ticker) DO UPDATE SET earnings_at = excluded.earnings_at, earnings = excluded.earnings", rows)
+        return len(rows)
+
+    def save_dividends(self, found: dict[str, Dividend], checked_at: datetime) -> int:
+        rows = [(t, checked_at.isoformat(), json.dumps(d.to_json())) for t, d in found.items()]
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO company_history (ticker, dividend_at, dividend) VALUES (?, ?, ?) "
+                "ON CONFLICT(ticker) DO UPDATE SET dividend_at = excluded.dividend_at, dividend = excluded.dividend", rows)
+        return len(rows)
+
+    def earnings(self) -> dict[str, tuple[datetime, list[EarningsQuarter]]]:
+        out = {}
+        for r in self.db.conn.execute("SELECT ticker, earnings_at, earnings FROM company_history WHERE earnings_at IS NOT NULL"):
+            out[r["ticker"]] = (datetime.fromisoformat(r["earnings_at"]), [EarningsQuarter.from_json(q) for q in json.loads(r["earnings"])])
+        return out
+
+    def dividends(self) -> dict[str, tuple[datetime, Dividend]]:
+        out = {}
+        for r in self.db.conn.execute("SELECT ticker, dividend_at, dividend FROM company_history WHERE dividend_at IS NOT NULL"):
+            out[r["ticker"]] = (datetime.fromisoformat(r["dividend_at"]), Dividend.from_json(json.loads(r["dividend"])))
+        return out
+
+    def purge_except(self, keep: Iterable[str]) -> int:
+        keep = list(keep)
+        with self.db.conn:
+            if not keep:
+                return self.db.conn.execute("DELETE FROM company_history").rowcount
+            marks = ",".join("?" * len(keep))
+            return self.db.conn.execute(f"DELETE FROM company_history WHERE ticker NOT IN ({marks})", keep).rowcount
 
 
 class CompanyNotesRepo:

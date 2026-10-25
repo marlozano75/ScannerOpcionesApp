@@ -27,7 +27,7 @@ from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.marketdata.edgar import EdgarFinancialsProvider
 from scanner_opciones.marketdata.sectors import ChainedSectors
 from scanner_opciones.marketdata.finnhub import FinnhubNews
-from scanner_opciones.marketdata.yahoo import YahooAnalysts, YahooDescriptions, YahooSectors
+from scanner_opciones.marketdata.yahoo import YahooAnalysts, YahooDescriptions, YahooEarningsHistory, YahooSectors
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import ChainCacheRepo, MetaRepo
@@ -84,6 +84,8 @@ def build_app(settings: Settings):
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty,
                          fundamentals=tasty, financials=financials, names=tasty, watchlists=tasty,
                          analysts=YahooAnalysts(settings.analysts.concurrency) if settings.analysts.enabled else None,
+                         earnings_history=YahooEarningsHistory(settings.history.concurrency) if settings.history.enabled else None,
+                         dividends=tasty if settings.history.enabled else None,
                          descriptions=YahooDescriptions(settings.company.concurrency) if settings.company.enabled else None,
                          news=(FinnhubNews(settings.finnhub.api_token.strip(), settings.company.calls_per_minute)
                                if settings.company.enabled and settings.finnhub.api_token.strip() else None),

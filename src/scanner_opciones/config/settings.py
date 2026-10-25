@@ -485,6 +485,16 @@ class AnalystSettings(_Model):
     concurrency: int = Field(4, ge=1, le=16)             # peticiones a Yahoo a la vez
 
 
+class HistorySettings(_Model):
+    """Historial de resultados (BPA real frente a estimación, Yahoo) y dividendos (tastytrade) de la ficha de los gráficos. Solo informa."""
+    enabled: bool = True
+    quarters: int = Field(5, ge=1, le=8)                 # trimestres que se enseñan
+    earnings_refresh_hours: float = Field(24, gt=0)      # cada cuántas horas se vuelven a pedir los resultados
+    dividends_refresh_hours: float = Field(20, gt=0)     # ... y los dividendos
+    settle_hours: float = Field(0, ge=0)                 # como `analysts.settle_hours`: sin consulta en fin de semana ni festivo
+    concurrency: int = Field(4, ge=1, le=16)             # peticiones a Yahoo a la vez
+
+
 class FinnhubSettings(_Model):
     """Finnhub (titulares por empresa). La clave gratuita da 60 peticiones por minuto; sin clave no hay noticias automáticas."""
     api_token: str = Field("", repr=False)
@@ -796,6 +806,7 @@ class Settings(_Model):
     market_data: MarketDataSettings = MarketDataSettings()
     edgar: EdgarSettings = EdgarSettings()
     analysts: AnalystSettings = AnalystSettings()
+    history: HistorySettings = HistorySettings()
     finnhub: FinnhubSettings = FinnhubSettings()
     company: CompanySettings = CompanySettings()
     trend: TrendSettings = TrendSettings()

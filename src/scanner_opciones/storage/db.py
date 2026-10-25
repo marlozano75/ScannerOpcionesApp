@@ -212,6 +212,16 @@ MIGRATIONS: list[str] = [
         data BLOB NOT NULL
     );
     """,
+    # v27: historial de resultados (BPA real frente a estimación) y dividendo de cada empresa, para la ficha de los gráficos
+    """
+    CREATE TABLE company_history (
+        ticker TEXT PRIMARY KEY,
+        earnings_at TEXT,
+        earnings TEXT,
+        dividend_at TEXT,
+        dividend TEXT
+    );
+    """,
 ]
 
 

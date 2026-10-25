@@ -170,7 +170,7 @@ def test_migration_v16_adds_the_columns_and_forces_a_new_edgar_pass(tmp_path):
     raw.close()
     db = Database(path)
     row = db.conn.execute("SELECT * FROM ticker_quality WHERE ticker = 'AAPL'").fetchone()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 26
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 27
     assert row["eps_ttm"] == 8.7 and row["fcf_ttm"] == 1e9                  # no se pierde nada
     assert row["financials_at"] is None and row["debt_to_equity"] is None   # EDGAR se vuelve a consultar
     assert {"debt_to_equity", "interest_coverage", "cash_to_short_debt", "ocf_to_debt", "capex_to_ocf", "fcf_to_assets",
@@ -190,7 +190,7 @@ def test_migration_v17_adds_roic_and_loss_years_and_forces_a_new_edgar_pass(tmp_
     raw.close()
     db = Database(path)
     row = db.conn.execute("SELECT * FROM ticker_quality WHERE ticker = 'AAPL'").fetchone()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 26
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 27
     assert row["eps_ttm"] == 8.7 and row["debt_to_equity"] == 1.5           # no se pierde nada
     assert row["financials_at"] is None                                     # EDGAR se vuelve a consultar
     assert {"roic", "loss_years", "fiscal_years"} <= set(row.keys()) and row["roic"] is None
@@ -209,7 +209,7 @@ def test_migration_v18_adds_revenue_and_volatility_columns_and_forces_a_new_edga
     raw.close()
     db = Database(path)
     row = db.conn.execute("SELECT * FROM ticker_quality WHERE ticker = 'AAPL'").fetchone()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 26
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 27
     assert row["roic"] == 0.4 and row["loss_years"] == 0                    # no se pierde nada
     assert row["financials_at"] is None                                     # EDGAR se vuelve a consultar
     assert {"revenue_drop_years", "revenue_years", "earnings_volatility"} <= set(row.keys())

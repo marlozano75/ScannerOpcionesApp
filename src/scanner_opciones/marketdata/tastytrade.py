@@ -18,6 +18,7 @@ from scanner_opciones.domain.errors import CandleError, OptionDataError, PriceEr
 from scanner_opciones.domain.models import OptionQuote, VixData
 from scanner_opciones.marketdata.candles import DailyBars, OhlcBars
 from scanner_opciones.marketdata.fundamentals import Fundamentals, clean_eps
+from scanner_opciones.marketdata.history import Dividend, HistoryError
 from scanner_opciones.marketdata.options import MarketExtras, OptionListing, listing_key
 from scanner_opciones.marketdata.volatility import IVMetrics
 
@@ -99,6 +100,18 @@ def _expiry_ivs(item: Any) -> Optional[dict]:
         if iv is not None and iv > 0:
             out[e.expiration_date.isoformat()] = iv
     return out or None
+
+
+def dividend_from_item(item: Any) -> Dividend:
+    """`Dividend` de una *market metric* de tastytrade; sin rentabilidad ni importe (no paga) sale vacío."""
+    def real(day: Any) -> Optional[date]:
+        return day if day is not None and day.year > 1970 else None
+
+    yld, rate = _num(getattr(item, "dividend_yield", None)), _num(getattr(item, "dividend_rate_per_share", None))
+    if not yld and not rate:
+        return Dividend()
+    return Dividend(round(yld * 100, 2) if yld else None, rate or None,
+                    real(getattr(item, "dividend_ex_date", None)), real(getattr(item, "dividend_pay_date", None)))
 
 
 def to_metrics(item: Any) -> Optional[IVMetrics]:
@@ -405,6 +418,26 @@ class TastytradeVolatility:
                     next_earnings=getattr(earnings, "expected_report_date", None),
                     eps_surprise_pct=surprise,
                 )
+        return out
+
+    async def get_dividends(self, tickers: list[str]) -> dict[str, Dividend]:
+        """Rentabilidad por dividendo, importe por pago y fechas ex y de pago, de las mismas *market metrics* que el IV Rank (una petición por 100
+        tickers). Medido el 2026-10-24: `dividend_yield` es una fracción (0,022 = 2,2 %), `dividend_rate_per_share` el importe de UN pago, la fecha
+        ex de quien no paga es 1970-01-01 y `dividend_next_date` está desfasada (2022): no se usa."""
+        names = {tasty_symbol(t): t for t in tickers}
+        symbols = list(names)
+        out: dict[str, Dividend] = {}
+        for i in range(0, len(symbols), BATCH_SIZE):
+            batch = symbols[i:i + BATCH_SIZE]
+            try:
+                items = await self._fetch(batch)
+            except Exception as exc:
+                self._session = None
+                raise HistoryError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
+            for item in items:
+                if item.symbol not in batch:
+                    continue
+                out[names[item.symbol]] = dividend_from_item(item)
         return out
 
     async def get_quarterly_eps(self, tickers: list[str]) -> dict[str, list[float]]:

@@ -57,6 +57,8 @@ from scanner_opciones.storage.repositories import (
 )
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystProvider
+from scanner_opciones.marketdata.history import DividendProvider, EarningsHistoryProvider
+from scanner_opciones.marketdata.history_html import history_html
 from scanner_opciones.marketdata.company import DescriptionProvider, NewsProvider, card_html, tooltip as company_tooltip
 from scanner_opciones.marketdata.filings import FilingAlert
 from scanner_opciones.scanner.admission import SourceRule
@@ -172,6 +174,8 @@ class AppService:
         watchlists: Optional[WatchlistProvider] = None,
         descriptions: Optional[DescriptionProvider] = None,
         news: Optional[NewsProvider] = None,
+        earnings_history: Optional[EarningsHistoryProvider] = None,
+        dividends: Optional[DividendProvider] = None,
     ) -> None:
         self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
@@ -188,7 +192,8 @@ class AppService:
         syncer = ContractSyncer(gateway, self.contracts, settings)  # comparte la cadena en caché
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.contracts, settings,
                                   now, volatility, prices, candles, self.bars, syncer, fundamentals, financials, analysts,
-                                  descriptions, news)
+                                  descriptions, news, earnings_history, dividends)
+        self.company_history = self.daily.company_history
         self.filing_alerts = self.daily.filing_alerts
         self.analyst_changes = self.daily.analyst_changes
         self.company_notes = self.daily.company_notes
@@ -971,7 +976,15 @@ class AppService:
         """Nombre completo, descripción y noticias con fecha de un ticker, como HTML para los gráficos de historial y del Panel."""
         key = norm_ticker(ticker)
         notes = self._memo("company_notes_raw", lambda: {norm_ticker(t): n for t, n in self.company_notes.all().items()})
-        return card_html(self.company_name_map().get(key, ""), notes.get(key), self.settings.company.card_chars)
+        return (card_html(self.company_name_map().get(key, ""), notes.get(key), self.settings.company.card_chars)
+                + self.history_card(ticker))
+
+    def history_card(self, ticker: str) -> str:
+        """Resultados de los últimos trimestres (BPA real frente a estimación) y dividendo de un ticker, como HTML para la ficha de los gráficos."""
+        key = norm_ticker(ticker)
+        earnings = self._memo("history_earnings", lambda: {norm_ticker(t): q for t, (_, q) in self.company_history.earnings().items()})
+        dividends = self._memo("history_dividends", lambda: {norm_ticker(t): d for t, (_, d) in self.company_history.dividends().items()})
+        return history_html(earnings.get(key, []), dividends.get(key), self.now().date())
 
     def next_earnings(self, ticker: str) -> Optional[date]:
         """Próxima presentación de resultados (de tastytrade), si es de hoy o posterior."""
@@ -1043,6 +1056,7 @@ class AppService:
             "filing_alerts": self.filing_alerts.purge_except(self.quality_scope()),
             "analyst_changes": self.analyst_changes.purge_except(self.quality_scope()),
             "company_notes": self.company_notes.purge_except(self.quality_scope()),
+            "company_history": self.company_history.purge_except({*self.quality_scope(), *self.position_tickers()}),
         }
         if any(removed.values()):
             log.info("Limpieza de tickers fuera de la watchlist: %s", removed)
@@ -1202,7 +1216,7 @@ class AppService:
     def update_financials_in_background(self) -> None:
         """Lanza la consulta a SEC EDGAR (la primera vez dura minutos) sin esperar y sin solaparse consigo misma."""
         if (self.daily.financials is None and self.daily.analysts is None and self.names is None and self.daily.descriptions is None
-                and self.daily.news is None) or self._financials_running:
+                and self.daily.news is None and self.daily.earnings_history is None and self.daily.dividends is None) or self._financials_running:
             return
         self._financials_running = True
 
@@ -1215,7 +1229,8 @@ class AppService:
                 alerts = await self.daily.update_filing_alerts(scope)
                 analysts = await self.daily.update_analysts(scope)
                 notes = await self.daily.update_company_notes(sorted(scope, key=lambda t: t not in held), self.company_name_map())
-                if alerts or analysts or notes or changed:
+                history = await self.daily.update_company_history(sorted(scope, key=lambda t: t not in held))
+                if alerts or analysts or notes or changed or history:
                     self.state.data_version += 1
             except Exception:
                 log.exception("No se pudieron actualizar el balance y el flujo de caja")

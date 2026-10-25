@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystError, classify_changes
 from scanner_opciones.marketdata.company import CompanyNotesError
+from scanner_opciones.marketdata.history import EarningsQuarter, HistoryError, last_quarters
 from scanner_opciones.marketdata.sectors import etf_sector, yahoo_to_sector
 
 log = logging.getLogger(__name__)
@@ -71,6 +72,62 @@ class YahooAnalysts:
         await asyncio.gather(*(one(t) for t in tickers))
         if failures >= MAX_FAILURES:
             raise AnalystError("Yahoo Finance no responde o limita las peticiones")
+        return out
+
+
+def earnings_from_frame(frame, quarters: int) -> list[EarningsQuarter]:
+    """Últimos `quarters` trimestres con BPA real del DataFrame `earnings_dates` de yfinance (índice = fecha y hora; columnas «EPS Estimate» y
+    «Reported EPS»; incluye la próxima presentación con el real vacío)."""
+    if frame is None or len(frame) == 0:
+        return []
+
+    def num(value) -> Optional[float]:
+        return None if value is None or value != value else float(value)       # NaN != NaN
+
+    rows = []
+    for stamp, r in frame.iterrows():
+        actual = num(r.get("Reported EPS"))
+        if actual is not None:
+            rows.append(EarningsQuarter(stamp.date() if hasattr(stamp, "date") else stamp, actual, num(r.get("EPS Estimate"))))
+    return last_quarters(rows, quarters)
+
+
+class YahooEarningsHistory:
+    """Implementa `EarningsHistoryProvider` con `Ticker.earnings_dates` de Yahoo. Una petición por ticker (~0,3 s), en hilos."""
+
+    def __init__(self, concurrency: int = 4) -> None:
+        self.concurrency = concurrency
+
+    async def get_earnings_history(self, tickers: list[str], quarters: int) -> dict[str, list[EarningsQuarter]]:
+        try:
+            import yfinance
+        except ImportError as exc:
+            raise HistoryError("Falta la librería yfinance (pip install yfinance)") from exc
+        logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+        sem = asyncio.Semaphore(self.concurrency)
+        out: dict[str, list[EarningsQuarter]] = {}
+        failures = 0
+
+        def fetch(symbol: str):
+            return yfinance.Ticker(symbol).get_earnings_dates(limit=max(12, quarters * 2))
+
+        async def one(ticker: str) -> None:
+            nonlocal failures
+            if failures >= MAX_FAILURES:
+                return
+            async with sem:
+                try:
+                    frame = await asyncio.to_thread(fetch, yahoo_symbol(ticker))
+                except Exception as exc:        # los ETF no tienen resultados; Yahoo cambia a menudo: no tumba la pasada
+                    failures += 1
+                    log.debug("Yahoo: sin resultados de %s (%s)", ticker, exc)
+                    return
+            failures = 0
+            out[ticker] = earnings_from_frame(frame, quarters)
+
+        await asyncio.gather(*(one(t) for t in tickers))
+        if failures >= MAX_FAILURES:
+            raise HistoryError("Yahoo Finance no responde o limita las peticiones")
         return out
 
 
