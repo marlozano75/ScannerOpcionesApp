@@ -150,10 +150,10 @@ def tooltip(notes: CompanyNotes, desc_chars: int, news_chars: int = 120) -> str:
         lines.append(description)
     news, stamp = shown_news(notes)
     if news:
-        lines.append(f"Noticias{' revisadas' if notes.curated else ''} (actualizadas el {stamp.strftime('%d/%m/%Y') if stamp else '?'}):")
+        lines.append(f"\n**Noticias{' revisadas' if notes.curated else ''}** (actualizadas el {stamp.strftime('%d/%m/%Y') if stamp else '?'}):")
         for n in news:
             head = n.headline if len(n.headline) <= news_chars else n.headline[:news_chars - 1].rstrip() + "…"
-            lines.append(f"· {n.day.strftime('%d/%m')} {head}{f' ({n.source})' if n.source else ''}")
+            lines.append(f"· **{n.day.strftime('%d/%m')}** {head}{f' ({n.source})' if n.source else ''}")
     return "\n".join(lines)
 
 

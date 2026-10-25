@@ -46,9 +46,9 @@ def test_description_is_cut_at_a_sentence():
 
 def test_tooltip_prefers_what_was_written_by_hand_and_dates_the_news():
     auto = CompanyNotes("English text.", TODAY, tuple(news("Lawsuit filed")), TODAY)
-    assert tooltip(auto, 300) == "English text.\nNoticias (actualizadas el 24/10/2026):\n· 24/10 Lawsuit filed (Reuters)"
+    assert tooltip(auto, 300) == "English text.\n\n**Noticias** (actualizadas el 24/10/2026):\n· **24/10** Lawsuit filed (Reuters)"
     manual = CompanyNotes("English text.", TODAY, auto.news, TODAY, "Plataforma de bolsa.", (NewsItem(date(2026, 10, 20), "Lanza futuros"),), TODAY)
-    assert tooltip(manual, 300) == "Plataforma de bolsa.\nNoticias revisadas (actualizadas el 24/10/2026):\n· 20/10 Lanza futuros"
+    assert tooltip(manual, 300) == "Plataforma de bolsa.\n\n**Noticias revisadas** (actualizadas el 24/10/2026):\n· **20/10** Lanza futuros"
     assert tooltip(CompanyNotes(), 300) == ""
 
 

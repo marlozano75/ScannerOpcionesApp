@@ -134,10 +134,10 @@ def test_the_panel_marks_a_real_delta_and_an_estimated_one(client_and_service):
     svc.save_profiles([Profile("Tasty", ("put",), management="tastytrade")], "Tasty")
     svc.set_put_profile(put_key(pos), "Tasty")
     est = client.get("/").text
-    assert "Delta estimada" in est and __import__("re").search(r"Δ\d\.\d\d~ ", est)
+    assert "Delta: estimada" in est and __import__("re").search(r"Δ\d\.\d\d~ ", est)
     svc.state.position_deltas = {put_key(pos): 0.58}
     real = client.get("/").text
-    assert "Delta real de tastytrade" in real and "Δ0.58 " in real and "Δ0.58~" not in real
+    assert "Delta: real de tastytrade" in real and "Δ0.58 " in real and "Δ0.58~" not in real
 
 
 async def test_roll_evaluation_offers_concrete_protection_puts_and_calls():

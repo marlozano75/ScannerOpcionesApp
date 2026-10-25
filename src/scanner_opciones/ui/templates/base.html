@@ -135,6 +135,8 @@
   #viz-tip.rt { gap:3px; max-width:340px; padding:8px 11px; }
   #viz-tip.rt .rt-l { display:block; opacity:1; } #viz-tip.rt span { opacity:1; }
   #viz-tip.rt .rt-h { font-size:13px; font-weight:700; padding-bottom:3px; margin-bottom:1px; border-bottom:1px solid rgba(255,255,255,.22); }
+  #viz-tip .rt-sp { height:5px; } #viz-tip .rt-l[class*="rt-r-"] { border-left:3px solid; padding-left:7px; }
+  #viz-tip .rt-r-warn { border-color:#ffd166; } #viz-tip .rt-r-ok { border-color:#6fe0a6; } #viz-tip .rt-r-info { border-color:#7fb0ff; } #viz-tip .rt-r-bad { border-color:#ff8f8f; }
   #viz-tip .rt-k { font-weight:700; color:#a9c2f2; } #viz-tip .rt-b { font-weight:700; } #viz-tip .rt-n { font-weight:600; color:#fff; }
   #viz-tip .rt-ok { color:#6fe0a6; } #viz-tip .rt-bad { color:#ff8f8f; } #viz-tip .rt-warn { color:#ffd166; }
   /* explicaciones bajo demanda: la nota se oculta y un botón ⓘ la muestra (sin JS se ven siempre) */
@@ -297,7 +299,8 @@
     '(✗|✘|▼|▽|\bCERRADA\b|\bVencida\b)',                          // 3: mal
     '(⚠|\bsin dato\b|\bsin comprobar\b|\bSin valorar\b|\bfalta[n]?\b)',  // 4: aviso
     '((?:^|(?<=[\s(]))[+−-]\d[\d.,]*\s?(?:%|\$|pts?|días|d)?)', // 5: cifra con signo
-    '(\d[\d.,]*\s?(?:%|\$|DTE|σ|×|días)?)'                        // 6: cifra
+    '((?:[Δσ]\s?)?\d[\d.,]*\s?(?:%|\$|DTE|σ|×|días)?)',             // 6: cifra
+    '\b(cierra\w*|cerrar|rola\w*|rolar\w*|recoge\w*|recoger|espera\w*|mantén\w*|mantener|asignaci[oó]n|asignada|vende|valora\w*|evita\w*|stop|pin|extrínseco|gamma)\b'  // 7: acción o concepto clave
   ].join('|'), 'g');
   function add(parent, text, cls) {
     var el = document.createElement('span'); el.textContent = text;
@@ -313,21 +316,29 @@
       else if (m[3] !== undefined) add(parent, m[3], 'rt-bad');
       else if (m[4] !== undefined) add(parent, m[4], 'rt-warn');
       else if (m[5] !== undefined) add(parent, m[5], /^\+/.test(m[5]) ? 'rt-ok rt-b' : 'rt-bad rt-b');
-      else add(parent, m[6], 'rt-n');
+      else if (m[6] !== undefined) add(parent, m[6], 'rt-n');
+      else add(parent, m[7], 'rt-b');
       last = m.index + m[0].length;
     }
     if (last < text.length) add(parent, text.slice(last));
   }
   function fillTitle(text) {
     tip.textContent = ''; tip.className = 'rt';
-    var lines = String(text || '').split('\n').filter(function (l) { return l.trim() !== ''; });
-    lines.forEach(function (line, i) {
+    var lines = String(text || '').split('\n');
+    if (lines.length === 1 && lines[0].length > 100)                   // un párrafo largo se parte en frases, una por línea
+      lines = lines[0].split(/(?<=[.;])\s+(?=[A-ZÁÉÍÓÚ¿¡Δ])/);
+    var first = true;
+    lines.forEach(function (raw) {
+      var line = raw.trim();
+      if (line === '') { if (!first) { var sp = document.createElement('div'); sp.className = 'rt-sp'; tip.appendChild(sp); } return; }
       var row = document.createElement('div'); row.className = 'rt-l';
+      var icon = /^(⚠|✔|✓|ⓘ|✗|▼|▲)/.exec(line);
       var m = /^([^:.\n]{2,42}):\s+(.+)$/.exec(line);
-      if (i === 0 && lines.length > 1) { row.classList.add('rt-h'); rich(row, line); }
-      else if (m) { add(row, m[1], 'rt-k'); rich(row, ' '); rich(row, m[2]); }
+      if (icon) row.classList.add({ '⚠': 'rt-r-warn', '✔': 'rt-r-ok', '✓': 'rt-r-ok', 'ⓘ': 'rt-r-info', '✗': 'rt-r-bad', '▼': 'rt-r-bad', '▲': 'rt-r-ok' }[icon[1]]);
+      if (first && lines.length > 1 && !icon && !m) { row.classList.add('rt-h'); rich(row, line); }
+      else if (m) { add(row, m[1], 'rt-k'); add(row, ': '); rich(row, m[2]); }
       else rich(row, line);
-      tip.appendChild(row);
+      tip.appendChild(row); first = false;
     });
   }
   function fill(text) {                                               // data-tip: valor|etiqueta|detalle
