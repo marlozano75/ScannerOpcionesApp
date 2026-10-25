@@ -17,7 +17,7 @@ from scanner_opciones.portfolio.diversification import nominal
 
 def long_put_protection(positions: Iterable[Position]) -> float:
     return sum(
-        p.option.strike * p.option.multiplier * p.quantity
+        p.option.strike * p.option.multiplier * p.quantity * p.fx
         for p in positions
         if p.option is not None and p.option.right is OptionRight.PUT and p.quantity > 0
     )

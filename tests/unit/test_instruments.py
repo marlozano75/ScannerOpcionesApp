@@ -251,3 +251,45 @@ def test_the_index_is_exempt_from_the_option_liquidity_of_tastytrade():
     own = TickerInfo("ESTX50")
     assert ticker_quality_reject(own, crit, ("=ESTX50", "~ESTX50")) is None
     assert ticker_quality_reject(own, crit, ("=ESTX50",)) is not None             # sin la marca «~» sí lo pide (un ETF normal)
+
+
+# ---- fase 3: posiciones de Eurex en el Panel ---------------------------------------------------------------------
+from dataclasses import replace as _rep
+
+from scanner_opciones.config.settings import ManagementSettings
+from scanner_opciones.domain.models import Position
+from scanner_opciones.portfolio.diversification import nominal
+from scanner_opciones.portfolio.leverage import long_put_protection, short_put_exposure
+from scanner_opciones.portfolio.management import open_risk, ticker_weights
+
+
+def short_estx(fx=1.1, strike=5450.0, qty=-1.0, hedge=None, avg_cost=-186.0):
+    return Position("ESTX50", qty, -150.0, "Índice Europa", OptionContract("ESTX50", E1, strike, multiplier=10), avg_cost, hedge, fx)
+
+
+def test_nominal_exposure_of_an_index_put_is_converted_to_dollars():
+    p = short_estx()
+    assert nominal(p) == pytest.approx(5450.0 * 10 * 1.1)                    # 59.950 $
+    assert nominal(_rep(p, fx=1.0)) == 54500.0
+    assert short_put_exposure([p, short_estx(strike=5000.0, qty=-2.0)]) == pytest.approx((5450.0 * 10 + 5000.0 * 10 * 2) * 1.1)
+    assert long_put_protection([short_estx(qty=1.0)]) == pytest.approx(5450.0 * 10 * 1.1)
+
+
+def test_spread_width_weight_and_open_risk_use_the_exchange_rate():
+    spread = short_estx(hedge=5350.0, avg_cost=-40.0)
+    assert nominal(spread) == pytest.approx(100.0 * 10 * 1.1)                # el ancho, en dólares
+    assert open_risk([spread]) == pytest.approx(100.0 * 10 * 1.1 - 40.0 * 1.1)   # ancho − crédito, en dólares
+    w = ticker_weights([short_estx()], 44000.0, ManagementSettings())[0]
+    assert abs(w.pct_nlv - 5450.0 * 10 * 1.1 / 44000.0 * 100) < 1e-9
+
+
+async def test_the_service_puts_the_rate_on_the_index_positions(tmp_path):
+    from scanner_opciones.app.service import AppService
+    from scanner_opciones.broker.fake_gateway import FakeGateway
+    from scanner_opciones.domain.models import AccountSummary
+    from scanner_opciones.storage.db import Database
+    svc = AppService(FakeGateway(connected=True), Database(tmp_path / "app.db"), Settings(), lambda: datetime(2026, 10, 26, 12))
+    svc.state.account = AccountSummary("U1", net_liquidation=40000.0, base_currency="EUR", usd_per_base=1.1)
+    aapl = Position("AAPL", -1.0, -100.0, None, OptionContract("AAPL", E1, 200.0))
+    out = svc._with_fx([short_estx(fx=1.0), aapl])
+    assert [p.fx for p in out] == [1.1, 1.0]

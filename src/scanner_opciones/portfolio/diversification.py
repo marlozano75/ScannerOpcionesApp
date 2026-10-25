@@ -29,13 +29,13 @@ def nominal(p: Position) -> float:
     """Exposición nominal de una put vendida (0 para el resto de opciones); en un spread, su ancho."""
     if not is_short_put(p):
         return 0.0
-    return (p.option.strike - (p.hedge_strike or 0.0)) * p.option.multiplier * abs(p.quantity)
+    return (p.option.strike - (p.hedge_strike or 0.0)) * p.option.multiplier * abs(p.quantity) * p.fx
 
 
 def exposure_value(p: Position) -> float:
     """Contribución de la posición a la EPT."""
     if p.option is None:
-        return p.market_value
+        return p.market_value * p.fx
     return nominal(p)
 
 

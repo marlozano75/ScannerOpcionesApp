@@ -231,7 +231,7 @@ def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[floa
     profiles, rules = profiles or {}, rules or {}
     out = []
     for ticker in sorted({p.ticker for p in puts}):
-        stock = sum(p.market_value for p in positions if p.ticker == ticker and p.option is None and p.quantity > 0)
+        stock = sum(p.market_value * p.fx for p in positions if p.ticker == ticker and p.option is None and p.quantity > 0)
         mine = [p for p in puts if p.ticker == ticker]
         nominal = sum(nominal_of(p) for p in mine)       # en un spread, su ancho: la put comprada limita lo que compras
         total = stock + nominal
@@ -250,7 +250,7 @@ def open_risk(positions: Sequence[Position]) -> float:
     for p in _short_puts(positions):
         risk = nominal_of(p)
         if p.hedge_strike is not None and p.avg_cost:
-            risk = max(risk - abs(p.avg_cost) * abs(p.quantity), 0.0)
+            risk = max(risk - abs(p.avg_cost) * abs(p.quantity) * p.fx, 0.0)
         total += risk
     return total
 

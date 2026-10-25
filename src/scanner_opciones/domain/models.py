@@ -96,6 +96,7 @@ class Position:
     option: Optional[OptionContract] = None
     avg_cost: Optional[float] = None   # coste medio por contrato en $ (precio de entrada × multiplicador); en una venta, la prima cobrada
     hedge_strike: Optional[float] = None   # put vendida que forma parte de un spread: strike de la put comprada que la cubre (`portfolio/spreads.py`)
+    fx: float = 1.0                        # dólares por unidad de la moneda del contrato (1 = USD; ESTX50 en euros): los nominales y riesgos que se suman o comparan con el NLV lo aplican
 
 
 @dataclass(frozen=True)

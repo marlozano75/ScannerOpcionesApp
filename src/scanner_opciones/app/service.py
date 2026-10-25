@@ -2536,13 +2536,19 @@ class AppService:
         """Recupera la última cuenta y posiciones leídas de TWS (de este modo de cuenta) para mostrarlas sin conexión."""
         account, positions = portfolio_cache.load(self.meta.get(PORTFOLIO_CACHE), self.settings.ibkr.mode.value)
         if account is not None:
-            self.state.account, self.state.positions = account, positions
+            self.state.account = account
+            self.state.positions = self._with_fx(positions)
             self.state.risk = build_risk_status(account, self.settings.risk.cushion_thresholds)
+
+    def _with_fx(self, positions: list[Position]) -> list[Position]:
+        """Pone a las posiciones de los instrumentos de TWS que no cotizan en USD (opciones del Euro Stoxx 50 en euros) su tipo de cambio (`Position.fx`)."""
+        rates = self.usd_rates()
+        return [replace(p, fx=rates[p.ticker]) if p.ticker in rates and p.fx != rates[p.ticker] else p for p in positions]
 
     async def _refresh_portfolio(self) -> None:
         try:
             self.state.account = await asyncio.wait_for(self.gateway.get_account_summary(), timeout=STEP_TIMEOUT_SECONDS)
-            self.state.positions = await asyncio.wait_for(self.gateway.get_positions(), timeout=STEP_TIMEOUT_SECONDS)
+            self.state.positions = self._with_fx(await asyncio.wait_for(self.gateway.get_positions(), timeout=STEP_TIMEOUT_SECONDS))
             self._note_put_opened()
             self._history_for_positions()
             self.state.risk = build_risk_status(self.state.account, self.settings.risk.cushion_thresholds)
