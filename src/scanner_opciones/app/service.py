@@ -2712,6 +2712,7 @@ class AppService:
         fracción, próximos resultados y días hasta el ex-dividendo (el guardado por la actualización diaria, descontados los días pasados desde entonces)."""
         today = self.now().date()
         out: dict[str, dict] = {}
+        keep = self.settings.management.defense.freefall_lookback + 1
         for p in self.state.positions:
             if p.option is None or p.option.right is not OptionRight.PUT or p.quantity >= 0 or p.ticker in out:
                 continue
@@ -2722,8 +2723,14 @@ class AppService:
             if info.days_to_ex_dividend is not None and info.updated_daily_at is not None:
                 ex = info.days_to_ex_dividend - (today - info.updated_daily_at.date()).days
             out[p.ticker] = dict(iv_rank=info.iv_rank, iv30=info.iv30 / 100 if info.iv30 else None, ex_dividend_in=ex if ex is not None and ex >= 0 else None,
-                                 next_earnings=info.next_earnings if info.next_earnings and info.next_earnings >= today else None)
+                                 next_earnings=info.next_earnings if info.next_earnings and info.next_earnings >= today else None,
+                                 closes=self._recent_closes(p.ticker.replace(" ", "-"), keep))
         return out
+
+    def _recent_closes(self, ticker: str, n: int) -> Optional[list[float]]:
+        """Últimos `n` cierres diarios guardados del subyacente (ascendentes), o None si no hay histórico."""
+        rows = self.bars.all_closes([ticker]).get(ticker)
+        return [c for _, c in rows[-n:]] if rows else None
 
     def _short_put_contracts(self) -> dict[str, OptionContract]:
         """Puts vendidas de la cartera, desnudas o pata vendida de un spread, como contratos con el símbolo de la app, por `put_key`."""
@@ -2801,7 +2808,8 @@ class AppService:
         iv30 = info.iv30 / 100 if info and info.iv30 else None
         earnings = info.next_earnings if info and info.next_earnings and info.next_earnings >= today else None
         defense = defense_mod.assess_spread(defense_mod.SpreadInput(
-            o.expiry, o.strike, long_strike, (o.expiry - today).days, underlying, entry, close_cost, delta, info.iv_rank if info else None, iv30, earnings, today), cfg)
+            o.expiry, o.strike, long_strike, (o.expiry - today).days, underlying, entry, close_cost, delta, info.iv_rank if info else None, iv30, earnings, today,
+            self._recent_closes(ticker, cfg.freefall_lookback + 1)), cfg)
         if delta is None and defense is not None:
             delta = defense.delta
         rollq = []
@@ -2884,7 +2892,8 @@ class AppService:
         iv30 = info.iv30 / 100 if info and info.iv30 else None
         defense = defense_mod.assess(defense_mod.DefenseInput(
             o.expiry, o.strike, (o.expiry - today).days, underlying, entry, close_cost, info.iv_rank if info else None, iv30,
-            info.next_earnings if info and info.next_earnings and info.next_earnings >= today else None, None, today, delta), cfg)
+            info.next_earnings if info and info.next_earnings and info.next_earnings >= today else None, None, today, delta,
+            self._recent_closes(ticker, cfg.freefall_lookback + 1)), cfg)
         if delta is None and defense is not None:
             delta = defense.delta
         rollq = [defense_mod.RollQuote(c.expiry, c.strike, q.bid, q.ask, abs(q.delta) if q.delta is not None else None)

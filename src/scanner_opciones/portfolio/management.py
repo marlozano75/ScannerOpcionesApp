@@ -193,11 +193,11 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         c = defense_ctx or {}
         if not spread:
             defense = defense_mod.assess(DefenseInput(o.expiry, o.strike, dte, underlying, entry, current, c.get("iv_rank"), c.get("iv30"),
-                                                      c.get("next_earnings"), c.get("ex_dividend_in"), today, live_delta), cfg.defense)
+                                                      c.get("next_earnings"), c.get("ex_dividend_in"), today, live_delta, c.get("closes")), cfg.defense)
         else:      # matriz del spread: delta de la put VENDIDA x DTE x IV Rank
             defense = defense_mod.assess_spread(defense_mod.SpreadInput(
                 o.expiry, o.strike, p.hedge_strike, dte, underlying, entry, current, live_delta, c.get("iv_rank"), c.get("iv30"),
-                c.get("next_earnings"), today), cfg.defense)
+                c.get("next_earnings"), today, c.get("closes")), cfg.defense)
         if defense is not None:
             alerts.extend(Alert(level, text) for level, text in defense.steps)
     if spread and r.stop_multiple is not None and entry and current is not None and current >= r.stop_multiple * entry:

@@ -597,6 +597,10 @@ class DefenseSettings(_Model):
     protect_max_debit_pct: float = Field(50, gt=0, le=100)   # ... con un débito que no se coma más de este % del crédito original
     call_min_credit_pct: float = Field(10, ge=0)       # la prima de la call de la defensa: al menos este % del crédito original (si no, no compensa el riesgo)
     call_strikes_above_pct: float = Field(15, gt=0, lt=100)  # strikes candidatos de la call: del precio hasta este % por encima
+    freefall_lookback: int = Field(10, ge=3)           # caída libre: sesiones que se miran para medir la caída y el rebote (cierres diarios)
+    freefall_drop_pct: float = Field(7, gt=0)          # ... caída mínima (máximo -> mínimo de esa ventana) para hablar de «caída fuerte»
+    freefall_days: int = Field(3, ge=1)                # ... caída libre = el mínimo es de las últimas N sesiones y aún no hay rebote
+    rebound_pct: float = Field(2, gt=0)                # ... rebote = el último cierre está al menos este % por encima del mínimo
     risk_free_rate: float = Field(0.04, ge=0, lt=1)    # tasa para estimar la delta (Black-Scholes) cuando no hay la real
     # --- spreads de puts (matriz delta de la vendida x DTE x IV Rank, estilo tastylive) ---
     spread_atm_delta: float = Field(0.45, gt=0, lt=1)       # |delta| de la vendida desde la que el precio está en el strike vendido (antes: testeado, desde `tested_delta`)...
@@ -615,6 +619,8 @@ class DefenseSettings(_Model):
     def _check(self) -> "DefenseSettings":
         if not self.tested_delta < self.atm_delta < self.deep_delta:
             raise ValueError("tested_delta < atm_delta < deep_delta")
+        if self.freefall_days > self.freefall_lookback:
+            raise ValueError("freefall_days no puede superar freefall_lookback")
         if self.loss_multiple > self.hard_loss_multiple:
             raise ValueError("loss_multiple no puede superar hard_loss_multiple")
         if not self.roll_dte_min <= self.roll_dte_max <= self.roll_dte_far:

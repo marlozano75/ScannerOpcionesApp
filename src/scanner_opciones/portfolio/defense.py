@@ -20,6 +20,7 @@ from typing import Optional, Sequence
 from scanner_opciones.config.settings import DefenseSettings
 from scanner_opciones.metrics.greeks import estimate_abs_delta
 
+FREEFALL, REBOUND, STABLE = "freefall", "rebound", "stable"
 CALM, TESTED, ATM, DEEP = "calm", "tested", "atm", "deep"
 BETWEEN, BEYOND = "between", "beyond"          # spreads: entre los dos strikes / por debajo de ambos
 ZONE_LABELS = {CALM: "tranquila", TESTED: "testeada", ATM: "en el dinero", DEEP: "muy dentro del dinero",
@@ -41,6 +42,53 @@ class DefenseInput:
     ex_dividend_in: Optional[int] = None   # días hasta el próximo ex-dividendo
     today: Optional[date] = None
     delta: Optional[float] = None          # |delta| real (cotización en vivo); si no, se estima con Black-Scholes
+    closes: Optional[Sequence[float]] = None   # últimos cierres diarios del subyacente (ascendentes) para detectar caída libre / rebote
+
+
+@dataclass(frozen=True)
+class Momentum:
+    """Estado del subyacente tras una caída fuerte: `freefall` (sigue marcando mínimos), `rebound` (ya ha rebotado) o `stable` (cayó y se ha frenado)."""
+    state: str
+    fall_pct: float            # máximo -> mínimo de la ventana
+    bounce_pct: float          # mínimo -> último cierre
+    days_since_low: int
+
+
+def momentum(closes: Optional[Sequence[float]], cfg: DefenseSettings) -> Optional[Momentum]:
+    """Valora el momento para vender la call del strangle con los últimos `freefall_lookback` cierres: None si no hubo una caída fuerte
+    (máximo -> mínimo ≥ `freefall_drop_pct`) o faltan datos. Caída libre = el mínimo es de las últimas `freefall_days` sesiones y el rebote es
+    menor que `rebound_pct`; rebote = el último cierre está `rebound_pct` o más por encima del mínimo."""
+    if not closes or len(closes) < 3:
+        return None
+    window = [c for c in closes[-(cfg.freefall_lookback + 1):] if c and c > 0]
+    if len(window) < 3:
+        return None
+    peak, low, last = max(window), min(window), window[-1]
+    fall = (peak - low) / peak * 100
+    if fall < cfg.freefall_drop_pct:
+        return None
+    since = len(window) - 1 - max(i for i, c in enumerate(window) if c == low)
+    bounce = (last - low) / low * 100
+    if bounce >= cfg.rebound_pct:
+        state = REBOUND
+    elif since < cfg.freefall_days:
+        state = FREEFALL
+    else:
+        state = STABLE
+    return Momentum(state, fall, bounce, since)
+
+
+def momentum_step(m: Optional[Momentum], cfg: DefenseSettings) -> Optional[tuple[str, str]]:
+    """Aviso sobre si es buen momento para vender una call (strangle o call spread) según `momentum`; None sin caída fuerte."""
+    if m is None:
+        return None
+    head = f"El valor cayó un {m.fall_pct:.1f} % en las últimas {cfg.freefall_lookback} sesiones"
+    if m.state == FREEFALL:
+        return ("warn", f"{head} y sigue marcando mínimos (mínimo hace {m.days_since_low} d, rebote {m.bounce_pct:.1f} % < {cfg.rebound_pct:g} %): "
+                        "caída libre, NO vendas la call ahora; espera a un rebote o a que se frene.")
+    if m.state == REBOUND:
+        return ("info", f"{head} y ya rebota {m.bounce_pct:.1f} % desde el mínimo: buen momento para la call, que cobra más prima y deja menos riesgo si sigue el rebote.")
+    return ("info", f"{head} y se ha frenado (mínimo hace {m.days_since_low} d, rebote {m.bounce_pct:.1f} %): la call es posible, mejor con algo de rebote.")
 
 
 @dataclass(frozen=True)
@@ -97,6 +145,8 @@ def assess(i: DefenseInput, cfg: DefenseSettings) -> Optional[Defense]:
     elif zone == DEEP:
         steps.append(("warn", f"Muy dentro del dinero ({d}, {ext}): rola solo hacia fuera (mismo strike o casi) o valora la asignación; "
                               "con tan poco extrínseco los rolls dan poco crédito."))
+    if zone == TESTED and (m := momentum_step(momentum(i.closes, cfg), cfg)) is not None:
+        steps.append(m)
     # 2. tiempo
     if zone != CALM and 0 <= i.dte <= cfg.gamma_dte:
         steps.append(("warn", f"Quedan {i.dte} días (≤ {cfg.gamma_dte}): gestiónala ya aunque la pérdida no sea extrema; a partir de aquí el gamma se acelera."))
@@ -228,6 +278,7 @@ class SpreadInput:
     iv30: Optional[float] = None
     next_earnings: Optional[date] = None
     today: Optional[date] = None
+    closes: Optional[Sequence[float]] = None   # últimos cierres diarios del subyacente (ascendentes), para el aviso de caída libre / rebote
 
     @property
     def width(self) -> float:
@@ -323,6 +374,8 @@ def assess_spread(i: SpreadInput, cfg: DefenseSettings) -> Optional[Defense]:
             step("warn", f"{head}: rola si queda extrínseco; si no, cierra.")
         else:
             step("warn", f"{head}: deja correr hasta la pérdida máxima o cierra; rolar ya no da crédito.")
+    if zone in (TESTED, ATM, BETWEEN) and i.dte >= cfg.spread_close_dte and (m := momentum_step(momentum(i.closes, cfg), cfg)) is not None:
+        step(*m)         # vale para el call spread de la defensa: mismo criterio que la call del strangle
     # cierres por pérdida, por eventos y por la tesis
     if i.entry and i.current is not None and i.entry > 0:
         loss = i.current - i.entry

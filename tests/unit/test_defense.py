@@ -287,3 +287,24 @@ def test_call_spread_candidates_keep_the_width_and_need_a_quarter_of_the_credit(
     poor = dfn.rank_call_spreads(5.0, 3.0, exp, [s(105.0, 1.0, 0.27)], longs, CFG)                  # 0,70 de 3,00 = 23 %
     assert poor[0].ok is False
     assert dfn.rank_call_spreads(5.0, 1.5, exp, [s(105.0, 0.3, 0.27)], longs, CFG) == ()           # la comprada (0,30) se come el crédito
+
+
+def test_momentum_tells_freefall_from_rebound_and_ignores_mild_moves():
+    assert dfn.momentum([100, 99, 98, 97, 98, 99, 100], CFG) is None                     # sin caída fuerte
+    assert dfn.momentum(None, CFG) is None
+    free = dfn.momentum([100, 98, 96, 94, 92, 90], CFG)                                  # -10 %, mínimo hoy
+    assert free is not None and free.state == dfn.FREEFALL and free.days_since_low == 0
+    reb = dfn.momentum([100, 96, 92, 90, 91, 93, 94], CFG)                               # mínimo hace 3 sesiones y +4,4 %
+    assert reb is not None and reb.state == dfn.REBOUND and reb.bounce_pct > CFG.rebound_pct
+    flat = dfn.momentum([100, 92, 90, 90.5, 90.4, 90.6, 90.8], CFG)                      # frenó sin rebotar el 2 %
+    assert flat is not None and flat.state == dfn.STABLE
+
+
+def test_the_call_advice_depends_on_the_momentum():
+    def texts(closes):
+        d = dfn.assess(DefenseInput(TODAY + timedelta(days=30), 100, 30, 98, 2.0, 3.0, delta=0.35, closes=closes), CFG)
+        assert d is not None and d.zone == TESTED
+        return " ".join(t for _, t in d.steps)
+    assert "caída libre, NO vendas la call" in texts([100, 98, 96, 94, 92, 90])
+    assert "buen momento para la call" in texts([100, 96, 92, 90, 91, 93, 94])
+    assert "NO vendas la call" not in texts(None)
