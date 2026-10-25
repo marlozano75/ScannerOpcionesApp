@@ -2,23 +2,23 @@
    yields, delta con la volatilidad, liquidez del contrato, calidad de la empresa y cartera.
    «Yield anual» es la columna destacada (`hl`) y la que ordena por defecto. El vencimiento (día/mes) va junto al strike. #}
 {% macro lead_head() -%}
-<th class="tk" title="Símbolo del subyacente">Ticker</th><th class="txt" title="Sector de la empresa">Sector</th><th title="Precio actual del subyacente">Precio</th>
+<th class="tk" title="Símbolo del subyacente">Ticker</th><th class="txt" title="Sector de la empresa">Sector</th><th data-col="price" title="Precio actual del subyacente">Precio</th>
 {%- endmacro %}
 
 {% macro vol_head(sold=false) -%}{% set v = ' vend.' if sold else '' -%}
-<th>Delta{{ v }}</th><th title="Volatilidad implícita del contrato">IV</th><th title="IV Rank del subyacente: posición de su IV actual dentro del rango de 52 semanas">IV Rank</th><th title="IV Percentile del subyacente: % de días del último año con IV menor que la actual">IV Pctl</th>
-<th title="Spread bid/ask{{ v }}, en % del mid">Spread{{ v }}</th><th title="Tamaño del bid{{ v }} (contratos)">Bid size{{ v }}</th><th title="Open interest{{ v }}">OI{{ v }}</th><th title="Liquidez de las opciones del subyacente según tastytrade (1 = baja, 5 = alta)">Liq. opc.</th>{{ extra_head() }}
+<th>Delta{{ v }}</th><th title="Volatilidad implícita del contrato">IV</th><th data-col="ivr" title="IV Rank del subyacente: posición de su IV actual dentro del rango de 52 semanas">IV Rank</th><th data-col="ivp" title="IV Percentile del subyacente: % de días del último año con IV menor que la actual">IV Pctl</th>
+<th data-col="spread" title="Spread bid/ask{{ v }}, en % del mid">Spread{{ v }}</th><th data-col="bidsize" title="Tamaño del bid{{ v }} (contratos)">Bid size{{ v }}</th><th data-col="oi" title="Open interest{{ v }}">OI{{ v }}</th><th data-col="liq" title="Liquidez de las opciones del subyacente según tastytrade (1 = baja, 5 = alta)">Liq. opc.</th>{{ extra_head() }}
 {%- endmacro %}
 
 {% macro extra_head(pas=true) -%}
 <th title="Señales técnicas que se cumplen hoy de las medibles (informativo, no filtra): precio sobre MA200, MA50 &gt; MA200, RSI rebotando, Bollinger %B bajo, precio cerca de la MA50 o del soporte y strike en el soporte. Pasa el ratón por la celda para ver el detalle">Téc.</th>
-<th title="Próximos resultados (día/mes); en rojo si caen antes del vencimiento">Result.</th><th title="Beneficio por acción de los últimos 12 meses">EPS 12 m</th><th title="Trimestres con beneficios de los últimos 4">Trim. +</th>{% if pas %}<th title="Pasivo / patrimonio">Pas/Pat</th>{% endif %}
+<th data-col="earn" title="Próximos resultados (día/mes); en rojo si caen antes del vencimiento">Result.</th><th title="Beneficio por acción de los últimos 12 meses">EPS 12 m</th><th title="Trimestres con beneficios de los últimos 4">Trim. +</th>{% if pas %}<th title="Pasivo / patrimonio">Pas/Pat</th>{% endif %}
 {%- endmacro %}
 
 {% macro head() -%}
-{{ lead_head() }}<th title="Strike de la put vendida">Strike</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
-<th class="hl" data-sort-default="desc" title="Prima / strike anualizada, con el precio de venta de referencia elegido">Yield anual</th><th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th title="Yield anual con el bid">Yield bid</th>
-<th title="Prima que cobras por contrato, en $: precio de venta de referencia × multiplicador">Crédito ($)</th><th title="Capital en riesgo: (strike − prima) × multiplicador, en % del NLV (lo que se pierde si el subyacente llega a 0)">Riesgo %NLV</th>
+{{ lead_head() }}<th title="Strike de la put vendida">Strike</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike">Historial</th><th data-col="desc" title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th data-col="dte" title="Días que faltan hasta el vencimiento">DTE</th>
+<th class="hl" data-sort-default="desc" title="Prima / strike anualizada, con el precio de venta de referencia elegido">Yield anual</th><th data-col="yp" title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th title="Yield anual con el bid">Yield bid</th>
+<th data-col="credit" title="Prima que cobras por contrato, en $: precio de venta de referencia × multiplicador">Crédito ($)</th><th data-col="risk" title="Capital en riesgo: (strike − prima) × multiplicador, en % del NLV (lo que se pierde si el subyacente llega a 0)">Riesgo %NLV</th>
 {{ vol_head() }}
 <th title="Peso del sector tras la venta">+Sector</th><th title="Peso de la semana de vencimiento">Semana</th><th title="% de la cartera si te asignan">% cart. asig.</th>
 {%- endmacro %}
@@ -62,11 +62,11 @@
 
 {# ---- Spreads (modos «Spread» y «Ambos»): las mismas columnas que las puts y, además, lo propio del spread ---- #}
 {% macro spread_head() -%}
-{{ lead_head() }}<th title="Strike de la put vendida / strike de la put comprada (la cobertura del spread)">Vend./Comp.</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
-<th title="Strike vendido − strike comprado">Ancho</th><th title="Crédito total de la operación por contrato (precio de venta de referencia − ask de la comprada) × multiplicador">Créd. ($)</th><th title="Crédito / ancho">Cred/A</th>
-<th class="hl" data-sort-default="desc" title="Retorno sobre riesgo anualizado">R/R anual</th><th title="Crédito / pérdida máxima por acción, hasta el vencimiento, sin anualizar (retorno/riesgo)">R/R</th>
+{{ lead_head() }}<th title="Strike de la put vendida / strike de la put comprada (la cobertura del spread)">Vend./Comp.</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike">Historial</th><th data-col="desc" title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th data-col="dte" title="Días que faltan hasta el vencimiento">DTE</th>
+<th title="Strike vendido − strike comprado">Ancho</th><th data-col="scredit" title="Crédito total de la operación por contrato (precio de venta de referencia − ask de la comprada) × multiplicador">Créd. ($)</th><th data-col="cw" title="Crédito / ancho">Cred/A</th>
+<th class="hl" data-sort-default="desc" title="Retorno sobre riesgo anualizado">R/R anual</th><th data-col="rr" title="Crédito / pérdida máxima por acción, hasta el vencimiento, sin anualizar (retorno/riesgo)">R/R</th>
 {{ mkt_head() }}
-<th title="(ancho − crédito) × multiplicador">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Breakeven: strike vendido − crédito">BrEv</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>
+<th title="(ancho − crédito) × multiplicador">Pérd. $</th><th data-col="lossnlv" title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Breakeven: strike vendido − crédito">BrEv</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>
 {{ extra_head(false) }}<th title="% de la cartera si te asignan">% cart. asig.</th>
 {%- endmacro %}
 
@@ -87,7 +87,7 @@
 
 {# Bloque de mercado de un spread (junto al retorno): las dos deltas, la IV, el IV Rank, los spreads bid/ask, bid size, OI y liquidez #}
 {% macro mkt_head() -%}
-<th title="Delta de la vendida">Δ vend.</th><th title="Delta de la comprada">Δ comp.</th><th title="Volatilidad implícita del contrato">IV</th><th title="IV Rank del subyacente: posición de su IV actual dentro del rango de 52 semanas">IV Rank</th><th title="IV Percentile del subyacente: % de días del último año con IV menor que la actual">IV Pctl</th><th title="Spread bid/ask de la put vendida, en % del mid">Spread vend.</th><th title="Spread bid/ask de la put comprada, en % del mid">Spread comp.</th><th title="Open interest de la put vendida">OI vend.</th><th title="Open interest de la put comprada">OI comp.</th>
+<th data-col="delta" title="Delta de la vendida">Δ vend.</th><th data-col="ldelta" title="Delta de la comprada">Δ comp.</th><th title="Volatilidad implícita del contrato">IV</th><th data-col="ivr" title="IV Rank del subyacente: posición de su IV actual dentro del rango de 52 semanas">IV Rank</th><th data-col="ivp" title="IV Percentile del subyacente: % de días del último año con IV menor que la actual">IV Pctl</th><th data-col="spread" title="Spread bid/ask de la put vendida, en % del mid">Spread vend.</th><th data-col="lspread" title="Spread bid/ask de la put comprada, en % del mid">Spread comp.</th><th data-col="oi" title="Open interest de la put vendida">OI vend.</th><th data-col="loi" title="Open interest de la put comprada">OI comp.</th>
 {%- endmacro %}
 
 {% macro mkt_cells(r, l=none) -%}{% set s = r.snapshot %}{% set i = r.info -%}

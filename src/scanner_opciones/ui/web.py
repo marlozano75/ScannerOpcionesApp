@@ -41,6 +41,7 @@ from scanner_opciones.tortuga.schedule import FeedSchedule, ScheduleError, descr
 from scanner_opciones.scanner.impact import explain_empty
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, dte_range
 from scanner_opciones.scanner.profiles import Profile, profile_diff
+from scanner_opciones.scanner.profile_marks import row_key, row_marks
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, viz
@@ -1590,13 +1591,28 @@ def create_app(
         def sev(keys: str) -> str:
             worst = {diff[k] for k in keys.split() if k in diff}
             return " chg-bad" if "bad" in worst else " chg-warn" if worst else ""
+        # celdas de los resultados que se salen de los límites guardados en el perfil (se marcan en el navegador: ver `scanner.html`)
+        marks: dict = {}
+        if active_profile and out is not None:
+            struct = {k: v for k, v in request.query_params.items() if k in STRUCT_KEYS}
+            saved = {n: parse_scan({**struct, **active_profile.set_params(n)}, n)["criteria"] for n in ("put", "spread")}
+            nlv = service.nlv_usd()
+            if mode == "both":
+                rows = [(m.short, m.kind, m.spread) for m in out.mixed]
+            elif mode == "spread":
+                rows = [(sp.short, "spread", sp) for sp in out.spreads]
+            else:
+                rows = [(r, "put", None) for r in out.results]
+            for r, kind, sp in rows:
+                if saved[kind] is not None and (cm := row_marks(r, kind, saved[kind], sp, nlv)):
+                    marks[row_key(r, sp)] = cm
 
         qcfg = service.settings.scanner.quality
         # no depende del perfil (base de config.yaml): se reutiliza entre cargas mientras no cambien los datos
         counts = service._memo("quality_counts", lambda: quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg))
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
-        return render(request, "scanner.html", no_autorefresh=True, out=out, other_params=pair["other_params"], owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, sev=sev, default_qs=default_qs,
+        return render(request, "scanner.html", no_autorefresh=True, out=out, other_params=pair["other_params"], owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, sev=sev, marks=marks, default_qs=default_qs,
                       community=service.community_counts(), techs=service.tech_summaries(out) if out else {},
                       yield_max=yield_max, nlv_usd=service.nlv_usd(), strategy_qs=strategy_qs, strategy_on=strategy_on,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),

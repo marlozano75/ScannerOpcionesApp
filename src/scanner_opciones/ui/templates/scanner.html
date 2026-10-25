@@ -178,6 +178,9 @@
   .chips.chips button.chip.chg-warn, .chips.chips button.chip.chg-bad { border-width:2px; font-weight:700; }
   .chips.chips button.chip.chg-warn { background:#ffe3c2; border-color:#e08a1e; color:#7a4300; }   /* cambio pequeño respecto al perfil guardado */
   .chips.chips button.chip.chg-bad { background:#f7c9c9; border-color:#c0392b; color:#7a1a12; text-decoration:none; }   /* cambio grande o filtro marcado/desmarcado */
+  td.vp-warn, td.vp-bad { border-radius:7px; font-weight:700; }
+  td.vp-warn { background-color:#ffe3c2 !important; box-shadow:inset 0 0 0 2px #e08a1e; color:#7a4300; }   /* se pasa poco del límite del perfil */
+  td.vp-bad { background-color:#f7c9c9 !important; box-shadow:inset 0 0 0 2px #c0392b; color:#7a1a12; }   /* se pasa mucho */
   .chips .chips-lbl { font-size:12px; font-weight:600; color:var(--mute); min-width:98px; }
   .chips button.chip { font-size:12px; padding:3px 10px; font-weight:600; background:var(--field); color:var(--ink); }
   .chips.base button.chip { background:color-mix(in srgb, var(--accent) 14%, var(--field)); border-color:var(--accent); color:var(--ink); }   /* el rango y el yield: la base de todo escaneo */
@@ -507,9 +510,9 @@
     {% set rmax = out.mixed|map(attribute='return_on_capital_annualized_pct')|select('number')|max or 0 %}
     <form method="post" action="/simulate" class="table-form">
       <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
-        <tr><th class="sel"></th>{{ cols.lead_head() }}<th title="Put vendida sola o spread de puts">Tipo</th><th title="Strike de la put vendida / strike de la put comprada (la cobertura del spread)">Vend./Comp.</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike">Historial</th><th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th title="Días que faltan hasta el vencimiento">DTE</th>
-          <th title="Strike vendido − strike comprado">Ancho</th><th title="Crédito total de la operación por contrato (precio de venta de referencia − ask de la comprada) × multiplicador">Créd. ($)</th><th title="Crédito neto / ancho del spread (en una put sola no aplica)">Cred/A</th><th class="hl" data-sort-default="desc" title="Retorno anualizado sobre el capital consumido (margen o pérdida máxima)">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th title="Capital que consume: margen what-if en una put, pérdida máxima en un spread">Capital ($)</th><th title="Nominal de la acción si te asignan (strike × multiplicador) como % del valor liquidativo neto (NLV)">Peso NLV si asignado</th>
-          <th title="Pérdida máxima ($)">Pérd. $</th><th title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Breakeven: strike vendido − crédito">BrEv</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>{{ cols.extra_head(false) }}<th title="Motivo por el que sale como spread y no como put sola">Por qué spread</th><th data-nosort title="Número de contratos a simular (1–9)">Cant.</th></tr>
+        <tr><th class="sel"></th>{{ cols.lead_head() }}<th title="Put vendida sola o spread de puts">Tipo</th><th title="Strike de la put vendida / strike de la put comprada (la cobertura del spread)">Vend./Comp.</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike">Historial</th><th data-col="desc" title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th data-col="dte" title="Días que faltan hasta el vencimiento">DTE</th>
+          <th title="Strike vendido − strike comprado">Ancho</th><th data-col="scredit" title="Crédito total de la operación por contrato (precio de venta de referencia − ask de la comprada) × multiplicador">Créd. ($)</th><th data-col="cw" title="Crédito neto / ancho del spread (en una put sola no aplica)">Cred/A</th><th class="hl" data-sort-default="desc" title="Retorno anualizado sobre el capital consumido (margen o pérdida máxima)">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th title="Capital que consume: margen what-if en una put, pérdida máxima en un spread">Capital ($)</th><th title="Nominal de la acción si te asignan (strike × multiplicador) como % del valor liquidativo neto (NLV)">Peso NLV si asignado</th>
+          <th title="Pérdida máxima ($)">Pérd. $</th><th data-col="lossnlv" title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Breakeven: strike vendido − crédito">BrEv</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>{{ cols.extra_head(false) }}<th title="Motivo por el que sale como spread y no como put sola">Por qué spread</th><th data-nosort title="Número de contratos a simular (1–9)">Cant.</th></tr>
         {% for m in out.mixed %}{% set r = m.short %}{% set c = r.snapshot.contract %}{% set sp = m.spread %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ ('|' ~ sp.long.contract.strike if sp else '') %}
           {% set be = sp.breakeven if sp else c.strike - m.credit %}{% set px = r.info.underlying_price if r.info else none %}
@@ -731,6 +734,21 @@
         try { sessionStorage.setItem(KEY, JSON.stringify(open)); } catch (e) { /* sin almacenamiento */ }
       });
     });
+    // celdas que se salen de los límites del perfil guardado: naranja si se pasan poco, rojo si se pasan más (lo calcula el servidor por fila)
+    (function () {
+      var marks = {{ marks | tojson }}, table = document.getElementById('scan-results');
+      if (!table || !Object.keys(marks).length) return;
+      var cols = {}, head = table.rows[0];
+      Array.prototype.forEach.call(head.cells, function (th, i) { if (th.dataset.col) cols[th.dataset.col] = i; });
+      Array.prototype.forEach.call(table.rows, function (tr) {
+        var box = tr.querySelector('input[name="sel"]'), m = box && marks[box.value];
+        if (!m) return;
+        Object.keys(m).forEach(function (c) {
+          var td = cols[c] !== undefined && tr.cells[cols[c]];
+          if (td) { td.classList.add('vp-' + m[c]); td.title = (td.title ? td.title + ' · ' : '') + 'Fuera del límite del perfil guardado'; }
+        });
+      });
+    })();
     // un chip de filtro activo abre su sección en la columna de filtros
     document.querySelectorAll('button.chip[data-open]').forEach(function (b) {
       b.addEventListener('click', function () {

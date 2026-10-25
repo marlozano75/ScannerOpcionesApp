@@ -180,7 +180,7 @@ def test_scanner_shows_desc_and_bid_size_columns(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     r = client.get("/scanner?reset=1")
-    assert '<th title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th>' in r.text and "<th>Dist.</th>" not in r.text
+    assert re.search(r'<th[^>]*title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th>', r.text) and "<th>Dist.</th>" not in r.text
     assert re.search(r"<th[^>]*>Bid size</th>", r.text)
 
 
@@ -209,7 +209,7 @@ def test_price_reference_selector_defaults_and_columns(client_and_service):
     assert "Precio de venta: bid + 25% del spread" in r.text
     # columnas agrupadas: ticker, sector y precio juntos; yields juntos (el anual destacado y orden por defecto); delta con la IV
     assert re.search(r'<th class="tk"[^>]*>Ticker</th><th class="txt"[^>]*>Sector</th><th[^>]*>Precio</th><th[^>]*>Strike</th>', r.text)
-    assert re.search(r'<th class="hl" data-sort-default="desc"[^>]*>Yield anual</th>', r.text) and '<th title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th title="Yield anual con el bid">Yield bid</th>' in r.text
+    assert re.search(r'<th class="hl" data-sort-default="desc"[^>]*>Yield anual</th>', r.text) and '<th data-col="yp" title="Prima / strike hasta el vencimiento, sin anualizar (el 1 % de TPC)">Yield periodo</th><th title="Yield anual con el bid">Yield bid</th>' in r.text
     assert re.search(r"<th[^>]*>Delta</th><th", r.text) and re.search(r"<th[^>]*>IV</th><th[^>]*>IV Rank</th><th[^>]*>IV Pctl</th>", r.text) and "Dist. σ" not in r.text
     for gone in ("Vence", "Prima ref.", "Yield", "Bid", "Ask", "Last", "Margen ini.", "Yield bid", "Hora precio",
                  "Ex-div (d)", "FCF (M$)", "Actualizado"):
@@ -964,3 +964,21 @@ def test_universe_shows_the_watchlist_sync_summary_until_decided(client_and_serv
     assert 'id="wl-sync"' in page and "Todavía no se ha aplicado nada" in page
     assert client.post("/universe/watchlist-sync", data={"on": "0"}, follow_redirects=False).status_code == 303
     assert 'id="wl-sync"' not in client.get("/universe").text and svc.watchlist_sync_mode() == "off"
+
+
+def test_results_outside_saved_profile_limits_are_marked(client_and_service):
+    """Los contratos que salen al relajar un filtro respecto al perfil se marcan por celda frente a los límites guardados."""
+    from dataclasses import replace
+    from scanner_opciones.scanner.profile_marks import row_key, row_marks
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    base = client.get("/scanner?reset=1")
+    assert "var marks = {}" in base.text.replace("var marks = {}, table", "var marks = {}") or "var marks = {}" in base.text
+    out = svc.scan(svc.criteria().with_filters(min_yield_pct=0.0, strike_below_pct_min=0.0))
+    assert out.results
+    strict = replace(svc.criteria(), min_yield_pct=1000.0, strike_below_pct_min=90.0, min_oi=10**9, dte_max=0)
+    marks = row_marks(out.results[0], "put", strict)
+    assert marks["yp"] == "bad" and marks["desc"] == "bad" and marks["oi"] == "bad" and marks["dte"] == "bad"
+    assert row_key(out.results[0]).startswith(out.results[0].snapshot.contract.ticker + "|")
+    page = client.get("/scanner?submitted=1&mode=put&profile=Tortuga&set=put&discount=0&dte_min=1&dte_max=60&min_yield=0")
+    assert page.status_code == 200 and "var marks = " in page.text
