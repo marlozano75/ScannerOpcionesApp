@@ -474,6 +474,7 @@ class EdgarSettings(_Model):
     requests_per_second: float = Field(5, gt=0, le=10)   # la SEC permite 10 como máximo
     alerts_window_days: int = Field(90, ge=1)            # alertas de 8-K / retrasos de los últimos N días (⚠ junto al ticker)
     alerts_refresh_hours: float = Field(12, gt=0)        # cada cuántas horas se vuelven a consultar las presentaciones
+    yahoo_backup: bool = True                            # los tickers que EDGAR no tiene (o con cifras de hace > 15 meses) se completan con Yahoo Finance
 
 
 class AnalystSettings(_Model):
@@ -491,6 +492,7 @@ class HistorySettings(_Model):
     quarters: int = Field(5, ge=1, le=8)                 # trimestres que se enseñan
     years: int = Field(4, ge=1, le=5)                    # años fiscales de ingresos y beneficio neto que se enseñan (SEC EDGAR; se guardan 5)
     earnings_refresh_hours: float = Field(24, gt=0)      # cada cuántas horas se vuelven a pedir los resultados
+    earnings_empty_retry_hours: float = Field(6, gt=0)   # una respuesta SIN resultados (Yahoo limitando, o un ETF) se reintenta antes
     dividends_refresh_hours: float = Field(20, gt=0)     # ... y los dividendos
     settle_hours: float = Field(0, ge=0)                 # como `analysts.settle_hours`: sin consulta en fin de semana ni festivo
     concurrency: int = Field(4, ge=1, le=16)             # peticiones a Yahoo a la vez

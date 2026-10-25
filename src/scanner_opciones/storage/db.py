@@ -227,6 +227,13 @@ MIGRATIONS: list[str] = [
     ALTER TABLE company_history ADD COLUMN annual_at TEXT;
     ALTER TABLE company_history ADD COLUMN annual TEXT;
     """,
+    # v29: EDGAR convierte a dólares las empresas que reportan en otra moneda (XP: reales) y Yahoo ya no deja resultados vacíos como definitivos:
+    # se vuelve a consultar el balance de las fichas sin ningún dato financiero y se borran los resultados trimestrales vacíos
+    """
+    UPDATE ticker_quality SET financials_at = NULL
+        WHERE liabilities_to_equity IS NULL AND fcf_ttm IS NULL AND debt_to_equity IS NULL AND roic IS NULL;
+    UPDATE company_history SET earnings = NULL, earnings_at = NULL WHERE earnings = '[]';
+    """,
 ]
 
 

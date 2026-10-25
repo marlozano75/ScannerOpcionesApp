@@ -31,6 +31,7 @@ class Financials:
     revenue_drop_years: Optional[int] = None        # años en que bajaron los ingresos de los últimos 10 (None con < 5 años de historia)
     revenue_years: Optional[int] = None             # años comparados con el anterior (hasta 9)
     earnings_volatility: Optional[float] = None     # desviación típica del crecimiento anual del beneficio neto (fracción)
+    currency: str = "USD"                           # moneda en que reporta la empresa; los importes (fcf_ttm, annual) ya van convertidos a USD
     annual: tuple[AnnualYear, ...] = ()             # ingresos y beneficio neto de los últimos años fiscales (del más antiguo al más reciente)
 
 

@@ -6,7 +6,7 @@ from datetime import date
 from html import escape
 from typing import Optional, Sequence
 
-from scanner_opciones.marketdata.history import AnnualYear, Dividend, EarningsQuarter, beat_summary
+from scanner_opciones.marketdata.history import AnnualYear, Dividend, EarningsQuarter, annual_growth, beat_summary, eps_growth
 
 WIDTH, HEIGHT = 360, 120
 LEFT, RIGHT, TOP, BOTTOM = 38, 12, 12, 22
@@ -60,6 +60,14 @@ def earnings_svg(quarters: Sequence[EarningsQuarter]) -> str:
     return "".join(parts)
 
 
+def _signed(value: float, decimals: int = 0) -> str:
+    return f"{'+' if value > 0 else '−' if value < 0 else ''}{abs(value):.{decimals}f}".replace(".", ",") + " %"
+
+
+def _tone(value: Optional[float]) -> str:
+    return "var(--mute)" if value is None else "var(--green)" if value > 0 else "var(--red)" if value < 0 else "var(--mute)"
+
+
 def _billions(value: float) -> str:
     return f"{value / 1e9:.2f}".replace(".", ",") + " B"
 
@@ -77,7 +85,9 @@ def annual_svg(years: Sequence[AnnualYear]) -> str:
     if m_hi <= m_lo:
         m_hi = m_lo + 1.0
     left, right = 40, 48
+    height = HEIGHT + 26         # dos filas más bajo el año: variación interanual de ingresos y de beneficio neto
     plot_w, plot_h = WIDTH - left - right, HEIGHT - TOP - BOTTOM
+    growth = annual_growth(years)
 
     def yb(v: float) -> float:
         return TOP + plot_h * (1 - (v - b_lo) / (b_hi - b_lo))
@@ -87,8 +97,8 @@ def annual_svg(years: Sequence[AnnualYear]) -> str:
 
     slot = plot_w / len(years)
     bw = min(14.0, slot / 4)
-    parts = [f'<svg viewBox="0 0 {WIDTH} {HEIGHT}" width="{WIDTH}" height="{HEIGHT}" role="img" '
-             'aria-label="Ingresos, beneficio neto y margen neto por año fiscal" style="max-width:100%;height:auto">']
+    parts = [f'<svg viewBox="0 0 {WIDTH} {height}" width="{WIDTH}" height="{height}" role="img" '
+             'aria-label="Ingresos, beneficio neto y margen neto por año fiscal, con su variación interanual" style="max-width:100%;height:auto">']
     for i in range(3):
         frac = i / 2
         gy = TOP + plot_h * (1 - frac)
@@ -103,7 +113,9 @@ def annual_svg(years: Sequence[AnnualYear]) -> str:
         detail = " · ".join(filter(None, [
             f"ingresos {_billions(y.revenue)} $" if y.revenue is not None else "",
             f"beneficio neto {_billions(y.net_income)} $" if y.net_income is not None else "",
-            f"margen neto {_money(margin)} %" if margin is not None else ""]))
+            f"margen neto {_money(margin)} %" if margin is not None else "",
+            f"ingresos {_signed(growth[i][0], 1)} interanual" if growth[i][0] is not None else "",
+            f"beneficio neto {_signed(growth[i][1], 1)} interanual" if growth[i][1] is not None else ""]))
         tip = escape(f"{y.end.year}|Año fiscal {y.end.strftime('%d/%m/%Y')}|{detail}".replace('"', "'"), quote=True)
         parts.append(f'<g tabindex="0" data-tip="{tip}"><rect x="{cx - slot / 2:.1f}" y="{TOP}" width="{slot:.1f}" height="{plot_h}" fill="transparent"/>')
         for k, (value, colour) in enumerate(((y.revenue, "#4f7cff"), (y.net_income, "#3ec9d6"))):
@@ -114,6 +126,9 @@ def annual_svg(years: Sequence[AnnualYear]) -> str:
         if margin is not None:
             points.append((cx, ym(margin)))
         parts.append(f'<text x="{cx:.1f}" y="{HEIGHT - 6}" text-anchor="middle" font-size="10" fill="var(--mute)">{y.end.strftime("%y")}</text>')
+        for row, (label, value) in enumerate((("Ing", growth[i][0]), ("BN", growth[i][1]))):
+            text = "—" if value is None else _signed(value)
+            parts.append(f'<text x="{cx:.1f}" y="{HEIGHT + 8 + row * 12}" text-anchor="middle" font-size="9.5" fill="{_tone(value)}">{label} {text}</text>')
     if len(points) > 1:
         parts.append('<polyline fill="none" stroke="#f08a24" stroke-width="2" points="' + " ".join(f"{x:.1f},{y:.1f}" for x, y in points) + '"/>')
     parts.extend(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="var(--panel)" stroke="#f08a24" stroke-width="1.5"/>' for x, y in points)
@@ -143,9 +158,9 @@ def history_html(quarters: Sequence[EarningsQuarter], dividend: Optional[Dividen
     out = []
     chart = annual_svg(annual) if annual else ""
     if chart:
-        out.append('<div style="margin-top:6px"><b>Resultados anuales</b> <span class="muted">· <span style="color:#4f7cff">■</span> ingresos '
-                   '<span style="color:#3ec9d6">■</span> beneficio neto <span style="color:#f08a24">●</span> margen neto (%) · SEC EDGAR, '
-                   f'últimos {len(annual)} años fiscales</span></div>{chart}')
+        out.append(f'<div style="margin-top:6px"><b>Resultados anuales</b> <span class="muted">· <span style="color:#4f7cff">■</span> ingresos '
+                   f'<span style="color:#3ec9d6">■</span> beneficio neto <span style="color:#f08a24">●</span> margen neto (%) · {escape(annual[-1].source)}, '
+                   f'últimos {len(annual)} años fiscales · bajo cada año, variación interanual (YoY) de ingresos (Ing) y beneficio neto (BN)</span></div>{chart}')
     if quarters:
         summary = beat_summary(quarters)
         badge = ""
@@ -155,6 +170,11 @@ def history_html(quarters: Sequence[EarningsQuarter], dividend: Optional[Dividen
             colour = "var(--green)" if ratio >= 0.75 else "var(--amber)" if ratio >= 0.5 else "var(--red)"
             badge = (f' <span style="border:1px solid {colour};color:{colour};border-radius:6px;padding:0 6px;font-weight:700" '
                      f'title="Trimestres en que el BPA real alcanzó o superó la estimación de los analistas">{beats}/{total}</span>')
+        yoy = eps_growth(quarters)
+        if yoy is not None:
+            g, before, last = yoy
+            badge += (f' <span style="color:{_tone(g)};font-weight:700" title="BPA real de {last.day.strftime("%m/%Y")} ({_money(last.actual)}) frente al '
+                      f'de {before.day.strftime("%m/%Y")} ({_money(before.actual)})">{_signed(g, 1)} interanual</span>')
         out.append(f'<div style="margin-top:6px"><b>Resultados por acción (BPA)</b>{badge} '
                    '<span class="muted">· relleno = real, hueco = estimación · últimos '
                    f'{len(quarters)} trimestres</span></div>{earnings_svg(quarters)}')

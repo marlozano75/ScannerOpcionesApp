@@ -38,13 +38,17 @@ class AnnualYear:
     end: date                      # fin del año fiscal
     revenue: Optional[float] = None       # ingresos, USD
     net_income: Optional[float] = None    # beneficio neto, USD
+    source: str = "SEC EDGAR"             # de dónde salen las cifras (Yahoo Finance cuando EDGAR no las tiene)
 
     def to_json(self) -> dict:
-        return {"end": self.end.isoformat(), "revenue": self.revenue, "net_income": self.net_income}
+        out = {"end": self.end.isoformat(), "revenue": self.revenue, "net_income": self.net_income}
+        if self.source != "SEC EDGAR":
+            out["source"] = self.source
+        return out
 
     @classmethod
     def from_json(cls, raw: Mapping) -> "AnnualYear":
-        return cls(date.fromisoformat(str(raw["end"])[:10]), raw.get("revenue"), raw.get("net_income"))
+        return cls(date.fromisoformat(str(raw["end"])[:10]), raw.get("revenue"), raw.get("net_income"), str(raw.get("source") or "SEC EDGAR"))
 
     @property
     def net_margin_pct(self) -> Optional[float]:
@@ -75,6 +79,39 @@ class Dividend:
     @property
     def empty(self) -> bool:
         return not self.yield_pct and not self.per_payment
+
+
+def growth_pct(previous: Optional[float], current: Optional[float]) -> Optional[float]:
+    """Variación interanual en %: (actual − anterior) / anterior. None si falta alguno o el anterior no es positivo (con una base negativa o nula
+    el porcentaje no significa nada)."""
+    if previous is None or current is None or previous <= 0:
+        return None
+    return (current - previous) / previous * 100.0
+
+
+def annual_growth(years: Sequence["AnnualYear"]) -> list[tuple[Optional[float], Optional[float]]]:
+    """(variación de ingresos, variación del beneficio neto) en % de cada año frente al anterior, uno por año: el primero y los que siguen a un
+    año que falta (menos de 350 o más de 380 días) salen (None, None)."""
+    out: list[tuple[Optional[float], Optional[float]]] = [(None, None)]
+    for before, now in zip(years, years[1:]):
+        if 350 <= (now.end - before.end).days <= 380:
+            out.append((growth_pct(before.revenue, now.revenue), growth_pct(before.net_income, now.net_income)))
+        else:
+            out.append((None, None))
+    return out[:len(years)]
+
+
+def eps_growth(quarters: Sequence["EarningsQuarter"]) -> Optional[tuple[float, "EarningsQuarter", "EarningsQuarter"]]:
+    """Variación interanual del BPA real del último trimestre frente al del mismo trimestre del año anterior (350–380 días antes), con ambos
+    trimestres; None si no se puede comparar."""
+    if not quarters:
+        return None
+    last = quarters[-1]
+    for q in quarters[:-1]:
+        if 350 <= (last.day - q.day).days <= 380:
+            g = growth_pct(q.actual, last.actual)
+            return None if g is None else (g, q, last)
+    return None
 
 
 def last_quarters(rows: Sequence[EarningsQuarter], n: int) -> list[EarningsQuarter]:

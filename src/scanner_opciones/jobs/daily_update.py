@@ -416,13 +416,17 @@ class DailyUpdater:
             return 0
         now = self.now()
 
-        def due(known: dict, hours: float) -> list[str]:
-            return [t for t in tickers if t not in known or ((now - known[t][0]).total_seconds() >= hours * 3600
+        def due(known: dict, hours: float, empty_hours: Optional[float] = None) -> list[str]:
+            """Los tickers nunca consultados o con el dato caducado; si `empty_hours`, una respuesta vacía caduca antes (Yahoo devuelve
+            vacío cuando limita las peticiones, y los ETF no tienen resultados: se reintenta, pero no en cada pasada)."""
+            def limit(t: str) -> float:
+                return empty_hours if empty_hours is not None and not known[t][1] else hours
+            return [t for t in tickers if t not in known or ((now - known[t][0]).total_seconds() >= limit(t) * 3600
                                                              and not self.market.quiet_since(known[t][0], now, cfg.settle_hours))]
 
         started, done = time.monotonic(), 0
         if self.earnings_history is not None:
-            stale = due(self.company_history.earnings(), cfg.earnings_refresh_hours)
+            stale = due(self.company_history.earnings(), cfg.earnings_refresh_hours, cfg.earnings_empty_retry_hours)
             for k in range(0, len(stale), 100):
                 try:
                     done += self.company_history.save_earnings(

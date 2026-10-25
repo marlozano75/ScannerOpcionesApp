@@ -67,6 +67,7 @@ from scanner_opciones.tortuga.schedule import LISTS_KEY, MIN_MINUTES, FeedSchedu
 from scanner_opciones.tortuga.radar import RadarData, RadarError, load_radar, passes as radar_passes
 from scanner_opciones.tortuga.routines import BY_KEY as TORTUGA_ROUTINES, RoutineRunner
 from scanner_opciones.marketdata.financials import FinancialsProvider
+from scanner_opciones.marketdata.quality_card import quality_html, quality_text
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider
 from scanner_opciones.marketdata.names import CompanyNameProvider
 from scanner_opciones.marketdata.candles import CandleProvider
@@ -965,18 +966,26 @@ class AppService:
         return out
 
     def company_notes_map(self) -> dict[str, str]:
-        """{ticker normalizado: texto} con a qué se dedica la empresa y sus noticias recientes con fecha, para el tooltip del ticker."""
+        """{ticker normalizado: texto} con a qué se dedica la empresa, sus noticias recientes con fecha y la línea de calidad de tastytrade, para el
+        tooltip del ticker."""
         def build() -> dict[str, str]:
             cfg = self.settings.company
-            texts = ((norm_ticker(t), company_tooltip(n, cfg.description_chars)) for t, n in self.company_notes.all().items())
-            return {t: text for t, text in texts if text}
+            out = {norm_ticker(t): company_tooltip(n, cfg.description_chars) for t, n in self.company_notes.all().items()}
+            for t, info in self.quality.all().items():
+                line = quality_text(info)
+                if line:
+                    key = norm_ticker(t)
+                    out[key] = "\n".join(p for p in (out.get(key, ""), line) if p)
+            return {t: text for t, text in out.items() if text}
         return self._memo("company_notes", build)
 
     def company_card(self, ticker: str) -> str:
-        """Nombre completo, descripción y noticias con fecha de un ticker, como HTML para los gráficos de historial y del Panel."""
+        """Nombre completo, descripción, noticias con fecha, calidad (tastytrade) y resultados de un ticker, como HTML para los gráficos de historial y del Panel."""
         key = norm_ticker(ticker)
         notes = self._memo("company_notes_raw", lambda: {norm_ticker(t): n for t, n in self.company_notes.all().items()})
+        quality = self._memo("quality_all", lambda: {norm_ticker(t): i for t, i in self.quality.all().items()})
         return (card_html(self.company_name_map().get(key, ""), notes.get(key), self.settings.company.card_chars)
+                + quality_html(quality.get(key), self.now().date())
                 + self.history_card(ticker))
 
     def history_card(self, ticker: str) -> str:

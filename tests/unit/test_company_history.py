@@ -88,3 +88,17 @@ def test_edgar_extracts_annual_results_from_company_facts():
     got = _annual_results(tree, tags, "2024-01-01")
     assert [(y.end.year, y.revenue, y.net_income) for y in got] == [(2023, 10e9, 1e9), (2024, 12e9, -1e9)]
     assert _annual_results(tree, tags, "2030-01-01") == ()                  # datos viejos: nada
+
+
+
+async def test_empty_earnings_are_retried_after_hours_not_a_day():
+    now = [datetime(2026, 10, 22, 12, 0)]                    # jueves
+    earnings = FakeEarningsHistory({"KO": [q(7, 0.97, 0.93)], "XP": []})      # Yahoo limitó las peticiones y XP salió vacío
+    svc = AppService(FakeGateway(), Database(), Settings(), lambda: now[0], earnings_history=earnings)
+    await svc.daily.update_company_history(["KO", "XP"])
+    first = len(earnings.calls)
+    now[0] += timedelta(hours=7)                             # > earnings_empty_retry_hours (6) y < earnings_refresh_hours (24)
+    earnings.data["XP"] = [q(7, 2.49, 2.53)]
+    await svc.daily.update_company_history(["KO", "XP"])
+    assert [c[1] for c in earnings.calls[first:]] == [("XP",)]            # KO (con datos) no se vuelve a pedir
+    assert svc.company_history.earnings()["XP"][1] != []

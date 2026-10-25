@@ -5,7 +5,8 @@ resuelven aquí, en local. La SEC exige un `User-Agent` con un contacto (sin él
 10 peticiones por segundo: se usa `edgar.contact` de la configuración y 5 por segundo como máximo.
 
 Cobertura: las empresas estadounidenses (10-K/10-Q, US-GAAP) dan balance y flujo de 12 meses. Los emisores
-extranjeros (20-F, IFRS) solo publican el año fiscal y, a menudo, sin etiquetas útiles: pueden quedar sin dato.
+extranjeros (20-F, IFRS) solo publican el año fiscal y, a menudo, sin etiquetas útiles: pueden quedar sin dato. Si reportan en otra
+moneda (XP: reales) los cocientes valen tal cual y los importes se convierten a dólares con `fx` (cambio diario del cierre de cada periodo).
 """
 from __future__ import annotations
 
@@ -14,12 +15,15 @@ import logging
 import statistics
 import time
 import unicodedata
+import re
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import Any, Awaitable, Callable, Optional
 
 from scanner_opciones.domain.errors import FinancialsError
 from scanner_opciones.marketdata.filings import FilingAlert, classify_filings
 from scanner_opciones.marketdata.financials import NO_LIMIT, Financials
+from scanner_opciones.marketdata.fx import FxProvider, RateAt, RateBook
 from scanner_opciones.marketdata.history import AnnualYear
 from scanner_opciones.marketdata.sectors import sic_to_sector
 
@@ -134,16 +138,65 @@ def _freshest_flow(tree: dict, tags: tuple[str, ...]) -> Optional[tuple[float, s
     return max(results, key=lambda r: r[1], default=None)
 
 
-def parse_company_facts(data: dict, today: date) -> Optional[Financials]:
-    """`Financials` de un documento `companyfacts`, o None si no hay datos recientes utilizables."""
+CURRENCY_UNIT = re.compile(r"^[A-Z]{3}$")      # las unidades monetarias de XBRL son códigos ISO 4217 («USD», «BRL»); «shares» o «BRL/shares» no
+
+
+def reporting_currency(tree: dict) -> str:
+    """Moneda en que una empresa publica sus cifras: la unidad monetaria con más hechos en la taxonomía (USD si hay empate)."""
+    counts: dict[str, int] = {}
+    for tag in tree.values():
+        for unit, facts in tag.get("units", {}).items():
+            if CURRENCY_UNIT.match(unit):
+                counts[unit] = counts.get(unit, 0) + len(facts)
+    if not counts:
+        return "USD"
+    return max(counts, key=lambda u: (counts[u], u == "USD"))
+
+
+def _in_currency(tree: dict, currency: str) -> dict:
+    """Árbol de hechos con las cifras de `currency` bajo la clave «USD», que es la que leen las funciones de abajo: los cocientes salen
+    iguales en cualquier moneda, y los importes se convierten después (`to_usd`). Las demás monedas se descartan: mezclarlas falsearía los cocientes."""
+    if currency == "USD":
+        return tree
+    out = {}
+    for name, tag in tree.items():
+        units = {u: f for u, f in tag.get("units", {}).items() if not CURRENCY_UNIT.match(u)}
+        if currency in tag.get("units", {}):
+            units["USD"] = tag["units"][currency]
+        out[name] = {**tag, "units": units}
+    return out
+
+
+def to_usd(fin: Financials, currency: str, rate_at: Optional[RateAt]) -> Financials:
+    """Convierte a dólares los importes (flujo de caja libre al cambio del cierre del periodo; ingresos y beneficio de cada año al de su cierre).
+    Sin cambio disponible esos importes se quedan sin dato (nunca en moneda local como si fueran dólares); los cocientes no se tocan."""
+    def rate(day: Optional[date]) -> Optional[float]:
+        return rate_at(currency, day) if rate_at is not None and day is not None else None
+
+    fcf_rate = rate(fin.period_end)
+    annual = []
+    for y in fin.annual:
+        r = rate(y.end)
+        annual.append(AnnualYear(y.end, None if r is None or y.revenue is None else y.revenue * r,
+                                 None if r is None or y.net_income is None else y.net_income * r, y.source))
+    if not any(y.revenue is not None or y.net_income is not None for y in annual):
+        annual = []
+    return replace(fin, fcf_ttm=None if fcf_rate is None or fin.fcf_ttm is None else fin.fcf_ttm * fcf_rate,
+                   annual=tuple(annual), currency=currency)
+
+
+def parse_company_facts(data: dict, today: date, rate_at: Optional[RateAt] = None) -> Optional[Financials]:
+    """`Financials` de un documento `companyfacts`, o None si no hay datos recientes utilizables. Si la empresa no reporta en dólares
+    (XP: reales), los cocientes valen tal cual y los importes se convierten con `rate_at(moneda, día)`."""
     facts = data.get("facts", {})
     for taxonomy, tags in TAXONOMIES.items():
         tree = facts.get(taxonomy)
         if not tree:
             continue
-        fin = _from_tree(tree, tags, today)
+        currency = reporting_currency(tree)
+        fin = _from_tree(_in_currency(tree, currency), tags, today)
         if fin is not None:
-            return fin
+            return fin if currency == "USD" else to_usd(fin, currency, rate_at)
     return None
 
 
@@ -242,8 +295,13 @@ def _consecutive(series: list[tuple[str, float]]):
 
 
 def _fiscal_profit(tree: dict, tags: dict, fresh: str) -> dict[str, Optional[float]]:
-    """Estabilidad de los beneficios y de los ingresos en los últimos `PROFIT_YEARS` años fiscales. Todo es None con
-    menos de `MIN_PROFIT_YEARS` años de historia:
+    """Estabilidad de los beneficios y de los ingresos en los últimos `PROFIT_YEARS` años fiscales (ver `profit_stability`)."""
+    return profit_stability(_annual_series(tree, tags.get("net_income", ()), fresh), _annual_series(tree, tags.get("revenue", ()), fresh))
+
+
+def profit_stability(income: list[tuple[str, float]], revenue: list[tuple[str, float]]) -> dict[str, Optional[float]]:
+    """Estabilidad de los beneficios y de los ingresos a partir de las series anuales (fin del año fiscal, valor), del más antiguo al más
+    reciente. Todo es None con menos de `MIN_PROFIT_YEARS` años de historia:
       · loss_years / fiscal_years: años con beneficio neto < 0 y años evaluados;
       · revenue_drop_years / revenue_years: años en que los ingresos bajaron y años comparados con su anterior;
       · earnings_volatility: desviación típica del crecimiento anual del beneficio neto (como el análisis del vídeo,
@@ -251,14 +309,12 @@ def _fiscal_profit(tree: dict, tags: dict, fresh: str) -> dict[str, Optional[flo
         anterior, y cada crecimiento se limita a [−100 %, +200 %] para que una base minúscula no lo dispare."""
     out: dict[str, Optional[float]] = dict.fromkeys(
         ("loss_years", "fiscal_years", "revenue_drop_years", "revenue_years", "earnings_volatility"))
-    income = _annual_series(tree, tags.get("net_income", ()), fresh)
     out["fiscal_years"] = len(income) or None
     if len(income) >= MIN_PROFIT_YEARS:
         out["loss_years"] = sum(1 for _, v in income if v < 0)
         growth = [max(-1.0, min(2.0, (v1 - v0) / v0)) for v0, v1 in _consecutive(income) if v0 > 0]
         if len(growth) >= MIN_GROWTH_OBSERVATIONS:
             out["earnings_volatility"] = statistics.pstdev(growth)
-    revenue = _annual_series(tree, tags.get("revenue", ()), fresh)
     if len(revenue) >= MIN_PROFIT_YEARS:
         pairs = list(_consecutive(revenue))
         out["revenue_years"] = len(pairs) or None
@@ -348,7 +404,7 @@ FetchJson = Callable[[str], Awaitable[Optional[dict]]]
 class EdgarFinancialsProvider:
     def __init__(
         self, contact: str, requests_per_second: float = 5.0, concurrency: int = 4,
-        fetch_json: Optional[FetchJson] = None, today: Callable[[], date] = date.today,
+        fetch_json: Optional[FetchJson] = None, today: Callable[[], date] = date.today, fx: Optional[FxProvider] = None,
     ) -> None:
         # las cabeceras HTTP solo admiten ASCII: «Ángel» -> «Angel»
         ascii_contact = unicodedata.normalize("NFKD", contact).encode("ascii", "ignore").decode().strip()
@@ -363,6 +419,12 @@ class EdgarFinancialsProvider:
         self._ciks_at: Optional[datetime] = None
         self._client: Any = None
         self._blocked = False
+        self._rates = RateBook(fx)
+
+    async def _rate_at(self, data: dict) -> Optional[RateAt]:
+        """Función de cambio para los importes de esta empresa si no reporta en dólares; None en USD o sin cambio."""
+        currencies = {c for tax in TAXONOMIES if (tree := data.get("facts", {}).get(tax)) and (c := reporting_currency(tree)) != "USD"}
+        return await self._rates.prepare(currencies) if currencies else None
 
     async def _pace(self) -> None:
         """Como mucho `requests_per_second` peticiones por segundo, aunque haya varias a la vez."""
@@ -430,7 +492,8 @@ class EdgarFinancialsProvider:
                 except Exception as exc:
                     log.info("EDGAR: %s no disponible: %s", ticker, exc)
                     return
-            out[ticker] = (parse_company_facts(data, today) if data else None) or Financials()
+            rate_at = await self._rate_at(data) if data else None
+            out[ticker] = (parse_company_facts(data, today, rate_at) if data else None) or Financials()
 
         results = await asyncio.gather(*(one(t) for t in tickers), return_exceptions=True)
         for r in results:

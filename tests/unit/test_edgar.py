@@ -110,10 +110,11 @@ def test_cash_flow_without_capex_is_not_invented():
     assert parse_company_facts(data, TODAY) is None
 
 
-def test_only_dollars_count():
+def test_other_currencies_give_ratios_but_never_amounts_without_a_rate():
     data = {"facts": {"us-gaap": {"Liabilities": {"units": {"EUR": [inst("2026-06-30", 600.0)]}},
                                   "StockholdersEquity": {"units": {"EUR": [inst("2026-06-30", 300.0)]}}}}}
-    assert parse_company_facts(data, TODAY) is None
+    fin = parse_company_facts(data, TODAY)
+    assert fin.liabilities_to_equity == pytest.approx(2.0) and fin.fcf_ttm is None and fin.currency == "EUR"
 
 
 def test_ifrs_filer_uses_the_fiscal_year_and_the_sign_of_capex_does_not_matter():

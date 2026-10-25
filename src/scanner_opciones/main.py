@@ -27,7 +27,8 @@ from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.marketdata.edgar import EdgarFinancialsProvider
 from scanner_opciones.marketdata.sectors import ChainedSectors
 from scanner_opciones.marketdata.finnhub import FinnhubNews
-from scanner_opciones.marketdata.yahoo import YahooAnalysts, YahooDescriptions, YahooEarningsHistory, YahooSectors
+from scanner_opciones.marketdata.yahoo_financials import FallbackFinancials
+from scanner_opciones.marketdata.yahoo import YahooAnalysts, YahooDescriptions, YahooEarningsHistory, YahooFinancials, YahooFx, YahooSectors
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import ChainCacheRepo, MetaRepo
@@ -53,11 +54,18 @@ def build_app(settings: Settings):
     )
 
     financials = None
+    balance_provider = None
+    fx = YahooFx()
     if settings.edgar.contact.strip():
-        financials = EdgarFinancialsProvider(settings.edgar.contact.strip(), settings.edgar.requests_per_second)
+        financials = EdgarFinancialsProvider(settings.edgar.contact.strip(), settings.edgar.requests_per_second, fx=fx)
+        # lo que EDGAR no tiene (ADR, emisores que dejaron de publicar) se completa con los estados de Yahoo
+        balance_provider = FallbackFinancials(financials, YahooFinancials(fx) if settings.edgar.yahoo_backup else None)
     else:
         logging.getLogger(__name__).info(
-            "Sin edgar.contact en config.yaml: no se consulta SEC EDGAR (filtros de apalancamiento y flujo de caja sin datos)")
+            "Sin edgar.contact en config.yaml: no se consulta SEC EDGAR%s",
+            " (el balance y el flujo de caja salen solo de Yahoo Finance)" if settings.edgar.yahoo_backup else " (filtros de apalancamiento y flujo de caja sin datos)")
+        if settings.edgar.yahoo_backup:
+            balance_provider = YahooFinancials(fx)
 
     sector_providers = []
     for name in md.sector_sources:
@@ -82,7 +90,7 @@ def build_app(settings: Settings):
                 if md.source == "tastytrade" else ibkr)
 
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=tasty,
-                         fundamentals=tasty, financials=financials, names=tasty, watchlists=tasty,
+                         fundamentals=tasty, financials=balance_provider, names=tasty, watchlists=tasty,
                          analysts=YahooAnalysts(settings.analysts.concurrency) if settings.analysts.enabled else None,
                          earnings_history=YahooEarningsHistory(settings.history.concurrency) if settings.history.enabled else None,
                          dividends=tasty if settings.history.enabled else None,

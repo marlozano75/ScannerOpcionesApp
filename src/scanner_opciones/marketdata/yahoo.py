@@ -9,7 +9,11 @@ from typing import Callable, Optional
 
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystError, classify_changes
 from scanner_opciones.marketdata.company import CompanyNotesError
+from scanner_opciones.domain.errors import FinancialsError
+from scanner_opciones.marketdata.financials import Financials
+from scanner_opciones.marketdata.fx import FxError, FxProvider, RateBook
 from scanner_opciones.marketdata.history import EarningsQuarter, HistoryError, last_quarters
+from scanner_opciones.marketdata.yahoo_financials import convert, financials_from_statements, statements_currency
 from scanner_opciones.marketdata.sectors import etf_sector, yahoo_to_sector
 
 log = logging.getLogger(__name__)
@@ -128,6 +132,90 @@ class YahooEarningsHistory:
         await asyncio.gather(*(one(t) for t in tickers))
         if failures >= MAX_FAILURES:
             raise HistoryError("Yahoo Finance no responde o limita las peticiones")
+        return out
+
+
+class YahooFx:
+    """Implementa `FxProvider` con las cotizaciones `<MONEDA>USD=X` de Yahoo (cierre diario, ~6 años)."""
+
+    def __init__(self, period: str = "8y") -> None:
+        self.period = period
+
+    async def get_history(self, currency: str) -> dict[date, float]:
+        try:
+            import yfinance
+        except ImportError as exc:
+            raise FxError("Falta la librería yfinance (pip install yfinance)") from exc
+        logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+
+        def fetch():
+            return yfinance.Ticker(f"{currency}USD=X").history(period=self.period, interval="1d")["Close"]
+
+        try:
+            closes = await asyncio.to_thread(fetch)
+        except Exception as exc:
+            raise FxError(f"Yahoo: cambio {currency}/USD no disponible ({type(exc).__name__}: {str(exc)[:120]})") from exc
+        out = {stamp.date(): float(v) for stamp, v in closes.items() if v == v and v > 0}
+        if not out:
+            raise FxError(f"Yahoo no devolvió cotizaciones de {currency}/USD")
+        return out
+
+
+class YahooFinancials:
+    """Implementa `FinancialsProvider` con los estados financieros de Yahoo (trimestrales y anuales: balance, flujo de caja y resultados), pensado
+    como respaldo de SEC EDGAR. Siete peticiones por ticker, en hilos; las cuentas llegan en la moneda de la empresa y los importes se pasan a
+    dólares con `fx`. Un ticker sin estados (ETF) o que falla no aparece."""
+
+    def __init__(self, fx: Optional[FxProvider] = None, concurrency: int = 4, today: Callable[[], date] = date.today) -> None:
+        self.concurrency = concurrency
+        self._rates = RateBook(fx)
+        self._today = today
+
+    async def get_financials(self, tickers: list[str]) -> dict[str, Financials]:
+        try:
+            import yfinance
+        except ImportError as exc:
+            raise FinancialsError("Falta la librería yfinance (pip install yfinance)") from exc
+        logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+        sem = asyncio.Semaphore(self.concurrency)
+        out: dict[str, Financials] = {}
+        failures = 0
+
+        def fetch(symbol: str):
+            t = yfinance.Ticker(symbol)
+            balance_q = t.quarterly_balance_sheet
+            if balance_q is None or balance_q.empty:        # ETF o valor sin estados: no se pide el resto
+                return None
+            stmts = {"balance_q": balance_q, "balance_a": t.balance_sheet, "cash_q": t.quarterly_cashflow, "cash_a": t.cashflow,
+                     "income_q": t.quarterly_income_stmt, "income_a": t.income_stmt}
+            return stmts, (t.get_info() or {})
+
+        async def one(ticker: str) -> None:
+            nonlocal failures
+            if failures >= MAX_FAILURES:
+                return
+            async with sem:
+                try:
+                    got = await asyncio.to_thread(fetch, yahoo_symbol(ticker))
+                except Exception as exc:
+                    failures += 1
+                    log.debug("Yahoo: sin estados financieros de %s (%s)", ticker, exc)
+                    return
+            failures = 0
+            if got is None:
+                return
+            stmts, info = got
+            fin = financials_from_statements(stmts, self._today())
+            if fin is None:
+                return
+            declared = info.get("financialCurrency")
+            rate_at = await self._rates.prepare({declared}) if declared and declared != "USD" else None
+            rate = rate_at(declared, self._today()) if rate_at is not None else None
+            out[ticker] = convert(fin, statements_currency(stmts, info, declared, rate, self._today()), rate_at)
+
+        await asyncio.gather(*(one(t) for t in tickers))
+        if failures >= MAX_FAILURES:
+            raise FinancialsError("Yahoo Finance no responde o limita las peticiones")
         return out
 
 
