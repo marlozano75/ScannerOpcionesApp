@@ -12,6 +12,7 @@ from scanner_opciones.metrics.yields import (
 )
 from scanner_opciones.portfolio.diversification import CandidateImpact, candidate_impact
 from scanner_opciones.scanner.criteria import ScanCriteria
+from scanner_opciones.scanner.currency import usd_rate
 from scanner_opciones.scanner.filters import reject_reason
 from scanner_opciones.scanner.quality import DEFAULT_EXEMPT, quality_reject
 from scanner_opciones.scanner.spreads import build_mixed, build_spreads, only_reason
@@ -93,7 +94,7 @@ def run_scan(
             if include_rejections:
                 rejections[f"{c.ticker} {c.expiry} {c.strike}"] = why
             continue
-        results.append(build_result(snap, info, positions, criteria, today))
+        results.append(build_result(snap, info, positions, criteria, today, nlv_usd))
     results.sort(key=lambda r: r.yield_ref_annualized_pct or 0.0, reverse=True)
     spreads = build_spreads(results, snapshots, criteria, positions, nlv_usd) if criteria.spread_mode else []
     mixed = build_mixed(results, spreads, criteria, positions, nlv_usd, naked_min_yield, spread_only) if criteria.mixed else []
@@ -102,12 +103,12 @@ def run_scan(
 
 def build_result(
     snap: ContractSnapshot, info: Optional[TickerInfo], positions: list[Position],
-    criteria: ScanCriteria, today: date,
+    criteria: ScanCriteria, today: date, nlv_usd: Optional[float] = None,
 ) -> ScanResult:
     """Fila con las mismas columnas del scanner (precio de referencia, yields, impacto en cartera)."""
     c = snap.contract
     price = info.underlying_price if info else None
-    impact = candidate_impact(positions, info.sector if info else None, c.strike, c.multiplier, c.expiry)
+    impact = candidate_impact(positions, info.sector if info else None, c.strike, c.multiplier * usd_rate(nlv_usd, c.ticker), c.expiry)
     dte = c.dte(today)
     ref = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct)
     y_ref = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)

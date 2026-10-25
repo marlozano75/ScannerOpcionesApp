@@ -29,6 +29,7 @@ from scanner_opciones.community.fit import STRATEGY_NAME
 from scanner_opciones.community.ideas import idea_key
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
+from scanner_opciones.scanner.currency import usd_rate
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.portfolio import exits as exits_mod
 from scanner_opciones.portfolio.management import manage_puts
@@ -88,6 +89,7 @@ def tk_title(ctx, names, ticker, extra=""):
 
 
 TEMPLATES.env.globals["tk_title"] = tk_title
+TEMPLATES.env.globals["fx"] = usd_rate     # dólares por unidad de la moneda de las opciones de un ticker (1 si cotizan en USD)
 
 
 def analyst_flag(changes, ticker):
@@ -593,6 +595,10 @@ def create_app(
             await on_shutdown()
 
     app = FastAPI(title="ScannerOpcionesApp", lifespan=lifespan)
+
+    symbols = {"EUR": "€", "GBP": "£", "CHF": "CHF ", "JPY": "¥"}
+    quote_symbols = {t: symbols.get(i.currency, i.currency + " ") for t, i in service.settings.instruments.items() if i.currency != "USD"}
+    TEMPLATES.env.globals["ccy"] = lambda ticker: quote_symbols.get(ticker, "")     # moneda de los importes de las opciones que no son USD («€»)
 
     remembered: dict[str, str] = {}   # última consulta con filtros de cada pestaña (en memoria)
 

@@ -12,6 +12,7 @@ from scanner_opciones.domain.models import ContractSnapshot
 from scanner_opciones.metrics.yields import mid_price
 from scanner_opciones.portfolio.diversification import candidate_impact, nominal
 from scanner_opciones.scanner.criteria import ScanCriteria
+from scanner_opciones.scanner.currency import usd_rate
 
 EPS = 1e-6
 
@@ -103,7 +104,7 @@ def build_mixed_sets(
             continue
         if (r.yield_ref_pct or 0.0) < naked_min_yield_pct:
             continue
-        weight = (held.get(c.ticker, 0.0) + c.strike * c.multiplier) / nlv_usd * 100 if nlv_usd else None
+        weight = (held.get(c.ticker, 0.0) + c.strike * c.multiplier * usd_rate(nlv_usd, c.ticker)) / nlv_usd * 100 if nlv_usd else None
         margin = r.snapshot.initial_margin
         ror = (r.reference_price * c.multiplier / margin * 365 / r.dte
                if margin and margin > 0 and r.reference_price and r.dte > 0 else None)
@@ -115,7 +116,7 @@ def build_mixed_sets(
             continue
         reason = f"solo spread ({only_reason(spread_only, c.ticker)})" if only else f"strike {c.strike:g} > {limit:g}"
         for sp in by_short.get(id(r), []):
-            w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier) / nlv_usd * 100 if nlv_usd else None
+            w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier * usd_rate(nlv_usd, c.ticker)) / nlv_usd * 100 if nlv_usd else None
             rows.append(MixedRow("spread", r, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, reason))
     rows.sort(key=lambda x: (x.return_on_capital_annualized_pct is not None, x.return_on_capital_annualized_pct or 0.0), reverse=True)
     return rows
@@ -130,14 +131,14 @@ def build_profile_rows(
     rows: list[MixedRow] = []
     for r, names in put_hits.values():
         c = r.snapshot.contract
-        weight = (held.get(c.ticker, 0.0) + c.strike * c.multiplier) / nlv_usd * 100 if nlv_usd else None
+        weight = (held.get(c.ticker, 0.0) + c.strike * c.multiplier * usd_rate(nlv_usd, c.ticker)) / nlv_usd * 100 if nlv_usd else None
         margin = r.snapshot.initial_margin
         ror = (r.reference_price * c.multiplier / margin * 365 / r.dte
                if margin and margin > 0 and r.reference_price and r.dte > 0 else None)
         rows.append(MixedRow("put", r, None, r.reference_price or 0.0, margin, ror * 100 if ror is not None else None, weight, "", tuple(names)))
     for sp, names in spread_hits.values():
         c = sp.short.snapshot.contract
-        w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier) / nlv_usd * 100 if nlv_usd else None
+        w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier * usd_rate(nlv_usd, c.ticker)) / nlv_usd * 100 if nlv_usd else None
         rows.append(MixedRow("spread", sp.short, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, "", tuple(names)))
     rows.sort(key=lambda x: (x.return_on_capital_annualized_pct is not None, x.return_on_capital_annualized_pct or 0.0), reverse=True)
     return rows
@@ -155,7 +156,8 @@ def build_spreads(
         sell = r.reference_price
         if sell is None:
             continue
-        for width in criteria.spread_widths:
+        rate = usd_rate(nlv_usd, sc.ticker)
+        for width in dict(criteria.instrument_widths).get(sc.ticker, criteria.spread_widths):      # un índice tiene sus anchos en puntos
             long = index.get((sc.ticker, sc.expiry, round(sc.strike - width, 4)))
             if long is None or long.ask is None or long.ask <= 0 or mid_price(long.bid, long.ask) is None:
                 continue
@@ -179,17 +181,17 @@ def build_spreads(
                 continue
             if criteria.max_credit_width_pct is not None and credit_width > criteria.max_credit_width_pct + EPS:
                 continue
-            if criteria.min_spread_credit is not None and credit * sc.multiplier < criteria.min_spread_credit - EPS:
+            if criteria.min_spread_credit is not None and credit * sc.multiplier * rate < criteria.min_spread_credit - EPS:
                 continue
-            if criteria.max_spread_loss is not None and max_loss > criteria.max_spread_loss + EPS:
+            if criteria.max_spread_loss is not None and max_loss * rate > criteria.max_spread_loss + EPS:
                 continue
-            if criteria.max_loss_nlv_pct is not None and nlv_usd and max_loss / nlv_usd * 100 > criteria.max_loss_nlv_pct + EPS:
+            if criteria.max_loss_nlv_pct is not None and nlv_usd and max_loss * rate / nlv_usd * 100 > criteria.max_loss_nlv_pct + EPS:
                 continue
             if criteria.min_return_on_risk_pct is not None and ror < criteria.min_return_on_risk_pct - EPS:
                 continue
             breakeven = sc.strike - credit
             price = r.info.underlying_price if r.info else None
-            impact = candidate_impact(positions, r.info.sector if r.info else None, width, sc.multiplier, sc.expiry)
+            impact = candidate_impact(positions, r.info.sector if r.info else None, width, sc.multiplier * rate, sc.expiry)
             out.append(SpreadResult(
                 r, long, width, credit, max_loss, credit_width, ror, ror * 365 / r.dte if r.dte > 0 else 0.0,
                 breakeven, (price - breakeven) / price * 100 if price else None, impact.assignment_pct_of_portfolio,

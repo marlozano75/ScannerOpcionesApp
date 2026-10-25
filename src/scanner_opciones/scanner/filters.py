@@ -9,6 +9,7 @@ from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
 from scanner_opciones.metrics.yields import gross_yield_ref_pct, reference_price, strike_distance_pct
 from scanner_opciones.scanner.criteria import ScanCriteria
+from scanner_opciones.scanner.currency import usd_rate
 
 _EPS = 1e-9  # tolerancia para comparaciones en el límite (float)
 
@@ -75,12 +76,12 @@ def reject_reason(
     if y < criteria.min_yield_pct - _EPS:        # yield del periodo (prima / strike hasta el vencimiento), no anualizado
         return f"yield del periodo {y:.2f}% < {criteria.min_yield_pct}%"
     if criteria.min_put_credit is not None:      # prima por contrato con el precio de venta de referencia (las de céntimos se comen las comisiones)
-        credit = (reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct) or 0.0) * c.multiplier
+        credit = (reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct) or 0.0) * c.multiplier * usd_rate(nlv_usd, c.ticker)
         if credit < criteria.min_put_credit - _EPS:
             return f"crédito {credit:.0f} $ < mínimo {criteria.min_put_credit:g} $"
     if criteria.max_capital_risk_pct is not None and nlv_usd:     # capital en riesgo: lo que se pierde si el subyacente llega a 0 (strike − prima)
         premium = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct) or 0.0
-        risk = (c.strike - premium) * c.multiplier / nlv_usd * 100
+        risk = (c.strike - premium) * c.multiplier * usd_rate(nlv_usd, c.ticker) / nlv_usd * 100
         if risk > criteria.max_capital_risk_pct + _EPS:
             return f"capital en riesgo {risk:.1f}% del NLV > máximo {criteria.max_capital_risk_pct:g}%"
     if criteria.min_oi is not None and (snap.open_interest is None or snap.open_interest < criteria.min_oi):

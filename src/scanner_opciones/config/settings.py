@@ -82,12 +82,14 @@ class InstrumentSettings(_Model):
     trading_class: str                           # clase de las opciones de la cadena de IBKR («OESX»: mensuales, semanales y de fin de mes)
     yahoo_symbol: Optional[str] = None           # símbolo de Yahoo para los cierres diarios; None = sin histórico
     sector: str = "Índice"                       # IBKR no da sector a los índices
+    spread_widths: tuple[float, ...] = ()        # anchos de los spreads en puntos (los de `scanner.spreads.width_options` son de acciones: 1–20 $); vacío = esos
     name: Optional[str] = None
 
 
 def default_instruments() -> dict[str, InstrumentSettings]:
     return {"ESTX50": InstrumentSettings(symbol="ESTX50", exchange="EUREX", currency="EUR", multiplier=10, trading_class="OESX",
-                                         yahoo_symbol="^STOXX50E", sector="Índice Europa", name="Euro Stoxx 50")}
+                                         yahoo_symbol="^STOXX50E", sector="Índice Europa", name="Euro Stoxx 50",
+                                         spread_widths=(50.0, 100.0, 150.0, 200.0, 250.0, 300.0))}
 
 
 class RefreshSettings(_Model):

@@ -29,7 +29,7 @@ def is_exempt(info: Optional[TickerInfo], exempt_sectors: Sequence[str] = DEFAUL
     if is_fund(info, exempt_sectors):
         return True
     sector = ((info.sector if info else None) or "").lower()
-    return any(part in sector for part in exempt_sectors if not part.startswith("="))
+    return any(part in sector for part in exempt_sectors if not part.startswith(("=", "~")))
 
 
 def exemption(info: Optional[TickerInfo], exempt_sectors: Sequence[str] = DEFAULT_EXEMPT) -> tuple[bool, bool]:
@@ -49,7 +49,8 @@ def ticker_quality_reject(
     n = criteria.min_positive_quarters
     if n is not None and not fund and (info is None or info.positive_quarters is None or info.positive_quarters < n):
         return f"menos de {n} de los últimos 4 trimestres con beneficios"
-    if criteria.min_option_liquidity is not None and (
+    no_liquidity = info is not None and f"~{info.ticker.upper()}" in exempt_sectors      # instrumento de TWS: tastytrade no da su liquidez (la miden OI, bid size y spread)
+    if criteria.min_option_liquidity is not None and not no_liquidity and (
         info is None or info.option_liquidity is None or info.option_liquidity < criteria.min_option_liquidity
     ):
         return f"liquidez de opciones inferior a {criteria.min_option_liquidity}"

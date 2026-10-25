@@ -45,6 +45,7 @@ from scanner_opciones.scanner.profiles import Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.metrics import technical as ta
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
+from scanner_opciones.scanner.currency import Nlv
 from scanner_opciones.scanner.quality import put_floor_reject
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.scanner.spreads import build_mixed_sets, build_profile_rows
@@ -1414,7 +1415,8 @@ class AppService:
         base = self.settings.scanner.quality.exempt_entries
         radar = self.radar_spreads()
         etfs = sorted({r.ticker for r in radar.rows if (r.sector or "").upper() == "ETF"}) if radar else []
-        return (*base, *(f"={t}" for t in etfs))
+        own = [f"={t}" for t in self.settings.instruments] + [f"~{t}" for t in self.settings.instruments]    # índices de TWS: exentos y sin liquidez de tastytrade
+        return (*base, *own, *(f"={t}" for t in etfs))
 
     def remove_legacy_spread_universe(self) -> bool:
         """Migración única: quita la fuente «Universo_BPS» del antiguo universo para spreads (lo sustituye el radar de Tortuga) y su marca
@@ -2954,16 +2956,29 @@ class AppService:
 
     def nlv_usd(self) -> Optional[float]:
         """NLV de la cuenta en USD: con el tipo de cambio de IBKR y, si no llega, `scanner.spreads.usd_per_base`.
-        None si no hay cuenta o tipo de cambio (los pesos sobre el NLV no se pueden calcular)."""
+        None si no hay cuenta o tipo de cambio (los pesos sobre el NLV no se pueden calcular). Lleva además el tipo de cambio de los
+        instrumentos de TWS que no cotizan en USD (`usd_rates`)."""
         acc = self.state.account
         if acc is None or acc.net_liquidation is None:
             return None
         if acc.nlv_usd is not None:
-            return acc.nlv_usd
-        if acc.base_currency == "USD":
-            return acc.net_liquidation
-        manual = self.settings.scanner.spreads.usd_per_base
-        return acc.net_liquidation * manual if manual else None
+            value = acc.nlv_usd
+        elif acc.base_currency == "USD":
+            value = acc.net_liquidation
+        else:
+            manual = self.settings.scanner.spreads.usd_per_base
+            if not manual:
+                return None
+            value = acc.net_liquidation * manual
+        return Nlv(value, self.usd_rates())
+
+    def usd_rates(self) -> dict[str, float]:
+        """Dólares por unidad de la moneda de cada instrumento de TWS que no cotiza en USD (ticker -> tipo de cambio). Solo se conoce el de la moneda
+        base de la cuenta (el de IBKR, o `scanner.spreads.usd_per_base`): un instrumento en otra moneda no aparece y sus importes se comparan sin convertir."""
+        acc = self.state.account
+        base_rate = (acc.usd_per_base if acc is not None else None) or self.settings.scanner.spreads.usd_per_base
+        return {t: base_rate for t, i in self.settings.instruments.items()
+                if i.currency != "USD" and acc is not None and i.currency == acc.base_currency and base_rate}
 
     def scan_impact(self, criteria: ScanCriteria) -> ImpactReport:
         """Cuánto descarta cada filtro activo (ver `scanner/impact.py`). En modo spread se mide la pata vendida, sin yield."""

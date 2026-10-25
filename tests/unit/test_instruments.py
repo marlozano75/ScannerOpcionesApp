@@ -185,3 +185,69 @@ async def test_split_candles_send_the_index_to_yahoo_and_survive_its_failure():
     assert set(out) == {"AAPL", "ESTX50"} and tasty.calls == [["AAPL"]] and yahoo.calls == [["ESTX50"]]
     yahoo.error = RuntimeError("limitado")
     assert set(await split.get_daily_ohlc(["AAPL", "ESTX50"], 30)) == {"AAPL"}
+
+
+# ---- fase 2: importes en euros ----------------------------------------------------------------------------------
+from dataclasses import replace as _replace
+
+from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
+from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
+from scanner_opciones.scanner.currency import Nlv, usd_rate
+from scanner_opciones.scanner.engine import run_scan
+from scanner_opciones.scanner.quality import ticker_quality_reject
+
+TODAY = date(2026, 10, 26)
+
+
+def test_usd_rate_reads_the_rate_of_the_nlv_and_defaults_to_one():
+    nlv = Nlv(40000.0, {"ESTX50": 1.1})
+    assert float(nlv) == 40000.0 and nlv + 1 == 40001.0
+    assert usd_rate(nlv, "ESTX50") == 1.1 and usd_rate(nlv, "AAPL") == 1.0
+    assert usd_rate(40000.0, "ESTX50") == 1.0 and usd_rate(None, "ESTX50") == 1.0
+
+
+def snap(ticker, strike, bid, ask, mult, **kw):
+    return ContractSnapshot(OptionContract(ticker, date(2026, 11, 20), strike, multiplier=mult), updated_at=datetime(2026, 10, 26, 12), bid=bid, ask=ask,
+                            open_interest=500, bid_size=10, **kw)
+
+
+def info(ticker, price):
+    return TickerInfo(ticker, underlying_price=price)
+
+
+def scan(criteria, nlv, snaps, infos):
+    return run_scan(snaps, infos, [], criteria, TODAY, nlv_usd=nlv, exempt_sectors=("=ESTX50", "~ESTX50"))
+
+
+def test_minimum_credit_and_capital_at_risk_are_compared_in_dollars():
+    base = _replace(criteria_from_settings(Settings()), min_yield_pct=0.0, strike_below_pct_min=5.0, strike_below_pct_max=40.0, dte_min=1, dte_max=60,
+                    min_oi=None, min_bid_size=None, max_spread_pct=None, min_iv_rank=None, min_iv_percentile=None)
+    # put 5450 de ESTX50 a 18,4–18,8 €: cobras 18,6 × 10 = 186 €; con 1,1 $/€ son 205 $
+    s = [snap("ESTX50", 5450.0, 18.4, 18.8, 10)]
+    i = {"ESTX50": info("ESTX50", 6068.22)}
+    ok = scan(base.with_filters(min_put_credit=200.0, price_reference=base.price_reference), Nlv(40000.0, {"ESTX50": 1.1}), s, i)
+    no_fx = scan(base.with_filters(min_put_credit=200.0), Nlv(40000.0), s, i)
+    assert len(ok.results) == 1 and len(no_fx.results) == 0               # 205 $ ≥ 200 con el cambio; 186 < 200 sin él
+    # capital en riesgo: (5450 − 18,6) × 10 € = 54.314 € = 59.746 $ → 149 % de un NLV de 40.000 $; con el 100 % máximo no pasa, con el 200 % sí
+    assert len(scan(base.with_filters(max_capital_risk_pct=100.0), Nlv(40000.0, {"ESTX50": 1.1}), s, i).results) == 0
+    assert len(scan(base.with_filters(max_capital_risk_pct=200.0), Nlv(40000.0, {"ESTX50": 1.1}), s, i).results) == 1
+
+
+def test_the_index_has_its_own_spread_widths_in_points():
+    crit = criteria_from_settings(Settings())
+    assert dict(crit.instrument_widths)["ESTX50"] == (50.0, 100.0, 150.0, 200.0, 250.0, 300.0)
+    base = _replace(crit, min_yield_pct=0.0, strike_below_pct_min=5.0, strike_below_pct_max=40.0, dte_min=1, dte_max=60, min_oi=None,
+                    min_bid_size=None, max_spread_pct=None, min_iv_rank=None, min_iv_percentile=None, spread_mode=True, spread_widths=(1.0, 5.0),
+                    best_width=False, max_combo_spread_pct=None, min_credit_width_pct=None, min_return_on_risk_pct=None, min_spread_credit=None,
+                    min_long_oi=None, max_long_spread_pct=None)
+    s = [snap("ESTX50", 5450.0, 18.4, 18.8, 10), snap("ESTX50", 5350.0, 9.0, 9.4, 10), snap("ESTX50", 5400.0, 12.0, 12.4, 10)]
+    out = scan(base, Nlv(40000.0, {"ESTX50": 1.1}), s, {"ESTX50": info("ESTX50", 6068.22)})
+    pairs = {(sp.short.snapshot.contract.strike, sp.long.contract.strike, sp.width) for sp in out.spreads}
+    assert (5450.0, 5400.0, 50.0) in pairs and (5450.0, 5350.0, 100.0) in pairs     # anchos en puntos, no los de las acciones (1–20 $)
+
+
+def test_the_index_is_exempt_from_the_option_liquidity_of_tastytrade():
+    crit = criteria_from_settings(Settings()).with_filters(min_option_liquidity=3)
+    own = TickerInfo("ESTX50")
+    assert ticker_quality_reject(own, crit, ("=ESTX50", "~ESTX50")) is None
+    assert ticker_quality_reject(own, crit, ("=ESTX50",)) is not None             # sin la marca «~» sí lo pide (un ETF normal)

@@ -164,6 +164,7 @@ class ScanCriteria:
     # modo spread (ver scanner/spreads.py): put vendida (filtros de arriba) + put comprada `ancho` $ por debajo
     spread_mode: bool = False
     spread_widths: tuple[float, ...] = ()
+    instrument_widths: tuple[tuple[str, tuple[float, ...]], ...] = ()    # anchos propios (en puntos) de los instrumentos de TWS: ticker -> anchos
     best_width: bool = False                       # una sola fila por put vendida: el ancho con mejor retorno anualizado sobre riesgo
     min_credit_width_pct: Optional[float] = None   # crédito neto / ancho mínimo (%)
     max_credit_width_pct: Optional[float] = None   # ... y máximo (%)
@@ -194,6 +195,7 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
     ini = settings.scanner.initial
     floor = settings.scanner.quality.put_floor      # valor inicial de la calidad mínima de la put; cada perfil guarda el suyo
     return ScanCriteria(
+        instrument_widths=tuple((t, tuple(i.spread_widths)) for t, i in settings.instruments.items() if i.spread_widths),
         floor_eps=floor.enabled and floor.require_profitable, floor_quarters=floor.min_positive_quarters if floor.enabled else 0,
         floor_fcf=floor.enabled and floor.require_positive_fcf,
         strike_below_pct_min=ini.strike_below_pct_min,

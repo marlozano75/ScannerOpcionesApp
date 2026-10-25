@@ -514,11 +514,11 @@
             <td>{{ 'Spread' if sp else 'Put' }}</td>
             <td data-sort="{{ c.strike }}">{% if sp %}<span class="k-sold">{{ c.strike|num }}</span> <span class="muted">/</span> <span class="k-long">{{ sp.long.contract.strike|num }}</span>{% else %}{{ c.strike|num }}{% endif %}</td>
             <td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ cols.mini_cell(r) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
-            <td>{{ sp.width|num if sp else '—' }}</td><td>{{ (m.credit * c.multiplier)|num(0) }}</td><td{% if sp %} data-sort="{{ sp.credit_width_pct }}"{% endif %}>{{ sp.credit_width_pct|pct if sp else '—' }}</td>
+            <td>{{ sp.width|num if sp else '—' }}</td><td>{{ (m.credit * c.multiplier)|num(0) }}{{ ccy(c.ticker) }}</td><td{% if sp %} data-sort="{{ sp.credit_width_pct }}"{% endif %}>{{ sp.credit_width_pct|pct if sp else '—' }}</td>
             <td class="hl cb"{% if rmax and m.return_on_capital_annualized_pct is not none %} style="--p:{{ (100 * m.return_on_capital_annualized_pct / rmax)|round(0)|int }}%"{% endif %}>{{ m.return_on_capital_annualized_pct|pct(0) }}</td>
             {{ cols.mkt_cells(r, sp.long if sp else none) }}
             <td title="{{ 'Pérdida máxima' if sp else 'Margen what-if' }}">{{ m.capital|num(0) if m.capital is not none else '—' }}</td><td>{{ m.weight_pct|pct }}</td>
-            <td>{{ sp.max_loss|num(0) if sp else '—' }}</td><td>{{ (sp.max_loss / nlv_usd * 100)|pct if sp and nlv_usd else (((c.strike - m.credit) * c.multiplier / nlv_usd * 100)|pct if nlv_usd else '—') }}</td><td>{{ be|num }}</td><td>{{ ((px - be) / px * 100)|pct if px else '—' }}</td>
+            <td>{{ sp.max_loss|num(0) if sp else '—' }}{{ ccy(c.ticker) if sp else '' }}</td><td>{{ (sp.max_loss * fx(nlv_usd, c.ticker) / nlv_usd * 100)|pct if sp and nlv_usd else (((c.strike - m.credit) * c.multiplier * fx(nlv_usd, c.ticker) / nlv_usd * 100)|pct if nlv_usd else '—') }}</td><td>{{ be|num }}</td><td>{{ ((px - be) / px * 100)|pct if px else '—' }}</td>
             {{ cols.extra_cells(r, community, false) }}
             <td class="txt muted">{{ m.why_spread }}</td>
             <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px">{% if sp %}<input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}">{% endif %}</td></tr>

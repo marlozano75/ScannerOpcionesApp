@@ -69,3 +69,17 @@ def test_universe_page_offers_the_spread_toggle(client_and_service):
     assert r.status_code == 303 and "Manual1" in svc.spread_source_names()
     assert "Fuente apta para spreads" in client.get("/universe?src=Manual1").text
     assert "no se puede desmarcar" in client.get("/universe?src=TortugaSpreads").text
+
+
+async def test_nlv_carries_the_euro_rate_and_the_index_is_exempt_without_tastytrade_liquidity(tmp_path):
+    from scanner_opciones.domain.models import AccountSummary
+    from scanner_opciones.scanner.currency import Nlv, usd_rate
+    svc = make(tmp_path)
+    svc.state.account = AccountSummary("U1", net_liquidation=40000.0, base_currency="EUR", usd_per_base=1.1)
+    nlv = svc.nlv_usd()
+    assert isinstance(nlv, Nlv) and abs(float(nlv) - 44000.0) < 1e-6 and usd_rate(nlv, "ESTX50") == 1.1 and usd_rate(nlv, "AAPL") == 1.0
+    svc.state.account = AccountSummary("U1", net_liquidation=40000.0, base_currency="USD", usd_per_base=1.0)
+    assert usd_rate(svc.nlv_usd(), "ESTX50") == 1.0            # una cuenta en USD no tiene el tipo de cambio del euro: se compara sin convertir
+    svc.state.account = None
+    assert svc.nlv_usd() is None
+    assert {"=ESTX50", "~ESTX50"} <= set(svc.quality_exempt())
