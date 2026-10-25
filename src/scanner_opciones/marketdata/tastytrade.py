@@ -381,11 +381,13 @@ class TastytradeVolatility:
         )
 
     async def _sdk_fetch_earnings(self, symbol: str) -> list[tuple[date, float]]:
-        from tastytrade.metrics import get_earnings
-
+        # `get_earnings` del SDK valida `eps` como obligatorio y la API manda eventos sin él (resultados aún no publicados):
+        # una sola entrada así hacía fallar la lista entera. Se pide el endpoint tal cual y se descartan solo esos eventos.
         start = date.today() - timedelta(days=EARNINGS_LOOKBACK_DAYS)
-        events = await get_earnings(self._open_session(), symbol, start)
-        return sorted((e.occurred_date, float(e.eps)) for e in events if e.eps is not None)
+        data = await self._open_session()._get(
+            f"/market-metrics/historic-corporate-events/earnings-reports/{symbol.replace('/', '%2F')}", params={"start-date": start})
+        return sorted((date.fromisoformat(i["occurred-date"]), float(i["eps"])) for i in data["items"]
+                      if i.get("eps") is not None and i.get("occurred-date"))
 
     async def get_fundamentals(self, tickers: list[str]) -> dict[str, Fundamentals]:
         """EPS de 12 meses, capitalización, liquidez de opciones, próximos resultados y sorpresa del último EPS,
