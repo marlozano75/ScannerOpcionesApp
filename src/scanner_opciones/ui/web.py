@@ -852,7 +852,7 @@ def create_app(
         exempt_tickers: set[str] = set()
         wl_mode = service.watchlist_sync_mode()
         wl_plan = service.wl_sync_held or (service.watchlist_sync_plan() if wl_mode == "" else None)      # resumen previo la primera vez
-        wl_sync = {"plan": wl_plan, "held": service.wl_sync_held is not None} if wl_plan is not None and (service.wl_sync_held or not wl_plan.empty) else None
+        wl_sync = {"plan": wl_plan, "held": service.wl_sync_held is not None, "grace": service.settings.watchlist_sync.grace_days} if wl_plan is not None and (service.wl_sync_held or not wl_plan.empty) else None
         exempt_entries = service.quality_exempt()
         shown = []
         for row in rows:
@@ -989,7 +989,7 @@ def create_app(
         plan = await service.set_watchlist_sync(on)
         remembered.pop("universe", None)
         if on:
-            msg = _grp("ok", "Watchlist sincronizada con el Universo", [], f"{len(plan.add)} añadidos (actualización diaria en segundo plano), {len(plan.remove)} quitados")
+            msg = _grp("ok", "Watchlist sincronizada con el Universo", [], f"{len(plan.add)} añadidos (actualización diaria en segundo plano), {len(plan.remove)} quitados (los que no tienen fuente se quitan tras {service.settings.watchlist_sync.grace_days} días)")
         else:
             msg = _grp("skip", "Watchlist a mano", [], "no se cambia nada solo; el resumen no vuelve a salir")
         return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)

@@ -112,12 +112,12 @@
   <form method="post" action="/universe/watchlist-sync" style="margin:0">
     {% if wl_sync.held %}<b>La sincronización automática quitaría muchos tickers de la Watchlist y está en espera.</b>
     {% else %}<b>La Watchlist pasará a ser todo lo que haya en las fuentes del Universo con opciones.</b> Todavía no se ha aplicado nada.{% endif %}
-    Añadiría <b>{{ p.add|length }}</b> y quitaría <b>{{ p.remove|length }}</b> ({{ p.kept }} se quedan{% if p.protected %}; {{ p.protected|length }} con posiciones abiertas o instrumento propio se conservan{% endif %}).
+    Añadiría <b>{{ p.add|length }}</b> y marcaría <b>{{ p.remove|length }}</b> para quitar ({{ p.kept }} se quedan{% if p.protected %}; {{ p.protected|length }} con posiciones abiertas o instrumento propio se conservan{% endif %}).
     {% if p.add %}<details><summary>Se añadirían ({{ p.add|length }})</summary><span class="muted">{{ p.add|join(', ') }}</span></details>{% endif %}
-    {% if p.remove %}<details><summary>Se quitarían, con sus contratos y ficha ({{ p.remove|length }})</summary><span class="muted">{{ p.remove|join(', ') }}</span></details>{% endif %}
+    {% if p.remove %}<details><summary>Sin ninguna fuente ({{ p.remove|length }}): se quitarían, con sus contratos y ficha, tras {{ wl_sync.grace }} días seguidos así</summary><span class="muted">{{ p.remove|join(', ') }}</span></details>{% endif %}
     {% if p.protected %}<details><summary>Se conservan aunque ninguna fuente los lista ({{ p.protected|length }})</summary><span class="muted">{{ p.protected|join(', ') }}</span></details>{% endif %}
     <p style="margin:6px 0 0">
-      <button type="submit" name="on" value="1" onclick="return confirmClick(this, 'La Watchlist quedará igual que las fuentes con opciones ({{ p.add|length }} añadidos, {{ p.remove|length }} quitados) y las fuentes nuevas entrarán solas. ¿Aplicar?')">Aplicar y mantener sincronizada</button>
+      <button type="submit" name="on" value="1" onclick="return confirmClick(this, 'La Watchlist quedará igual que las fuentes con opciones ({{ p.add|length }} añadidos; {{ p.remove|length }} sin fuente se quitarán si siguen así {{ wl_sync.grace }} días) y las fuentes nuevas entrarán solas. ¿Aplicar?')">Aplicar y mantener sincronizada</button>
       {% if not wl_sync.held %}<button type="submit" name="on" value="0" class="secondary" title="La Watchlist se sigue cambiando a mano desde el Universo">No, la gestiono a mano</button>{% endif %}
     </p>
   </form>

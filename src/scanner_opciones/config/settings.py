@@ -754,6 +754,13 @@ class TastyListSource(_Model):
     name: str                   # nombre de la fuente en el Universo
 
 
+class WatchlistSyncSettings(_Model):
+    """La Watchlist sigue a las fuentes del Universo. Un ticker que ninguna fuente lista solo se quita pasados `grace_days` días seguidos
+    así (las fuentes que se sustituyen enteras, como el radar de Tortuga, sacan y vuelven a meter valores a diario: sin esta gracia se
+    borrarían y se volverían a descargar sus contratos). 0 = se quita en cuanto desaparece."""
+    grace_days: int = Field(7, ge=0)
+
+
 class TastyListsSettings(_Model):
     """Listas públicas de tastytrade como fuentes del Universo. Se releen cada `refresh_minutes` (solo en días hábiles, salvo la primera
     vez) y sustituyen a la fuente SOLO si su contenido cambió. No añaden nada a la watchlist: eso se hace desde el Universo, con sus filtros."""
@@ -805,6 +812,7 @@ class Settings(_Model):
     community: CommunitySettings = CommunitySettings()
     tortuga: TortugaSettings = TortugaSettings()
     tasty_lists: TastyListsSettings = TastyListsSettings()
+    watchlist_sync: WatchlistSyncSettings = WatchlistSyncSettings()
     super_investors: SuperInvestorsSettings = SuperInvestorsSettings()
     instruments: dict[str, InstrumentSettings] = Field(default_factory=default_instruments)   # índices y otros subyacentes de TWS (ticker de la app -> ajustes)
 

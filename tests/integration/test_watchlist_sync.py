@@ -1,5 +1,6 @@
 """La Watchlist sigue a las fuentes del Universo con opciones: resumen previo la primera vez, luego automática."""
-from datetime import datetime
+import json
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from scanner_opciones.app.service import AppService
@@ -11,9 +12,9 @@ from scanner_opciones.storage.db import Database
 NOW = datetime(2026, 10, 26, 12, 0)
 
 
-def make(tmp_path, sources, watchlist=()):
+def make(tmp_path, sources, watchlist=(), grace=0, clock=None):
     gw = FakeGateway()      # sin conectar: add_watchlist no lanza la actualización diaria
-    svc = AppService(gw, Database(tmp_path / "app.db"), Settings(), lambda: NOW)
+    svc = AppService(gw, Database(tmp_path / "app.db"), Settings.model_validate({"watchlist_sync": {"grace_days": grace}}), clock or (lambda: NOW))
     svc.manual_sources.update(sources)
     svc.watchlist.add(list(watchlist), NOW)
     return svc
@@ -73,3 +74,26 @@ async def test_an_automatic_pass_that_removes_too_much_waits_for_confirmation(tm
     assert len(svc.watchlist.list()) == 60 and svc.wl_sync_held is not None and len(svc.wl_sync_held.remove) == 60
     await svc.set_watchlist_sync(True)
     assert svc.watchlist.list() == ["KO"] and svc.wl_sync_held is None
+
+
+async def test_a_ticker_without_source_is_only_removed_after_the_grace_days(tmp_path):
+    now = [NOW]
+    svc = make(tmp_path, {"A": ["KO", "PG"]}, watchlist=["KO", "PG"], grace=7, clock=lambda: now[0])
+    await svc.set_watchlist_sync(True)
+    svc.remove_source_tickers("A", ["PG"])                     # el radar lo saca hoy...
+    await svc.wait_idle()
+    assert sorted(svc.watchlist.list()) == ["KO", "PG"]
+    now[0] = NOW + timedelta(days=3)
+    svc.manual_sources["A"] = ["KO", "PG"]                     # ...y a los 3 días vuelve: no se toca y se olvida que faltó
+    svc.sync_watchlist_in_background()
+    await svc.wait_idle()
+    assert json.loads(svc.meta.get("watchlist_sync_absent")) == {}
+    svc.manual_sources["A"] = ["KO"]
+    now[0] = NOW + timedelta(days=4)
+    svc.sync_watchlist_in_background()
+    await svc.wait_idle()
+    assert "PG" in svc.watchlist.list()                        # la cuenta empieza de nuevo
+    now[0] = NOW + timedelta(days=11)
+    svc.sync_watchlist_in_background()
+    await svc.wait_idle()
+    assert svc.watchlist.list() == ["KO"]

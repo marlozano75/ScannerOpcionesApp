@@ -96,6 +96,7 @@ INACTIVE_CHECKED = "universe_inactive_checked_at"   # clave de `meta`: última v
 INACTIVE_RECHECK_DAYS = 7
 TASTY_LISTS_CHECKED = "tasty_lists_checked_at"   # clave de `meta`: última lectura de las listas públicas de tastytrade
 TASTY_LIST_PREFIX = "tasty_list_synced_"         # + nombre de la fuente: huella de los tickers ya volcados
+WATCHLIST_ABSENT = "watchlist_sync_absent"       # clave de `meta`: {ticker: primer día seguido sin estar en ninguna fuente}
 WATCHLIST_SYNC = "watchlist_sync"             # clave de `meta`: "" = sin decidir (solo se muestra el resumen), "on" = la Watchlist sigue al Universo, "off" = a mano
 INVESTORS_SYNCED = "super_investors_synced"   # clave de `meta`: huella de la fuente SuperInvestors ya volcada
 INVESTORS_INFO = "super_investors_info"       # clave de `meta`: {ticker: {managers, max_weight}} de esa fuente (columnas del Universo)
@@ -1470,6 +1471,7 @@ class AppService:
         """Añade a la Watchlist lo que está en las fuentes y quita lo que ya no está en ninguna (salvo posiciones). Una pasada automática que
         quitaría demasiado (`SyncPlan.exceeds_guard`) no se aplica: queda en `wl_sync_held` esperando confirmación."""
         plan = self.watchlist_sync_plan()
+        plan = replace(plan, remove=self._absent_long_enough(plan.remove))
         if automatic and plan.exceeds_guard(len(self.watchlist.list())):
             self.wl_sync_held = plan
             log.warning("Watchlist: la sincronización quitaría %d tickers; espera confirmación en el Universo", len(plan.remove))
@@ -1484,6 +1486,19 @@ class AppService:
                      len(plan.add), len(plan.remove), len(plan.protected))
             self.state.data_version += 1
         return plan
+
+    def _absent_long_enough(self, candidates) -> tuple[str, ...]:
+        """De los tickers que ninguna fuente lista, los que llevan `watchlist_sync.grace_days` días seguidos así. Anota desde cuándo falta cada uno
+        y olvida a los que han vuelto a una fuente."""
+        today = self.now().date()
+        try:
+            seen = {str(k): date.fromisoformat(v) for k, v in json.loads(self.meta.get(WATCHLIST_ABSENT) or "{}").items()}
+        except (ValueError, TypeError, AttributeError):
+            seen = {}
+        seen = {t: seen.get(t, today) for t in candidates}
+        self.meta.set(WATCHLIST_ABSENT, json.dumps({t: d.isoformat() for t, d in seen.items()}))
+        grace = self.settings.watchlist_sync.grace_days
+        return tuple(t for t in candidates if (today - seen[t]).days >= grace)
 
     async def set_watchlist_sync(self, on: bool) -> SyncPlan:
         """Decisión del usuario tras ver el resumen: activar (aplica ya el plan y sigue a las fuentes) o dejar la Watchlist a mano."""
