@@ -80,6 +80,7 @@ class IBKRGateway:
         self.now = now
         self._stocks: dict[str, Stock | Index] = {}
         self._updates_account: Optional[str] = None   # cuenta suscrita con reqAccountUpdates (la de `portfolio()`)
+        self._last_option_values: dict[int, float] = {}   # conId → último valor de mercado leído (para avisar de saltos)
         self._sector_cache: dict[str, tuple[Optional[str], Optional[str]]] = {}
         self._vix_futures_cache: Optional[tuple[date, list]] = None
         self._summary_request: Optional[asyncio.Future] = None   # petición de account summary en vuelo (una como máximo)
@@ -219,7 +220,20 @@ class IBKRGateway:
                     OptionRight(c.right[0]), int(c.multiplier or 100), c.conId,
                 )
                 out.append(Position(c.symbol, item.position, float(item.marketValue), sector, oc, float(item.averageCost)))
+                self._log_option_value(oc, item)
         return out
+
+    def _log_option_value(self, oc: OptionContract, item) -> None:
+        """Deja en el log lo que TWS entrega de cada opción (valor de mercado, coste medio, precio de mercado) y avisa si el
+        valor salta más de un 10 % entre dos lecturas: así se distingue un dato inicial distinto de TWS de un error de cálculo."""
+        value = float(item.marketValue)
+        log.debug("Posición %s %s %s %s: marketValue=%.2f averageCost=%.4f marketPrice=%s", oc.ticker, oc.expiry, oc.strike,
+                  oc.right.value, value, float(item.averageCost), getattr(item, "marketPrice", None))
+        before = self._last_option_values.get(oc.con_id)
+        self._last_option_values[oc.con_id] = value
+        if before and abs(value - before) > 0.10 * abs(before):
+            log.info("Posición %s %s %s: el valor de mercado pasó de %.2f a %.2f entre dos lecturas (marketPrice=%s, averageCost=%.4f)",
+                     oc.ticker, oc.expiry, oc.strike, before, value, getattr(item, "marketPrice", None), float(item.averageCost))
 
     # ---- utilidades con timeout -----------------------------------------------------------
     HISTORICAL_TIMEOUT = 30.0
