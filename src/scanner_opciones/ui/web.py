@@ -762,7 +762,9 @@ def create_app(
                  for r in (data.rows if data else ())]
         tipo = tipo if tipo in ("spread", "put") else ""
         shown = [i for i in items if (not cumple or i["ok"]) and (not solo or i["wl"]) and (not tipo or i["row"].kind == tipo)]
-        return render(request, "tortuga.html", data=data, items=shown, total=len(items), passing=sum(1 for i in items if i["ok"]),
+        fits = service.radar_fits([i["row"] for i in shown])
+        return render(request, "tortuga.html", data=data, items=shown, fits=fits,
+                      fit_names=[p.name for p in service.settings.scanner.presets] + [STRATEGY_NAME], total=len(items), passing=sum(1 for i in items if i["ok"]),
                       minimum=minimum, cumple=cumple, solo=solo, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
                       routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,
                       enabled=runner is not None and service.settings.tortuga.enabled, busy_routines=service._tortuga_busy,

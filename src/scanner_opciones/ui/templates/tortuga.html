@@ -8,6 +8,10 @@
   .tr-bar { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin:0 0 10px; }
   table.routines td, table.routines th { padding:3px 10px; text-align:left; font-size:13px; }
   .tr-err { color:#b3361b; }
+  .fitcell { white-space:nowrap; text-align:left; line-height:1.5; padding-left:5px; padding-right:5px; } th.fitcol { text-align:left; padding-left:5px; padding-right:5px; }
+  .fn { font-weight:700; margin-right:1px; } .fn-ok { color:#1d6b3f; }
+  .fc { display:inline-block; padding:0 4px; margin-left:1px; border-radius:9px; font-size:11.5px; font-weight:600; white-space:nowrap; }
+  .fc-ok { background:#dff3e6; color:#1d6b3f; } .fc-ko { background:#fbe3dd; color:#b3361b; } .fc-na { background:#eceff1; color:var(--mute); }
 </style>
 <div class="card">
   <h2>Tortuga · Market Radar: Bull Put Spreads y venta de puts</h2>
@@ -31,7 +35,7 @@
   {% if items %}
   <div class="tscroll">
   <table class="sortable">
-    <tr><th class="tk">Ticker</th><th title="La put de 30Δ rinde en el periodo al menos el yield del perfil">✓</th><th class="txt">Sector</th><th>Precio</th><th>Var. día %</th>
+    <tr><th class="tk">Ticker</th><th title="La put de 30Δ rinde en el periodo al menos el yield del perfil">✓</th>{% for nm in fit_names %}<th class="fitcol" title="Filtros de «{{ nm }}» (con sus valores por defecto) que cumple hoy la put de 30Δ de referencia: en verde los que cumple, en rojo los que no y en gris los que no se pudo comprobar. No se evalúan los técnicos ni la calidad de la empresa.">{{ nm }}<br><span class="muted" style="font-weight:400">filtros</span></th>{% endfor %}<th class="txt">Sector</th><th>Precio</th><th>Var. día %</th>
       <th title="Put de 30Δ de referencia">Strike 30Δ</th><th>Venc.</th><th>DTE</th><th>Prima</th><th>Delta</th><th title="Distancia del strike por debajo del precio">Desc. %</th><th title="Prima / strike hasta el vencimiento, sin anualizar">Yield periodo</th><th class="hl" data-sort-default="desc" title="Rendimiento anualizado de la put de 30Δ, según Tortuga">Yield anual</th>
       <th>IV Rank</th><th>IV Pctl</th><th>IV30 %</th><th>RV20 %</th><th title="IV30 − RV20, en puntos">VRP</th><th>IV/HV</th><th>Estructura</th><th title="Skew 25Δ, en puntos">Skew</th><th title="Movimiento esperado a 30 días, %">Mov. esp. %</th>
       <th>RSI</th><th class="txt">Tendencia</th><th>Resultados</th><th class="txt">Zona</th><th class="txt">Estrategia</th><th title="Puntuación del motor del radar">Score</th><th class="txt">Señal</th>
@@ -40,6 +44,11 @@
     {% for i in items %}{% set r = i.row %}
     <tr><td class="tk"><b title="{{ tk_title(company_names, r.ticker) }}">{{ r.ticker }}</b>{{ sec_flag(sec_alerts, r.ticker) }}{{ analyst_flag(analyst_alerts, r.ticker) }}{% if i.wl %} <span class="tl tl-w" title="Está en tu watchlist" style="background:#dff3e6;color:#1d6b3f;padding:0 4px;border-radius:7px;font-size:10px;font-weight:700">W</span>{% endif %}{% if i.held %} <span class="own" title="Tienes posiciones en este valor">EN CARTERA</span>{% endif %}</td>
       <td data-sort="{{ 1 if i.ok else 0 }}" class="{{ 'tr-ok' if i.ok else 'tr-ko' }}">{{ '✓' if i.ok else '·' }}</td>
+      {%- set tf = fits.get(r.ticker) %}{% for nm in fit_names %}{% set f = tf[loop.index0] if tf else none %}
+      <td class="fitcell"{% if f %} data-sort="{{ f.passed / f.total }}" title="{{ f.detail or 'Cumple todo lo medible' }}"{% endif %}>
+        {%- if f %}<span class="fn{{ ' fn-ok' if f.fits }}">{{ f.passed }}/{{ f.total }}</span>
+          {%- for c in f.criteria %} <span class="fc fc-{{ 'ok' if c.ok else 'ko' if c.ok is false else 'na' }}" title="{{ c.label }}: {{ c.text }}">{{ c.short }}</span>{% endfor %}
+        {%- else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
       <td class="txt">{{ r.sector or '—' }}</td><td>{{ n(r.price) }}</td><td>{{ n(r.change_pct) }}</td>
       <td>{{ n(r.put_strike) }}</td><td{% if r.put_expiry %} data-sort="{{ r.put_expiry.toordinal() }}"{% endif %}>{{ r.put_expiry.strftime('%d/%m') if r.put_expiry else '—' }}</td><td>{{ r.put_dte if r.put_dte is not none else '—' }}</td><td>{{ n(r.put_mid) }}</td><td>{{ n(r.put_delta) }}</td><td>{{ n(r.distance_pct, 1) }}</td>
       <td>{{ n(r.put_yield_period_pct) }}</td><td class="hl">{{ n(r.put_yield_annual_pct, 1) }}</td>

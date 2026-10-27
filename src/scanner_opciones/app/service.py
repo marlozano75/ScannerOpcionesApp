@@ -9,6 +9,7 @@ import json
 import pickle
 import logging
 import re
+from types import SimpleNamespace
 from dataclasses import dataclass, field, replace
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -1760,14 +1761,33 @@ class AppService:
         ref = self.criteria()
         views = evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct)
         sc = self.settings.scanner
-        prices = {}       # rango de precio del subyacente que cada perfil (por nombre) tiene en su juego de filtros de put
+        prices = self._profile_price_ranges()
+        closes = self.openings().closes if self.openings() is not None else ()
+        days, today = self.settings.community.closed_marker_days, self.now().date()
+        return [replace(v, fits=strategy_fits(v, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct), traded=past_trade(v.idea, closes, today, days)) for v in views]
+
+    def _profile_price_ranges(self) -> dict[str, tuple[Optional[float], Optional[float]]]:
+        """Rango de precio del subyacente que cada perfil (por nombre) tiene en su juego de filtros de put."""
+        prices = {}
         for prof in self.scanner_profiles():
             lo, hi = (_to_float(prof.put.get(k)) for k in ("price_min", "price_max"))
             if lo is not None or hi is not None:
                 prices[prof.name] = (lo, hi)
-        closes = self.openings().closes if self.openings() is not None else ()
-        days, today = self.settings.community.closed_marker_days, self.now().date()
-        return [replace(v, fits=strategy_fits(v, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct), traded=past_trade(v.idea, closes, today, days)) for v in views]
+        return prices
+
+    def radar_fits(self, rows) -> dict[str, tuple]:
+        """{ticker: filtros de cada perfil que cumple HOY la put de 30Δ de referencia del radar de Tortuga} (mismos criterios que las ideas:
+        descuento, DTE, yield del periodo, delta, IV Rank/Percentile y precio). Sin put de referencia, el ticker no aparece."""
+        sc = self.settings.scanner
+        prices = self._profile_price_ranges()
+        out = {}
+        for r in rows:
+            if r.put_dte is None or r.put_dte < 0:
+                continue
+            view = SimpleNamespace(dte=r.put_dte, otm_now_pct=r.distance_pct, yield_now_pct=r.put_yield_period_pct, delta_now=r.put_delta,
+                                   iv_rank=r.iv_rank, iv_percentile=r.iv_percentile, price_now=r.price, idea=SimpleNamespace(long_strike=None))
+            out[r.ticker] = strategy_fits(view, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct)
+        return out
 
     async def refresh_community_quotes(self, max_age_seconds: Optional[float] = 300) -> None:
         """Cotiza en directo (tastytrade) las patas de las ideas que no están guardadas (tickers fuera de la watchlist, strikes o
