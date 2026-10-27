@@ -1,7 +1,8 @@
 """¿Encaja una idea de la comunidad en alguno de los perfiles del Scanner (TPC Mensual, TPC Táctico, Tastytrade)?
 
-Se compara con los valores de HOY (DTE, distancia del strike, yield y delta de la cotización actual) y con los valores por defecto de
-cada perfil (`scanner.presets` y `scanner.strategy`). Solo se comprueban los criterios que una idea permite medir: descuento del strike,
+Se compara con los valores de HOY (DTE, distancia del strike, yield y delta de la cotización actual) y con los filtros GRABADOS en cada
+perfil del Scanner (`profile_fits`: el juego de put para una put y el de spread para un spread; `strategy_fits` queda con los valores por
+defecto de `scanner.presets` y `scanner.strategy`). Solo se comprueban los criterios que una idea permite medir: descuento del strike,
 DTE, yield del periodo (en un spread, en su lugar, el retorno sobre riesgo del periodo: crédito / (ancho − crédito), contra el mínimo de
 `scanner.spreads`), delta, IV Rank e IV Percentile
 (solo si el ticker tiene ficha) y el precio del subyacente (solo si el perfil del mismo nombre lo limita). No se evalúan los técnicos (RSI, medias, ATR…), la calidad de la empresa ni la liquidez: «encaja» significa
@@ -112,6 +113,25 @@ def _fit(name: str, view, *, discount_min: float, dte_min: int, dte_max: Optiona
     if iv_pct_min is not None:
         out.append(_crit("IV Percentile", view.iv_percentile, lambda v: v >= iv_pct_min, f"{view.iv_percentile or 0:.0f} (mín. {iv_pct_min:g})"))
     return Fit(name, tuple(out), d is not None)
+
+
+def profile_fits(view, specs: Sequence[tuple], default_ror: Optional[float] = None) -> tuple[Optional[Fit], ...]:
+    """Un `Fit` por perfil guardado, con los filtros ACTUALES de su juego de put (o de spread, si la idea es un spread). `specs` =
+    (nombre, criterios de put | None, criterios de spread | None), en el orden de las columnas; un perfil sin ese instrumento da None.
+    Vacío si la idea ya venció."""
+    if view.dte < 0:
+        return ()
+    spread = view.idea.long_strike is not None
+    out: list[Optional[Fit]] = []
+    for name, put, spr in specs:
+        c = spr if spread else put
+        if c is None:
+            out.append(None)
+            continue
+        out.append(_fit(name, view, discount_min=c.strike_below_pct_min, dte_min=c.dte_min, dte_max=c.dte_max, yield_min=c.min_yield_pct,
+                        delta_min=c.min_abs_delta, delta_max=c.max_abs_delta, iv_rank_min=c.min_iv_rank, iv_pct_min=c.min_iv_percentile,
+                        price=(c.min_price, c.max_price), spread_min_ror=c.min_return_on_risk_pct if spread else default_ror))
+    return tuple(out)
 
 
 def strategy_fits(view, presets: Sequence[ScannerPreset], strategy: StrategySettings,

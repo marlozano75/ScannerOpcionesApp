@@ -32,7 +32,7 @@ from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.community.data import CommunityData, CommunityError, load_community
-from scanner_opciones.community.fit import strategy_fits
+from scanner_opciones.community.fit import STRATEGY_NAME, profile_fits, strategy_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, classify_dte
@@ -204,6 +204,7 @@ class AppService:
         self._scan_memo: dict[tuple, tuple[float, object]] = {}
         self._openings: Optional[tuple[float, OpeningsData]] = None
         self._openings_error: Optional[str] = None
+        self.profile_criteria_provider: Optional[Callable[[], list[tuple]]] = None   # lo pone la interfaz web: filtros grabados en cada perfil
         self.profile_provider: Optional[Callable[[], tuple[list[ScannerProfile], str]]] = None   # lo pone la interfaz web (perfiles guardados o derivados)
         self._yaml_scanner = (settings.scanner.presets, settings.scanner.strategy, settings.scanner.spreads)   # los de config.yaml, para restaurarlos
         self._load_scanner_config()
@@ -342,7 +343,7 @@ class AppService:
             if v.idea.trader not in entry["traders"]:
                 entry["traders"] = sorted([*entry["traders"], v.idea.trader], key=str.casefold)
             for f in v.fits:
-                if f.total and (f.passed, f.passed / f.total) > (entry.get("passed", -1), entry["passed"] / entry["total"] if "passed" in entry else -1):
+                if f is not None and f.total and (f.passed, f.passed / f.total) > (entry.get("passed", -1), entry["passed"] / entry["total"] if "passed" in entry else -1):
                     entry.update(strategy=f.name, passed=f.passed, total=f.total)
         tickers = sorted({v.idea.ticker for v in views})
         res = await self.add_manual_tickers(parse_tokens(tickers), self.settings.community.perm_source_name)
@@ -1763,9 +1764,22 @@ class AppService:
         views = evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct)
         sc = self.settings.scanner
         prices = self._profile_price_ranges()
+        specs = self.profile_specs()
         closes = self.openings().closes if self.openings() is not None else ()
         days, today = self.settings.community.closed_marker_days, self.now().date()
-        return [replace(v, fits=strategy_fits(v, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct), traded=past_trade(v.idea, closes, today, days)) for v in views]
+        return [replace(v, fits=profile_fits(v, specs, sc.spreads.min_return_on_risk_pct) if specs else strategy_fits(v, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct), traded=past_trade(v.idea, closes, today, days)) for v in views]
+
+    def profile_specs(self) -> list[tuple]:
+        """Filtros GRABADOS ahora en cada perfil del Scanner (sin el de las puts que no encajan): (nombre, criterios de put | None, criterios de
+        spread | None). Los lee la interfaz web (`profile_criteria_provider`); sin ella, lista vacía."""
+        return self.profile_criteria_provider() if self.profile_criteria_provider is not None else []
+
+    def fit_names(self) -> list[str]:
+        """Nombres de las columnas de «filtros cumplidos» de Ideas y Tortuga: los perfiles guardados o, sin ellos, los de la configuración."""
+        specs = self.profile_specs()
+        if specs:
+            return [s[0] for s in specs]
+        return [p.name for p in self.settings.scanner.presets] + [STRATEGY_NAME]
 
     def _profile_price_ranges(self) -> dict[str, tuple[Optional[float], Optional[float]]]:
         """Rango de precio del subyacente que cada perfil (por nombre) tiene en su juego de filtros de put."""
@@ -1781,13 +1795,15 @@ class AppService:
         descuento, DTE, yield del periodo, delta, IV Rank/Percentile y precio). Sin put de referencia, el ticker no aparece."""
         sc = self.settings.scanner
         prices = self._profile_price_ranges()
+        specs = self.profile_specs()
         out = {}
         for r in rows:
             if r.put_dte is None or r.put_dte < 0:
                 continue
             view = SimpleNamespace(dte=r.put_dte, otm_now_pct=r.distance_pct, yield_now_pct=r.put_yield_period_pct, delta_now=r.put_delta,
                                    iv_rank=r.iv_rank, iv_percentile=r.iv_percentile, price_now=r.price, idea=SimpleNamespace(long_strike=None))
-            out[r.ticker] = strategy_fits(view, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct)
+            out[r.ticker] = (profile_fits(view, specs, sc.spreads.min_return_on_risk_pct) if specs
+                             else strategy_fits(view, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct))
         return out
 
     async def refresh_community_quotes(self, max_age_seconds: Optional[float] = 300) -> None:

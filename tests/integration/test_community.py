@@ -183,7 +183,7 @@ def test_ideas_marked_in_the_page_feed_the_permanent_source_with_trader_and_best
     page = client.post("/ideas/perm", data={"idea": [key]}, follow_redirects=True).text
     assert "Añadidos a TortugaTrades_Perm" in page and ">TTP<" in page and ">W<" in page
     assert svc.manual_sources["TortugaTrades_Perm"] == ["AAPL"]
-    best = max(views["AAPL"].fits, key=lambda f: (f.passed, f.passed / f.total))
+    best = max((f for f in views["AAPL"].fits if f is not None), key=lambda f: (f.passed, f.passed / f.total))
     perm = svc.community_perm()["AAPL"]
     assert perm["traders"] == ["Ana"] and perm["strategy"] == best.name and (perm["passed"], perm["total"]) == (best.passed, best.total)
     src = next(s for s in svc.universe_sources if s.name == "TortugaTrades_Perm")
@@ -191,3 +191,20 @@ def test_ideas_marked_in_the_page_feed_the_permanent_source_with_trader_and_best
     again = client.post("/ideas/perm", data={"idea": [key]}, follow_redirects=True).text      # repetir no duplica
     assert "Ya estaban" in again and svc.manual_sources["TortugaTrades_Perm"] == ["AAPL"]
     assert "No hay ninguna idea marcada" in client.post("/ideas/perm", data={}, follow_redirects=True).text
+
+
+def test_fits_compare_with_the_filters_saved_in_the_profiles(client_and_service, tmp_path):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    client.get("/scanner?reset=1")                       # arranca la interfaz: registra los perfiles
+    names = [s[0] for s in svc.profile_specs()]
+    assert names and svc.fit_names() == names and "Tortuga" not in names
+    contract = svc.contracts.list("AAPL")[0]
+    path = tmp_path / "tortuga.json"
+    write(path, ideas_payload(contract))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
+    view = next(v for v in svc.community_ideas() if v.idea.ticker == "AAPL")
+    assert [f.name if f else None for f in view.fits] == [n if put else None for n, put, _ in svc.profile_specs()]
+    spec = next(s for s in svc.profile_specs() if s[1] is not None)
+    fit = next(f for f in view.fits if f and f.name == spec[0])
+    assert f"mín. {spec[1].strike_below_pct_min:g} %" in next(c.text for c in fit.criteria if c.label == "Descuento")

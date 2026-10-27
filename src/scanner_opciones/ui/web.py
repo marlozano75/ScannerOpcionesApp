@@ -25,7 +25,6 @@ from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.rankedstocks.loader import clean_ticker
-from scanner_opciones.community.fit import STRATEGY_NAME
 from scanner_opciones.community.ideas import idea_key
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.metrics.technical import strike_history
@@ -738,7 +737,7 @@ def create_app(
                  if (venc or v.status != "expired") and (not solo or v.in_watchlist)
                  and (not trader or v.idea.trader == trader) and (not strategy or v.idea.strategy == strategy)]
         return render(request, "ideas.html", no_autorefresh=True, watch_data=True, data=data, owned=service.owned_options(), file_path=service.settings.community.path, views=views, total=len(everything),
-                      fit_names=[p.name for p in service.settings.scanner.presets] + [STRATEGY_NAME],
+                      fit_names=service.fit_names(),
                       valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, strategy=strategy,
                       traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale(),
                       auto_reload=service.market.is_open(service.now()), quoting=quoting, message=message, groups=message_groups(message),
@@ -764,7 +763,7 @@ def create_app(
         shown = [i for i in items if (not cumple or i["ok"]) and (not solo or i["wl"]) and (not tipo or i["row"].kind == tipo)]
         fits = service.radar_fits([i["row"] for i in shown])
         return render(request, "tortuga.html", no_autorefresh=True, watch_data=True, data=data, items=shown, fits=fits,
-                      fit_names=[p.name for p in service.settings.scanner.presets] + [STRATEGY_NAME], total=len(items), passing=sum(1 for i in items if i["ok"]),
+                      fit_names=service.fit_names(), total=len(items), passing=sum(1 for i in items if i["ok"]),
                       minimum=minimum, cumple=cumple, solo=solo, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
                       routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,
                       enabled=runner is not None and service.settings.tortuga.enabled, busy_routines=service._tortuga_busy,
@@ -1323,6 +1322,20 @@ def create_app(
         return profiles, default
 
     service.profile_provider = get_profiles
+
+    def get_profile_criteria() -> list[tuple]:
+        """Filtros grabados AHORA en cada perfil (sin el de las puts que no encajan), para comparar las ideas de la comunidad y el radar de
+        Tortuga: (nombre, criterios del juego de put | None, criterios del juego de spread | None)."""
+        out = []
+        for p in get_profiles()[0]:
+            if p.name == FALLBACK_PROFILE:
+                continue
+            crit = {inst: parse_scan({"submitted": "1", "mode": inst, **p.set_params(inst)}, inst)["criteria"] if inst in p.instruments else None
+                    for inst in ("put", "spread")}
+            out.append((p.name, crit["put"], crit["spread"]))
+        return out
+
+    service.profile_criteria_provider = get_profile_criteria
 
     @app.get("/scanner/todos", response_class=HTMLResponse)
     async def scanner_all(request: Request):
