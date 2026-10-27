@@ -736,7 +736,7 @@ def create_app(
         views = [v for v in everything
                  if (venc or v.status != "expired") and (not solo or v.in_watchlist)
                  and (not trader or v.idea.trader == trader) and (not strategy or v.idea.strategy == strategy)]
-        return render(request, "ideas.html", no_autorefresh=True, watch_data=True, data=data, owned=service.owned_options(), file_path=service.settings.community.path, views=views, total=len(everything),
+        return render(request, "ideas.html", no_autorefresh=True, watch_data=True, nlv_usd=service.nlv_usd(), data=data, owned=service.owned_options(), file_path=service.settings.community.path, views=views, total=len(everything),
                       fit_names=service.fit_names(),
                       valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, strategy=strategy,
                       traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale(),
@@ -762,7 +762,7 @@ def create_app(
         tipo = tipo if tipo in ("spread", "put") else ""
         shown = [i for i in items if (not cumple or i["ok"]) and (not solo or i["wl"]) and (not tipo or i["row"].kind == tipo)]
         fits = service.radar_fits([i["row"] for i in shown])
-        return render(request, "tortuga.html", no_autorefresh=True, watch_data=True, data=data, items=shown, fits=fits,
+        return render(request, "tortuga.html", no_autorefresh=True, watch_data=True, nlv_usd=service.nlv_usd(), data=data, items=shown, fits=fits,
                       fit_names=service.fit_names(), total=len(items), passing=sum(1 for i in items if i["ok"]),
                       minimum=minimum, cumple=cumple, solo=solo, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
                       routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,

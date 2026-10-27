@@ -10,7 +10,7 @@ DTE, yield del periodo (en un spread, en su lugar, el retorno sobre riesgo del p
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping, Optional, Sequence
 
 from scanner_opciones.config.settings import ScannerPreset, StrategySettings
@@ -125,12 +125,19 @@ def profile_fits(view, specs: Sequence[tuple], default_ror: Optional[float] = No
     out: list[Optional[Fit]] = []
     for name, put, spr in specs:
         c = spr if spread else put
+        other = c is None                # el perfil no tiene ese instrumento: se compara con el juego del otro (descuento, DTE, delta, IV...)
+        if other:
+            c = put if spread else spr
         if c is None:
             out.append(None)
             continue
-        out.append(_fit(name, view, discount_min=c.strike_below_pct_min, dte_min=c.dte_min, dte_max=c.dte_max, yield_min=c.min_yield_pct,
-                        delta_min=c.min_abs_delta, delta_max=c.max_abs_delta, iv_rank_min=c.min_iv_rank, iv_pct_min=c.min_iv_percentile,
-                        price=(c.min_price, c.max_price), spread_min_ror=c.min_return_on_risk_pct if spread else default_ror))
+        fit = _fit(name, view, discount_min=c.strike_below_pct_min, dte_min=c.dte_min, dte_max=c.dte_max, yield_min=c.min_yield_pct,
+                   delta_min=c.min_abs_delta, delta_max=c.max_abs_delta, iv_rank_min=c.min_iv_rank, iv_pct_min=c.min_iv_percentile,
+                   price=(c.min_price, c.max_price), spread_min_ror=c.min_return_on_risk_pct if spread and not other else default_ror if spread else None)
+        if other:                        # el rendimiento no es comparable entre una put (sobre el strike) y un spread (sobre el riesgo)
+            fit = replace(fit, criteria=tuple(Criterion(k.label, None, "perfil de " + ("put" if spread else "spread") + ": no comparable")
+                                              if k.label in ("Yield", "Retorno/riesgo") else k for k in fit.criteria))
+        out.append(fit)
     return tuple(out)
 
 

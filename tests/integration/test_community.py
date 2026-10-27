@@ -204,7 +204,9 @@ def test_fits_compare_with_the_filters_saved_in_the_profiles(client_and_service,
     write(path, ideas_payload(contract))
     object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
     view = next(v for v in svc.community_ideas() if v.idea.ticker == "AAPL")
-    assert [f.name if f else None for f in view.fits] == [n if put else None for n, put, _ in svc.profile_specs()]
+    assert [f.name for f in view.fits] == names      # un perfil sin ese instrumento se compara con el otro juego (TastySpread con una put)
+    spread_only = next(f for f in view.fits if f.name == "TastySpread")
+    assert next(c for c in spread_only.criteria if c.label == "Yield").ok is None and "no comparable" in spread_only.criteria[2].text
     spec = next(s for s in svc.profile_specs() if s[1] is not None)
     fit = next(f for f in view.fits if f and f.name == spec[0])
     assert f"mín. {spec[1].strike_below_pct_min:g} %" in next(c.text for c in fit.criteria if c.label == "Descuento")
