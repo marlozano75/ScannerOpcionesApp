@@ -101,7 +101,7 @@
       title.textContent = a.dataset.ticker + ' · strike $' + Number(a.dataset.strike).toLocaleString('en-US') + (a.dataset.long ? ' / $' + Number(a.dataset.long).toLocaleString('en-US') : '');
       body.innerHTML = '<p class="muted">Cargando…</p>';
       if (!dlg.open) dlg.showModal();
-      fetch('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike) + (a.dataset.long ? '&long=' + encodeURIComponent(a.dataset.long) : ''))
+      fetch('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike) + (a.dataset.long ? '&long=' + encodeURIComponent(a.dataset.long) : '') + (a.dataset.expiry ? '&expiry=' + encodeURIComponent(a.dataset.expiry) : ''))
         .then(function (r) { return r.text(); })
         .then(function (html) { body.innerHTML = html; applyMa(); })
         .catch(function () { body.innerHTML = '<p class="muted">No se pudo cargar el gráfico.</p>'; });

@@ -24,6 +24,11 @@ def _usd(v: float) -> str:
     return f"${v:,.2f}"
 
 
+def _mon3(d: date) -> str:
+    """Vencimiento: mes de 3 letras y día («dic 18»)."""
+    return f"{_MONTHS[d.month - 1]} {d.day}"
+
+
 def _mon(d: date) -> str:
     return f"{_MONTHS[d.month - 1]} '{d.year % 100:02d}"
 
@@ -80,9 +85,10 @@ def _side_tags(tags: list[tuple[float, str, str, str]], x: float, top: float, bo
 
 
 def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: float, earnings: Optional[date] = None,
-                      long_strike: Optional[float] = None) -> str:
+                      long_strike: Optional[float] = None, expiry: Optional[date] = None) -> str:
     """Resumen + gráfico (fragmento HTML). Con menos de 2 cierres mensuales devuelve solo un aviso.
-    `long_strike`: strike de la put comprada si es un spread; se dibuja en azul (el vendido, `strike`, en rojo)."""
+    `long_strike`: strike de la put comprada si es un spread; se dibuja en azul (el vendido, `strike`, en rojo).
+    `expiry`: vencimiento del contrato; se escribe («dic 18») bajo el precio de cada strike en el eje."""
     if len(h.months) < 2:
         return '<p class="muted">Sin histórico de cierres suficiente para dibujar el gráfico.</p>'
     n = len(h.months)
@@ -148,6 +154,8 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
         tags.append((mp[-1][1], _usd(s[-1][1]), colour, f"sh-ma {key}"))
     g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{sy:.1f}" y2="{sy:.1f}" stroke="{RED}" stroke-width="1.6" stroke-dasharray="6 4"/>')
     g.append(f'<text x="{LEFT - 8}" y="{sy + 4:.1f}" text-anchor="end" font-size="11" font-weight="700" fill="{RED}">${strike:,.0f}</text>')
+    if expiry is not None:
+        g.append(f'<text x="{LEFT - 8}" y="{sy + 16:.1f}" text-anchor="end" font-size="10" fill="{RED}">{_mon3(expiry)}</text>')
     for (d, p), (x, y) in zip(h.months, pts):                          # puntos: rojo ≤ strike, amarillo cerca, azul resto
         colour = RED if p <= strike else (YELLOW if p <= strike * (1 + near_pct / 100) else BLUE)
         g.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.6" fill="{colour}"><title>{_mon(d)}: {_usd(p)}</title></circle>')
@@ -156,6 +164,8 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
         ly = px_y(long_strike)
         g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{ly:.1f}" y2="{ly:.1f}" stroke="{LONG}" stroke-width="1.6" stroke-dasharray="6 4"/>')
         g.append(f'<text x="{LEFT - 8}" y="{ly + 4:.1f}" text-anchor="end" font-size="11" font-weight="700" fill="{LONG}">${long_strike:,.0f}</text>')
+        if expiry is not None:
+            g.append(f'<text x="{LEFT - 8}" y="{ly + 16:.1f}" text-anchor="end" font-size="10" fill="{LONG}">{_mon3(expiry)}</text>')
         tags.append((ly, _usd(long_strike), LONG, ""))
     if h.touch:                                                        # último toque: aro naranja con su etiqueta
         d, p, days = h.touch

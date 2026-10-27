@@ -13,6 +13,7 @@ from markupsafe import Markup
 from scanner_opciones.config.settings import ManagementSettings
 from scanner_opciones.portfolio.exits import defaults as style_rules
 from scanner_opciones.portfolio.management import PutStatus
+from scanner_opciones.ui.charts import _mon3
 from scanner_opciones.ui.viz import _e, _scale, empty, nice_ticks
 
 W, H = 560, 250
@@ -66,10 +67,13 @@ def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatu
     px = lambda d: _scale((d - start).days, 0, span, LEFT, W - RIGHT)           # noqa: E731
 
     strikes: dict[tuple[float, str], list[str]] = {}
+    expiries: dict[tuple[float, str], set[date]] = {}
     for s in puts:
         strikes.setdefault((s.strike, "sold"), []).append(f"{s.contracts} × vencimiento {s.expiry:%d/%m}")
+        expiries.setdefault((s.strike, "sold"), set()).add(s.expiry)
         if s.long_strike is not None:
             strikes.setdefault((s.long_strike, "bought"), []).append(f"cobertura del spread {s.strike:g}/{s.long_strike:g}")
+            expiries.setdefault((s.long_strike, "bought"), set()).add(s.expiry)
     values = [p for _, p in bars] + [k for k, _ in strikes] + ([price] if price else [])
     lo, hi = min(values), max(values)
     pad = (hi - lo) * 0.10 or hi * 0.05 or 1.0
@@ -103,7 +107,9 @@ def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatu
         tip = f"{k:g}|{'Strike vendido' if kind == 'sold' else 'Put comprada'}|{'; '.join(notes)}"
         dash = ""
         out.append(f'<g tabindex="0" data-tip="{_e(tip)}"><line x1="{LEFT}" x2="{W - RIGHT}" y1="{y:.1f}" y2="{y:.1f}" stroke="{color}" stroke-width="1.6"{dash}/><line x1="{LEFT}" x2="{W - RIGHT}" y1="{y:.1f}" y2="{y:.1f}" stroke="transparent" stroke-width="10"/>'
-                   f'<text x="{LEFT + 4}" y="{y - 4:.1f}" font-size="11" font-weight="700" fill="{color}" stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(label)}</text></g>')
+                   f'<text x="{LEFT + 4}" y="{y - 4:.1f}" font-size="11" font-weight="700" fill="{color}" stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(label)}</text>'
+                   f'<text x="{LEFT + 4}" y="{y + 12:.1f}" font-size="10" fill="{color}" stroke="var(--panel)" stroke-width="3" paint-order="stroke">'
+                   f'{_e(" · ".join(_mon3(e) for e in sorted(expiries[(k, kind)])))}</text></g>')
 
     pts = [(px(d), py(p)) for d, p in bars]                                            # cierres diarios
     path = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)

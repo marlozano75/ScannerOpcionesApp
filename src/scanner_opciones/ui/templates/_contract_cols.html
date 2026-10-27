@@ -28,11 +28,11 @@
 {%- endmacro %}
 
 {% macro lead_cells(r, long=none) -%}{% set c = r.snapshot.contract %}{% set i = r.info -%}
-<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}"{% if long is not none %} data-long="{{ long }}"{% endif %} title="{{ tk_title(company_names, c.ticker) }}">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
+<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" data-expiry="{{ c.expiry }}"{% if long is not none %} data-long="{{ long }}"{% endif %} title="{{ tk_title(company_names, c.ticker) }}">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
 {%- endmacro %}
 
 {% macro mini_cell(r, long=none) -%}{% set c = r.snapshot.contract -%}
-<td class="mini"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}"{% if long is not none %} data-long="{{ long }}"{% endif %} title="Ver el gráfico grande"><img loading="lazy" width="80" height="24" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ c.strike }}{% if long is not none %}&amp;long={{ long }}{% endif %}"></a></td>
+<td class="mini"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" data-expiry="{{ c.expiry }}"{% if long is not none %} data-long="{{ long }}"{% endif %} title="Ver el gráfico grande"><img loading="lazy" width="80" height="24" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ c.strike }}{% if long is not none %}&amp;long={{ long }}{% endif %}"></a></td>
 {%- endmacro %}
 
 {% macro vol_cells(r, community={}) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
