@@ -587,7 +587,12 @@ def test_data_version_sube_al_refrescar_y_las_tablas_lo_vigilan(client_and_servi
     before = client.get("/data-version").json()["version"]
     assert f"var current = {before}" in client.get("/scanner?reset=1").text
     assert "/data-version" in client.get("/scanner?reset=1").text
-    assert "/data-version" not in client.get("/").text   # el panel no vigila los datos del scanner
+    for page in ("/", "/ideas", "/tortuga", "/watchlist"):     # todas las tablas vigilan los datos y se recargan solas
+        assert "/data-version" in client.get(page).text
+    assert "watchAccount = true" in client.get("/").text and "watchAccount = false" in client.get("/ideas").text
+    acc = client.get("/data-version").json()["account"]
+    svc.state.account_version += 1
+    assert client.get("/data-version").json()["account"] == acc + 1
     refresh(client)
     assert client.get("/data-version").json()["version"] > before
 

@@ -142,6 +142,7 @@ class AppState:
     activity: Optional[str] = None   # tarea en curso (se muestra en la interfaz)
     last_account_refresh: Optional[datetime] = None   # último refresco de cuenta, posiciones y VIX
     data_version: int = 0            # sube al terminar un refresco: las páginas abiertas lo consultan para recargarse
+    account_version: int = 0         # sube con cada refresco de cuenta, posiciones y VIX (el Panel lo vigila además de `data_version`)
     position_deltas: dict[str, float] = field(default_factory=dict)   # |delta| real (tastytrade) de cada put desnuda vendida de la cartera, por `put_key`
     position_deltas_at: Optional[datetime] = None                     # cuándo se cotizaron (aunque alguna no respondiera)
 
@@ -2356,6 +2357,7 @@ class AppService:
                 self._disconnected(exc)
                 return False
             self.state.last_account_refresh = self.now()
+            self.state.account_version += 1
             return True
 
     async def refresh_new_contracts(self) -> bool:

@@ -409,14 +409,16 @@
 })();
 </script>
 {% if watch_data %}<script>
-/* Recarga la tabla cuando termina un refresco (cambia data_version). Si has tocado el formulario
+/* Recarga la tabla cuando termina un refresco (cambia data_version; el Panel también vigila el refresco de cuenta,
+   `watch_account`). El servidor recalcula las condiciones con los precios nuevos; la posición de desplazamiento se
+   conserva (ver más arriba). Si has tocado el formulario
    no recarga (perderías lo escrito): muestra un aviso con enlace para recargar. */
 (function () {
-  var current = {{ state.data_version }}, dirty = false, notified = false;
+  var current = {{ state.data_version }}, account = {{ state.account_version }}, watchAccount = {{ 'true' if watch_account else 'false' }}, dirty = false, notified = false;
   document.addEventListener('input', function () { dirty = true; });
   function poll() {
     fetch('/data-version', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
-      if (d.version === current || d.busy) return;
+      if ((d.version === current && !(watchAccount && d.account !== account)) || d.busy) return;
       if (document.querySelector('dialog[open], #pos-overlay:not([hidden])')) return;     // con un gráfico abierto no se recarga: lo cerraría; se reintenta en 10 s
       if (!dirty) { location.reload(); return; }
       if (notified) return;
