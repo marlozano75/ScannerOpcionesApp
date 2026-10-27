@@ -466,5 +466,44 @@
     };
   })();
 </script>
+
+<script>
+  // Gráfico del strike: al pasar el ratón por la curva de precios se muestra el precio (y la fecha) del punto sobre el que estás
+  (function () {
+    const NS = 'http://www.w3.org/2000/svg';
+    function el(name, attrs) { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+    function clear(svg) { const g = svg.querySelector('.sh-hover'); if (g) g.remove(); }
+    document.addEventListener('mouseleave', function (e) { if (e.target.closest) { const s = e.target.closest('svg.sh-svg'); if (s) clear(s); } }, true);
+    document.addEventListener('mousemove', function (e) {
+      const svg = e.target.closest && e.target.closest('svg.sh-svg');
+      document.querySelectorAll('svg.sh-svg').forEach(function (s) { if (s !== svg) clear(s); });
+      if (!svg) return;
+      const curve = svg.querySelector('path.sh-curve');
+      if (!curve) return;
+      const m = svg.getScreenCTM(); if (!m) return;
+      const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+      const p = pt.matrixTransform(m.inverse());
+      const d = svg.dataset, left = +d.left, right = +d.right, top = +d.top, base = +d.base;
+      const len = curve.getTotalLength(), first = curve.getPointAtLength(0).x, last = curve.getPointAtLength(len).x;
+      if (p.x < first || p.x > last || p.y < top - 6 || p.y > base + 6) { clear(svg); return; }
+      let a = 0, b = len;                                   // x crece a lo largo de la curva: búsqueda binaria de la longitud con ese x
+      for (let i = 0; i < 24; i++) { const mid = (a + b) / 2; if (curve.getPointAtLength(mid).x < p.x) a = mid; else b = mid; }
+      const q = curve.getPointAtLength((a + b) / 2);
+      const price = +d.hi - (q.y - top) / (base - top) * (+d.hi - +d.lo);
+      const ord = +d.t0 + (q.x - left) / (right - left) * (+d.t1 - +d.t0);
+      const day = new Date((Math.round(ord) - 719163) * 86400000).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' });
+      const text = '$' + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' · ' + day;
+      clear(svg);
+      const w = 6.4 * text.length + 14, vb = svg.viewBox.baseVal;
+      const x0 = Math.min(Math.max(q.x - w / 2, 2), vb.width - w - 2), y0 = q.y - 30 < top - 12 ? q.y + 14 : q.y - 30;
+      const g = el('g', { 'class': 'sh-hover', 'pointer-events': 'none' });
+      g.appendChild(el('line', { x1: q.x, x2: q.x, y1: top, y2: base, stroke: 'currentColor', 'stroke-width': 1, opacity: .35 }));
+      g.appendChild(el('circle', { cx: q.x, cy: q.y, r: 5, fill: '#2f6fd1', stroke: '#fff', 'stroke-width': 2 }));
+      g.appendChild(el('rect', { x: x0, y: y0, width: w, height: 18, rx: 9, fill: '#1f2d4a' }));
+      const t = el('text', { x: x0 + w / 2, y: y0 + 12.5, 'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700, fill: '#fff' });
+      t.textContent = text; g.appendChild(t); svg.appendChild(g);
+    });
+  })();
+</script>
 </body>
 </html>

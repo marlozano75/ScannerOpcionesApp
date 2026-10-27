@@ -147,7 +147,7 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
         g.append(f'<text x="{pts[i][0]:.1f}" y="{H - 10}" text-anchor="middle" font-size="11" fill="currentColor" opacity=".6">{_mon(h.months[i][0])}</text>')
     line = _smooth(curve)
     g.append(f'<path d="{line} L{curve[-1][0]:.1f},{base_y} L{curve[0][0]:.1f},{base_y} Z" fill="{BLUE}" opacity=".10"/>')
-    g.append(f'<path d="{line}" fill="none" stroke="{BLUE}" stroke-width="2.2"/>')
+    g.append(f'<path class="sh-curve" d="{line}" fill="none" stroke="{BLUE}" stroke-width="2.2"/>')
     for label, key, colour, s in mas:                                  # medias móviles diarias (activables desde la leyenda)
         mp = [(px_x(d), px_y(v)) for d, v in s]
         g.append(f'<g class="sh-ma {key}"><path d="{_smooth(mp)}" fill="none" stroke="{colour}" stroke-width="1.4" opacity=".9"/></g>')
@@ -195,8 +195,9 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
               + (f'<span style="--c:{ORANGE}" class="dash">Resultados {earnings.day} {_MONTHS[earnings.month - 1]}</span>' if earnings is not None else "")
               + "".join(f'<label class="sh-tog" style="--c:{c}"><input type="checkbox" data-ma="{k}" checked> {lb}</label>' for lb, k, c, _ in mas)
               + '</div>')
+    scale = f'data-lo="{lo:.4f}" data-hi="{hi:.4f}" data-top="{TOP}" data-base="{base_y}" data-t0="{t0}" data-t1="{t1}" data-left="{LEFT}" data-right="{W - RIGHT}"'
     svg = (f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="Cierres mensuales de {escape(ticker)} frente al strike" '
-           f'class="sh-svg">{"".join(g)}</svg>')
+           f'class="sh-svg" {scale}>{"".join(g)}</svg>')
     return f'<div class="sh-wrap">{summary}{touch_line}{ma_line}{legend}{svg}</div>'
 
 
