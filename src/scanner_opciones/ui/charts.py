@@ -56,10 +56,18 @@ def _series(h: StrikeHistory) -> list[tuple[date, float]]:
 
 
 def _pill(x: float, y: float, text: str, fill: str, anchor: str = "middle") -> str:
-    w = 6.4 * len(text) + 12
+    """Globo con el texto; un salto de línea en `text` lo convierte en un globo de dos líneas (valor y vencimiento)."""
+    lines = text.split("\n")
+    w = 6.4 * max(len(t) for t in lines) + 12
     left = x - w / 2 if anchor == "middle" else (x - w if anchor == "end" else x)
-    return (f'<rect x="{left:.1f}" y="{y - 8:.1f}" width="{w:.1f}" height="16" rx="8" fill="{fill}"/>'
-            f'<text x="{left + w / 2:.1f}" y="{y + 3.5:.1f}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">{escape(text)}</text>')
+    h = 16 if len(lines) == 1 else 28
+    out = f'<rect x="{left:.1f}" y="{y - h / 2:.1f}" width="{w:.1f}" height="{h}" rx="8" fill="{fill}"/>'
+    for i, t in enumerate(lines):
+        ty = y + 3.5 if len(lines) == 1 else y - 3.5 + 12 * i
+        size, weight = ("10.5", "700") if i == 0 else ("9.5", "400")
+        out += (f'<text x="{left + w / 2:.1f}" y="{ty:.1f}" text-anchor="middle" font-size="{size}" font-weight="{weight}" '
+                f'fill="#fff">{escape(t)}</text>')
+    return out
 
 
 def _side_tags(tags: list[tuple[float, str, str, str]], x: float, top: float, bottom: float) -> str:
@@ -68,13 +76,14 @@ def _side_tags(tags: list[tuple[float, str, str, str]], x: float, top: float, bo
     gap = 17.0
     tags = sorted(tags, key=lambda t: t[0])
     ys = [t[0] for t in tags]
+    gaps = [gap if "\n" not in t[1] else 29.0 for t in tags]        # un globo de dos líneas ocupa más
     for i in range(1, len(ys)):
-        ys[i] = max(ys[i], ys[i - 1] + gap)
+        ys[i] = max(ys[i], ys[i - 1] + max(gap, (gaps[i - 1] + gaps[i]) / 2))
     over = ys[-1] - bottom if ys else 0
     if over > 0:
         ys = [y - over for y in ys]
         for i in range(len(ys) - 2, -1, -1):
-            ys[i] = min(ys[i], ys[i + 1] - gap)
+            ys[i] = min(ys[i], ys[i + 1] - max(gap, (gaps[i] + gaps[i + 1]) / 2))
     out = []
     for (y0, text, colour, cls), y in zip(tags, ys):
         y = max(y, top)
@@ -88,7 +97,7 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
                       long_strike: Optional[float] = None, expiry: Optional[date] = None) -> str:
     """Resumen + gráfico (fragmento HTML). Con menos de 2 cierres mensuales devuelve solo un aviso.
     `long_strike`: strike de la put comprada si es un spread; se dibuja en azul (el vendido, `strike`, en rojo).
-    `expiry`: vencimiento del contrato; se escribe («dic 18») bajo el precio de cada strike en el eje."""
+    `expiry`: vencimiento del contrato; se escribe («dic 18») bajo el precio de cada strike, dentro de su globo del margen derecho."""
     if len(h.months) < 2:
         return '<p class="muted">Sin histórico de cierres suficiente para dibujar el gráfico.</p>'
     n = len(h.months)
@@ -154,19 +163,15 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
         tags.append((mp[-1][1], _usd(s[-1][1]), colour, f"sh-ma {key}"))
     g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{sy:.1f}" y2="{sy:.1f}" stroke="{RED}" stroke-width="1.6" stroke-dasharray="6 4"/>')
     g.append(f'<text x="{LEFT - 8}" y="{sy + 4:.1f}" text-anchor="end" font-size="11" font-weight="700" fill="{RED}">${strike:,.0f}</text>')
-    if expiry is not None:
-        g.append(f'<text x="{LEFT - 8}" y="{sy + 16:.1f}" text-anchor="end" font-size="10" fill="{RED}">{_mon3(expiry)}</text>')
     for (d, p), (x, y) in zip(h.months, pts):                          # puntos: rojo ≤ strike, amarillo cerca, azul resto
         colour = RED if p <= strike else (YELLOW if p <= strike * (1 + near_pct / 100) else BLUE)
         g.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.6" fill="{colour}"><title>{_mon(d)}: {_usd(p)}</title></circle>')
-    tags.append((sy, _usd(strike), RED, ""))
+    tags.append((sy, _usd(strike) + (f"\n{_mon3(expiry)}" if expiry is not None else ""), RED, ""))
     if long_strike is not None:                                        # put comprada del spread, en azul
         ly = px_y(long_strike)
         g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{ly:.1f}" y2="{ly:.1f}" stroke="{LONG}" stroke-width="1.6" stroke-dasharray="6 4"/>')
         g.append(f'<text x="{LEFT - 8}" y="{ly + 4:.1f}" text-anchor="end" font-size="11" font-weight="700" fill="{LONG}">${long_strike:,.0f}</text>')
-        if expiry is not None:
-            g.append(f'<text x="{LEFT - 8}" y="{ly + 16:.1f}" text-anchor="end" font-size="10" fill="{LONG}">{_mon3(expiry)}</text>')
-        tags.append((ly, _usd(long_strike), LONG, ""))
+        tags.append((ly, _usd(long_strike) + (f"\n{_mon3(expiry)}" if expiry is not None else ""), LONG, ""))
     if h.touch:                                                        # último toque: aro naranja con su etiqueta
         d, p, days = h.touch
         if d.toordinal() >= t0:
