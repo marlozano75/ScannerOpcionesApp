@@ -254,6 +254,7 @@ ScannerOpcionesApp/
 - **Spread %** = `(ask − bid) / mid × 100`, con `mid = (ask+bid)/2`. (Q-06: ¿sobre mid o sobre ask?)
 - **Yield (gross premium yield)** [REQ: "prima por acción dividido entre el precio del strike"] = `prima / strike`. Prima = `mid = (bid+ask)/2` [Q-06 resuelta].
 - **Yield anualizado** = `yield × 365 / DTE` (lineal, no compuesto). (Q-06)
+- **Precio neto** = `strike − precio de venta de referencia` (por acción, si te asignan) y **Dist. neto** = `(precio actual − precio neto) / precio actual` en %; columnas de la tabla de puts del Scanner.
 - **IV Rank / IV Percentile:** los calcula tastytrade (rango de thinkorswim); la app solo los convierte de fracción a %.
 - **IV Percentile** = `% de días de la ventana con IV < IV_actual`.
 - **Cushion** = `ExcessLiquidity / NetLiquidation` (definición IBKR; se puede leer directamente el tag `Cushion` del account summary).
