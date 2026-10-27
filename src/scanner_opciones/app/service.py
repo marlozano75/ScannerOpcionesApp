@@ -1443,13 +1443,22 @@ class AppService:
         held = {p.ticker.replace(" ", "-") for p in self.state.positions}
         return sync_plan(self.ticker_lists().keys(), self.watchlist.list(), held | set(self.settings.instruments))
 
+    def ensure_instruments(self) -> None:
+        """Añade a la Watchlist los instrumentos propios (ESTX50...) que falten: no salen de ninguna fuente del Universo (tastytrade no tiene
+        sus opciones) y sin esto no llegan nunca al Scanner. La actualización diaria de los nuevos va en segundo plano."""
+        missing = [t for t in self.settings.instruments if t not in set(self.watchlist.list())]
+        if missing:
+            self.launch(self.add_watchlist(parse_tokens(missing), background=True))
+
     def sync_watchlist_in_background(self) -> None:
-        """Si el usuario activó la sincronización, la lanza en segundo plano (una a la vez; si llega otra petición mientras corre, repite)."""
-        if self.watchlist_sync_mode() != "on":
-            return
+        """Si el usuario activó la sincronización, la lanza en segundo plano (una a la vez; si llega otra petición mientras corre, repite).
+        Los instrumentos propios (ESTX50...) se añaden a la Watchlist en cualquier caso: ninguna fuente los lista ni tastytrade tiene sus opciones."""
         try:
             asyncio.get_running_loop()
         except RuntimeError:
+            return
+        self.ensure_instruments()
+        if self.watchlist_sync_mode() != "on":
             return
         if self._wl_sync_running:
             self._wl_sync_again = True

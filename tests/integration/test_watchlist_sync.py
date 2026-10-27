@@ -1,5 +1,7 @@
 """La Watchlist sigue a las fuentes del Universo con opciones: resumen previo la primera vez, luego automática."""
 import json
+
+import pytest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
@@ -97,3 +99,12 @@ async def test_a_ticker_without_source_is_only_removed_after_the_grace_days(tmp_
     svc.sync_watchlist_in_background()
     await svc.wait_idle()
     assert svc.watchlist.list() == ["KO"]
+
+
+@pytest.mark.instruments
+async def test_own_instruments_are_added_to_the_watchlist_even_without_a_source(tmp_path):
+    svc = make(tmp_path, {"A": ["KO"]}, watchlist=["KO"])
+    assert svc.watchlist_sync_mode() == "" and "ESTX50" not in svc.watchlist.list()
+    svc.sync_watchlist_in_background()
+    await svc.wait_idle()
+    assert "ESTX50" in svc.watchlist.list()

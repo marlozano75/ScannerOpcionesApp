@@ -32,7 +32,7 @@ where = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["src"]
-markers = ["manual: requiere TWS/IB Gateway en ejecucion (excluido por defecto)", "put_floor: activa la calidad minima de las puts (se desactiva en los demas tests)"]
+markers = ["manual: requiere TWS/IB Gateway en ejecucion (excluido por defecto)", "put_floor: activa la calidad minima de las puts (se desactiva en los demas tests)", "instruments: activa el alta automatica de los instrumentos propios (ESTX50) en la Watchlist"]
 addopts = "-m \"not manual\""
 
 [tool.setuptools.package-data]
