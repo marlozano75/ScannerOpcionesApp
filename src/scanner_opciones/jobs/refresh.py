@@ -160,7 +160,7 @@ class RefreshJob:
                         continue
                     previous = prev.get(self._snap_key(contract))
                     snap = self._build_snapshot(contract, quote, infos.get(contract.ticker), previous)
-                    if snap.updated_at != self.now():
+                    if previous is not None and snap.updated_at == previous.updated_at:   # se conservó la cotización guardada
                         report.quotes_kept += 1
                     built.append((snap, previous))
                 # los what-if de TWS (~0,25 s cada uno) van en paralelo: pedirlos de uno en uno eran 500-900 s por ciclo
