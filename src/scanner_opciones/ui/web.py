@@ -1642,7 +1642,7 @@ def create_app(
         return Response(svg, media_type="image/svg+xml")
 
     @app.get("/chart/strike", response_class=HTMLResponse)
-    async def strike_chart(ticker: str, strike: float):
+    async def strike_chart(ticker: str, strike: float, long: Optional[float] = None):
         """Gráfico de cierres mensuales del ticker frente al strike, con los días desde el último toque
         (fragmento HTML que el Scanner muestra en una ventana)."""
         closes = service.bars.closes(ticker)
@@ -1656,15 +1656,15 @@ def create_app(
         box = ('<div class="banner warn"><b>⚠ Presentaciones recientes ante la SEC</b><ul style="margin:4px 0 0 18px;padding:0">'
                + "".join(f"<li>{escape(a.text)}</li>" for a in alerts) + "</ul></div>") if alerts else ""
         return HTMLResponse(service.company_card(ticker) + box
-                            + strike_chart_html(history, ticker, strike, tcfg.chart_near_pct, service.next_earnings(ticker)))
+                            + strike_chart_html(history, ticker, strike, tcfg.chart_near_pct, service.next_earnings(ticker), long))
 
     @app.get("/chart/mini.svg")
-    async def strike_mini(ticker: str, strike: float):
+    async def strike_mini(ticker: str, strike: float, long: Optional[float] = None):
         """Miniatura del gráfico del strike para las filas del Scanner (se pide al hacerse visible la fila)."""
         tcfg = service.settings.scanner.technical
         closes = service.bars.closes(ticker)
         history = strike_history(sorted(closes.items()), strike, service.now().date(), tcfg.chart_months)
-        return Response(strike_mini_svg(history, strike, tcfg.chart_near_pct), media_type="image/svg+xml",
+        return Response(strike_mini_svg(history, strike, tcfg.chart_near_pct, long), media_type="image/svg+xml",
                         headers={"Cache-Control": "max-age=300"})
 
     @app.get("/data-version")

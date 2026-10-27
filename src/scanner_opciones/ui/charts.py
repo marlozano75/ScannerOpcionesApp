@@ -17,6 +17,7 @@ _MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct",
 BLUE, RED, YELLOW, ORANGE = "#2f6fd1", "#d64545", "#d9a400", "#e87a1e"
 MAX_EARNINGS_AHEAD = 120          # días: unos resultados más lejanos no alargan el eje
 MA50, MA200 = "#8a5cd0", "#1f9d8a"
+LONG = "#2f7de1"                  # put comprada de un spread (la vendida va en rojo)
 
 
 def _usd(v: float) -> str:
@@ -78,8 +79,10 @@ def _side_tags(tags: list[tuple[float, str, str, str]], x: float, top: float, bo
     return "".join(out)
 
 
-def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: float, earnings: Optional[date] = None) -> str:
-    """Resumen + gráfico (fragmento HTML). Con menos de 2 cierres mensuales devuelve solo un aviso."""
+def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: float, earnings: Optional[date] = None,
+                      long_strike: Optional[float] = None) -> str:
+    """Resumen + gráfico (fragmento HTML). Con menos de 2 cierres mensuales devuelve solo un aviso.
+    `long_strike`: strike de la put comprada si es un spread; se dibuja en azul (el vendido, `strike`, en rojo)."""
     if len(h.months) < 2:
         return '<p class="muted">Sin histórico de cierres suficiente para dibujar el gráfico.</p>'
     n = len(h.months)
@@ -107,6 +110,8 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     # escalas
     lo = min(strike, min(p for _, p in h.months), h.touch[1] if h.touch else strike)
     hi = max(strike, max(p for _, p in h.months))
+    if long_strike is not None:
+        lo, hi = min(lo, long_strike), max(hi, long_strike)
     for _, _, _, s in mas:
         lo, hi = min(lo, min(v for _, v in s)), max(hi, max(v for _, v in s))
     pad = (hi - lo) * 0.1 or hi * 0.05
@@ -147,6 +152,11 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
         colour = RED if p <= strike else (YELLOW if p <= strike * (1 + near_pct / 100) else BLUE)
         g.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.6" fill="{colour}"><title>{_mon(d)}: {_usd(p)}</title></circle>')
     tags.append((sy, _usd(strike), RED, ""))
+    if long_strike is not None:                                        # put comprada del spread, en azul
+        ly = px_y(long_strike)
+        g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{ly:.1f}" y2="{ly:.1f}" stroke="{LONG}" stroke-width="1.6" stroke-dasharray="6 4"/>')
+        g.append(f'<text x="{LEFT - 8}" y="{ly + 4:.1f}" text-anchor="end" font-size="11" font-weight="700" fill="{LONG}">${long_strike:,.0f}</text>')
+        tags.append((ly, _usd(long_strike), LONG, ""))
     if h.touch:                                                        # último toque: aro naranja con su etiqueta
         d, p, days = h.touch
         if d.toordinal() >= t0:
@@ -167,8 +177,10 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     tags.append((pts[-1][1], _usd(current), BLUE, ""))
     g.append(_side_tags(tags, W - RIGHT + 12, TOP, base_y))
 
-    legend = (f'<div class="sh-legend"><span style="--c:{BLUE}">Cierre mensual (actual)</span><span style="--c:{RED}" class="dash">Strike {_usd(strike)}</span>'
-              f'<span style="--c:{YELLOW}">A menos de {near_pct:g}% del strike</span><span style="--c:{RED}">En o bajo el strike</span>'
+    sold_label = "Strike vendido" if long_strike is not None else "Strike"
+    legend = (f'<div class="sh-legend"><span style="--c:{BLUE}">Cierre mensual (actual)</span><span style="--c:{RED}" class="dash">{sold_label} {_usd(strike)}</span>'
+              + (f'<span style="--c:{LONG}" class="dash">Comprada {_usd(long_strike)}</span>' if long_strike is not None else "")
+              + f'<span style="--c:{YELLOW}">A menos de {near_pct:g}% del strike</span><span style="--c:{RED}">En o bajo el strike</span>'
               f'<span style="--c:{ORANGE}" class="ring">Último toque (cierre diario)</span>'
               + (f'<span style="--c:{ORANGE}" class="dash">Resultados {earnings.day} {_MONTHS[earnings.month - 1]}</span>' if earnings is not None else "")
               + "".join(f'<label class="sh-tog" style="--c:{c}"><input type="checkbox" data-ma="{k}" checked> {lb}</label>' for lb, k, c, _ in mas)
@@ -181,7 +193,7 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
 MW, MH = 110, 30
 
 
-def strike_mini_svg(h: StrikeHistory, strike: float, near_pct: float) -> str:
+def strike_mini_svg(h: StrikeHistory, strike: float, near_pct: float, long_strike: Optional[float] = None) -> str:
     """Miniatura (imagen SVG independiente, sin `currentColor`) del gráfico del strike para cada fila de la tabla:
     curva de cierres mensuales, strike punteado, último punto (con el color de su cierre) y aro naranja del último toque."""
     head = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {MW} {MH}" width="{MW}" height="{MH}">'
@@ -189,6 +201,8 @@ def strike_mini_svg(h: StrikeHistory, strike: float, near_pct: float) -> str:
         return head + f'<text x="{MW / 2}" y="{MH / 2 + 4}" text-anchor="middle" font-size="11" fill="#8b94a3">—</text></svg>'
     lo = min(strike, min(p for _, p in h.months), h.touch[1] if h.touch else strike)
     hi = max(strike, max(p for _, p in h.months))
+    if long_strike is not None:
+        lo, hi = min(lo, long_strike), max(hi, long_strike)
     pad = (hi - lo) * 0.12 or hi * 0.05
     lo, hi = lo - pad, hi + pad
     t0 = h.months[0][0].toordinal()
@@ -204,6 +218,8 @@ def strike_mini_svg(h: StrikeHistory, strike: float, near_pct: float) -> str:
              f'<path d="{_smooth(curve)}" fill="none" stroke="{BLUE}" stroke-width="1.5"/>',
              f'<line x1="2" x2="{MW - 2}" y1="{sy:.1f}" y2="{sy:.1f}" stroke="{RED}" stroke-width="1" stroke-dasharray="3 2"/>',
              f'<circle cx="{pts[-1][0]:.1f}" cy="{pts[-1][1]:.1f}" r="2.6" fill="{colour}"/>']
+    if long_strike is not None:
+        parts.insert(2, f'<line x1="2" x2="{MW - 2}" y1="{y(long_strike):.1f}" y2="{y(long_strike):.1f}" stroke="{LONG}" stroke-width="1" stroke-dasharray="3 2"/>')
     if h.touch and h.touch[0].toordinal() >= t0:
         parts.append(f'<circle cx="{x(h.touch[0]):.1f}" cy="{y(h.touch[1]):.1f}" r="3.6" fill="none" stroke="{ORANGE}" stroke-width="1.4"/>')
     return head + "".join(parts) + "</svg>"

@@ -19,7 +19,7 @@ W, H = 560, 250
 LEFT, RIGHT, TOP, BOTTOM = 46, 16, 52, 28      # TOP deja sitio a 4 filas de etiquetas de fechas
 FUTURE_DAYS = 60            # hasta dónde se dibuja el futuro; un vencimiento más lejano se marca con una flecha en el borde derecho
 EARNINGS = "#e87a1e"
-SOLD, BOUGHT, EXPIRY, REVIEW = "var(--red)", "var(--grey)", "var(--ink)", "var(--amber)"
+SOLD, BOUGHT, EXPIRY, REVIEW = "var(--red)", "#2f7de1", "var(--ink)", "var(--amber)"
 
 
 @dataclass(frozen=True)
@@ -97,11 +97,11 @@ def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatu
         if x1 > x0:
             out.append(f'<rect x="{x0:.1f}" y="{TOP}" width="{x1 - x0:.1f}" height="{H - BOTTOM - TOP}" fill="{REVIEW}" opacity=".12"/>')
 
-    for (k, kind), notes in sorted(strikes.items()):                                   # strikes: vendido (rojo) y comprado (gris)
+    for (k, kind), notes in sorted(strikes.items()):                                   # strikes: vendido (rojo) y comprado (azul)
         y, color = py(k), SOLD if kind == "sold" else BOUGHT
         label = f"strike {k:g}" if kind == "sold" else f"comprada {k:g}"
         tip = f"{k:g}|{'Strike vendido' if kind == 'sold' else 'Put comprada'}|{'; '.join(notes)}"
-        dash = "" if kind == "sold" else ' stroke-dasharray="5 4"'
+        dash = ""
         out.append(f'<g tabindex="0" data-tip="{_e(tip)}"><line x1="{LEFT}" x2="{W - RIGHT}" y1="{y:.1f}" y2="{y:.1f}" stroke="{color}" stroke-width="1.6"{dash}/><line x1="{LEFT}" x2="{W - RIGHT}" y1="{y:.1f}" y2="{y:.1f}" stroke="transparent" stroke-width="10"/>'
                    f'<text x="{LEFT + 4}" y="{y - 4:.1f}" font-size="11" font-weight="700" fill="{color}" stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(label)}</text></g>')
 
@@ -183,7 +183,7 @@ def position_mini(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatus
     for k in sorted({s.strike for s in puts}):
         out.append(f'<line x1="{pad}" x2="{w - pad}" y1="{py(k):.1f}" y2="{py(k):.1f}" stroke="{SOLD}" stroke-width="1"/>')
     for k in sorted({s.long_strike for s in puts if s.long_strike is not None}):
-        out.append(f'<line x1="{pad}" x2="{w - pad}" y1="{py(k):.1f}" y2="{py(k):.1f}" stroke="{BOUGHT}" stroke-width="1" stroke-dasharray="3 2"/>')
+        out.append(f'<line x1="{pad}" x2="{w - pad}" y1="{py(k):.1f}" y2="{py(k):.1f}" stroke="{BOUGHT}" stroke-width="1"/>')
     out.append('<path d="M' + " L".join(f"{px(d):.1f},{py(p):.1f}" for d, p in bars) + '" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linejoin="round"/>')
     for exp in sorted({s.expiry for s in puts}):
         x = px(min(exp, end))
