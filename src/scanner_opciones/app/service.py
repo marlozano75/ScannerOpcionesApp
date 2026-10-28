@@ -2446,7 +2446,7 @@ class AppService:
             self.state.risk = build_risk_status(self.state.account, self.settings.risk.cushion_thresholds)
             self.state.errors.pop("portfolio", None)
             self.meta.set(PORTFOLIO_CACHE, portfolio_cache.dump(
-                self.settings.ibkr.mode.value, self.state.account, self.state.positions))
+                self.settings.ibkr.mode.value, self.state.account, self.state.positions, self.meta.get(PORTFOLIO_CACHE)))
         except BrokerDisconnectedError:
             raise
         except BrokerError as exc:

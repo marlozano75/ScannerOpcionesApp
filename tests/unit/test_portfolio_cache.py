@@ -25,3 +25,21 @@ def test_otro_modo_o_dañado_no_se_usa():
     assert portfolio_cache.load(raw, "live") == (None, [])
     assert portfolio_cache.load("{no json", "paper") == (None, [])
     assert portfolio_cache.load(None, "paper") == (None, [])
+
+
+def test_cada_modo_conserva_su_cache():
+    account, positions = _data()
+    raw = portfolio_cache.dump("paper", account, positions)
+    raw = portfolio_cache.dump("live", account, positions[:1], raw)
+    assert portfolio_cache.load(raw, "paper") == (account, positions)
+    assert portfolio_cache.load(raw, "live") == (account, positions[:1])
+
+
+def test_formato_antiguo_sigue_valiendo():
+    import json
+    account, positions = _data()
+    new = json.loads(portfolio_cache.dump("paper", account, positions))["modes"]["paper"]
+    old = json.dumps({"mode": "paper", **new})
+    assert portfolio_cache.load(old, "paper") == (account, positions)
+    raw = portfolio_cache.dump("live", account, positions[:1], old)
+    assert portfolio_cache.load(raw, "paper") == (account, positions)

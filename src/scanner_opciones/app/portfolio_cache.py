@@ -11,26 +11,39 @@ from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import AccountSummary, OptionContract, Position
 
 
-def dump(mode: str, account: Optional[AccountSummary], positions: list[Position]) -> str:
+def _modes(raw: Optional[str]) -> dict:
+    """Entradas guardadas por modo de cuenta; entiende también el formato antiguo (un solo modo en la raíz)."""
+    try:
+        data = json.loads(raw) if raw else {}
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    if "modes" in data:
+        return data["modes"] if isinstance(data["modes"], dict) else {}
+    if data.get("mode"):
+        return {data["mode"]: {"account": data.get("account"), "positions": data.get("positions", [])}}
+    return {}
+
+
+def dump(mode: str, account: Optional[AccountSummary], positions: list[Position], previous: Optional[str] = None) -> str:
+    """JSON con la cuenta y posiciones de `mode`; conserva las de los demás modos que haya en `previous`."""
     def default(o):
         if isinstance(o, (date, datetime)):
             return o.isoformat()
         if isinstance(o, OptionRight):
             return o.value
         raise TypeError(type(o))
-    return json.dumps(
-        {"mode": mode, "account": asdict(account) if account else None, "positions": [asdict(p) for p in positions]},
-        default=default,
-    )
+    modes = _modes(previous)
+    modes[mode] = {"account": asdict(account) if account else None, "positions": [asdict(p) for p in positions]}
+    return json.dumps({"modes": modes}, default=default)
 
 
 def load(raw: Optional[str], mode: str) -> tuple[Optional[AccountSummary], list[Position]]:
     """(cuenta, posiciones) guardadas para `mode`; vacío si no hay nada, no es de ese modo o está dañado."""
-    if not raw:
-        return None, []
     try:
-        data = json.loads(raw)
-        if data.get("mode") != mode:
+        data = _modes(raw).get(mode)
+        if not data:
             return None, []
         acc = data.get("account")
         account = None
