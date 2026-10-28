@@ -24,7 +24,8 @@
   </div>
   <p class="muted" style="margin:10px 0 0">Las marcas de cada medidor son los umbrales: &gt; {{ risk_cfg.normal_above|round|int }}% Normal · {{ risk_cfg.concern_above|round|int }}–{{ risk_cfg.normal_above|round|int }}% Preocupación · ≤ {{ risk_cfg.concern_above|round|int }}% Riesgo alto.
     Net Liquidation: {{ state.account.net_liquidation|money }}.
-    {% if state.risk.updated_at %}Actualizado {{ state.risk.updated_at.strftime('%H:%M:%S') }}.{% endif %}</p>
+    {% if state.risk.updated_at %}Actualizado {{ state.risk.updated_at.strftime('%d/%m %H:%M:%S' if not state.connected else '%H:%M:%S') }}.{% endif %}</p>
+  {% if not state.connected %}<p class="banner info">Sin conexión con TWS: se muestran la cuenta y las posiciones guardadas de la última lectura{% if state.risk.updated_at %} ({{ state.risk.updated_at.strftime('%d/%m %H:%M') }}){% endif %}. Se actualizarán solas al conectar.</p>{% endif %}
   {% else %}<p class="muted">Sin datos de cuenta (¿TWS conectado?).</p>{% endif %}
 </div>
 
