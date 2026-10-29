@@ -9,6 +9,28 @@
   </div>
 {% endmacro %}
 
+<div class="card" id="cartera">
+  <h2>Estado de la cartera</h2>
+  {% if status.nlv is not none %}
+  <div class="grid">
+    <div class="metric"><div class="label">Net Liquidation (NLV)</div>
+      <div class="value">{{ status.nlv|money }} {{ status.currency }}</div>
+      <div class="muted">{{ status.positions }} posición{{ '' if status.positions == 1 else 'es' }}{% if status.stock_value %} · acciones {{ status.stock_value|money }} ${% endif %}</div></div>
+    <div class="metric"><div class="label" title="Cambio del día de la cuenta según IBKR (reqPnL), en la moneda base. El porcentaje es sobre el NLV de ayer (NLV − cambio).">Cambio diario</div>
+      {% if status.daily_pnl is not none %}<div class="value pnl {{ 'neg' if status.daily_pnl < 0 else 'pos' }}">{{ status.daily_pnl|signed }} {{ status.currency }}</div>
+      <div class="muted pnl {{ 'neg' if status.daily_pnl < 0 else 'pos' }}">{{ (status.daily_pct|signed(2) ~ ' %') if status.daily_pct is not none else '—' }}</div>
+      {% else %}<div class="value">—</div><div class="muted">Sin dato de IBKR (aparece al conectar TWS)</div>{% endif %}</div>
+    <div class="metric"><div class="label" title="Ganancia o pérdida latente de toda la cuenta según IBKR, en la moneda base">P&amp;L latente</div>
+      {% if status.unrealized_pnl is not none %}<div class="value pnl {{ 'neg' if status.unrealized_pnl < 0 else 'pos' }}">{{ status.unrealized_pnl|signed }} {{ status.currency }}</div>
+      {% else %}<div class="value">—</div>{% endif %}
+      {% if status.stock_pnl is not none %}<div class="muted">acciones {{ status.stock_pnl|signed }} $</div>{% endif %}</div>
+    <div class="metric"><div class="label" title="Prima de todas las opciones vendidas (puts, spreads y calls): lo cobrado y la parte que ya es beneficio (cobrada − coste de recompra). Importes en USD.">Prima capturada</div>
+      <div class="value">{{ status.captured|signed }} $</div>
+      <div class="muted">de {{ status.premium|money }} $ cobrados{% if status.captured_pct is not none %} · {{ status.captured_pct|pct(0) }}{% endif %}</div></div>
+  </div>
+  {% else %}<p class="muted">Sin datos de cuenta (¿TWS conectado?).</p>{% endif %}
+</div>
+
 <div class="card">
   <h2>Riesgo por apalancamiento (Reg T)</h2>
   {% if state.risk %}
@@ -33,16 +55,18 @@
   <h2>Gestión de puts vendidas{% if mgmt.attention %} <span class="muted" style="font-weight:400">· {{ mgmt.attention }} aviso{{ '' if mgmt.attention == 1 else 's' }} importante{{ '' if mgmt.attention == 1 else 's' }}</span>{% endif %}</h2>
   {% if mgmt.risk_pct is not none %}<p class="banner {{ 'warn' if mgmt.risk_level else 'info' }}" title="Pérdida máxima de los spreads (ancho − crédito) + capital de asignación de las puts desnudas (strike × multiplicador), sobre el NLV. El margen de IBKR es un dato distinto.">Riesgo total abierto: <b>{{ mgmt.total_risk|num }} $</b> = {{ mgmt.risk_pct|pct }} del NLV{% if mgmt.risk_level %} · supera el {{ mgmt_cfg.max_total_risk_pct|round|int }} %: reduce tamaño o cierra posiciones{% endif %}</p>{% endif %}
   {% if mgmt.margin_total %}<p class="banner info" title="Suma del margen conocido de las puts vendidas (spreads: pérdida máxima; puts desnudas: margen what-if guardado). No es el margen real de IBKR.">Margen comprometido en puts: <b>{{ mgmt.margin_total|num(0) }} $</b>{% if mgmt.margin_pct is not none %} = {{ mgmt.margin_pct|pct }} del NLV{% endif %}{% if mgmt.margin_missing %} · {{ mgmt.margin_missing }} posición{{ '' if mgmt.margin_missing == 1 else 'es' }} sin margen calculado (no suma{{ '' if mgmt.margin_missing == 1 else 'n' }}){% endif %}</p>{% endif %}
+  {% if mgmt.premium_total %}<p class="banner info" title="Prima cobrada por las puts y spreads vendidos abiertos y parte que ya es beneficio (cobrada − coste de recompra), en USD.">Prima capturada en puts y spreads: <b>{{ mgmt.captured_total|signed }} $</b> de {{ mgmt.premium_total|money }} $ cobrados{% if mgmt.captured_total_pct is not none %} = {{ mgmt.captured_total_pct|pct(0) }}{% endif %}</p>{% endif %}
   {% if mgmt.puts %}
   <div class="tscroll">
   <table class="sortable">
-    <tr><th>Ticker</th><th data-nosort style="text-align:center" title="Pulsa la miniatura para ampliar el gráfico">Gráfico</th><th title="Vencimiento y días que quedan (DTE)">Venc. · DTE</th><th title="Contratos × strike. Spread: vendida/comprada">Strike</th><th title="Prima cobrada por acción → lo que cuesta recomprarla ahora">Cobrada → recompra</th><th title="Parte de la prima ya ganada. Verde: alcanza el objetivo de recogida del perfil; rojo: en pérdida">Capturado</th><th title="Precio actual del subyacente">Precio</th><th title="Peso de la ACCIÓN si te asignan todas sus puts, sobre el NLV: acciones que ya tienes + lo que comprarías (en un spread, su ancho). Es el total del ticker y se repite en cada una de sus filas; el importe, al pasar el ratón por la celda. Aviso por encima del {{ mgmt_cfg.warn_position_pct|round|int }} % (TPC: {{ mgmt_cfg.tpc_warn_position_pct|round|int }} %) y alerta por encima del {{ mgmt_cfg.max_position_pct|round|int }} % (TPC: {{ mgmt_cfg.tpc_max_position_pct|round|int }} %)">% NLV</th><th title="Margen que inmoviliza la posición, para decidir qué cerrar si hace falta liberarlo. Spread: su pérdida máxima. Put desnuda: el margen what-if guardado de una put igual (el real de IBKR puede diferir); «—» si nunca se calculó, porque solo se pide para los contratos que pasan el Scanner">Margen ($)</th><th title="Perfil del Scanner al que pertenece la put: se asigna solo por el DTE con el que se abrió (el rango de DTE de cada perfil; lo que no encaja va a Tortuga) y se puede corregir aquí. El perfil decide las reglas de gestión (Tastytrade: recoger al 50 %, revisar a 21 DTE; TPC: mantener hasta el vencimiento)">Perfil</th><th style="text-align:center" title="Dónde está el precio respecto a la put (por su delta): tranquila → testeada → en el dinero → muy dentro. Δ con «~» = estimada">Zona</th><th style="text-align:center" title="El aviso más urgente de la fila; el resto y las explicaciones, al pasar el ratón. ⚠ actuar · ✔ cerrar con ganancia · ⓘ informativo">Aviso</th></tr>
+    <tr><th>Ticker</th><th data-nosort style="text-align:center" title="Pulsa la miniatura para ampliar el gráfico">Gráfico</th><th title="Vencimiento y días que quedan (DTE)">Venc. · DTE</th><th title="Contratos × strike. Spread: vendida/comprada">Strike</th><th title="Prima cobrada por acción → lo que cuesta recomprarla ahora">Cobrada → recompra</th><th title="Parte de la prima ya ganada. Verde: alcanza el objetivo de recogida del perfil; rojo: en pérdida">Capturado</th><th title="Prima capturada en importe: lo cobrado menos lo que cuesta recomprarla ahora, de todos los contratos. En el tooltip, la prima total cobrada">Prima capt.</th><th title="Precio actual del subyacente">Precio</th><th title="Peso de la ACCIÓN si te asignan todas sus puts, sobre el NLV: acciones que ya tienes + lo que comprarías (en un spread, su ancho). Es el total del ticker y se repite en cada una de sus filas; el importe, al pasar el ratón por la celda. Aviso por encima del {{ mgmt_cfg.warn_position_pct|round|int }} % (TPC: {{ mgmt_cfg.tpc_warn_position_pct|round|int }} %) y alerta por encima del {{ mgmt_cfg.max_position_pct|round|int }} % (TPC: {{ mgmt_cfg.tpc_max_position_pct|round|int }} %)">% NLV</th><th title="Margen que inmoviliza la posición, para decidir qué cerrar si hace falta liberarlo. Spread: su pérdida máxima. Put desnuda: el margen what-if guardado de una put igual (el real de IBKR puede diferir); «—» si nunca se calculó, porque solo se pide para los contratos que pasan el Scanner">Margen ($)</th><th title="Perfil del Scanner al que pertenece la put: se asigna solo por el DTE con el que se abrió (el rango de DTE de cada perfil; lo que no encaja va a Tortuga) y se puede corregir aquí. El perfil decide las reglas de gestión (Tastytrade: recoger al 50 %, revisar a 21 DTE; TPC: mantener hasta el vencimiento)">Perfil</th><th style="text-align:center" title="Dónde está el precio respecto a la put (por su delta): tranquila → testeada → en el dinero → muy dentro. Δ con «~» = estimada">Zona</th><th style="text-align:center" title="El aviso más urgente de la fila; el resto y las explicaciones, al pasar el ratón. ⚠ actuar · ✔ cerrar con ganancia · ⓘ informativo">Aviso</th></tr>
     {% for s in mgmt.puts %}
     <tr class="u{{ s.urgency }}"><td><b title="{{ tk_title(company_names, s.ticker) }}">{{ s.ticker }}</b>{{ sec_flag(sec_alerts, s.ticker) }}{{ analyst_flag(analyst_alerts, s.ticker) }}</td><td class="pos-cell">{% set pk = pkey(s) %}{% if minis.get(pk) %}<a href="#" class="pos-mini" data-pc="{{ pc_index[pk] }}" aria-label="Ampliar el gráfico de {{ s.ticker }}">{{ minis[pk] }}</a>{% else %}<span class="muted" title="Sin cierres diarios guardados de este ticker (se descargan de tastytrade; si no tiene velas no hay gráfico)">—</span>{% endif %}</td>
       <td data-sort="{{ s.expiry.isoformat() }}" title="{{ s.expiry.strftime('%d/%m/%Y') }}">{{ s.expiry.strftime('%d/%m') }} · <b>{{ s.dte }}</b> d</td>
       <td data-sort="{{ s.strike }}" title="{{ s.contracts }} contrato{{ '' if s.contracts == 1 else 's' }}{% if s.long_strike is not none %} · spread: vendida {{ s.strike|num }} / comprada {{ s.long_strike|num }}{% endif %}">{{ s.contracts }}× {{ s.strike|num }}{% if s.long_strike is not none %}/{{ s.long_strike|num }}{% endif %}</td>
       <td data-sort="{{ s.entry_credit if s.entry_credit is not none else -1 }}">{{ s.entry_credit|num if s.entry_credit is not none else '—' }} → {{ s.current_price|num if s.current_price is not none else '—' }}{{ ccy(s.ticker) }}</td>
       <td{% if s.captured_pct is not none %} data-sort="{{ s.captured_pct }}" title="{{ 'En pérdida: recomprarla cuesta más que lo cobrado' if s.captured_pct < 0 else 'Parte de la prima ya ganada' }}"{% endif %}>{% if s.captured_pct is not none %}{% set cp = s.captured_pct %}<span class="cap {{ 'neg' if cp < 0 else 'win' if (s.rules and s.rules.take_profit_pct is not none and cp >= s.rules.take_profit_pct) else '' }}"><i style="width:{{ [[cp, 0]|max, 100]|min }}%"></i><b>{{ cp|pct(0) }}</b></span>{% else %}—{% endif %}</td>
+      <td{% if s.captured_amount is not none %} data-sort="{{ s.captured_amount }}" title="Cobrada {{ s.premium_amount|num(0) }}{{ ccy(s.ticker) or ' $' }} · capturada {{ s.captured_amount|signed }}{{ ccy(s.ticker) or ' $' }}"{% endif %}>{% if s.captured_amount is not none %}<span class="pnl {{ 'neg' if s.captured_amount < 0 else 'pos' }}">{{ s.captured_amount|signed }}</span>{{ ccy(s.ticker) or ' $' }}{% else %}—{% endif %}</td>
       <td>{{ s.underlying_price|num if s.underlying_price is not none else '—' }}</td>
       {% set w = wmap.get(s.ticker) %}
       <td{% if w and w.pct_nlv is not none %} data-sort="{{ w.pct_nlv }}"{% endif %}{% if w %} title="Total de {{ s.ticker }}: {{ w.total|money }} = acciones que tienes {{ w.stock_value|money }} + compra si te asignan {{ w.put_nominal|money }} ({{ w.contracts }} contrato{{ '' if w.contracts == 1 else 's' }} de {{ s.ticker }})"{% endif %}>{% if w and w.level %}<span class="mg {{ w.level }}">{% endif %}{{ w.pct_nlv|pct(1) if w and w.pct_nlv is not none else '—' }}{% if w and w.level %}</span>{% endif %}</td>
@@ -72,6 +96,31 @@
   {% else %}<p class="muted">No hay puts vendidas abiertas.</p>{% endif %}
 </div>
 
+<div class="card" id="otros">
+  <h2>Otras posiciones <span class="muted" style="font-weight:400">· perfil «Otros»{% if others %} · {{ others|length }}{% endif %}</span></h2>
+  {% if others %}
+  <div class="tscroll">
+  <table class="sortable">
+    <tr><th>Ticker</th><th title="Acciones y opciones que no son puts vendidas ni parte de un spread. No tienen perfil del Scanner: se les asigna «Otros»">Tipo</th><th title="Acciones o contratos (negativo = vendidos)">Cant.</th><th title="Vencimiento y días que quedan (DTE)">Venc. · DTE</th><th>Strike</th><th title="Precio medio de entrada por acción (opción: prima por acción) → precio actual">Entrada → actual</th><th title="Valor de mercado en USD (con signo)">Valor ($)</th><th title="Ganancia o pérdida latente en USD; en una opción vendida es la prima ya ganada">P&amp;L ($)</th><th title="Prima de las opciones vendidas: parte ya capturada de lo cobrado. Acciones y opciones compradas no tienen">Prima capturada</th><th title="Peso de la posición sobre el NLV">% NLV</th><th>Perfil</th></tr>
+    {% for x in others %}
+    <tr><td><b title="{{ tk_title(company_names, x.ticker) }}">{{ x.ticker }}</b>{{ sec_flag(sec_alerts, x.ticker) }}{{ analyst_flag(analyst_alerts, x.ticker) }}</td>
+      <td>{{ x.kind }}</td>
+      <td data-sort="{{ x.quantity }}">{{ x.quantity|num(0) if x.quantity == x.quantity|round else x.quantity|num }}</td>
+      <td{% if x.expiry %} data-sort="{{ x.expiry.isoformat() }}" title="{{ x.expiry.strftime('%d/%m/%Y') }}"{% endif %}>{% if x.expiry %}{{ x.expiry.strftime('%d/%m') }} · <b>{{ x.dte }}</b> d{% else %}—{% endif %}</td>
+      <td data-sort="{{ x.strike if x.strike is not none else -1 }}">{{ x.strike|num if x.strike is not none else '—' }}</td>
+      <td>{{ x.entry|num if x.entry is not none else '—' }} → {{ x.current|num if x.current is not none else '—' }}</td>
+      <td data-sort="{{ x.value }}">{{ x.value|signed }}</td>
+      <td{% if x.pnl is not none %} data-sort="{{ x.pnl }}"{% if x.pnl_pct is not none %} title="{{ x.pnl_pct|signed(1) }} % sobre {{ 'lo cobrado' if x.is_short_option else 'lo invertido' }}"{% endif %}{% endif %}>{% if x.pnl is not none %}<span class="pnl {{ 'neg' if x.pnl < 0 else 'pos' }}">{{ x.pnl|signed }}</span>{% else %}—{% endif %}</td>
+      <td{% if x.captured is not none %} data-sort="{{ x.captured }}" title="Cobrada {{ x.premium|money }} $"{% endif %}>{% if x.captured is not none %}<span class="pnl {{ 'neg' if x.captured < 0 else 'pos' }}">{{ x.captured|signed }} $</span> · {{ x.captured_pct|pct(0) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td{% if x.pct_nlv is not none %} data-sort="{{ x.pct_nlv }}"{% endif %}>{{ x.pct_nlv|pct(1) if x.pct_nlv is not none else '—' }}</td>
+      <td><span class="chip">{{ x.profile }}</span></td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  <p class="muted" style="margin:8px 0 0;font-size:12px">Acciones, calls y puts compradas sueltas: no tienen estrategia de salida, solo se muestran. La prima capturada solo existe en las opciones vendidas (p. ej. una call cubierta). Necesita el coste medio que da TWS (sin él aparece «—»).</p>
+  {% else %}<p class="muted">No hay otras posiciones abiertas.</p>{% endif %}
+</div>
+
 <div id="pos-overlay" hidden>
   <div class="pos-box" role="dialog" aria-modal="true" aria-labelledby="pos-title">
     <div class="pos-head"><h2 id="pos-title"></h2><button type="button" id="pos-close" aria-label="Cerrar">×</button></div>
@@ -79,6 +128,8 @@
   </div>
 </div>
 <style>
+  .pnl.pos { color:var(--green); } .pnl.neg { color:var(--red); }
+  #otros table { white-space:nowrap; }
   #gestion table { white-space:nowrap; }
   #gestion th, #gestion td { padding:4px 5px; }
   .chip { max-width:150px; overflow:hidden; text-overflow:ellipsis; }

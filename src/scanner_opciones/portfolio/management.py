@@ -110,6 +110,17 @@ class PutStatus:
     assign_note: str = ""                # cómo se reconoció el perfil de la posición (por los filtros al abrir o a mano)
     rules: Optional[ExitRules] = None    # estrategia de salida aplicada (la del perfil; None = la del estilo `profile`)
     defense: Optional[Defense] = None    # zona de la put (testeada / en el dinero / muy dentro) y defensa aconsejada; None si el perfil no la usa o es un spread
+    premium_amount: Optional[float] = None    # prima cobrada en total (todos los contratos), en la moneda del contrato
+    captured_amount: Optional[float] = None   # parte ya capturada en importe (cobrada − coste de recompra), en la moneda del contrato
+    fx: float = 1.0                      # dólares por unidad de la moneda del contrato
+
+    @property
+    def premium_usd(self) -> Optional[float]:
+        return self.premium_amount * self.fx if self.premium_amount is not None else None
+
+    @property
+    def captured_usd(self) -> Optional[float]:
+        return self.captured_amount * self.fx if self.captured_amount is not None else None
 
     @property
     def main_alert(self) -> Optional[Alert]:
@@ -145,6 +156,9 @@ class ManagementReport:
     margin_total: float = 0.0           # suma del margen conocido de las puts vendidas
     margin_missing: int = 0             # puts sin margen conocido (no entran en la suma)
     margin_pct: Optional[float] = None  # ... sobre el NLV
+    premium_total: float = 0.0          # prima cobrada por las puts y spreads abiertos, en USD
+    captured_total: float = 0.0         # ... y la parte ya capturada, en USD
+    captured_total_pct: Optional[float] = None
 
 
 def _short_puts(positions: Sequence[Position]) -> list[Position]:
@@ -220,8 +234,11 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
             alerts.append(Alert("warn", f"En el dinero: el precio ({underlying:.2f}) está por debajo del strike. {todo}"))
         elif (underlying - o.strike) / underlying * 100 < cfg.near_strike_pct:
             alerts.append(Alert("info", f"El precio ({underlying:g}) está a menos de {cfg.near_strike_pct:g} % del strike."))
+    premium = entry * per_share if entry else None
+    amount = (entry - current) * per_share if entry and current is not None else None
     return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts), p.hedge_strike,
-                     profile, put_key(p), margin=committed_margin(p, entry, contracts, what_if_margin), margin_exact=spread, rules=r, defense=defense)
+                     profile, put_key(p), margin=committed_margin(p, entry, contracts, what_if_margin), margin_exact=spread, rules=r, defense=defense,
+                     premium_amount=premium, captured_amount=amount, fx=p.fx)
 
 
 def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[float], cfg: ManagementSettings,
@@ -283,5 +300,8 @@ def manage_puts(
                  + (1 if risk_level else 0))
     margin_total = sum(s.margin for s in puts if s.margin is not None)
     margin_pct = margin_total / net_liquidation * 100 if net_liquidation and net_liquidation > 0 and margin_total > 0 else None
+    premium = sum(s.premium_usd for s in puts if s.premium_usd is not None)
+    captured = sum(s.captured_usd for s in puts if s.captured_usd is not None)
     return ManagementReport(tuple(puts), tuple(weights), attention, total, risk_pct, risk_level,
-                            margin_total, sum(1 for s in puts if s.margin is None), margin_pct)
+                            margin_total, sum(1 for s in puts if s.margin is None), margin_pct,
+                            premium, captured, captured / premium * 100 if premium else None)

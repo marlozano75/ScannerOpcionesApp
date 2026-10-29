@@ -94,7 +94,7 @@ class Position:
     market_value: float
     sector: Optional[str] = None
     option: Optional[OptionContract] = None
-    avg_cost: Optional[float] = None   # coste medio por contrato en $ (precio de entrada × multiplicador); en una venta, la prima cobrada
+    avg_cost: Optional[float] = None   # coste medio por contrato en $ (precio de entrada × multiplicador); en una venta, la prima cobrada. En una acción, por acción
     hedge_strike: Optional[float] = None   # put vendida que forma parte de un spread: strike de la put comprada que la cubre (`portfolio/spreads.py`)
     fx: float = 1.0                        # dólares por unidad de la moneda del contrato (1 = USD; ESTX50 en euros): los nominales y riesgos que se suman o comparan con el NLV lo aplican
 
@@ -147,6 +147,9 @@ class AccountSummary:
     alias: Optional[str] = None                   # nombre de la cuenta en IBKR (tag AccountOrGroup)
     base_currency: Optional[str] = None           # moneda base de la cuenta (EUR…)
     usd_per_base: Optional[float] = None          # dólares por unidad de moneda base (EUR→USD); 1 si la cuenta es en USD
+    daily_pnl: Optional[float] = None             # cambio del día en moneda base (reqPnL de IBKR)
+    unrealized_pnl: Optional[float] = None        # ganancia/pérdida latente total, en moneda base
+    realized_pnl: Optional[float] = None          # realizada en el día, en moneda base
 
     @property
     def nlv_usd(self) -> Optional[float]:

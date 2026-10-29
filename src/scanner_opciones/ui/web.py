@@ -43,6 +43,7 @@ from scanner_opciones.scanner.profiles import Profile, profile_diff
 from scanner_opciones.scanner.profile_marks import row_key, row_marks
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
+from scanner_opciones.portfolio.overview import other_positions, portfolio_status
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, routes_tortuga, routes_universe, scanner_parse, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
@@ -144,6 +145,13 @@ def _money(v: Optional[float]) -> str:
     return "—" if v is None else f"{v:,.0f}"
 
 
+def _signed(v: Optional[float], digits: int = 0) -> str:
+    """Importe con signo y miles: «+1,234» / «−56» (el signo menos tipográfico); «—» sin dato."""
+    if v is None:
+        return "—"
+    return f"{'+' if v >= 0 else '−'}{abs(v):,.{digits}f}"
+
+
 def _x(v: Optional[float]) -> str:
     return "—" if v is None else f"{v:.2f}x"
 
@@ -175,7 +183,7 @@ from scanner_opciones.ui.scanner_forms import (  # noqa: F401  (se vuelven a exp
 
 TEMPLATES.env.globals["viz"] = viz
 TEMPLATES.env.filters.update(
-    pct=_pct, money=_money, num=_num, x=_x, light_label=lambda l: LIGHT_LABEL[l], zip=lambda a, b: zip(a, b)
+    pct=_pct, money=_money, signed=_signed, num=_num, x=_x, light_label=lambda l: LIGHT_LABEL[l], zip=lambda a, b: zip(a, b)
 )
 
 
@@ -255,6 +263,8 @@ def create_app(
                            service.put_management(), service.put_assignments(), service.put_open_dates(), service.put_margins(),
                            service.put_assignment_notes(), service.put_exit_rules(), service.defense_context(), service.state.position_deltas)
         today = service.now().date()
+        others = other_positions(service.state.positions, today, nlv)
+        status = portfolio_status(service.state.account, others, mgmt.puts)
         by_ticker: dict[str, list] = {}
         for s in mgmt.puts:
             by_ticker.setdefault(s.ticker, []).append(s)
@@ -273,7 +283,7 @@ def create_app(
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, others=others, wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 

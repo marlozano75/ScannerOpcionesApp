@@ -87,6 +87,7 @@ class IBKRGateway:
         self.now = now
         self._stocks: dict[str, Stock | Index] = {}
         self._updates_account: Optional[str] = None   # cuenta suscrita con reqAccountUpdates (la de `portfolio()`)
+        self._pnl_account: Optional[str] = None       # cuenta suscrita con reqPnL (cambio del día)
         self._last_option_values: dict[int, float] = {}   # conId → último valor de mercado leído (para avisar de saltos)
         self._sector_cache: dict[str, tuple[Optional[str], Optional[str]]] = {}
         self._vix_futures_cache: Optional[tuple[date, list]] = None
@@ -109,6 +110,7 @@ class IBKRGateway:
             ) from exc
         self.ib.reqMarketDataType(self.s.market_data_type)
         self._updates_account = None    # la suscripción de la conexión anterior ya no vale
+        self._pnl_account = None
 
     async def disconnect(self) -> None:
         if self._ib_aux is not None and self._ib_aux.isConnected():
@@ -189,7 +191,28 @@ class IBKRGateway:
         values = list(self.ib.accountValues(account))
         # accountSummary aporta valores que accountValues no trae (p. ej. HighestSeverity)
         values += await self._summary_values(account)
-        return m.build_account_summary(values, self.s.account_tags, account, self.now())
+        summary = m.build_account_summary(values, self.s.account_tags, account, self.now())
+        daily, unrealized, realized = await self._read_pnl(account)
+        return replace(summary, daily_pnl=daily, unrealized_pnl=unrealized, realized_pnl=realized)
+
+    async def _read_pnl(self, account: str) -> tuple[Optional[float], Optional[float], Optional[float]]:
+        """(cambio del día, latente, realizado) de la cuenta con `reqPnL`, en moneda base. La suscripción se pide una vez; los valores llegan
+        unos instantes después, así que la primera lectura espera un poco. Un fallo no impide leer la cuenta: devuelve None."""
+        try:
+            fresh = self._pnl_account != account
+            if fresh:
+                self.ib.reqPnL(account)
+                self._pnl_account = account
+            for _ in range(6 if fresh else 1):
+                pnl = next(iter(self.ib.pnl(account)), None)
+                values = tuple(m.pnl_value(getattr(pnl, f, None)) for f in ("dailyPnL", "unrealizedPnL", "realizedPnL"))
+                if values[0] is not None or not fresh:
+                    return values
+                await asyncio.sleep(0.5)
+            return values
+        except Exception as exc:       # dobles de prueba sin reqPnL, o TWS que lo rechaza: la cuenta se muestra sin cambio diario
+            log.debug("P&L diario no disponible: %s", exc)
+            return None, None, None
 
     async def _summary_values(self, account: str) -> list:
         """Valores de `accountSummary`. `ib_async.accountSummaryAsync` abre una suscripción NUEVA en cada llamada
@@ -229,7 +252,7 @@ class IBKRGateway:
             c = item.contract
             if c.secType == "STK":
                 sector, _ = await self.get_sector_info(c.symbol)
-                out.append(Position(c.symbol, item.position, float(item.marketValue), sector))
+                out.append(Position(c.symbol, item.position, float(item.marketValue), sector, avg_cost=m.num(getattr(item, "averageCost", None))))
             elif c.secType == "OPT":
                 sector, _ = await self.get_sector_info(c.symbol)
                 oc = OptionContract(

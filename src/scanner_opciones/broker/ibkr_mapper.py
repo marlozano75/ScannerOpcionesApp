@@ -41,6 +41,15 @@ def format_expiry(d: date) -> str:
     return d.strftime("%Y%m%d")
 
 
+def pnl_value(x: Any) -> Optional[float]:
+    """Valor de un PnL de IBKR: None si no llegó (NaN, None o el «sin valor» de la API, float máximo). A diferencia de `num`, -1 es válido."""
+    try:
+        f = float(x)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(f) or abs(f) >= 1e300 else f
+
+
 def pick_account_value(values: Iterable[Any], tag: str, account: Optional[str] = None) -> Optional[float]:
     """Busca `tag` (o `tag-S`/`tag-C`, segmentos) entre los account values.
 
