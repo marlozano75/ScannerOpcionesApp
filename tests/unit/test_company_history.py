@@ -64,7 +64,7 @@ async def test_update_company_history_refreshes_only_what_is_due():
     assert await svc.daily.update_company_history(["KO"]) == 2
     card = svc.history_card("KO")
     assert "1/1" in card and "15/12/2026" in card
-    assert svc.history_card("ETF") == "" and svc.history_card("ZZZ") == ""
+    assert "No paga dividendo" in svc.history_card("ETF") and svc.history_card("ZZZ") == ""   # consultado sin dividendo / nunca consultado
 
 
 def test_annual_chart_has_margin_line_and_handles_losses_and_gaps():

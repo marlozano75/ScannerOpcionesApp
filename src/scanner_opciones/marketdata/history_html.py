@@ -153,19 +153,24 @@ def annual_svg(years: Sequence[AnnualYear]) -> str:
 
 
 def dividend_line(dividend: Optional[Dividend], today: date) -> str:
-    """«Dividendo: 2,2 % anual · 0,53 $ por pago · ex 01/12/2026 (próximo) · pago 15/12/2026»; vacío si no paga."""
-    if dividend is None or dividend.empty:
+    """Recuadro destacado «Dividendo 2,2 % anual · 0,53 $ por pago · ex 01/12/2026 (próximo) · pago 15/12/2026»; «No paga dividendo» si
+    el proveedor lo consultó y no hay; vacío si no se consultó (p. ej. un ETF)."""
+    if dividend is None:
         return ""
+    if dividend.empty:
+        return ('<div style="margin-top:8px;padding:5px 10px;border-radius:6px;border:1px solid var(--line-strong);background:var(--field);'
+                'font-size:13.5px"><b>Dividendo</b> <span class="muted">· No paga dividendo</span></div>')
     bits = []
     if dividend.yield_pct:
         bits.append(f"<b>{_money(dividend.yield_pct)} %</b> anual")
     if dividend.per_payment:
         bits.append(f"{_money(dividend.per_payment)} $ por pago")
     if dividend.ex_date:
-        bits.append(f"ex {dividend.ex_date.strftime('%d/%m/%Y')} ({'próximo' if dividend.ex_date >= today else 'último'})")
+        bits.append(f"ex <b>{dividend.ex_date.strftime('%d/%m/%Y')}</b> ({'próximo' if dividend.ex_date >= today else 'último'})")
     if dividend.pay_date:
         bits.append(f"pago {dividend.pay_date.strftime('%d/%m/%Y')}")
-    return f'<div style="margin-top:6px"><b>Dividendo</b> <span class="muted">· {" · ".join(bits)}</span></div>'
+    return ('<div style="margin-top:8px;padding:5px 10px;border-radius:6px;border:1px solid var(--green);background:var(--field);'
+            f'border-left-width:4px;font-size:13.5px"><b style="color:var(--green)">Dividendo</b> · {" · ".join(bits)}</div>')
 
 
 def history_html(quarters: Sequence[EarningsQuarter], dividend: Optional[Dividend], today: date, annual: Sequence[AnnualYear] = ()) -> str:
