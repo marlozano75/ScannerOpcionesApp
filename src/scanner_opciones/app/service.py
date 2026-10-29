@@ -68,6 +68,7 @@ from scanner_opciones.tortuga.schedule import LISTS_KEY, MIN_MINUTES, FeedSchedu
 from scanner_opciones.tortuga.radar import RadarData, RadarError, load_radar, passes as radar_passes
 from scanner_opciones.tortuga.routines import BY_KEY as TORTUGA_ROUTINES, RoutineRunner
 from scanner_opciones.marketdata.financials import FinancialsProvider
+from scanner_opciones.marketdata.fx import FxError, FxProvider
 from scanner_opciones.marketdata.quality_card import quality_html, quality_text
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider
 from scanner_opciones.marketdata.names import CompanyNameProvider
@@ -88,6 +89,8 @@ EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos)
 MIG_TASTYPUT_TPC = "mig_tastyput_tpc"   # clave de `meta`: ya se pasó TastyPut a la gestión TPC
 VIX_CACHE = "vix_cache"   # clave de `meta`: último VIX leído (ver `app/vix_cache.py`)
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
+BASE_FX = "base_fx"   # clave de `meta`: último tipo de cambio online de la moneda base de la cuenta ({moneda: {rate, at}})
+BASE_FX_TTL = timedelta(hours=6)   # cada cuánto se vuelve a pedir ese tipo de cambio
 COMMUNITY_CANDLE_WAIT = 8.0   # segundos que se espera por lote de velas al cotizar las ideas (solo dan el «precio al abrir»; medido: con 20 s tardaban ~85 s)
 CHART_HISTORY = "chart_history_tickers"   # clave de `meta`: tickers fuera de la watchlist cuyo gráfico se ha abierto (JSON, lista); conservan su histórico
 CHART_HISTORY_MAX = 200
@@ -175,7 +178,9 @@ class AppService:
         news: Optional[NewsProvider] = None,
         earnings_history: Optional[EarningsHistoryProvider] = None,
         dividends: Optional[DividendProvider] = None,
+        fx: Optional[FxProvider] = None,
     ) -> None:
+        self.fx = fx                              # respaldo online (Yahoo) del tipo de cambio de la moneda base si IBKR no lo da
         self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
         self.settings = settings
@@ -2400,6 +2405,7 @@ class AppService:
         if offline and not self._offline_capable():
             return False
         async with self._account_lock:
+            await self._update_base_fx()
             try:
                 vix = self._refresh_vix(skip_closed=skip_closed_vix)
                 if offline:   # sin TWS solo el VIX (tastytrade); cuenta y posiciones se quedan como estaban
@@ -2459,6 +2465,43 @@ class AppService:
             self.state.account = account
             self.state.positions = self._with_fx(positions)
             self.state.risk = build_risk_status(account, self.settings.risk.cushion_thresholds)
+
+    def _fallback_rate(self, currency: Optional[str]) -> Optional[float]:
+        """Último tipo de cambio online (dólares por unidad de `currency`) guardado en `meta`; None si no hay."""
+        try:
+            return float(json.loads(self.meta.get(BASE_FX) or "{}")[currency]["rate"]) if currency else None
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    async def _update_base_fx(self) -> None:
+        """Respaldo del tipo de cambio de la moneda base de la cuenta (EUR…): si ni IBKR ni `scanner.spreads.usd_per_base` lo dan, se pide a un
+        proveedor online (Yahoo `<MONEDA>USD=X`) y se guarda en `meta` (se reutiliza `BASE_FX_TTL` y tras reiniciar). Un fallo conserva el último."""
+        acc = self.state.account
+        if self.fx is None or acc is None or acc.usd_per_base or self.settings.scanner.spreads.usd_per_base:
+            return
+        currency = acc.base_currency
+        if not currency or currency == "USD":
+            return
+        try:
+            saved = json.loads(self.meta.get(BASE_FX) or "{}")
+        except ValueError:
+            saved = {}
+        entry = saved.get(currency)
+        if entry and self.now() - datetime.fromisoformat(entry["at"]) < BASE_FX_TTL:
+            return
+        try:
+            history = await self.fx.get_history(currency)
+        except FxError as exc:
+            log.warning("Sin tipo de cambio online %s/USD (%s); se conserva el último guardado", currency, exc)
+            return
+        if not history:
+            return
+        rate = history[max(history)]
+        saved[currency] = {"rate": rate, "at": self.now().isoformat()}
+        self.meta.set(BASE_FX, json.dumps(saved))
+        if not entry:
+            self.state.data_version += 1      # el NLV en USD aparece por primera vez: el Scanner recalcula sus filtros
+        log.info("Tipo de cambio %s/USD de respaldo (online): %.5f", currency, rate)
 
     def _with_fx(self, positions: list[Position]) -> list[Position]:
         """Pone a las posiciones de los instrumentos de TWS que no cotizan en USD (opciones del Euro Stoxx 50 en euros) su tipo de cambio (`Position.fx`)."""
@@ -2881,7 +2924,7 @@ class AppService:
         return owned
 
     def nlv_usd(self) -> Optional[float]:
-        """NLV de la cuenta en USD: con el tipo de cambio de IBKR y, si no llega, `scanner.spreads.usd_per_base`.
+        """NLV de la cuenta en USD: con el tipo de cambio de IBKR y, si no llega, `scanner.spreads.usd_per_base` o el de respaldo online (`_update_base_fx`).
         None si no hay cuenta o tipo de cambio (los pesos sobre el NLV no se pueden calcular). Lleva además el tipo de cambio de los
         instrumentos de TWS que no cotizan en USD (`usd_rates`)."""
         acc = self.state.account
@@ -2892,7 +2935,7 @@ class AppService:
         elif acc.base_currency == "USD":
             value = acc.net_liquidation
         else:
-            manual = self.settings.scanner.spreads.usd_per_base
+            manual = self.settings.scanner.spreads.usd_per_base or self._fallback_rate(acc.base_currency)
             if not manual:
                 return None
             value = acc.net_liquidation * manual
@@ -2900,9 +2943,10 @@ class AppService:
 
     def usd_rates(self) -> dict[str, float]:
         """Dólares por unidad de la moneda de cada instrumento de TWS que no cotiza en USD (ticker -> tipo de cambio). Solo se conoce el de la moneda
-        base de la cuenta (el de IBKR, o `scanner.spreads.usd_per_base`): un instrumento en otra moneda no aparece y sus importes se comparan sin convertir."""
+        base de la cuenta (el de IBKR, `scanner.spreads.usd_per_base` o el de respaldo online): un instrumento en otra moneda no aparece y sus importes se comparan sin convertir."""
         acc = self.state.account
-        base_rate = (acc.usd_per_base if acc is not None else None) or self.settings.scanner.spreads.usd_per_base
+        base_rate = ((acc.usd_per_base if acc is not None else None) or self.settings.scanner.spreads.usd_per_base
+                     or self._fallback_rate(acc.base_currency if acc is not None else None))
         return {t: base_rate for t, i in self.settings.instruments.items()
                 if i.currency != "USD" and acc is not None and i.currency == acc.base_currency and base_rate}
 

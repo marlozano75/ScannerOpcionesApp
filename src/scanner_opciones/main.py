@@ -105,7 +105,7 @@ def build_app(settings: Settings):
                          descriptions=YahooDescriptions(settings.company.concurrency) if settings.company.enabled else None,
                          news=(FinnhubNews(settings.finnhub.api_token.strip(), settings.company.calls_per_minute)
                                if settings.company.enabled and settings.finnhub.api_token.strip() else None),
-                         tortuga=RoutineRunner(settings, MetaRepo(db)))
+                         tortuga=RoutineRunner(settings, MetaRepo(db)), fx=YahooFx(period="5d"))
     holder.append(service)
     service.endpoints = scan_endpoints(settings.ibkr)
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)

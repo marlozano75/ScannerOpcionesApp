@@ -144,6 +144,8 @@ def test_account_fx_from_ibkr_values():
     v = lambda tag, value, cur: SimpleNamespace(account="U1", tag=tag, value=value, currency=cur)
     eur = [v("NetLiquidation", "20000", "BASE"), v("NetLiquidation", "20000", "EUR"), v("ExchangeRate", "0.8", "USD")]
     assert account_fx(eur, "U1") == ("EUR", 1.25)
+    gateway = [v("NetLiquidation", "20000", "EUR"), v("$LEDGER-ExchangeRate", "0.8", "USD")]   # IB Gateway
+    assert account_fx(gateway, "U1") == ("EUR", 1.25)
     assert account_fx([v("NetLiquidation", "5", "USD")], "U1") == ("USD", 1.0)
     assert account_fx([v("NetLiquidation", "5", "EUR")], "U1") == ("EUR", None)      # sin tipo de cambio
 

@@ -40,3 +40,20 @@ async def test_nlv_carries_the_euro_rate_and_the_index_is_exempt_without_tastytr
     svc.state.account = None
     assert svc.nlv_usd() is None
     assert {"=ESTX50", "~ESTX50"} <= set(svc.quality_exempt())
+
+
+async def test_nlv_falls_back_to_the_online_rate_when_ibkr_gives_none(tmp_path):
+    from scanner_opciones.domain.models import AccountSummary
+    from scanner_opciones.marketdata.fx import FakeFx, FxError
+    svc = make(tmp_path)
+    svc.fx = FakeFx({"EUR": 1.2})
+    svc.state.account = AccountSummary("U1", net_liquidation=1000.0, base_currency="EUR")       # IBKR sin tipo de cambio
+    assert svc.nlv_usd() is None
+    await svc._update_base_fx()
+    assert abs(float(svc.nlv_usd()) - 1200.0) < 1e-6 and svc.fx.calls == ["EUR"]
+    await svc._update_base_fx()
+    assert svc.fx.calls == ["EUR"]                              # dentro del TTL no se vuelve a pedir
+    svc.fx = FakeFx(error=FxError("sin red"))
+    svc.state.account = AccountSummary("U1", net_liquidation=1000.0, base_currency="EUR", usd_per_base=1.1)
+    await svc._update_base_fx()
+    assert svc.fx.calls == [] and abs(float(svc.nlv_usd()) - 1100.0) < 1e-6      # el de IBKR manda y no se pide nada

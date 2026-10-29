@@ -68,7 +68,9 @@ def account_fx(values: Sequence[Any], account: Optional[str] = None) -> tuple[Op
         return None, None
     if base == "USD":
         return base, 1.0
-    rate = next((num(v.value) for v in mine if v.tag == "ExchangeRate" and getattr(v, "currency", "") == "USD"), None)
+    # IB Gateway (medido 2026-10-29) no manda `ExchangeRate` para USD, sino `$LEDGER-ExchangeRate` (mismo significado)
+    rate = next((num(v.value) for tag in ("ExchangeRate", "$LEDGER-ExchangeRate") for v in mine
+                 if v.tag == tag and getattr(v, "currency", "") == "USD" and num(v.value)), None)
     return base, (1.0 / rate if rate and rate > 0 else None)
 
 
