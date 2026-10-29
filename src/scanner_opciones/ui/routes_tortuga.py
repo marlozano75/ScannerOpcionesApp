@@ -64,11 +64,18 @@ def register(app, service, render, remembered) -> None:
         held = {norm_ticker(p.ticker) for p in service.state.positions}
         items = [dict(row=r, ok=radar_passes(r, minimum), held=norm_ticker(r.ticker) in held)
                  for r in (data.rows if data else ())]
-        tipo = tipo if tipo in ("spread", "put") else ""
-        shown = [i for i in items if (not cumple or i["ok"]) and (not tipo or i["row"].kind == tipo)]
-        fits = service.radar_fits([i["row"] for i in shown])
+        base = [i for i in items if not cumple or i["ok"]]
+        counts = {t: sum(1 for i in base if i["row"].kind == t) for t in ("put", "spread")}
+        if tipo not in ("spread", "put"):      # sin elegir: PUT, salvo que solo haya spreads
+            tipo = "spread" if counts["spread"] and not counts["put"] else "put"
+        shown = [i for i in base if i["row"].kind == tipo]
+        fits = service.radar_fits([i["row"] for i in shown], spread=tipo == "spread")
+        specs, names = service.profile_specs(), service.fit_names()    # columnas de perfiles: solo los del instrumento elegido
+        cols = [(i, s[0]) for i, s in enumerate(specs) if (s[2] if tipo == "spread" else s[1]) is not None] if specs else list(enumerate(names))
+        cols = [(i, n.removesuffix(" (put)").removesuffix(" (spread)")) for i, n in cols]
+        tab_urls = {t: "/tortuga?" + urlencode({k: v for k, v in (("cumple", cumple), ("tipo", t)) if v}) for t in counts}
         return render(request, "tortuga.html", no_autorefresh=True, watch_data=True, nlv_usd=service.nlv_usd(), data=data, items=shown, fits=fits,
-                      fit_names=service.fit_names(), total=len(items), passing=sum(1 for i in items if i["ok"]),
+                      fit_cols=cols, counts=counts, tab_urls=tab_urls, total=len(items), passing=sum(1 for i in items if i["ok"]),
                       minimum=minimum, cumple=cumple, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
                       routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,
                       enabled=runner is not None and service.settings.tortuga.enabled, busy_routines=service._tortuga_busy,

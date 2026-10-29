@@ -1917,9 +1917,10 @@ class AppService:
                 prices[prof.name] = (lo, hi)
         return prices
 
-    def radar_fits(self, rows) -> dict[str, tuple]:
+    def radar_fits(self, rows, spread: bool = False) -> dict[str, tuple]:
         """{ticker: filtros de cada perfil que cumple HOY la put de 30Δ de referencia del radar de Tortuga} (mismos criterios que las ideas:
-        descuento, DTE, yield del periodo, delta, IV Rank/Percentile y precio). Sin put de referencia, el ticker no aparece."""
+        descuento, DTE, yield del periodo, delta, IV Rank/Percentile y precio). Con `spread` se comparan con los perfiles de spread: el radar no
+        trae el spread que propone, así que el retorno sobre riesgo queda «sin dato». Sin put de referencia, el ticker no aparece."""
         sc = self.settings.scanner
         prices = self._profile_price_ranges()
         specs = self.profile_specs()
@@ -1927,8 +1928,8 @@ class AppService:
         for r in rows:
             if r.put_dte is None or r.put_dte < 0:
                 continue
-            view = SimpleNamespace(dte=r.put_dte, otm_now_pct=r.distance_pct, yield_now_pct=r.put_yield_period_pct, delta_now=r.put_delta,
-                                   iv_rank=r.iv_rank, iv_percentile=r.iv_percentile, price_now=r.price, idea=SimpleNamespace(long_strike=None))
+            view = SimpleNamespace(dte=r.put_dte, otm_now_pct=r.distance_pct, yield_now_pct=None if spread else r.put_yield_period_pct, delta_now=r.put_delta,
+                                   iv_rank=r.iv_rank, iv_percentile=r.iv_percentile, price_now=r.price, idea=SimpleNamespace(long_strike=0.0 if spread else None))
             out[r.ticker] = (profile_fits(view, specs, sc.spreads.min_return_on_risk_pct) if specs
                              else strategy_fits(view, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct))
         return out

@@ -1,0 +1,7 @@
+{# Celda de una columna de perfil: píldora n/total (verde cumple todo, ámbar falla uno, rojo más) y un cuadrito por filtro. `f` es un `Fit` o None. #}
+{% macro fit_cell(f, n) -%}
+<td class="c"{% if f %} data-sort="{{ f.passed / f.total }}" title="{{ n }}: {{ f.detail or 'cumple todo lo medible' }}"{% endif %}>
+  {%- if f %}<span class="fitpill {{ 'f-all' if f.fits else 'f-most' if f.failed|length <= 1 else 'f-few' }}">{{ f.passed }}/{{ f.total }}</span>
+    <span class="dots">{% for c in f.criteria %}<i class="{{ 'ok' if c.ok else 'ko' if c.ok is false else 'na' }}" title="{{ c.label }}: {{ c.text }}"></i>{% endfor %}</span>
+  {%- else %}<span class="muted">—</span>{% endif %}</td>
+{%- endmacro %}

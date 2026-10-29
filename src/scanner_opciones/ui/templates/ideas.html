@@ -1,26 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
+{% from "_fit_macros.html" import fit_cell %}
 {% include "_msgs.html" %}
 <style>
   .idea-valid { color:#1d6b3f; font-weight:600; } .idea-lower { color:#8a6d00; font-weight:600; }
   .idea-dropped, .idea-itm { color:#b3361b; font-weight:600; } .idea-no_data, .idea-expired { color:var(--mute); }
-  /* Tabla compacta: cabe en una pantalla sin desplazamiento; la celda lleva el dato y, debajo en gris, su contraste */
-  table.ideas th, table.ideas td { padding:5px 7px; white-space:nowrap; text-align:left; vertical-align:middle; }
-  table.ideas td.n, table.ideas th.n { text-align:right; } table.ideas td.c, table.ideas th.c { text-align:center; }
-  table.ideas td small { display:block; color:var(--mute); font-size:11px; line-height:1.3; }
-  table.ideas th.fitcol { white-space:normal; max-width:74px; line-height:1.15; font-size:11.5px; }
-  table.ideas td.tk { white-space:normal; min-width:96px; max-width:190px; line-height:1.5; }
-  .up { color:#1d6b3f; } .dn { color:#b3361b; }
   .st { display:inline-block; padding:1px 8px; border-radius:9px; font-size:11.5px; font-weight:600; cursor:help; }
   .st-valid { background:#dff3e6; color:#1d6b3f; } .st-lower { background:#fcf3dc; color:#8a6d00; }
   .st-dropped, .st-itm { background:#fbe3dd; color:#b3361b; } .st-no_data, .st-expired { background:#eceff1; color:var(--mute); }
-  .fitpill { display:inline-block; min-width:34px; padding:0 6px; border-radius:9px; font-size:12px; font-weight:700; text-align:center; }
-  .fitpill.f-all { background:#dff3e6; color:#1d6b3f; } .fitpill.f-most { background:#fcf3dc; color:#8a6d00; } .fitpill.f-few { background:#fbe3dd; color:#b3361b; }
-  .dots { display:block; margin-top:3px; line-height:0; } .dots i { display:inline-block; width:8px; height:8px; margin:0 1px; border-radius:2px; }
-  .dots .ok { background:#2d8a6e; } .dots .ko { background:#c9482c; } .dots .na { background:#c9ccd1; }
-  .seg { display:inline-flex; border:1px solid var(--line-strong); border-radius:9px; overflow:hidden; }
-  .seg a { padding:5px 16px; font-weight:700; text-decoration:none; color:var(--ink); background:var(--panel); }
-  .seg a + a { border-left:1px solid var(--line-strong); } .seg a.on { background:var(--ink); color:#fff; } .seg a span { font-weight:400; opacity:.75; margin-left:4px; }
   .pick { margin-right:5px; vertical-align:-2px; } .tl { display:inline-block; padding:0 4px; margin-left:2px; border-radius:7px; font-size:10px; font-weight:700; line-height:15px; vertical-align:1px; background:#e8eaf3; color:#3b4a8a; cursor:help; }
   .tl-p { background:#fcf3dc; color:#9a6700; }
   .own-closed { background:#e3eefc; color:#1b4f8f; }
@@ -55,7 +42,7 @@
   <p class="ideas-bar" style="margin-top:0"><button type="submit" id="perm-add" disabled>Añadir a {{ perm_name }}</button>
     <span class="muted" id="perm-count">Marca contratos: de cada uno se guarda el ticker, el trader y la estrategia del Scanner que más filtros cumple hoy.</span></p>
   <div class="tscroll">
-  <table class="sortable ideas">
+  <table class="sortable cmp">
     <tr><th>Ticker</th><th title="Strike vendido (y comprado en un spread), vencimiento y días hasta él">Contrato</th><th class="n" title="Último precio del subyacente y variación desde la apertura (cierre del día de la apertura)">Precio</th>
       <th class="n" title="Distancia del strike vendido por debajo del precio, hoy y (debajo) al abrir">Descuento</th>
       <th class="n" title="Prima por contrato que cobró la idea y, debajo, la que cobrarías hoy con tu precio de venta de referencia (en un spread, vendida − ask de la comprada)">Prima ($)</th>
@@ -71,11 +58,7 @@
       <td class="n">{{ ((v.risk_base - i.credit) * 100 / nlv_usd * 100)|pct if nlv_usd else '—' }}</td>
       <td class="n"{% if v.yield_now_pct is not none %} data-sort="{{ v.yield_now_pct }}"{% endif %}>{{ v.yield_now_pct|pct if v.yield_now_pct is not none else '—' }}<small>Δ {{ v.delta_now|num if v.delta_now is not none else '—' }}</small></td>
       <td class="c"><span class="st st-{{ v.status }}" title="{{ v.text }}">{{ {'valid': 'Vigente', 'lower': 'Prima menor', 'dropped': 'Ha caído', 'itm': 'En el dinero', 'no_data': 'Sin valorar', 'expired': 'Vencida'}[v.status] }}</span></td>
-      {%- for idx, n in fit_cols %}{% set f = v.fits[idx] if v.fits and idx < v.fits|length else none %}
-      <td class="c"{% if f %} data-sort="{{ f.passed / f.total }}" title="{{ n }}: {{ f.detail or 'cumple todo lo medible' }}"{% endif %}>
-        {%- if f %}<span class="fitpill {{ 'f-all' if f.fits else 'f-most' if f.failed|length <= 1 else 'f-few' }}">{{ f.passed }}/{{ f.total }}</span>
-          <span class="dots">{% for c in f.criteria %}<i class="{{ 'ok' if c.ok else 'ko' if c.ok is false else 'na' }}" title="{{ c.label }}: {{ c.text }}"></i>{% endfor %}</span>
-        {%- else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
+      {%- for idx, n in fit_cols %}{{ fit_cell(v.fits[idx] if v.fits and idx < v.fits|length else none, n) }}{% endfor %}
       <td data-sort="{{ i.day.isoformat() }}">{{ i.trader }}<small>{{ i.day.strftime('%d/%m') }}</small></td>
       </tr>
     {% endfor %}

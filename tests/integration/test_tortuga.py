@@ -277,7 +277,7 @@ def test_tortuga_page_renders_rows_routines_and_manual_launch(client_and_service
     path.write_text(json.dumps(doc([row("MPC"), row("XYZ", strike=100, mid=0.2)])), encoding="utf-8")
     object.__setattr__(svc.settings, "tortuga", svc.settings.tortuga.model_copy(update={"radar_path": str(path)}))
     html = client.get("/tortuga").text
-    assert "MPC" in html and "Strike 30Δ" in html and "Yield periodo" in html and "✓" in html and "Actualizar todas" in html
+    assert "MPC" in html and "Put 30Δ" in html and "Prima ($)" in html and 'class="seg"' in html and "✓" in html and "Actualizar todas" in html
     assert "XYZ" in html and "XYZ" not in client.get("/tortuga?cumple=1").text
     r = client.post("/tortuga/run", data={"key": "nope"})
     assert r.status_code == 400
