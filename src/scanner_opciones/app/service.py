@@ -916,7 +916,10 @@ class AppService:
     async def add_watchlist(self, parsed: ParseResult, background: bool = False) -> list[str]:
         """Añade tickers y lanza la actualización diaria de los nuevos (RF-05). `background=True` (la interfaz) no la
         espera: la lanza en segundo plano, en cola tras lo que esté en curso, y la cabecera muestra el progreso."""
-        new = self.watchlist.add(parsed.tickers, self.now())
+        ptp = [t for t in parsed.tickers if self.is_ptp(t)]
+        if ptp:
+            log.info("PTP sin permiso en IBKR, no entran en la Watchlist: %s", ", ".join(ptp))
+        new = self.watchlist.add([t for t in parsed.tickers if t not in ptp], self.now())
         if new and self.state.connected:
             if background:
                 self.state.activity = self.state.activity or f"En cola: actualización diaria de {len(new)} tickers nuevos"
@@ -1448,7 +1451,12 @@ class AppService:
         """Qué habría que añadir y quitar para que la Watchlist sea la unión de las fuentes. Se quedan los tickers con posiciones abiertas
         (acciones u opciones) y los instrumentos propios (ESTX50...), aunque ninguna fuente los liste."""
         held = {p.ticker.replace(" ", "-") for p in self.state.positions}
-        return sync_plan(self.ticker_lists().keys(), self.watchlist.list(), held | set(self.settings.instruments))
+        desired = [t for t in self.ticker_lists() if not self.is_ptp(t)]
+        return sync_plan(desired, self.watchlist.list(), held | set(self.settings.instruments))
+
+    def is_ptp(self, ticker: str) -> bool:
+        """Publicly Traded Partnership de `watchlist_sync.ptp_tickers`: IBKR no deja operarla sin el permiso de PTP."""
+        return clean_ticker(ticker) in {clean_ticker(t) for t in self.settings.watchlist_sync.ptp_tickers}
 
     def ensure_instruments(self) -> None:
         """Añade a la Watchlist los instrumentos propios (ESTX50...) que falten: no salen de ninguna fuente del Universo (tastytrade no tiene
@@ -1490,7 +1498,8 @@ class AppService:
         """Añade a la Watchlist lo que está en las fuentes y quita lo que ya no está en ninguna (salvo posiciones). Una pasada automática que
         quitaría demasiado (`SyncPlan.exceeds_guard`) no se aplica: queda en `wl_sync_held` esperando confirmación."""
         plan = self.watchlist_sync_plan()
-        plan = replace(plan, remove=self._absent_long_enough(plan.remove))
+        ptp = tuple(t for t in plan.remove if self.is_ptp(t))      # un PTP no espera la gracia: no se puede operar
+        plan = replace(plan, remove=ptp + tuple(t for t in self._absent_long_enough(plan.remove) if t not in ptp))
         if automatic and plan.exceeds_guard(len(self.watchlist.list())):
             self.wl_sync_held = plan
             log.warning("Watchlist: la sincronización quitaría %d tickers; espera confirmación en el Universo", len(plan.remove))

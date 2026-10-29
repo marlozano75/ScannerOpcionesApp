@@ -108,3 +108,13 @@ async def test_own_instruments_are_added_to_the_watchlist_even_without_a_source(
     svc.sync_watchlist_in_background()
     await svc.wait_idle()
     assert "ESTX50" in svc.watchlist.list()
+
+
+async def test_ptp_never_enter_the_watchlist_and_leave_it_without_grace(tmp_path):
+    svc = make(tmp_path, {"A": ["KO", "EPD", "ET"]}, watchlist=["MPLX"], grace=7)
+    assert svc.watchlist_sync_plan().add == ("KO",)
+    await svc.set_watchlist_sync(True)
+    await svc.wait_idle()
+    assert svc.watchlist.list() == ["KO"]       # MPLX sale sin esperar los días de gracia
+    await svc.add_watchlist(SimpleNamespace(tickers=["PAA", "AAPL"]))
+    assert sorted(svc.watchlist.list()) == ["AAPL", "KO"]

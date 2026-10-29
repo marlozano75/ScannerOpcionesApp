@@ -781,6 +781,12 @@ class WatchlistSyncSettings(_Model):
     así (las fuentes que se sustituyen enteras, como el radar de Tortuga, sacan y vuelven a meter valores a diario: sin esta gracia se
     borrarían y se volverían a descargar sus contratos). 0 = se quita en cuanto desaparece."""
     grace_days: int = Field(7, ge=0)
+    # Publicly Traded Partnerships: IBKR rechaza (error 201) abrir posición en ellas sin el permiso «PTP Trading» (retención del 10 % para no
+    # residentes en EE. UU., IRC 1446(f)), así que ni el what-if de margen funciona. No entran en la Watchlist; vacía la lista si activas el permiso.
+    ptp_tickers: list[str] = [
+        "EPD", "ET", "MPLX", "PAA", "PAGP", "WES", "USAC", "SUN", "NS", "DKL", "GEL", "CAPL", "SPH", "NRP", "KRP", "GLP", "CEQP", "CQP", "IEP",
+        "WLKP", "ARLP", "BSM", "DMLP", "MMLP", "NGL", "SRLP",
+    ]
 
 
 class TastyListsSettings(_Model):
