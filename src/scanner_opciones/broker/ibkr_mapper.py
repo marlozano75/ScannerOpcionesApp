@@ -133,10 +133,10 @@ def european_candidates(descriptions: Iterable[Any], symbol: str, exchanges: Ite
 
 
 def pick_european_chain(chains: Sequence[Any], exchanges: Iterable[str]) -> Optional[Any]:
-    """Cadena de opciones de la bolsa de derivados (no SMART) con más vencimientos; prefiere las de `exchanges` (EUREX...)."""
+    """Cadena de opciones de la bolsa de derivados (no SMART) con más vencimientos; prefiere las de `exchanges` (EUREX, MEFFRV...) y, a igualdad de vencimientos, MEFF."""
     wanted = set(exchanges)
     usable = [c for c in chains if c.exchange and c.exchange != "SMART" and c.expirations and c.strikes]
-    return max(usable, key=lambda c: (c.exchange in wanted, len(c.expirations), len(c.strikes)), default=None)
+    return max(usable, key=lambda c: (c.exchange in wanted, len(c.expirations), c.exchange == "MEFFRV", len(c.strikes)), default=None)
 
 
 def instrument_from_ib(contract: Any, chain: Any, exchanges: dict) -> Any:

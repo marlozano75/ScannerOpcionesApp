@@ -340,3 +340,12 @@ def test_european_index_uses_the_derivatives_exchange_hours_and_has_no_yahoo_sym
     contract = _desc("DAX", sec="IND", primary="EUREX").contract
     inst = m.instrument_from_ib(contract, _chain("EUREX", "ODAX", "5"), ex)
     assert (inst.kind, inst.multiplier, inst.yahoo_symbol, str(inst.close), inst.listing_exchange) == ("index", 5, None, "22:00:00", None)
+
+
+def test_meff_options_of_spanish_companies_are_accepted_and_preferred_on_a_tie():
+    from scanner_opciones.config.settings import default_exchanges
+    ex = default_exchanges()
+    assert "MEFFRV" in ex
+    chain = m.pick_european_chain([_chain("EUREX", "BSD2", exps=3), _chain("MEFFRV", "BBVAM", exps=3)], ex)
+    assert chain.exchange == "MEFFRV"      # a igualdad de vencimientos gana MEFF, sea cual sea el orden de IBKR
+    assert m.pick_european_chain([_chain("MEFFRV", "BBVAM", exps=3), _chain("EUREX", "BSD2", exps=5)], ex).exchange == "EUREX"

@@ -134,6 +134,7 @@ def default_exchanges() -> dict[str, ExchangeSettings]:
         "IBIS": ExchangeSettings(timezone="Europe/Berlin", open=time(9, 0), close=time(17, 30), yahoo_suffix=".DE"),
         "SBF": ExchangeSettings(timezone="Europe/Paris", open=time(9, 0), close=time(17, 30), yahoo_suffix=".PA"),
         "AEB": ExchangeSettings(timezone="Europe/Amsterdam", open=time(9, 0), close=time(17, 30), yahoo_suffix=".AS"),
+        "MEFFRV": ExchangeSettings(timezone="Europe/Madrid", open=time(9, 0), close=time(17, 35)),      # MEFF: derivados de acciones españolas (opciones de BBVA, Telefónica...)
         "BM": ExchangeSettings(timezone="Europe/Madrid", open=time(9, 0), close=time(17, 30), yahoo_suffix=".MC"),
         "BVME": ExchangeSettings(timezone="Europe/Rome", open=time(9, 0), close=time(17, 30), yahoo_suffix=".MI"),
         "EBS": ExchangeSettings(timezone="Europe/Zurich", open=time(9, 0), close=time(17, 30), yahoo_suffix=".SW"),
