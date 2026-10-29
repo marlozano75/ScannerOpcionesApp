@@ -92,6 +92,7 @@ class InstrumentSettings(_Model):
     sector: str = "Índice"                       # IBKR no da sector a los índices
     spread_widths: tuple[float, ...] = ()        # anchos de los spreads en puntos (los de `scanner.spreads.width_options` son de acciones: 1–20 $); vacío = esos
     name: Optional[str] = None
+    source: Optional[str] = None                 # fuente manual del Universo donde se lista («Europa»); None = ninguna
     # Horario de SU mercado (con él se cotiza mientras está abierto aunque el de EE. UU. esté cerrado); lunes–viernes, sin festivos propios
     timezone: str = "Europe/Berlin"
     open: time = time(8, 0)                      # entre comillas en el YAML ("08:00")
@@ -110,7 +111,7 @@ class InstrumentSettings(_Model):
 
 def default_instruments() -> dict[str, InstrumentSettings]:
     return {"ESTX50": InstrumentSettings(symbol="ESTX50", exchange="EUREX", currency="EUR", multiplier=10, trading_class="OESX",
-                                         yahoo_symbol="^STOXX50E", sector="Índice Europa", name="Euro Stoxx 50",
+                                         yahoo_symbol="^STOXX50E", sector="Índice Europa", name="Euro Stoxx 50", source="Europa",
                                          spread_widths=(50.0, 100.0, 150.0, 200.0, 250.0, 300.0))}
 
 

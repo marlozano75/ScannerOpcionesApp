@@ -1459,9 +1459,22 @@ class AppService:
         """Publicly Traded Partnership de `watchlist_sync.ptp_tickers`: IBKR no deja operarla sin el permiso de PTP."""
         return clean_ticker(ticker) in {clean_ticker(t) for t in self.settings.watchlist_sync.ptp_tickers}
 
+    def _list_instruments_in_sources(self) -> None:
+        """Mete cada instrumento propio en su fuente manual del Universo (`instruments.<ticker>.source`, p. ej. ESTX50 en «Europa»). Se escribe
+        sin preguntar a tastytrade (no tiene sus opciones y el alta manual lo descartaría) y se marca con opciones para que no se pode."""
+        changed = False
+        for ticker, inst in self.settings.instruments.items():
+            self._has_options[ticker] = True
+            if inst.source and ticker not in self.manual_sources.get(inst.source, []):
+                self.manual_sources.setdefault(inst.source, []).append(ticker)
+                changed = True
+        if changed:
+            self._save_manual()
+
     def ensure_instruments(self) -> None:
         """Añade a la Watchlist los instrumentos propios (ESTX50...) que falten: no salen de ninguna fuente del Universo (tastytrade no tiene
         sus opciones) y sin esto no llegan nunca al Scanner. La actualización diaria de los nuevos va en segundo plano."""
+        self._list_instruments_in_sources()
         missing = [t for t in self.settings.instruments if t not in set(self.watchlist.list())]
         if missing:
             self.launch(self.add_watchlist(parse_tokens(missing), background=True))

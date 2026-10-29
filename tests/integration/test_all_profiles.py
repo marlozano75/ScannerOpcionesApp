@@ -104,3 +104,12 @@ def test_a_profile_can_limit_the_scan_to_universe_sources(client_and_service):
     assert svc.scan(crit.with_filters(source_tickers=frozenset({ticker, "ZZZZ"}))).results
     other = svc.scan(crit.with_filters(source_tickers=frozenset({"ZZZZ"})))
     assert not other.results and other.rejected_count > 0
+
+
+def test_instruments_are_listed_in_their_manual_source_without_asking_tastytrade(client_and_service):
+    client, svc, gw, _ = client_and_service
+    svc._list_instruments_in_sources()
+    svc._list_instruments_in_sources()                                                   # idempotente
+    assert svc.manual_sources["Europa"] == ["ESTX50"]
+    assert any(s.name == "Europa" for s in svc.universe_sources)
+    assert 'name="fs_Europa"' in client.get("/scanner?reset=1").text
