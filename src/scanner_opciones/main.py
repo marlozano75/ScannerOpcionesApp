@@ -111,6 +111,7 @@ def build_app(settings: Settings):
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     account_runner = PeriodicRunner(
         lambda: service.refresh_account(skip_closed_vix=True), settings.refresh.account_interval_minutes * 60)
+    scan_log_runner = (PeriodicRunner(service.scan_log_cycle, settings.scan_log.interval_minutes * 60) if settings.scan_log.enabled else None)
     startup_task: list[asyncio.Task] = []
 
     async def reconnect() -> None:
@@ -140,8 +141,12 @@ def build_app(settings: Settings):
         runner.start()
         account_runner.start()
         reconnect_runner.start()
+        if scan_log_runner is not None:
+            scan_log_runner.start()
 
     async def on_shutdown() -> None:
+        if scan_log_runner is not None:
+            await scan_log_runner.stop()
         await reconnect_runner.stop()
         await runner.stop()
         await account_runner.stop()

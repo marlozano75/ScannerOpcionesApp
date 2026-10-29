@@ -153,6 +153,22 @@ class EuropeSettings(_Model):
     exchanges: dict[str, ExchangeSettings] = Field(default_factory=default_exchanges)
 
 
+class SheetsSettings(_Model):
+    """Volcado del registro de escaneos a un Google Sheet (cuenta de servicio de Google; hace falta `pip install gspread`)."""
+    enabled: bool = False
+    spreadsheet_id: str = ""                                  # el trozo de la URL entre /d/ y /edit
+    credentials_file: str = "config/google-credentials.json"  # clave JSON de la cuenta de servicio (gitignored)
+
+
+class ScanLogSettings(_Model):
+    """Escaneo automático de perfiles con registro de cuándo aparece y desaparece cada contrato (y por qué). Solo se evalúan los tickers
+    cuyo mercado está abierto (EE. UU. o el horario propio de cada instrumento europeo); los demás se dejan como estaban."""
+    enabled: bool = False
+    interval_minutes: float = Field(15, gt=0)
+    profiles: list[str] = Field(default_factory=list)    # nombres de los perfiles a escanear; vacío = todos (menos el de las puts que no encajan)
+    sheets: SheetsSettings = SheetsSettings()
+
+
 def default_instruments() -> dict[str, InstrumentSettings]:
     return {"ESTX50": InstrumentSettings(symbol="ESTX50", exchange="EUREX", currency="EUR", multiplier=10, trading_class="OESX",
                                          yahoo_symbol="^STOXX50E", sector="Índice Europa", name="Euro Stoxx 50", source="Europa",
@@ -890,6 +906,7 @@ class Settings(_Model):
     watchlist_sync: WatchlistSyncSettings = WatchlistSyncSettings()
     super_investors: SuperInvestorsSettings = SuperInvestorsSettings()
     europe: EuropeSettings = EuropeSettings()
+    scan_log: ScanLogSettings = ScanLogSettings()
     instruments: dict[str, InstrumentSettings] = Field(default_factory=default_instruments)   # índices y otros subyacentes de TWS (ticker de la app -> ajustes)
 
     @property

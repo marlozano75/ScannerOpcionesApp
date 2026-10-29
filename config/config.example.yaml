@@ -257,3 +257,14 @@ finnhub:
 # diferidos y completa el último bid/ask con la principal. Sin esta sección se usan los valores por defecto; `instruments: {}` los desactiva.
 # instruments:
 #   ESTX50: { symbol: ESTX50, exchange: EUREX, currency: EUR, multiplier: 10, trading_class: OESX, yahoo_symbol: "^STOXX50E", sector: Índice Europa }
+
+# Escaneo automático de perfiles: registra cuándo aparece cada contrato (o spread) en un perfil y cuándo deja de salir (con el filtro que lo descarta).
+# Solo evalúa los tickers cuyo mercado está abierto (EE. UU., o el horario propio de ESTX50 y los valores europeos).
+# scan_log:
+#   enabled: true
+#   interval_minutes: 15
+#   profiles: []              # nombres de perfiles del Scanner; vacío = todos (menos el de las puts que no encajan)
+#   sheets:                   # opcional: volcado a Google Sheets (cuenta de servicio + `pip install gspread`)
+#     enabled: false
+#     spreadsheet_id: ""      # trozo de la URL entre /d/ y /edit; comparte la hoja con el email de la cuenta de servicio (editor)
+#     credentials_file: config/google-credentials.json

@@ -5,6 +5,7 @@ __pycache__/
 data/
 logs/
 config/config.yaml
+config/google-credentials.json
 .env
 *.egg-info/
 

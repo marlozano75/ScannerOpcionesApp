@@ -79,4 +79,5 @@ El detalle de cada área vive en `docs/` para no cargarlo entero en cada sesión
 - `docs/datos-calidad-universo.md` — IV Rank/Percentile, filtros de calidad y solvencia (SEC EDGAR), alertas de la SEC, analistas, fichas de empresa e históricos, sector de ETF, tickers inservibles y deslistados, Universo y sincronización de la Watchlist.
 - `docs/tortuga-comunidad.md` — Comparación de Ideas con los perfiles, API y rutinas de Tortuga, radar de Bull Put Spreads y de venta de put, periodicidad de las fuentes.
 - `docs/instrumentos-europa.md` — Instrumentos propios (ESTX50), valores europeos desde el Universo, horario propio, importes en euros y posiciones de Eurex.
+- `docs/escaneo-automatico.md` — Escaneo periódico de perfiles con registro de apariciones/desapariciones (y motivo), mercado abierto por ticker y volcado a Google Sheets.
 - `docs/rendimiento-peticiones.md` — Peticiones a tastytrade al abrir con el mercado cerrado, días sin sesión y caché de cadenas de opciones.

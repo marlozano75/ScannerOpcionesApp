@@ -27,6 +27,9 @@ from scanner_opciones.app import portfolio_cache, vix_cache
 from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.daily_update import DailyUpdater, DailyUpdateReport
 from scanner_opciones.jobs.refresh import RefreshJob, RefreshReport
+from scanner_opciones.jobs.scan_log import ScanLogJob
+from scanner_opciones.jobs.scan_log_sheets import SheetsWriter
+from scanner_opciones.storage.scan_log import ScanLogRepo
 from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
@@ -194,6 +197,10 @@ class AppService:
         self.snapshots = SnapshotRepo(db)
         self.meta = MetaRepo(db)
         self.bars = BarRepo(db)
+        sl = settings.scan_log
+        scan_log_repo = ScanLogRepo(db)
+        self.scan_log = ScanLogJob(scan_log_repo, sl, self.scan, self.profile_specs, self.ticker_market_open, now,
+                                   SheetsWriter(sl.sheets, scan_log_repo) if sl.sheets.enabled and sl.sheets.spreadsheet_id else None)
         syncer = ContractSyncer(gateway, self.contracts, settings)  # comparte la cadena en caché
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.contracts, settings,
                                   now, volatility, prices, candles, self.bars, syncer, fundamentals, financials, analysts,
@@ -2476,6 +2483,14 @@ class AppService:
             log.info("Premercado: %d precios de subyacentes actualizados", n)
             self.state.data_version += 1
         return bool(n)
+
+    def ticker_market_open(self, ticker: str) -> bool:
+        """¿Está abierto el mercado de este ticker? El de EE. UU., o el horario propio de los instrumentos de TWS (ESTX50, valores europeos)."""
+        return self.refresh_job.instrument_markets.get(ticker, self.market).is_open(self.now())
+
+    async def scan_log_cycle(self) -> None:
+        """Pasada del escaneo automático de perfiles (`scan_log`): registra qué contratos aparecen y desaparecen en cada uno."""
+        await self.scan_log.run()
 
     def open_instruments(self) -> list[str]:
         """Instrumentos de TWS (Eurex...) cuyo mercado está abierto ahora, aunque el de EE. UU. esté cerrado."""

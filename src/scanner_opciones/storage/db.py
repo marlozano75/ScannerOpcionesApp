@@ -234,6 +234,51 @@ MIGRATIONS: list[str] = [
         WHERE liabilities_to_equity IS NULL AND fcf_ttm IS NULL AND debt_to_equity IS NULL AND roic IS NULL;
     UPDATE company_history SET earnings = NULL, earnings_at = NULL WHERE earnings = '[]';
     """,
+    # v30: registro del escaneo automático de perfiles: un contrato (o spread) por perfil y «episodio» (aparece -> desaparece), sus eventos y cada pasada
+    """
+    CREATE TABLE scan_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        expiry TEXT NOT NULL,
+        strike REAL NOT NULL,
+        long_strike REAL,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        ended_at TEXT,
+        end_reason TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
+        first_price REAL, first_yield REAL,
+        price REAL, yield_ann REAL, dte INTEGER, distance_pct REAL
+    );
+    CREATE INDEX idx_scan_log_active ON scan_log (profile, kind, active);
+    CREATE TABLE scan_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at TEXT NOT NULL,
+        event TEXT NOT NULL,
+        profile TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        expiry TEXT NOT NULL,
+        strike REAL NOT NULL,
+        long_strike REAL,
+        reason TEXT,
+        price REAL, yield_ann REAL, dte INTEGER, distance_pct REAL,
+        synced INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE scan_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        at TEXT NOT NULL,
+        profile TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        found INTEGER NOT NULL,
+        appeared INTEGER NOT NULL,
+        vanished INTEGER NOT NULL,
+        skipped_tickers INTEGER NOT NULL DEFAULT 0,
+        synced INTEGER NOT NULL DEFAULT 0
+    );
+    """,
 ]
 
 
