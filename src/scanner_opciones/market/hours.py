@@ -22,6 +22,11 @@ class MarketCalendar:
     def from_settings(cls, s, delay_minutes: float = 0) -> "MarketCalendar":
         return cls(ZoneInfo(s.timezone), s.open, s.close, frozenset(s.holidays), delay_minutes)
 
+    @classmethod
+    def for_instrument(cls, i, delay_minutes: float = 0) -> "MarketCalendar":
+        """Calendario del mercado propio de un instrumento (`InstrumentSettings`): sin festivos, solo lunes–viernes."""
+        return cls(ZoneInfo(i.timezone), i.open, i.close, frozenset(), delay_minutes)
+
     @property
     def _delay(self) -> timedelta:
         return timedelta(minutes=self.delay_minutes)

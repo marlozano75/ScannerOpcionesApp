@@ -293,3 +293,16 @@ async def test_the_service_puts_the_rate_on_the_index_positions(tmp_path):
     aapl = Position("AAPL", -1.0, -100.0, None, OptionContract("AAPL", E1, 200.0))
     out = svc._with_fx([short_estx(fx=1.0), aapl])
     assert [p.fx for p in out] == [1.1, 1.0]
+
+
+def test_calendario_propio_del_instrumento():
+    """Eurex (8:00–22:00 de Berlín) está abierto a las 10:50 españolas aunque el mercado de EE. UU. no lo esté."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from scanner_opciones.config.settings import default_instruments
+    from scanner_opciones.market.hours import MarketCalendar
+    cal = MarketCalendar.for_instrument(default_instruments()["ESTX50"])
+    berlin = ZoneInfo("Europe/Berlin")
+    assert cal.is_open(datetime(2026, 10, 29, 10, 50, tzinfo=berlin))
+    assert not cal.is_open(datetime(2026, 10, 29, 22, 5, tzinfo=berlin))
+    assert not cal.is_open(datetime(2026, 10, 31, 12, 0, tzinfo=berlin))     # sábado

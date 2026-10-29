@@ -84,6 +84,20 @@ class InstrumentSettings(_Model):
     sector: str = "Índice"                       # IBKR no da sector a los índices
     spread_widths: tuple[float, ...] = ()        # anchos de los spreads en puntos (los de `scanner.spreads.width_options` son de acciones: 1–20 $); vacío = esos
     name: Optional[str] = None
+    # Horario de SU mercado (con él se cotiza mientras está abierto aunque el de EE. UU. esté cerrado); lunes–viernes, sin festivos propios
+    timezone: str = "Europe/Berlin"
+    open: time = time(8, 0)                      # entre comillas en el YAML ("08:00")
+    close: time = time(22, 0)
+
+    @model_validator(mode="after")
+    def _check_hours(self) -> "InstrumentSettings":
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"zona horaria desconocida: {self.timezone}") from exc
+        if self.open >= self.close:
+            raise ValueError("el horario del instrumento: open debe ser anterior a close")
+        return self
 
 
 def default_instruments() -> dict[str, InstrumentSettings]:

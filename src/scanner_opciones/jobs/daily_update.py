@@ -175,12 +175,15 @@ class DailyUpdater:
     async def _prefetch(self, tickers: list[str], timings: dict[str, float]) -> _Prefetched:
         """Precio y dividendos de todos los tickers de una vez (una espera en lugar de una por ticker)."""
         out = _Prefetched()
+        own = set(self.settings.instruments)    # los de TWS no los cubre tastytrade
         try:
             out.quotes = await self._timed(timings, "precios", self.gateway.get_underlying_quotes(tickers))
-            out.quotes = await self._timed(
+            checked = await self._timed(
                 timings, "precios externos",
-                reconcile_quotes(self.prices, out.quotes, self.settings.tastytrade.price_max_deviation_pct),
+                reconcile_quotes(self.prices, {t: q for t, q in out.quotes.items() if t not in own},
+                                 self.settings.tastytrade.price_max_deviation_pct),
             )
+            out.quotes = {**out.quotes, **checked}
         except BrokerDisconnectedError:
             raise
         except BrokerError as exc:
@@ -195,7 +198,7 @@ class DailyUpdater:
             log.warning("Dividendos en lote no disponibles, se piden uno a uno: %s", exc)
         if self.volatility is not None:  # una petición para todos los tickers
             try:
-                out.iv = await self._timed(timings, "iv externo", self.volatility.get_iv_metrics(tickers))
+                out.iv = await self._timed(timings, "iv externo", self.volatility.get_iv_metrics([t for t in tickers if t not in own]))
             except VolatilityError as exc:
                 log.warning("IV Rank/Percentile no disponibles, se conservan los guardados: %s", exc)
         return out

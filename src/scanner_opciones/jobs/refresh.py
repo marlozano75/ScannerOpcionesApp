@@ -63,6 +63,8 @@ class RefreshJob:
         market: Optional[MarketCalendar] = None,
     ) -> None:
         self.market = market
+        # mercado propio de los instrumentos de TWS (Eurex...): fuera del horario de EE. UU. también se cotizan mientras el suyo está abierto
+        self.instrument_markets = {t: MarketCalendar.for_instrument(i, settings.ibkr.delay_minutes) for t, i in settings.instruments.items()}
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
         self.prices = prices
@@ -74,6 +76,11 @@ class RefreshJob:
         self.now = now
         self._margin_sem = asyncio.Semaphore(max(1, settings.refresh.margin_concurrency))
         self._margin_probe = asyncio.Lock()
+
+    def _market_open(self, ticker: str) -> bool:
+        """¿Está abierto el mercado de este subyacente? (el propio del instrumento, o el general)"""
+        calendar = self.instrument_markets.get(ticker, self.market)
+        return calendar is None or calendar.is_open(self.now())
 
     def default_scope(self) -> list[ScanCriteria]:
         """Por defecto se cotizan solo los contratos que encajan con los valores iniciales del filtro del scanner
@@ -101,23 +108,26 @@ class RefreshJob:
         )
 
     async def run(
-        self, criteria: Optional[Sequence[ScanCriteria]] = None, only_unquoted: bool = False
+        self, criteria: Optional[Sequence[ScanCriteria]] = None, only_unquoted: bool = False, tickers: Optional[set] = None
     ) -> RefreshReport:
         """Cotiza los contratos guardados que encajan con `criteria` (por defecto, los valores
         iniciales del filtro del scanner). `only_unquoted=True`: solo los que nunca se han cotizado
-        (contratos nuevos), sin volver a pedir precio/IV de los subyacentes."""
+        (contratos nuevos), sin volver a pedir precio/IV de los subyacentes. `tickers`: solo esos subyacentes (p. ej. los instrumentos
+        cuyo mercado está abierto mientras el de EE. UU. está cerrado)."""
         report = RefreshReport()
         started = time.monotonic()
         criteria = list(criteria) if criteria else self.default_scope()
         infos = self.ticker_info.all()
         stored = self.contracts.list()
+        if tickers is not None:
+            stored = [c for c in stored if c.ticker in tickers]
         today = self.now().date()
         if not only_unquoted:
             moved: set[str] = set()
             infos = await self._refresh_underlyings(sorted({c.ticker for c in stored}), infos, report, moved)
             if moved:  # el precio nuevo desplaza la ventana guardada: se completan los contratos que falten
                 await self._sync_catalog(sorted(moved), infos, today, report)
-                stored = self.contracts.list()
+                stored = [c for c in self.contracts.list() if tickers is None or c.ticker in tickers]
         t_underlyings = time.monotonic() - started
         # las patas compradas de los spreads están por debajo de la vendida: se cotiza también la franja extra guardada
         # (solo para cotizar: los márgenes se siguen pidiendo con `criteria`)
@@ -305,12 +315,14 @@ class RefreshJob:
         except BrokerError as exc:
             log.warning("No se pudieron actualizar precio/IV de los subyacentes: %s", exc)
             return infos
-        quotes = await reconcile_quotes(self.prices, quotes, self.settings.tastytrade.price_max_deviation_pct)
+        own = set(self.settings.instruments)    # los de TWS no los cubre tastytrade: ni para contrastar el precio ni para el IV Rank
+        quotes = {**quotes, **await reconcile_quotes(self.prices, {t: q for t, q in quotes.items() if t not in own},
+                                                      self.settings.tastytrade.price_max_deviation_pct)}
         infos = dict(infos)
         external: dict = {}
         if self.volatility is not None:  # una petición para todos los tickers
             try:
-                external = await self.volatility.get_iv_metrics(tickers)
+                external = await self.volatility.get_iv_metrics([t for t in tickers if t not in own])
             except VolatilityError as exc:
                 log.warning("IV Rank/Percentile no disponibles, se conservan los guardados: %s", exc)
         for ticker, q in quotes.items():
@@ -353,7 +365,7 @@ class RefreshJob:
                 updated_at = previous.updated_at or updated_at
                 kept = True
             elif (bid == 0 and ask is not None and ask > 0 and previous.bid is not None and previous.bid > 0
-                  and self.market is not None and not self.market.is_open(self.now())):
+                  and not self._market_open(contract.ticker)):
                 # fuera de horario tastytrade devuelve bid 0 con un ask inflado: no pisa la cotización de la sesión
                 bid, ask, last, bid_size = previous.bid, previous.ask, previous.last, previous.bid_size
                 updated_at = previous.updated_at or updated_at

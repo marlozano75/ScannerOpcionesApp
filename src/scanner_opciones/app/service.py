@@ -809,6 +809,7 @@ class AppService:
         if self._paused() and not self._capture_needed():
             log.info("Mercado cerrado y cotizaciones ya posteriores al último cierre: solo cartera y VIX")
             await self.refresh_all(include_market=False)
+            await self.refresh_instruments()
         else:
             await self.refresh_all()
         self.update_financials_in_background()
@@ -2325,7 +2326,33 @@ class AppService:
         if not self._paused() or self._capture_needed():
             return await self.refresh_all()
         log.info("Mercado cerrado: se refrescan solo cartera y VIX")
-        return await self.refresh_all(include_market=False)
+        ok = await self.refresh_all(include_market=False)
+        await self.refresh_instruments()
+        return ok
+
+    def open_instruments(self) -> list[str]:
+        """Instrumentos de TWS (Eurex...) cuyo mercado está abierto ahora, aunque el de EE. UU. esté cerrado."""
+        now = self.now()
+        return [t for t, c in self.refresh_job.instrument_markets.items() if c.is_open(now)]
+
+    async def refresh_instruments(self) -> bool:
+        """Con el mercado de EE. UU. cerrado, cotiza solo los instrumentos cuyo mercado está abierto (ESTX50 de 8:00 a 22:00 hora de Berlín).
+        No toca el marcador del último refresco completo. False si no hay ninguno abierto, falta TWS o hay otra ejecución en curso."""
+        tickers = set(self.open_instruments()) & set(self.watchlist.list())
+        if not tickers or self.busy or not self.gateway.is_connected():
+            return False
+        async with self._lock:
+            try:
+                self.state.activity = "Cotizando " + ", ".join(sorted(tickers))
+                with chain_origin("refresco de instrumentos"):
+                    await self.refresh_job.run(tickers=tickers)
+            except BrokerDisconnectedError as exc:
+                self._disconnected(exc)
+                return False
+            finally:
+                self.state.activity = None
+            self.state.data_version += 1
+            return True
 
     async def refresh_all(self, include_market: bool = True) -> bool:
         """Cuenta, riesgo y VIX más los contratos (`include_market=False`: solo cuenta, riesgo y VIX, sin
