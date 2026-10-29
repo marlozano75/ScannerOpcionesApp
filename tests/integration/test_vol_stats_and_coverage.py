@@ -131,14 +131,12 @@ def test_loading_a_profile_replaces_the_form_and_saving_stores_the_current_filte
                         follow_redirects=False)
     assert saved.status_code == 303 and "profile=Mio" in saved.headers["location"] and "use_oi=on" in saved.headers["location"]
     mine = client.get(saved.headers["location"]).text
-    assert "OI ≥ 300" in mine and ">✓ Mio</a>" in mine and '<option value="spread"' not in mine      # solo los instrumentos activos del perfil
+    assert "OI ≥ 300" in mine and ">✓ Mio</a>" in mine and '<option value="put" selected>' in mine
     # perfil inicial: desde /scanner/config; sin consulta se carga ese perfil
     names = [p.name for p in svc.stored_profiles()[0]]
     form = {"n_profiles": str(len(names)), "default": str(names.index("Mio"))}
     for i, n in enumerate(names):
-        form.update({f"pf{i}_name": n, f"pf{i}_orig": n, f"pf{i}_put": "on"})
-        if n != "Mio":
-            form[f"pf{i}_spread"] = "on"
+        form.update({f"pf{i}_name": n, f"pf{i}_orig": n, f"pf{i}_inst": svc.stored_profiles()[0][i].mode})
     assert client.post("/scanner/profiles", data=form, follow_redirects=False).status_code == 303
     assert "profile=Mio" in str(client.get("/scanner").url)
     assert "Perfiles del Scanner" in client.get("/scanner/config").text
@@ -186,31 +184,23 @@ def test_the_example_config_stores_the_range_the_strategy_needs():
     assert [(p.name, p.dte_min, p.dte_max) for p in s.scanner.presets] == [("Mensual (TPC)", 25, 35), ("Táctico (TPC)", 10, 14)]
 
 
-def test_the_two_filter_sets_travel_in_the_url_swap_with_the_tabs_and_are_saved_in_the_profile(client_and_service):
+def test_a_profile_has_one_instrument_and_old_links_with_two_filter_sets_still_open(client_and_service):
     client, svc, gw, _ = client_and_service
     base = BASE.split("?")[1]
-    obase = "&".join("o_" + kv for kv in base.split("&") if not kv.startswith("submitted"))      # el otro juego trae también sus valores básicos
-    # juego visible = spread (mode=both y sin set); el de put viaja como o_...
-    page = client.get("/scanner?" + base + "&mode=both&use_ns=on&ns=100&set=spread&o_use_oi=on&o_oi=77&" + obase).text
-    assert 'name="o_use_oi" value="on"' in page and 'name="o_oi" value="77"' in page and 'data-set="spread"' in page
-    assert 'class="settab active" data-set="spread"' in page and 'id="sec-spread"' in page            # el bloque de spread se ve con el juego de spread
-    # con el juego de put visible no hay bloque de spread y el de spread viaja oculto
-    put_page = client.get("/scanner?" + base + "&mode=both&set=put&use_oi=on&oi=77&o_use_ns=on&o_ns=100&o_use_rr=on&o_rr=5&" + obase).text
-    assert 'name="o_use_ns" value="on"' in put_page and 'id="sec-spread"' not in put_page.split('id="scan-form"')[1].split("</aside>")[0] and "Parámetro no válido" not in put_page
-    # guardar: cada juego va a su sitio
-    r = client.post("/scanner/profile/save", data={"name": "Dos", "query": base + "&mode=both&set=put&use_oi=on&oi=77&o_use_ns=on&o_ns=100&o_use_rr=on&o_rr=5&" + obase},
-                    follow_redirects=False)
-    assert r.status_code == 303
+    # el spread muestra su bloque; la put no; no hay pestañas de dos juegos ni modo «Ambos»
+    spread_page = client.get("/scanner?" + base + "&mode=spread&use_rr=on&rr=12").text
+    assert 'id="sec-spread"' in spread_page and "settab" not in spread_page and 'value="both"' not in spread_page and "Parámetro no válido" not in spread_page
+    put_page = client.get("/scanner?" + base + "&mode=put").text
+    assert 'id="sec-spread"' not in put_page.split('id="scan-form"')[1].split("</aside>")[0]
+    # un enlace antiguo (modo «Ambos», `set` y juego `o_...`) se abre como put sin error
+    old = client.get("/scanner?" + base + "&mode=both&set=spread&use_ns=on&ns=100&o_use_oi=on&o_oi=77").text
+    assert "Parámetro no válido" not in old and 'name="o_' not in old and 'id="sec-spread"' not in old.split('id="scan-form"')[1].split("</aside>")[0]
+    # guardar desde el spread crea un perfil de spread con sus filtros, y al cargarlo se ve el spread
+    r = client.post("/scanner/profile/save", data={"name": "Dos", "query": base + "&mode=spread&use_rr=on&rr=12"}, follow_redirects=False)
+    assert r.status_code == 303 and "mode=spread" in r.headers["location"]
     prof = next(p for p in svc.stored_profiles()[0] if p.name == "Dos")
-    assert prof.put["use_oi"] == "on" and "use_ns" not in prof.put and prof.spread["use_ns"] == "on" and prof.spread["rr"] == "5" and "use_oi" not in prof.spread
-    # y al cargarlo (modo Ambos) se ve el juego de put y el de spread viaja oculto
-    loaded = client.get(r.headers["location"]).text
-    assert 'name="o_use_ns" value="on"' in loaded and 'name="use_oi"' in loaded and "Parámetro no válido" not in loaded
-    # guardando desde la pestaña de filtros de SPREAD, al volver se sigue viendo esa pestaña (no la de put)
-    sp_query = "&".join(f"{k}={v}" for k, v in {"submitted": "1", "mode": "both", "set": "spread", "discount": "5", "dte_min": "30", "dte_max": "45", "min_yield": "1", "use_rr": "on", "rr": "12", "o_discount": "5", "o_dte_min": "30", "o_dte_max": "45", "o_min_yield": "1"}.items())
-    r2 = client.post("/scanner/profile/save", data={"name": "Dos", "query": sp_query}, follow_redirects=False)
-    assert r2.status_code == 303 and "set=spread" in r2.headers["location"] and "mode=both" in r2.headers["location"]
-
+    assert prof.instruments == ("spread",) and prof.spread["rr"] == "12" and prof.put == {}
+    assert 'id="sec-spread"' in client.get(r.headers["location"]).text
 
 def test_profiles_can_be_reordered_coloured_and_duplicated(client_and_service):
     client, svc, gw, _ = client_and_service

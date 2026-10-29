@@ -274,8 +274,7 @@ class SpreadSettings(_Model):
     fixed_widths: tuple[float, ...] = (5.0, 10.0)             # anchos permitidos cuando se marca «Anchos fijos» (en lugar de probarlos todos)
     sosnoff_delta_min: float = Field(0.16, gt=0, le=1)        # |delta| de la put vendida que carga el botón «Aplicar criterios de Sosnoff»
     sosnoff_delta_max: float = Field(0.20, gt=0, le=1)
-    # modo «Ambos»: la put desnuda solo se ofrece si cabe en este límite; si no, sale el spread
-    max_naked_strike: float = Field(100, gt=0)       # strike máximo de la put desnuda ($)
+    max_naked_strike: float = Field(100, gt=0)       # SIN USO desde que se retiró el modo «Ambos» (se conserva para que un config.yaml antiguo arranque)
     max_loss_nlv_pct: float = Field(2, gt=0, le=100)  # pérdida máxima del spread como % del NLV
     usd_per_base: Optional[float] = Field(None, gt=0)  # dólares por unidad de moneda base si IBKR no da el tipo de cambio
 

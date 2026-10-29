@@ -99,45 +99,14 @@ from types import SimpleNamespace
 from scanner_opciones.broker.ibkr_mapper import account_fx
 from scanner_opciones.domain.models import Position
 
-MIX = dict(mixed=True, spread_widths=(5.0,), min_yield_pct=0.0)
-
-
-def mixed(snaps, positions=(), nlv=100_000.0, **over):
-    return run_scan(snaps, INFO, list(positions), BASE.with_filters(**{**MIX, **over}), TODAY, nlv_usd=nlv).mixed
-
-
 def legs(strike=90):
     return [snap(strike, 2.0, 2.2), snap(strike - 5, 0.5, 0.6)]
 
 
-def test_naked_put_when_the_strike_fits_and_spread_when_it_does_not():
-    rows = mixed(legs(), max_naked_strike=100)
-    assert [r.kind for r in rows if r.short.snapshot.contract.strike == 90] == ["put"]
-    rows = mixed(legs(), max_naked_strike=85)             # 90 > 85: sale el spread
-    top = [r for r in rows if r.short.snapshot.contract.strike == 90]
-    assert [r.kind for r in top] == ["spread"] and "strike" in top[0].why_spread and round(top[0].weight_pct, 1) == 0.5
-
-
-def test_weight_is_informative_and_cumulative_with_shares():
-    shares = Position("AAPL", 100, 4000.0)                                   # 4 % del NLV ya en acciones
-    put = [r for r in mixed(legs(), [shares], max_naked_strike=100) if r.short.snapshot.contract.strike == 90][0]
-    assert put.kind == "put" and round(put.weight_pct, 1) == 13.0            # 4 + 9 %; ya no limita, solo se muestra
-
-
 def test_spread_loss_limit_in_percent_of_nlv():
-    rows = mixed(legs(), max_naked_strike=85, max_loss_nlv_pct=0.3)       # pérdida 360 $ = 0,36 % del NLV
-    assert not [r for r in rows if r.kind == "spread"]
-
-
-def test_naked_rows_keep_the_annual_yield_filter_but_spreads_do_not():
-    assert not [r for r in mixed(legs(), max_naked_strike=100, min_yield_pct=50.0) if r.kind == "put"]   # rinde ~2 % en el periodo (~27 % anual)
-    assert mixed(legs(), max_naked_strike=85, min_yield_pct=50.0)[0].kind == "spread"
-
-
-def test_rows_ordered_by_annualized_return_on_capital():
-    rows = mixed(legs() + [snap(60, 1.0, 1.1), snap(55, 0.2, 0.3)], max_naked_strike=50)
-    vals = [r.return_on_capital_annualized_pct for r in rows]
-    assert vals == sorted(vals, reverse=True)
+    out = run_scan(legs(), INFO, [], BASE.with_filters(max_loss_nlv_pct=0.3), TODAY, nlv_usd=100_000.0)       # pérdida 360 $ = 0,36 % del NLV
+    assert not out.spreads
+    assert run_scan(legs(), INFO, [], BASE.with_filters(max_loss_nlv_pct=0.5), TODAY, nlv_usd=100_000.0).spreads
 
 
 def test_account_fx_from_ibkr_values():
@@ -164,24 +133,3 @@ def test_iv_rank_or_percentile_mode():
     assert not scan(low_rank, **both).spreads                       # los dos: el rank 25 < 30 descarta
     assert scan(low_rank, iv_any=True, **both).spreads              # basta uno: el percentile 80 ≥ 50 pasa
     assert not scan([replace(s, iv_rank=25.0, iv_percentile=40.0) for s in legs], iv_any=True, **both).spreads
-
-
-# ---- «Ambos» con un juego de filtros para la put y otro para el spread --------------------------------------------------------
-from scanner_opciones.scanner.spreads import build_mixed_sets
-
-
-def test_both_with_separate_filter_sets():
-    snaps = legs(90) + legs(75)                        # vendidas de 90 y 75 (con sus compradas 85 y 70)
-    put_c = BASE.with_filters(spread_mode=False, min_yield_pct=0.0, strike_below_pct_min=0)
-    spread_c = BASE.with_filters(spread_widths=(5.0,), min_yield_pct=0.0, max_naked_strike=80.0, mixed=True)
-    put_out = run_scan(snaps, INFO, [], put_c, TODAY)
-    spread_out = run_scan(snaps, INFO, [], spread_c.with_filters(mixed=False), TODAY)
-    rows = build_mixed_sets(put_out.results, spread_out.results, spread_out.spreads, spread_c, [], 100_000.0)
-    assert sorted((r.kind, r.short.snapshot.contract.strike) for r in rows if r.short.snapshot.contract.strike in (90, 75)) == [("put", 75), ("spread", 90)]
-    # la put de 90 solo sale como spread si la vendida pasa los filtros de SPREAD, aunque los de put la dejen fuera
-    strict_put = run_scan(snaps, INFO, [], put_c.with_filters(min_oi=10_000), TODAY)
-    rows = build_mixed_sets(strict_put.results, spread_out.results, spread_out.spreads, spread_c, [], 100_000.0)
-    assert [(r.kind, r.short.snapshot.contract.strike) for r in rows if r.short.snapshot.contract.strike in (90, 75)] == [("spread", 90)]
-    strict_spread = run_scan(snaps, INFO, [], spread_c.with_filters(mixed=False, min_oi=10_000), TODAY)
-    rows = build_mixed_sets(put_out.results, strict_spread.results, strict_spread.spreads, spread_c, [], 100_000.0)
-    assert [(r.kind, r.short.snapshot.contract.strike) for r in rows if r.short.snapshot.contract.strike in (90, 75)] == [("put", 75)]

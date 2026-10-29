@@ -2,7 +2,7 @@
 
 · `put` y `spread` son los parámetros de la URL de cada juego de filtros (activados, valores, precio de venta, calidad, tendencia…): cargar el
   perfil REEMPLAZA todo el formulario (lo que no está en la foto queda desactivado). Se guardan desde el propio Scanner («Guardar en el perfil»).
-· `instruments` son los instrumentos que el perfil tiene activos (put vendida, spread de puts o ambos).
+· `instruments` es el instrumento del perfil (put vendida o spread de puts: uno solo).
 Funciones puras; el almacenamiento (JSON en `meta`) lo hace `AppService`."""
 from __future__ import annotations
 
@@ -36,13 +36,12 @@ class Profile:
 
     @property
     def mode(self) -> str:
-        """Instrumento con el que arranca el Scanner al cargarlo: `both` si están activos los dos."""
-        return "both" if len(self.instruments) > 1 else self.instruments[0]
+        """Instrumento del perfil (`put` o `spread`): con el que arranca el Scanner al cargarlo."""
+        return self.instruments[0]
 
     def params(self, mode: Optional[str] = None) -> dict:
-        """Parámetros del juego de filtros de un instrumento (`put`, `spread` o `both`; el modo «Ambos» usa de momento el de spread)."""
-        mode = mode or self.mode
-        return dict(self.spread if mode in ("spread", "both") else self.put)
+        """Parámetros del juego de filtros de un instrumento (`put` o `spread`; por defecto el del perfil)."""
+        return self.set_params(mode or self.mode)
 
     def set_params(self, name: str) -> dict:
         """Parámetros de la URL del juego de filtros `put` o `spread`."""
@@ -57,7 +56,7 @@ class Profile:
     def with_filters(self, mode: str, params: dict) -> "Profile":
         """Copia con el juego de filtros del instrumento `mode` sustituido por `params` (sin las claves que no son filtros)."""
         clean = {k: str(v) for k, v in params.items() if k not in NOT_FILTERS}
-        return replace(self, spread=clean) if mode in ("spread", "both") else replace(self, put=clean)
+        return replace(self, spread=clean) if mode == "spread" else replace(self, put=clean)
 
     def to_dict(self) -> dict:
         return {"name": self.name, "instruments": list(self.instruments), "put": self.put, "spread": self.spread, "management": self.management,
@@ -69,8 +68,8 @@ def validate_profile(p: Profile) -> Profile:
     if not name:
         raise ValueError("el perfil necesita un nombre")
     instruments = tuple(i for i in INSTRUMENTS if i in p.instruments)
-    if not instruments:
-        raise ValueError(f"«{name}»: activa al menos un instrumento (put o spread)")
+    if len(instruments) != 1:
+        raise ValueError(f"«{name}»: elige un instrumento (put o spread)")
     if p.color and not re.fullmatch(r"#[0-9a-fA-F]{6}", p.color):
         raise ValueError(f"«{name}»: color no válido")
     if p.management not in ("tastytrade", "tpc"):
@@ -78,7 +77,26 @@ def validate_profile(p: Profile) -> Profile:
     return replace(p, name=name, instruments=instruments)
 
 
+def split_dual(profiles: list[Profile], default: Optional[str] = None) -> tuple[list[Profile], Optional[str], dict[str, str]]:
+    """Un perfil es de UN instrumento: el que tiene put y spread activos se divide en «X (put)» y «X (spread)», cada uno con los filtros de su
+    instrumento (el perfil de las puts que no encajan se queda solo como put). Devuelve (perfiles, inicial, {nombre antiguo: nombre de su put})."""
+    out: list[Profile] = []
+    renames: dict[str, str] = {}
+    for p in profiles:
+        ins = tuple(i for i in INSTRUMENTS if i in p.instruments)
+        if len(ins) < 2:
+            out.append(p)
+        elif p.fallback or p.name == FALLBACK_NAME:
+            out.append(replace(p, instruments=("put",), spread={}))
+        else:
+            renames[p.name] = f"{p.name} (put)"
+            out.append(replace(p, name=f"{p.name} (put)", instruments=("put",), spread={}))
+            out.append(replace(p, name=f"{p.name} (spread)", instruments=("spread",), put={}))
+    return out, renames.get(default, default), renames
+
+
 def validate_profiles(profiles: list[Profile], default: Optional[str]) -> tuple[list[Profile], str]:
+    profiles, default, _ = split_dual(profiles, default)
     out = [validate_profile(p) for p in profiles]
     if not out:
         raise ValueError("tiene que quedar al menos un perfil")
@@ -94,8 +112,8 @@ def dump(profiles: list[Profile], default: str) -> str:
     return json.dumps({"profiles": [p.to_dict() for p in profiles], "default": default})
 
 
-def load(raw: str) -> Optional[tuple[list[Profile], str]]:
-    """(perfiles, perfil inicial) de un JSON guardado, o None si no hay o ya no es válido."""
+def parse(raw: str) -> Optional[tuple[list[Profile], Optional[str]]]:
+    """(perfiles, perfil inicial) de un JSON guardado tal cual, sin validar ni dividir; None si no hay o no se lee."""
     if not raw:
         return None
     try:
@@ -103,7 +121,18 @@ def load(raw: str) -> Optional[tuple[list[Profile], str]]:
         profiles = [Profile(d["name"], tuple(d["instruments"]), {str(k): str(v) for k, v in d["put"].items()},
                             {str(k): str(v) for k, v in d["spread"].items()}, d.get("management", "tastytrade"), d.get("color", ""),
                             exits_mod.check_overrides(d.get("exits") or {}), bool(d.get("fallback", d["name"] == FALLBACK_NAME))) for d in data["profiles"]]
-        return validate_profiles(profiles, data.get("default"))
+        return profiles, data.get("default")
+    except Exception:
+        return None
+
+
+def load(raw: str) -> Optional[tuple[list[Profile], str]]:
+    """(perfiles, perfil inicial) de un JSON guardado, o None si no hay o ya no es válido. Los perfiles de dos instrumentos se dividen."""
+    parsed = parse(raw)
+    if parsed is None:
+        return None
+    try:
+        return validate_profiles(*parsed)
     except Exception:
         return None
 

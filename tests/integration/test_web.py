@@ -883,15 +883,6 @@ def test_scanner_spread_mode_renders_and_validates(client_and_service):
         assert "Parámetro no válido" in client.get(BASE + bad).text, bad
 
 
-def test_scanner_both_mode_renders_and_validates(client_and_service):
-    client, svc, gw, _ = client_and_service
-    refresh(client)
-    r = client.get(BASE + "&mode=both&use_ns=on&ns=100")
-    assert r.status_code == 200 and "Retorno anual s/ capital" in r.text and "Put si strike ≤ 100" in r.text
-    for bad in ("&mode=both&ns=100", "&mode=both&use_ns=on&ns=0", "&mode=both&use_ns=on&ns=abc", "&mode=both&use_ns=on&ns=100&use_mn=on&mn=500"):
-        assert "Parámetro no válido" in client.get(BASE + bad).text, bad
-
-
 def _make_spread_possible(svc):
     """Sube el precio de la put 80 para que 80/75 dé crédito (la comprada 75 queda a 1,0/1,2)."""
     from dataclasses import replace
@@ -902,12 +893,12 @@ def _make_spread_possible(svc):
 SPREAD_Q = "&use_rr=on&rr=0.1&use_mc=on&mc=1&min_yield=0.1&discount=1"
 
 
-def test_spread_and_both_tables_have_selection_charts_and_simulation(client_and_service):
+def test_spread_table_has_selection_charts_and_simulation(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     _make_spread_possible(svc)
-    for mode in ("spread", "both"):
-        r = client.get(BASE + f"&mode={mode}" + SPREAD_Q + "&use_ns=on&ns=1")
+    for mode in ("spread",):
+        r = client.get(BASE + f"&mode={mode}" + SPREAD_Q)
         assert 'id="scan-results"' in r.text and 'name="sel" value="AAPL|' in r.text, mode
         assert 'class="sortable sticky-tk with-sel"' in r.text and "/chart/mini.svg" in r.text and "Simular seleccionados" in r.text, mode
         for col in ("Δ comp.", "Pérd. $", "Pérd. %NLV", "BrEv", "Dist. BE", "OI comp.", "Δ vend."):
@@ -916,7 +907,7 @@ def test_spread_and_both_tables_have_selection_charts_and_simulation(client_and_
         head = head[:head.index("</tr>")]
         order = [head.index(f">{h}</th>") for h in ("Δ vend.", "Δ comp.", "IV", "IV Rank", "Spread vend.", "OI vend.", "OI comp.")]
         assert ">Liq. opc.</th>" not in head and ">Bid sz</th>" not in head, mode                 # las tablas de spread no llevan liquidez de opciones ni bid size
-        assert order == sorted(order) and head.index("Retorno anual s/ capital" if mode == "both" else "R/R anual") < order[0] < head.index("BrEv"), mode   # mercado junto al retorno
+        assert order == sorted(order) and head.index("R/R anual") < order[0] < head.index("BrEv"), mode   # mercado junto al retorno
         assert 'name="ml_AAPL|' in r.text and 'class="muted">/</span>' in r.text, mode
 
 

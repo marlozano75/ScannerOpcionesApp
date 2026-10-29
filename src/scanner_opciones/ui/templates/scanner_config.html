@@ -52,8 +52,7 @@
           <th class="c" data-tip="Orden|Número menor, antes: es el orden de los botones del Scanner y del desplegable del Panel." tabindex="0">Orden</th>
           <th>Nombre</th>
           <th class="c" data-tip="Color|Tiñe el botón del perfil y su etiqueta en el Panel. La casilla activa el color." tabindex="0">Color</th>
-          <th class="c" data-tip="Put vendida|El perfil incluye el instrumento put desnuda." tabindex="0">Put</th>
-          <th class="c" data-tip="Spread|El perfil incluye el instrumento spread de puts. Con put y spread marcados arranca en «Ambos»." tabindex="0">Spread</th>
+          <th class="c" data-tip="Instrumento|Cada perfil es de un solo instrumento: put desnuda vendida o spread de puts. Al cambiarlo se parte de los filtros del anterior." tabindex="0">Instrumento</th>
           <th data-tip="Salida|Estrategia de salida de sus puts en el Panel (pestaña Salidas). Tastytrade: recoger al 50 %, revisar a 21 DTE. TPC: mantener hasta el vencimiento." tabindex="0">Gestión</th>
           <th data-tip="DTE (Panel)|Cada put vendida del Panel se asigna al perfil cuyo rango de DTE (mínimo y máximo de sus filtros) contiene el DTE con el que se abrió; si hay varios, el rango más estrecho. Lo que no encaja va a {{ fallback }}. Se corrige a mano en el Panel." tabindex="0">DTE</th>
           <th class="c" data-tip="Inicial|Perfil que se carga al abrir el Scanner." tabindex="0">Inicial</th>
@@ -65,8 +64,7 @@
         <tr><td class="c"><input type="number" name="pf{{ i }}_order" value="{{ i + 1 }}" step="1"></td>
           <td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}" ><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
           <td class="c col"><input type="checkbox" name="pf{{ i }}_usecolor" {{ 'checked' if p.color }} title="Con color"> <input type="color" name="pf{{ i }}_color" value="{{ p.color or '#1f6feb' }}"></td>
-          <td class="c"><input type="checkbox" name="pf{{ i }}_put" {{ 'checked' if 'put' in p.instruments }}></td>
-          <td class="c"><input type="checkbox" name="pf{{ i }}_spread" {{ 'checked' if 'spread' in p.instruments }}></td>
+          <td class="c"><select name="pf{{ i }}_inst"><option value="put" {{ 'selected' if p.mode == 'put' }}>Put</option><option value="spread" {{ 'selected' if p.mode == 'spread' }}>Spread</option></select></td>
           <td><a href="/exits#pf{{ i }}" title="Editar la estrategia de salida de este perfil">{{ 'TPC' if p.management == 'tpc' else 'Tastytrade' }} ✎</a></td>
           <td class="muted">{% if p.fallback %}el resto{% elif ranges[p.name] %}{{ ranges[p.name][0] }}–{{ ranges[p.name][1] }}{% else %}—{% endif %}</td>
           <td class="c"><input type="radio" name="default" value="{{ i }}" {{ 'checked' if p.name == default_profile }}></td>

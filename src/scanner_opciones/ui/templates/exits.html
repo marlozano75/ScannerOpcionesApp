@@ -33,7 +33,7 @@
     <section class="ex-card" id="pf{{ i }}" style="{{ 'border-left-color:' ~ p.color if p.color }}">
       <div class="ex-head">
         <h3>{{ p.name }}</h3>
-        <span class="tag">{{ 'put' if p.instruments == ('put',) else 'spread' if p.instruments == ('spread',) else 'put y spread' }}</span>
+        <span class="tag">{{ p.mode }}</span>
         <span class="muted" style="font-size:12px">{{ c.open_puts }} {{ 'posición abierta' if c.open_puts == 1 else 'posiciones abiertas' }} en el Panel</span>
         <span class="muted" style="font-size:12px">{% if c.changed %}personalizada ({{ c.changed|length }} {{ 'cambio' if c.changed|length == 1 else 'cambios' }} sobre el estilo){% else %}valores del estilo{% endif %}</span>
       </div>

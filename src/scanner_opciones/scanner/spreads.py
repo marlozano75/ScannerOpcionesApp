@@ -47,7 +47,7 @@ def _long_leg_index(snapshots: Sequence[ContractSnapshot]) -> dict[tuple, Contra
 
 @dataclass(frozen=True)
 class MixedRow:
-    """Fila del modo «Ambos»: una put desnuda (`spread is None`) o un spread, con el capital que inmoviliza."""
+    """Fila del escaneo de todos los perfiles: una put desnuda (`spread is None`) o un spread, con el capital que inmoviliza."""
     kind: str                        # put | spread
     short: "object"                  # ScanResult de la pata vendida
     spread: Optional[SpreadResult]
@@ -71,62 +71,17 @@ def ticker_exposure(positions: Sequence) -> dict[str, float]:
     return out
 
 
-def build_mixed(
-    shorts: Sequence, spreads: Sequence[SpreadResult], criteria: ScanCriteria, positions: Sequence, nlv_usd: Optional[float],
-    naked_min_yield_pct: float = 0.0, spread_only: frozenset = frozenset(),
-) -> list[MixedRow]:
-    """Put desnuda si cumple los límites (peso acumulado sobre el NLV y strike máximo); si no, sus spreads. Orden: retorno anualizado sobre capital."""
-    return build_mixed_sets(shorts, shorts, spreads, criteria, positions, nlv_usd, naked_min_yield_pct, spread_only)
-
-
 def only_reason(spread_only, ticker: str) -> str:
     """Por qué un ticker solo puede ir como spread (`spread_only` puede ser un dict ticker → motivo o un simple conjunto)."""
     reasons = spread_only if isinstance(spread_only, dict) else {}
     return reasons.get(ticker) or "sin la calidad mínima de las puts"
 
 
-def build_mixed_sets(
-    naked_shorts: Sequence, spread_shorts: Sequence, spreads: Sequence[SpreadResult], criteria: ScanCriteria, positions: Sequence,
-    nlv_usd: Optional[float], naked_min_yield_pct: float = 0.0, spread_only: frozenset = frozenset(),
-) -> list[MixedRow]:
-    """Modo «Ambos» con un juego de filtros para cada instrumento: sale como put desnuda la que pasa los filtros de put (`naked_shorts`) y su
-    strike cabe en `max_naked_strike`; si no cabe, sale su spread, siempre que la vendida pase los filtros de spread (`spread_shorts`).
-    Los tickers de `spread_only` (sin la calidad mínima de las puts) nunca salen como put desnuda: solo su spread, con cualquier strike."""
-    held = ticker_exposure(positions)
-    by_short: dict[int, list[SpreadResult]] = {}
-    for sp in spreads:
-        by_short.setdefault(id(sp.short), []).append(sp)
-    limit = criteria.max_naked_strike
-    rows: list[MixedRow] = []
-    for r in naked_shorts:
-        c = r.snapshot.contract
-        if c.ticker in spread_only or (limit is not None and c.strike > limit):
-            continue
-        if (r.yield_ref_pct or 0.0) < naked_min_yield_pct:
-            continue
-        weight = (held.get(c.ticker, 0.0) + c.strike * c.multiplier * usd_rate(nlv_usd, c.ticker)) / nlv_usd * 100 if nlv_usd else None
-        margin = r.snapshot.initial_margin
-        ror = (r.reference_price * c.multiplier / margin * 365 / r.dte
-               if margin and margin > 0 and r.reference_price and r.dte > 0 else None)
-        rows.append(MixedRow("put", r, None, r.reference_price or 0.0, margin, ror * 100 if ror is not None else None, weight))
-    for r in spread_shorts:
-        c = r.snapshot.contract
-        only = c.ticker in spread_only
-        if not only and (limit is None or c.strike <= limit):
-            continue
-        reason = f"solo spread ({only_reason(spread_only, c.ticker)})" if only else f"strike {c.strike:g} > {limit:g}"
-        for sp in by_short.get(id(r), []):
-            w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier * usd_rate(nlv_usd, c.ticker)) / nlv_usd * 100 if nlv_usd else None
-            rows.append(MixedRow("spread", r, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, reason))
-    rows.sort(key=lambda x: (x.return_on_capital_annualized_pct is not None, x.return_on_capital_annualized_pct or 0.0), reverse=True)
-    return rows
-
-
 def build_profile_rows(
     put_hits: dict, spread_hits: dict, positions: Sequence, nlv_usd: Optional[float],
 ) -> list[MixedRow]:
     """Filas del escaneo de TODOS los perfiles: una por put desnuda (`put_hits`: clave -> (ScanResult, nombres de perfil)) y una por spread
-    (`spread_hits`: clave -> (SpreadResult, nombres)), con los perfiles cuyos filtros cumple cada una. Mismo capital y retorno que el modo «Ambos»."""
+    (`spread_hits`: clave -> (SpreadResult, nombres)), con los perfiles cuyos filtros cumple cada una. Con el capital que inmoviliza cada una y su retorno anualizado sobre él."""
     held = ticker_exposure(positions)
     rows: list[MixedRow] = []
     for r, names in put_hits.values():

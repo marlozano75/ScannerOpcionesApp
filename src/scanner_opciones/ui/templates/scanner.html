@@ -63,9 +63,6 @@
   {% if form.use_ld %}{% set _ = spreadf.append(('Δ comprada ≤ ' ~ form.ld, 'use_ld ld')) %}{% endif %}
   {% if form.use_cw %}{% set _ = spreadf.append(('Crédito/ancho ' ~ form.cw ~ (('–' ~ form.cwx) if form.cwx else '+') ~ ' %', 'use_cw cw cwx')) %}{% endif %}
   {% if form.use_wd %}{% set _ = spreadf.append(('Anchos ' ~ form.wd ~ ' $', 'use_wd wd')) %}{% endif %}
-  {% if form.mode == 'both' %}
-    {% if form.use_ns %}{% set _ = spreadf.append(('Put si strike ≤ ' ~ form.ns, 'use_ns ns')) %}{% endif %}
-  {% endif %}
 {% endif %}
 {# chips de filtros activos (lado de resultados): (sección, texto, claves) #}
 {% set chips = [] %}
@@ -94,7 +91,6 @@
 {% set offs = [] %}
 {% if form.set == 'spread' %}
   {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_cs', 'Spread combo'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV'), ('use_ld', 'Δ comprada'), ('use_cw', 'Crédito/ancho'), ('use_wd', 'Anchos fijos')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label, use)) %}{% endif %}{% endfor %}
-  {% if form.mode == 'both' %}{% for use, label in (('use_ns', 'Strike máx. put'),) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label, use)) %}{% endif %}{% endfor %}{% endif %}
 {% endif %}
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-delta'), ('use_ivhv', 'IV/HV', 'sec-iv'),
     ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-atr'), ('use_exp', 'Mov. esperado', 'sec-atr'), ('use_rsi', 'RSI', 'sec-entry'),
@@ -229,12 +225,10 @@
     <form method="get" action="/scanner" id="scan-form">
       <input type="hidden" name="submitted" value="1">
       <input type="hidden" name="profile" value="{{ active_profile.name if active_profile else '' }}">
-      <input type="hidden" name="set" value="{{ form.set }}">
-      {% for k, v in other_params.items() %}<input type="hidden" name="o_{{ k }}" value="{{ v }}">{% endfor %}
       <div class="presets"><span class="lbl">Perfiles</span>
         {% for p in profile_buttons %}
         <a class="preset{{ ' strategy' if p.strategy }}{{ ' active' if p.on }}" href="/scanner?{{ p.qs }}" style="text-decoration:none{{ ';--pc:' ~ p.color if p.color }}"
-          title="Carga el perfil «{{ p.name }}» ({{ p.instruments | join(' + ') | replace('put', 'put vendida') | replace('spread', 'spread') }}): reemplaza todos los filtros del formulario por los guardados en el perfil">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
+          title="Carga el perfil «{{ p.name }}» ({{ 'put vendida' if p.mode == 'put' else 'spread de puts' }}): reemplaza todos los filtros del formulario por los guardados en el perfil">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
         <a class="preset all-profiles" href="/scanner/todos" style="text-decoration:none" title="Un solo escaneo con los filtros de todos los perfiles y una columna con los que cumple cada fila">Todos los perfiles</a>
         <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Perfiles: nombre, instrumentos activos y perfil inicial">✎ Editar</a>
         <button type="button" class="secondary" id="save-profile" style="font-size:12px;padding:2px 8px"
@@ -243,15 +237,9 @@
 
       <label class="field" style="margin:6px 0">Instrumento
         <select name="mode" id="mode">
-          {% set ins = active_profile.instruments if active_profile else ('put', 'spread') %}
-          {% if 'put' in ins or form.mode == 'put' %}<option value="put" {{ 'selected' if form.mode == 'put' }}>Put vendida</option>{% endif %}
-          {% if 'spread' in ins or form.mode == 'spread' %}<option value="spread" {{ 'selected' if form.mode == 'spread' }}>Spread de puts (vendida + comprada)</option>{% endif %}
-          {% if ('put' in ins and 'spread' in ins) or form.mode == 'both' %}<option value="both" {{ 'selected' if form.mode == 'both' }}>Ambos: put si cabe en mis límites, si no spread</option>{% endif %}
+          <option value="put" {{ 'selected' if form.mode == 'put' }}>Put vendida</option>
+          <option value="spread" {{ 'selected' if form.mode == 'spread' }}>Spread de puts (vendida + comprada)</option>
         </select></label>
-      <div class="settabs" style="display:flex;gap:6px;align-items:center;margin:4px 0 8px"><span class="lbl">Filtros de</span>
-        <button type="button" class="settab{{ ' active' if form.set == 'put' }}" data-set="put" title="Ver y editar los filtros de la put vendida">Put</button>
-        <button type="button" class="settab{{ ' active' if form.set == 'spread' }}" data-set="spread" title="Ver y editar los filtros del spread de puts (el perfil guarda un juego para cada instrumento)">Spread</button>
-        <span class="muted" style="font-size:12px">{{ 'Escanea: ' ~ ({'put': 'put vendida', 'spread': 'spread', 'both': 'ambos'}.get(form.mode, '?')) ~ ('' if form.mode == form.set or form.mode == 'both' else ' (este juego no se usa)') }}</span></div>
       {% if form.set == 'spread' %}
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
         <label class="check" title="Se prueban todos los anchos y gana el de mayor retorno anualizado sobre riesgo"><input type="checkbox" name="best_width" {{ 'checked' if form.best_width }}> Solo el mejor ancho por put</label>
@@ -267,11 +255,6 @@
           <span class="pair"><input name="cw" value="{{ form.cw }}" inputmode="decimal" placeholder="mín"><input name="cwx" value="{{ form.cwx }}" inputmode="decimal" placeholder="máx"></span></label>
         <label class="opt opt-row" title="Anchos en dólares separados por comas; sustituyen a los que se prueban por defecto"><span class="check"><input type="checkbox" name="use_wd" {{ 'checked' if form.use_wd }}> Solo estos anchos ($)</span>
           <input name="wd" value="{{ form.wd }}" style="width:76px"></label>
-        {% if form.mode == 'both' %}
-        <p class="note">Sobre ese strike la put sale como spread. Orden: retorno anualizado sobre capital.</p>
-        <label class="opt opt-row" title="Si el strike de la put supera este máximo, sale como spread"><span class="check"><input type="checkbox" name="use_ns" {{ 'checked' if form.use_ns }}> Strike máx. put desnuda ($)</span>
-          <input name="ns" value="{{ form.ns }}" inputmode="decimal"></label>
-        {% endif %}
         <p class="note">Los filtros de abajo se aplican a la <b>put vendida</b>. Crédito = vendida (precio elegido) − <b>ask</b> de la comprada; pérdida máx. = (ancho − crédito) × 100. En lugar del yield rige el retorno/riesgo del periodo (25 % crédito/ancho = 33 % retorno/riesgo).</p>
       {% endcall %}
       {% endif %}
@@ -497,8 +480,8 @@
   <section class="results" id="results-col" data-keep-scroll>
     <div class="summary">
       {% if out %}
-      <div class="headline"><span class="big">{{ out.mixed|length if criteria and criteria.mixed else out.spreads|length if criteria and criteria.spread_mode else out.results|length }}</span>
-        <span>{{ 'filas (puts y spreads)' if criteria and criteria.mixed else 'spreads' if criteria and criteria.spread_mode else 'contratos' }} cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></span></div>
+      <div class="headline"><span class="big">{{ out.spreads|length if criteria and criteria.spread_mode else out.results|length }}</span>
+        <span>{{ 'spreads' if criteria and criteria.spread_mode else 'contratos' }} cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></span></div>
       {% endif %}
       {% if criteria %}
       {% set base = [('sec-contract', 'Strike ' ~ criteria.strike_below_pct_min|num(1) ~ '–' ~ criteria.strike_below_pct_max|num(1) ~ ' % por debajo', 'discount'), ('sec-contract', 'DTE ' ~ criteria.dte_min ~ '–' ~ criteria.dte_max, 'dte_min dte_max')] %}
@@ -523,34 +506,7 @@
       </details>
       {% endif %}
     </div>
-    {% if out and criteria and criteria.mixed %}
-    {% set rmax = out.mixed|map(attribute='return_on_capital_annualized_pct')|select('number')|max or 0 %}
-    <form method="post" action="/simulate" class="table-form">
-      <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
-        <tr><th class="sel"></th>{{ cols.lead_head() }}<th title="Put vendida sola o spread de puts">Tipo</th><th title="Strike de la put vendida / strike de la put comprada (la cobertura del spread)">Vend./Comp.</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales frente al strike">Historial</th><th data-col="desc" title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th><th data-col="dte" title="Días que faltan hasta el vencimiento">DTE</th>
-          <th title="Strike vendido − strike comprado">Ancho</th><th data-col="scredit" title="Crédito total de la operación por contrato (precio de venta de referencia − ask de la comprada) × multiplicador">Créd. ($)</th><th data-col="cw" title="Crédito neto / ancho del spread (en una put sola no aplica)">Cred/A</th><th class="hl" data-sort-default="desc" title="Retorno anualizado sobre el capital consumido (margen o pérdida máxima)">Retorno anual s/ capital</th>{{ cols.mkt_head() }}<th title="Capital que consume: margen what-if en una put, pérdida máxima en un spread">Capital ($)</th><th title="Nominal de la acción si te asignan (strike × multiplicador) como % del valor liquidativo neto (NLV)">Peso NLV si asignado</th>
-          <th title="Pérdida máxima ($)">Pérd. $</th><th data-col="lossnlv" title="Pérdida máxima como % del NLV">Pérd. %NLV</th><th title="Breakeven: strike vendido − crédito">BrEv</th><th title="Distancia del breakeven por debajo del precio actual">Dist. BE</th>{{ cols.extra_head(false) }}<th title="Motivo por el que sale como spread y no como put sola">Por qué spread</th><th data-nosort title="Número de contratos a simular (1–9)">Cant.</th></tr>
-        {% for m in out.mixed %}{% set r = m.short %}{% set c = r.snapshot.contract %}{% set sp = m.spread %}
-          {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ ('|' ~ sp.long.contract.strike if sp else '') %}
-          {% set be = sp.breakeven if sp else c.strike - m.credit %}{% set px = r.info.underlying_price if r.info else none %}
-          <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
-            {{ cols.lead_cells(r, sp.long.contract.strike if sp else none) }}
-            <td>{{ 'Spread' if sp else 'Put' }}</td>
-            <td data-sort="{{ c.strike }}">{% if sp %}<span class="k-sold">{{ c.strike|num }}</span> <span class="muted">/</span> <span class="k-long">{{ sp.long.contract.strike|num }}</span>{% else %}{{ c.strike|num }}{% endif %}</td>
-            <td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ cols.mini_cell(r, sp.long.contract.strike if sp else none) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
-            <td>{{ sp.width|num if sp else '—' }}</td><td>{{ (m.credit * c.multiplier)|num(0) }}{{ ccy(c.ticker) }}</td><td{% if sp %} data-sort="{{ sp.credit_width_pct }}"{% endif %}>{{ sp.credit_width_pct|pct if sp else '—' }}</td>
-            <td class="hl cb"{% if rmax and m.return_on_capital_annualized_pct is not none %} style="--p:{{ (100 * m.return_on_capital_annualized_pct / rmax)|round(0)|int }}%"{% endif %}>{{ m.return_on_capital_annualized_pct|pct(0) }}</td>
-            {{ cols.mkt_cells(r, sp.long if sp else none) }}
-            <td title="{{ 'Pérdida máxima' if sp else 'Margen what-if' }}">{{ m.capital|num(0) if m.capital is not none else '—' }}</td><td>{{ m.weight_pct|pct }}</td>
-            <td>{{ sp.max_loss|num(0) if sp else '—' }}{{ ccy(c.ticker) if sp else '' }}</td><td>{{ (sp.max_loss * fx(nlv_usd, c.ticker) / nlv_usd * 100)|pct if sp and nlv_usd else (((c.strike - m.credit) * c.multiplier * fx(nlv_usd, c.ticker) / nlv_usd * 100)|pct if nlv_usd else '—') }}</td><td>{{ be|num }}</td><td>{{ ((px - be) / px * 100)|pct if px else '—' }}</td>
-            {{ cols.extra_cells(r, community, false) }}
-            <td class="txt muted">{{ m.why_spread }}</td>
-            <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px">{% if sp %}<input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}">{% endif %}</td></tr>
-        {% else %}<tr><td colspan="60" class="muted empty">Nada cumple los criterios.</td></tr>{% endfor %}
-      </table></div>
-      {% if out.mixed %}<div class="table-actions"><button id="simulate-btn">Simular seleccionados</button><span id="sel-count">Ninguno seleccionado</span></div>{% endif %}
-    </form>
-    {% elif out and criteria and criteria.spread_mode %}
+    {% if out and criteria and criteria.spread_mode %}
     {% set rmax = out.spreads|map(attribute='return_on_risk_annualized_pct')|max if out.spreads else 0 %}
     <form method="post" action="/simulate" class="table-form">
       <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
@@ -875,22 +831,6 @@
     }
     boxes.concat([sel]).forEach(function (el) { el.addEventListener('change', clamp); });
     clamp();
-  })();
-  // Selector Put | Spread: cambia el juego de filtros que se ve; el otro viaja como campos ocultos `o_...` y se intercambian sin perder lo editado
-  (function () {
-    const STRUCT = ['submitted', 'mode', 'profile', 'set', 'debug'];
-    document.querySelectorAll('.settabs button[data-set]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        if (b.classList.contains('active')) return;
-        const out = new URLSearchParams();
-        new FormData(form).forEach(function (v, k) {
-          if (STRUCT.indexOf(k) >= 0) { out.append(k, v); return; }
-          out.append(k.indexOf('o_') === 0 ? k.slice(2) : 'o_' + k, v);
-        });
-        out.set('set', b.dataset.set);
-        window.location.href = '/scanner?' + out.toString();
-      });
-    });
   })();
   // «Guardar en perfil»: envía por POST los filtros actuales (la consulta del formulario) al perfil elegido o a uno nuevo
   (function () {

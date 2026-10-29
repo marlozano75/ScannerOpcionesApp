@@ -49,7 +49,7 @@ from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settin
 from scanner_opciones.scanner.currency import Nlv
 from scanner_opciones.scanner.quality import put_floor_reject
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
-from scanner_opciones.scanner.spreads import build_mixed_sets, build_profile_rows
+from scanner_opciones.scanner.spreads import build_profile_rows
 from scanner_opciones.scanner.tech_summary import TechSummarizer, TechSummary
 from scanner_opciones.scanner.impact import ImpactReport, impact_report
 from scanner_opciones.storage.db import Database
@@ -809,6 +809,7 @@ class AppService:
         if self._starting:
             return
         self.split_tastytrade_profile()
+        self.split_dual_profiles()
         self.tastyput_to_tpc()
         self._starting = True
         try:
@@ -1354,6 +1355,17 @@ class AppService:
         """Guarda los perfiles del Scanner (sobreviven a reinicios). Lanza `ValueError` si no son válidos (no se guarda nada)."""
         valid, default_name = profiles_mod.validate_profiles(profiles, default)
         self.meta.set(SCANNER_PROFILES, profiles_mod.dump(valid, default_name))
+
+    def split_dual_profiles(self) -> bool:
+        """Migración única: los perfiles guardados con put y spread activos pasan a ser dos («X (put)» y «X (spread)»); las puts del Panel
+        asignadas a «X» pasan a «X (put)». Devuelve True si cambió algo."""
+        parsed = profiles_mod.parse(self.meta.get(SCANNER_PROFILES) or "")
+        if parsed is None or not any(len(p.instruments) > 1 for p in parsed[0]):
+            return False
+        profiles, default, renames = profiles_mod.split_dual(*parsed)
+        self.save_profiles(profiles, default)
+        self.rename_profile_refs(renames)
+        return True
 
     def rename_profile_refs(self, renames: dict[str, str]) -> None:
         """Traslada a los nombres nuevos las puts con perfil elegido a mano o reconocido al abrirlas (se guardan por nombre)."""
@@ -2682,8 +2694,7 @@ class AppService:
         return criteria_from_settings(self.settings).with_filters(**overrides)
 
     def _memo(self, name: str, build):
-        """Lectura costosa (snapshots, cierres, ATR) reutilizada entre los cálculos de una misma petición del Scanner: «Ambos» escanea dos
-        veces y el aviso de resultados vacíos una más. Caduca a los `SCAN_MEMO_SECONDS` o si cambian los datos (`data_version`)."""
+        """Lectura costosa (snapshots, cierres, ATR) reutilizada entre los cálculos de una misma petición del Scanner: el escaneo y el aviso de resultados vacíos una más. Caduca a los `SCAN_MEMO_SECONDS` o si cambian los datos (`data_version`)."""
         now = time.monotonic()
         key = (name, self.state.data_version, self.watchlist.db.data_changes)     # data_changes: cualquier escritura en la base invalida
         hit = self._scan_memo.get(key)
@@ -2723,15 +2734,6 @@ class AppService:
             self.quality_exempt(), self._atr(criteria, snapshots), self.nlv_usd(), self.naked_blocked(criteria),
         )
 
-    def scan_both(self, put_criteria: ScanCriteria, spread_criteria: ScanCriteria, include_rejections: bool = False) -> ScanOutput:
-        """Modo «Ambos» con un juego de filtros para la put desnuda y otro para el spread: la put sale como put si pasa los de put y su strike
-        cabe en `max_naked_strike` de `spread_criteria`; si no cabe, sale su spread si la vendida pasa los de spread."""
-        put_out = self.scan(put_criteria.with_filters(spread_mode=False, mixed=False), include_rejections)
-        spread_out = self.scan(spread_criteria.with_filters(spread_mode=True, mixed=False), include_rejections)
-        mixed = build_mixed_sets(put_out.results, spread_out.results, spread_out.spreads, spread_criteria, with_spreads(self.state.positions),
-                                 self.nlv_usd(), put_criteria.min_yield_pct, self.naked_blocked(put_criteria))
-        return ScanOutput(put_out.results, put_out.rejected_count, {**spread_out.rejections, **put_out.rejections}, spread_out.spreads, mixed)
-
     def scan_profiles(self, sets: list[tuple[str, str, ScanCriteria]]) -> tuple[list, dict[str, dict[str, int]]]:
         """Un solo escaneo con los filtros de varios perfiles: `sets` = (perfil, instrumento `put`|`spread`, criterios). Cada contrato (o spread)
         que cumple los de algún perfil sale UNA vez, con la lista de perfiles que cumple. Devuelve (filas, {perfil: {instrumento: nº de filas}})."""
@@ -2740,14 +2742,14 @@ class AppService:
         counts: dict[str, dict[str, int]] = {}
         for name, instrument, criteria in sets:
             if instrument == "spread":
-                out = self.scan(criteria.with_filters(spread_mode=True, mixed=False))
+                out = self.scan(criteria.with_filters(spread_mode=True))
                 for sp in out.spreads:
                     c = sp.short.snapshot.contract
                     key = (c.ticker, c.expiry, c.strike, sp.long.contract.strike)
                     spread_hits.setdefault(key, (sp, []))[1].append(name)
                 n = len(out.spreads)
             else:
-                out = self.scan(criteria.with_filters(spread_mode=False, mixed=False))
+                out = self.scan(criteria.with_filters(spread_mode=False))
                 for r in out.results:
                     c = r.snapshot.contract
                     put_hits.setdefault((c.ticker, c.expiry, c.strike), (r, []))[1].append(name)
@@ -2775,7 +2777,7 @@ class AppService:
     def split_tastytrade_profile(self) -> bool:
         """Migración única: el perfil guardado «Tastytrade» (put + spread) pasa a dos, «TastyPut» y «TastySpread», con los mismos filtros y color.
         Las puts del Panel que tenían asignado «Tastytrade» pasan a «TastyPut». True si cambió algo."""
-        stored = self.stored_profiles()
+        stored = profiles_mod.parse(self.meta.get(SCANNER_PROFILES) or "")      # en bruto: aún con los dos instrumentos
         if stored is None:
             return False
         profiles, default = stored
@@ -3029,7 +3031,7 @@ class AppService:
 
     def tech_summaries(self, out: ScanOutput) -> dict[tuple[str, float], TechSummary]:
         """Resumen técnico (informativo) de la pata vendida de cada fila del resultado: {(ticker, strike): TechSummary}."""
-        shorts = list(out.results) + [m.short for m in out.mixed] + [sp.short for sp in out.spreads]
+        shorts = list(out.results) + [sp.short for sp in out.spreads]
         wanted = {(r.snapshot.contract.ticker, r.snapshot.contract.strike): r.info.underlying_price if r.info else None for r in shorts}
         if not wanted:
             return {}

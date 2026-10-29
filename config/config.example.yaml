@@ -36,7 +36,6 @@ scanner:
     max_long_spread_pct: 25                 # pata comprada: spread bid/ask máximo (%); sin bid no pasa
     min_credit_usd: 30                      # crédito neto mínimo por spread ($ por contrato)
     min_return_on_risk_pct: 25              # retorno mínimo hasta el vencimiento sobre el riesgo (crédito / pérdida máxima), sin anualizar
-    max_naked_strike: 100                   # strike máximo de la put desnuda ($); por encima, solo spread
     max_loss_nlv_pct: 2                     # pérdida máxima del spread como % del NLV
     # usd_per_base: 1.17                    # dólares por euro, solo si IBKR no da el tipo de cambio
   quality:                 # opciones del bloque «Calidad de la empresa» del scanner

@@ -3,6 +3,7 @@ import json
 import re
 from dataclasses import replace
 
+from scanner_opciones.scanner import profiles as profiles_mod
 from scanner_opciones.scanner.profiles import Profile
 from tests.integration.test_web import client_and_service, refresh  # noqa: F401
 
@@ -22,7 +23,7 @@ def test_seed_profiles_split_the_tastytrade_strategy_into_put_and_spread(client_
 def test_the_saved_tastytrade_profile_is_split_once_and_its_puts_follow(client_and_service):
     client, svc, gw, _ = client_and_service
     old = Profile("Tastytrade", ("put", "spread"), {"dte_min": "30"}, {"dte_min": "30", "rr": "25"}, color="#1f6feb")
-    svc.save_profiles([Profile("Mensual (TPC)", ("put",)), old, Profile("Tortuga", ("put",))], "Tastytrade")
+    svc.meta.set("scanner_profiles", profiles_mod.dump([Profile("Mensual (TPC)", ("put",)), old, Profile("Tortuga", ("put",))], "Tastytrade"))   # guardado antes: con dos instrumentos
     svc.meta.set("put_profiles", json.dumps({"AAPL|2099-01-01|90": "Tastytrade", "MU|2099-01-01|50": "Mensual (TPC)"}))
     assert svc.split_tastytrade_profile() is True
     profiles, default = svc.stored_profiles()
@@ -79,7 +80,7 @@ def test_service_counts_rows_per_profile_and_merges_the_same_contract(client_and
     assert all(r.kind == "put" for r in rows)
 
 
-def test_mixed_tables_show_credit_over_width_and_a_dash_for_naked_puts(client_and_service):
+def test_all_profiles_table_shows_credit_over_width_and_a_dash_for_naked_puts(client_and_service):
     client, svc, gw, _ = client_and_service
     svc.save_profiles([Profile("Laxo", ("put",), LOOSE, {})], "Laxo")
     refresh(client)
@@ -87,8 +88,6 @@ def test_mixed_tables_show_credit_over_width_and_a_dash_for_naked_puts(client_an
     assert ">Cred/A</th>" in page
     row = re.search(r'<tr><td class="sel">.*?</tr>', page, flags=re.S).group(0)
     assert "<td>Put</td>" in row and "<td>—</td><td>" in row                     # put desnuda: sin ancho ni crédito/ancho
-    both = client.get("/scanner?submitted=1&mode=both&set=spread&discount=10&dte_min=25&dte_max=35&min_yield=1").text
-    assert ">Cred/A</th>" in both
 
 
 def test_a_profile_can_limit_the_scan_to_universe_sources(client_and_service):
@@ -138,3 +137,29 @@ def test_europe_source_registers_tickers_resolved_by_tws_and_forgets_them(client
     assert svc.europe_added == {"SAP"} and svc.settings.instruments["SAP"].kind == "stock"          # sobrevive al reinicio
     svc.remove_source_tickers("Europa", ["SAP"])
     assert "SAP" not in svc.settings.instruments and json.loads(svc.meta.get("europe_instruments")) == {}
+
+
+def test_a_saved_profile_with_put_and_spread_is_split_in_two_and_its_puts_follow(client_and_service):
+    client, svc, gw, _ = client_and_service
+    both = Profile("Doble", ("put", "spread"), {"dte_min": "30"}, {"dte_min": "31", "rr": "25"}, color="#112233")
+    svc.meta.set("scanner_profiles", profiles_mod.dump([both, Profile("Tortuga", ("put", "spread"), {"dte_min": "1"}, {"dte_min": "2"}, fallback=True)], "Doble"))
+    svc.meta.set("put_profiles", json.dumps({"AAPL|2099-01-01|90": "Doble"}))
+    assert [(p.name, p.instruments) for p in svc.stored_profiles()[0]] == [("Doble (put)", ("put",)), ("Doble (spread)", ("spread",)), ("Tortuga", ("put",))]    # ya se lee dividido
+    assert svc.split_dual_profiles() is True
+    profiles, default = svc.stored_profiles()
+    by = {p.name: p for p in profiles}
+    assert by["Doble (put)"].put == {"dte_min": "30"} and by["Doble (spread)"].spread["rr"] == "25" and by["Doble (spread)"].put == {}
+    assert by["Doble (put)"].color == by["Doble (spread)"].color == "#112233" and by["Tortuga"].fallback and by["Tortuga"].spread == {}
+    assert default == "Doble (put)" and json.loads(svc.meta.get("put_profiles")) == {"AAPL|2099-01-01|90": "Doble (put)"}
+    assert svc.split_dual_profiles() is False                                           # ya dividido: no repite
+
+
+def test_saving_filters_into_a_profile_of_the_other_instrument_creates_a_new_one(client_and_service):
+    client, svc, gw, _ = client_and_service
+    svc.save_profiles([Profile("Solo put", ("put",), LOOSE, {}), Profile("Tortuga", ("put",), LOOSE, {}, fallback=True)], "Solo put")
+    r = client.post("/scanner/profile/save", data={"name": "Solo put", "query": "submitted=1&mode=spread&discount=10&dte_min=25&dte_max=35&min_yield=1&use_rr=on&rr=20"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    by = {p.name: p for p in svc.stored_profiles()[0]}
+    assert by["Solo put"].instruments == ("put",) and by["Solo put (spread)"].instruments == ("spread",) and by["Solo put (spread)"].spread["rr"] == "20"
+    assert "profile=Solo+put+%28spread%29" in r.headers["location"] and "mode=spread" in r.headers["location"]

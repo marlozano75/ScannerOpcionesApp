@@ -55,11 +55,3 @@ def test_spread_only_ticker_is_excluded_from_put_mode_but_not_spread_mode():
     assert put.results == [] and "solo spreads" in next(iter(put.rejections.values()))
     assert run_scan(LEGS, INFO, [], SBASE.with_filters(spread_mode=False), TODAY).results       # sin la marca sí sale
     assert run_scan(LEGS, INFO, [], SBASE, TODAY, spread_only=only).spreads
-
-
-def test_both_mode_shows_only_the_spread_for_a_spread_only_ticker_even_under_the_naked_limit():
-    c = SBASE.with_filters(mixed=True, max_naked_strike=100.0)       # 90 ≤ 100: normalmente sería put desnuda
-    normal = run_scan(LEGS, INFO, [], c, TODAY, nlv_usd=100_000.0).mixed
-    assert {r.kind for r in normal} == {"put"}
-    only = run_scan(LEGS, INFO, [], c, TODAY, nlv_usd=100_000.0, spread_only=frozenset({"ZZZ"})).mixed
-    assert only and {r.kind for r in only} == {"spread"} and "solo spread" in only[0].why_spread

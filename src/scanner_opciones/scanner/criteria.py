@@ -179,9 +179,6 @@ class ScanCriteria:
     max_spread_loss: Optional[float] = None        # pérdida máxima por spread en $
     min_return_on_risk_pct: Optional[float] = None  # crédito / pérdida máxima mínimo (%)
     max_loss_nlv_pct: Optional[float] = None       # pérdida máxima del spread como % del NLV
-    # modo «Ambos» (`mixed`): la put desnuda solo se ofrece si cumple estos límites (basta incumplir uno para pasar a spread)
-    mixed: bool = False
-    max_naked_strike: Optional[float] = None       # strike máximo de la put desnuda ($)
 
     @property
     def floor_active(self) -> bool:
