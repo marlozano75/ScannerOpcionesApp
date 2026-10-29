@@ -315,7 +315,7 @@
 
       {% if source_names %}
       {% call section('sec-sources', 'Fuentes del Universo', (form.fsrc | join(', ')) if form.fsrc else 'Sin filtro', form.fsrc|length > 0) %}
-        <p class="note" style="margin:0 0 6px"><button type="button" class="fs-all" data-on="1">Marcar todas</button> <button type="button" class="fs-all" data-on="0">Desmarcar todas</button></p>
+        <div style="margin:0 0 6px"><button type="button" class="fs-all" data-on="1">Marcar todas</button> <button type="button" class="fs-all" data-on="0">Desmarcar todas</button></div>
         {% for s in source_names %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="fs_{{ s }}" {{ 'checked' if s in form.fsrc }}> {{ s }}</span></label>
         {% endfor %}
