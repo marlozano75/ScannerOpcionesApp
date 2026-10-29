@@ -604,6 +604,8 @@ class MarketSettings(_Model):
     close: time = time(16, 0)
     holidays: list[date] = Field(default_factory=list)  # festivos de EE. UU. (se mantienen a mano)
     pause_when_closed: bool = True  # False: refrescar siempre, como antes
+    premarket_open: time = time(4, 0)   # desde esta hora (hasta `open`) se refrescan solo los precios de los subyacentes
+    premarket_prices: bool = True       # False: antes de la apertura los precios se quedan en el cierre anterior
 
     @model_validator(mode="after")
     def _check(self) -> "MarketSettings":

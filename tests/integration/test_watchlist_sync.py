@@ -118,3 +118,20 @@ async def test_ptp_never_enter_the_watchlist_and_leave_it_without_grace(tmp_path
     assert svc.watchlist.list() == ["KO"]       # MPLX sale sin esperar los días de gracia
     await svc.add_watchlist(SimpleNamespace(tickers=["PAA", "AAPL"]))
     assert sorted(svc.watchlist.list()) == ["AAPL", "KO"]
+
+
+async def test_premarket_refreshes_only_underlying_prices(tmp_path):
+    from scanner_opciones.marketdata.prices import FakePrices
+    from scanner_opciones.domain.models import TickerInfo
+    from zoneinfo import ZoneInfo
+    clock = {}
+    clock["now"] = datetime(2026, 10, 29, 7, 18, tzinfo=ZoneInfo("America/New_York"))
+    svc = AppService(FakeGateway(), Database(tmp_path / "p.db"), Settings(), lambda: clock["now"], prices=FakePrices({"KO": 71.5}))
+    svc.watchlist.add(["KO"], clock["now"])
+    svc.ticker_info.upsert(TickerInfo(ticker="KO", underlying_price=70.0, price_at=clock["now"] - timedelta(days=1)))
+    assert await svc.refresh_premarket_prices()
+    assert svc.ticker_info.get("KO").underlying_price == 71.5
+    clock["now"] = datetime(2026, 10, 29, 3, 0, tzinfo=ZoneInfo("America/New_York"))      # antes del premercado
+    assert not await svc.refresh_premarket_prices()
+    clock["now"] = datetime(2026, 10, 29, 10, 0, tzinfo=ZoneInfo("America/New_York"))     # mercado abierto: lo hace el refresco normal
+    assert not await svc.refresh_premarket_prices()

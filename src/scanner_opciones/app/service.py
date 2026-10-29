@@ -19,7 +19,7 @@ from typing import Callable, Optional, Sequence
 from scanner_opciones.broker.base import BrokerGateway, chain_origin
 from scanner_opciones.config.settings import ScannerPreset, Settings, SpreadSettings, StrategySettings
 from scanner_opciones.domain.enums import OptionRight
-from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError, VolatilityError, WatchlistError
+from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError, PriceError, VolatilityError, WatchlistError
 from scanner_opciones.domain.models import (
     AccountSummary, ContractSnapshot, OptionContract, Position, RiskStatus, SectorExposure, VixData,
 )
@@ -180,6 +180,7 @@ class AppService:
         dividends: Optional[DividendProvider] = None,
         fx: Optional[FxProvider] = None,
     ) -> None:
+        self.prices = prices                      # precios de tastytrade: también los de premercado
         self.fx = fx                              # respaldo online (Yahoo) del tipo de cambio de la moneda base si IBKR no lo da
         self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
@@ -2342,8 +2343,37 @@ class AppService:
             return await self.refresh_all()
         log.info("Mercado cerrado: se refrescan solo cartera y VIX")
         ok = await self.refresh_all(include_market=False)
+        await self.refresh_premarket_prices()
         await self.refresh_instruments()
         return ok
+
+    async def refresh_premarket_prices(self) -> bool:
+        """Entre `market.premarket_open` y la apertura actualiza SOLO el precio de los subyacentes (una petición de tastytrade por cada 100):
+        las opciones no cotizan antes de las 9:30, así que no se tocan sus cotizaciones. Es el precio del Scanner (strikes, descuento); el cierre
+        provisional de `daily_bars` y el marcador del último refresco completo no cambian. False si no toca, no hay proveedor o hay otra
+        ejecución en curso; un fallo del proveedor conserva los precios guardados."""
+        cfg = self.settings.market
+        if (self.prices is None or not cfg.premarket_prices or self.busy
+                or not self.market.is_premarket(self.now(), cfg.premarket_open)):
+            return False
+        own = set(self.settings.instruments)       # los de TWS no los cubre tastytrade
+        tickers = [t for t in self.watchlist.list() if t not in own]
+        try:
+            prices = await self.prices.get_prices(tickers)
+        except PriceError as exc:
+            log.warning("Precios de premercado no disponibles, se conservan los guardados: %s", exc)
+            return False
+        now = self.now()
+        known = {t for t in tickers if self.ticker_info.get(t) is not None}
+        n = 0
+        for ticker, price in prices.items():
+            if ticker in known and price > 0:
+                self.ticker_info.update_price(ticker, price, now)
+                n += 1
+        if n:
+            log.info("Premercado: %d precios de subyacentes actualizados", n)
+            self.state.data_version += 1
+        return bool(n)
 
     def open_instruments(self) -> list[str]:
         """Instrumentos de TWS (Eurex...) cuyo mercado está abierto ahora, aunque el de EE. UU. esté cerrado."""

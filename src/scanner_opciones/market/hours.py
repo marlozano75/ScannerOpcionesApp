@@ -43,6 +43,11 @@ class MarketCalendar:
         local = self._local(now)
         return self._is_session_day(local.date()) and self.open <= local.time() < self.close
 
+    def is_premarket(self, now: datetime, start: time) -> bool:
+        """¿Día de sesión, ya pasó `start` y aún no ha abierto el mercado regular?"""
+        local = self._local(now)
+        return self._is_session_day(local.date()) and start <= local.time() < self.open
+
     def session_day(self, now: datetime) -> Optional[date]:
         """Día de la sesión en curso o ya terminada hoy (abierta o cerrada tras el cierre); None si hoy no hay
         sesión (fin de semana, festivo) o aún no ha abierto. Sirve para fechar el cierre provisional del día."""
