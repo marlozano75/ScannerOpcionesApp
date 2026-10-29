@@ -629,7 +629,8 @@ def create_app(
             account_id=(service.state.account.account_id if service.state.account else service.settings.ibkr.account),
             account_alias=service.state.account.alias if service.state.account else None, busy=service.busy,
             refresh_minutes=service.settings.refresh_interval_minutes,
-            delay_minutes=service.settings.ibkr.delay_minutes,
+            # el aviso de datos diferidos solo vale si las cotizaciones salen de IBKR; con tastytrade (cotizaciones, precios, IV y VIX en vivo) confundiría
+            delay_minutes=service.settings.ibkr.delay_minutes if service.settings.market_data.source == "ibkr" else 0,
             pacing_wait=service.pacing_wait_seconds() if service.busy else 0,
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()), path=request.url.path,
