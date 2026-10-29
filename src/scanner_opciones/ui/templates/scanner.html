@@ -89,7 +89,7 @@
 {% if form.use_credit and form.set != 'spread' %}{% set _ = chips.append(('sec-credit', 'Crédito ≥ ' ~ form.credit ~ ' $', 'use_credit credit')) %}{% endif %}
 {% if form.use_risk and form.set != 'spread' %}{% set _ = chips.append(('sec-risk', 'Capital en riesgo ≤ ' ~ form.risk ~ ' % NLV', 'use_risk risk')) %}{% endif %}
 {% if form.set != 'spread' and (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = chips.append(('sec-floor', 'Calidad mínima de la put', 'fl_eps fl_q fl_fcf')) %}{% endif %}
-{% if form.fsrc %}{% set _ = chips.append(('sec-sources', 'Fuentes: ' ~ (form.fsrc | join(', ')), 'fs_' ~ (form.fsrc | join(' fs_')))) %}{% endif %}
+{% if form.use_src %}{% set _ = chips.append(('sec-sources', 'Fuentes: ' ~ ((form.fsrc | join(', ')) if form.fsrc else 'ninguna'), 'use_src fs_' ~ (form.fsrc | join(' fs_')))) %}{% endif %}
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto, claves) #}
 {% set offs = [] %}
 {% if form.set == 'spread' %}
@@ -104,7 +104,7 @@
 {% endfor %}
 {% if not form.q_liq %}{% set _ = offs.append(('sec-optional', 'Liquidez', 'q_liq')) %}{% endif %}
 {% if form.set != 'spread' and not (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = offs.append(('sec-floor', 'Calidad mínima de la put', 'fl_eps fl_q fl_fcf')) %}{% endif %}
-{% if not form.fsrc and source_names %}{% set _ = offs.append(('sec-sources', 'Fuentes del Universo', 'fs_')) %}{% endif %}
+{% if not form.use_src and source_names %}{% set _ = offs.append(('sec-sources', 'Fuentes del Universo', 'use_src')) %}{% endif %}
 {% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia', 'trend_dir')) %}{% endif %}
 {% if not form.support %}{% set _ = offs.append(('sec-levels', 'Soporte', 'support')) %}{% endif %}
 {% if not form.touch %}{% set _ = offs.append(('sec-levels', 'Último toque', 'touch')) %}{% endif %}
@@ -314,12 +314,17 @@
       {% endif %}
 
       {% if source_names %}
-      {% call section('sec-sources', 'Fuentes del Universo', (form.fsrc | join(', ')) if form.fsrc else 'Sin filtro', form.fsrc|length > 0) %}
-        <div style="margin:0 0 6px"><button type="button" class="fs-all" data-on="1">Marcar todas</button> <button type="button" class="fs-all" data-on="0">Desmarcar todas</button></div>
+      {% call section('sec-sources', 'Fuentes del Universo', ((form.fsrc | join(', ')) if form.fsrc else 'Ninguna') if form.use_src else 'Sin filtro', form.use_src) %}
+        <input type="hidden" name="src" value="1">
+        <div style="display:flex;align-items:center;gap:6px;margin:0 0 6px">
+          <label class="opt" style="flex:1;margin:0"><span class="check"><input type="checkbox" name="use_src" {{ 'checked' if form.use_src }}> Filtrar por fuentes</span></label>
+          <button type="button" class="fs-all" data-on="1" title="Marcar todas las fuentes" aria-label="Marcar todas" style="padding:1px 7px;font-size:12px;line-height:1.4">☑</button>
+          <button type="button" class="fs-all" data-on="0" title="Desmarcar todas las fuentes" aria-label="Desmarcar todas" style="padding:1px 7px;font-size:12px;line-height:1.4">☐</button>
+        </div>
         {% for s in source_names %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="fs_{{ s }}" {{ 'checked' if s in form.fsrc }}> {{ s }}</span></label>
         {% endfor %}
-        <p class="note">Solo salen los tickers que estén en alguna de las fuentes marcadas (sin ninguna marcada no se filtra). Cada perfil guarda las suyas; una fuente que se borra del Universo deja de contar.</p>
+        <p class="note">Con «Filtrar por fuentes» marcada solo salen los tickers que estén en alguna de las fuentes marcadas (sin ninguna marcada no sale nada); desmarcada no se filtra, pero se recuerdan las fuentes elegidas. Cada perfil guarda las suyas; una fuente que se borra del Universo deja de contar.</p>
       {% endcall %}
       {% endif %}
 
@@ -776,6 +781,7 @@
       b.addEventListener('click', function () {
         var f = document.getElementById('scan-form');
         f.querySelectorAll('input[type=checkbox][name^="fs_"]').forEach(function (c) { c.checked = b.dataset.on === '1'; });
+        if (b.dataset.on === '1') f.elements['use_src'].checked = true;      // marcar todas activa el filtro; desmarcar todas lo deja activo y vacío
         f.submit();
       });
     });

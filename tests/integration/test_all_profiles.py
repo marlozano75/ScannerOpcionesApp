@@ -104,6 +104,11 @@ def test_a_profile_can_limit_the_scan_to_universe_sources(client_and_service):
     assert svc.scan(crit.with_filters(source_tickers=frozenset({ticker, "ZZZZ"}))).results
     other = svc.scan(crit.with_filters(source_tickers=frozenset({"ZZZZ"})))
     assert not other.results and other.rejected_count > 0
+    # casilla «Filtrar por fuentes»: activa y sin ninguna marcada no sale nada; desmarcada recuerda las elegidas pero no filtra
+    empty = client.get(base + "&src=1&use_src=on").text
+    assert "Fuentes: ninguna" in empty and 'name="use_src" checked' in empty
+    off = client.get(base + "&src=1&fs_Una=on").text
+    assert 'name="use_src" checked' not in off and 'name="fs_Una" checked' in off and "Fuentes: Una" not in off
 
 
 def test_instruments_are_listed_in_their_manual_source_without_asking_tastytrade(client_and_service):

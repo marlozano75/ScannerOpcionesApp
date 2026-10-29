@@ -1084,7 +1084,8 @@ def create_app(
         }
         form.update(fl_eps=base.floor_eps, fl_q=str(base.floor_quarters), fl_fcf=base.floor_fcf)       # calidad mínima de la put (de cada perfil)
         universe = service.universe_sources
-        form["fsrc"] = []       # fuentes del Universo elegidas (casillas `fs_<fuente>`); sin ninguna, no se filtra
+        form["fsrc"] = []       # fuentes del Universo elegidas (casillas `fs_<fuente>`)
+        form["use_src"] = False  # casilla «Filtrar por fuentes»: activa y sin ninguna marcada, no sale nada
         fv = service.settings.scanner.filter_values
         shown = {"oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
                  "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile, "credit": fv.min_put_credit, "risk": fv.max_capital_risk_pct}
@@ -1178,7 +1179,10 @@ def create_app(
                     # un perfil (o enlace) que no trae la caja la muestra con su valor preconfigurado, desmarcada
                     form[key] = qp.get(key, _fmt(shown[key])).strip()
                 form["fsrc"] = [s.name for s in universe if f"fs_{s.name}" in qp]     # una fuente que ya no existe se ignora
-                if form["fsrc"]:
+                # con `src` (bloque enviado) manda la casilla «Filtrar por fuentes»: activa y sin ninguna marcada no sale nada;
+                # una URL sin él (perfiles guardados antes) filtra solo si trae fuentes marcadas
+                form["use_src"] = ("use_src" in qp) if "src" in qp else bool(form["fsrc"])
+                if form["use_src"]:
                     chosen = set(form["fsrc"])
                     overrides["source_names"] = tuple(form["fsrc"])
                     overrides["source_tickers"] = frozenset(clean_ticker(r.ticker) for s in universe if s.name in chosen for r in s.table.rows)
