@@ -3,8 +3,8 @@
 Se compara con los valores de HOY (DTE, distancia del strike, yield y delta de la cotización actual) y con los filtros GRABADOS en cada
 perfil del Scanner (`profile_fits`: el juego de put para una put y el de spread para un spread; `strategy_fits` queda con los valores por
 defecto de `scanner.presets` y `scanner.strategy`). Solo se comprueban los criterios que una idea permite medir: descuento del strike,
-DTE, yield del periodo (en un spread, en su lugar, el retorno sobre riesgo del periodo: crédito / (ancho − crédito), contra el mínimo de
-`scanner.spreads`), delta, IV Rank e IV Percentile
+DTE, yield del periodo (en un spread, en su lugar, el crédito/ancho que muestra la tabla, contra el mínimo y máximo de crédito/ancho del
+perfil o, sin mínimo, el retorno sobre riesgo mínimo de `scanner.spreads` convertido), delta, IV Rank e IV Percentile
 (solo si el ticker tiene ficha) y el precio del subyacente (solo si el perfil del mismo nombre lo limita). No se evalúan los técnicos (RSI, medias, ATR…), la calidad de la empresa ni la liquidez: «encaja» significa
 «cumple lo medible», y lo que no se pudo medir se indica aparte.
 """
@@ -18,7 +18,7 @@ from scanner_opciones.config.settings import ScannerPreset, StrategySettings
 STRATEGY_NAME = "Tastytrade"
 
 
-SHORT = {"Precio": "PRE", "Descuento": "DES", "DTE": "DTE", "Yield": "YLD", "Retorno/riesgo": "R/R", "Delta": "DEL", "IV Rank": "IVR", "IV Percentile": "IVP"}
+SHORT = {"Precio": "PRE", "Descuento": "DES", "DTE": "DTE", "Yield": "YLD", "Crédito/ancho": "C/A", "Delta": "DEL", "IV Rank": "IVR", "IV Percentile": "IVP"}
 
 
 @dataclass(frozen=True)
@@ -73,22 +73,26 @@ def _crit(label: str, value: Optional[float], ok, shown: str) -> Criterion:
     return Criterion(label, None, "sin dato") if value is None else Criterion(label, bool(ok(value)), shown)
 
 
-def _spread_return(view, minimum: Optional[float]) -> Criterion:
-    """Retorno sobre riesgo del periodo de un spread (el equivalente a su yield): crédito / (ancho − crédito). `yield_now_pct` de un spread
-    es crédito / ancho."""
+def _spread_return(view, min_ror: Optional[float], cw_range: tuple[Optional[float], Optional[float]] = (None, None)) -> Criterion:
+    """Crédito/ancho de un spread (el equivalente a su yield; es el `yield_now_pct` que muestra la tabla). Se compara con el mínimo y el
+    máximo de crédito/ancho del perfil; sin mínimo propio se usa el retorno sobre riesgo mínimo convertido (r/(100+r)), que da el mismo veredicto."""
     cw = view.yield_now_pct
-    if minimum is None:
-        return Criterion("Yield", None, "en un spread es sobre el ancho: no comparable")
-    if cw is None or cw >= 100:
-        return Criterion("Retorno/riesgo", None, "sin dato")
-    ror = cw / (100 - cw) * 100
-    return Criterion("Retorno/riesgo", ror >= minimum, f"{ror:.0f} % (mín. {minimum:g} %, crédito/ancho {cw:.0f} %)")
+    lo, hi = cw_range
+    if lo is None and min_ror is not None:
+        lo = min_ror / (100 + min_ror) * 100
+    if lo is None and hi is None:
+        return Criterion("Yield", None, "en un spread es sobre el ancho: sin mínimo que comparar")
+    if cw is None:
+        return Criterion("Crédito/ancho", None, "sin dato")
+    limits = " · ".join(t for t in (None if lo is None else f"mín. {lo:.1f} %", None if hi is None else f"máx. {hi:g} %") if t)
+    return Criterion("Crédito/ancho", (lo is None or cw >= lo - 1e-9) and (hi is None or cw <= hi + 1e-9), f"{cw:.1f} % ({limits})")
 
 
 def _fit(name: str, view, *, discount_min: float, dte_min: int, dte_max: Optional[int], yield_min: float,
          delta_min: Optional[float] = None, delta_max: Optional[float] = None,
          iv_rank_min: Optional[float] = None, iv_pct_min: Optional[float] = None,
-         price: tuple[Optional[float], Optional[float]] = (None, None), spread_min_ror: Optional[float] = None) -> Fit:
+         price: tuple[Optional[float], Optional[float]] = (None, None), spread_min_ror: Optional[float] = None,
+         spread_cw: tuple[Optional[float], Optional[float]] = (None, None)) -> Fit:
     out: list[Criterion] = []
     lo, hi = price
     if lo is not None or hi is not None:      # el filtro de precio del subyacente del perfil (en $); sin límites no se comprueba
@@ -100,7 +104,7 @@ def _fit(name: str, view, *, discount_min: float, dte_min: int, dte_max: Optiona
     top = "" if dte_max is None else f"–{dte_max}"
     out.append(Criterion("DTE", dte_min <= view.dte and (dte_max is None or view.dte <= dte_max), f"{view.dte} (rango {dte_min}{top})"))
     if view.idea.long_strike is not None:
-        out.append(_spread_return(view, spread_min_ror))
+        out.append(_spread_return(view, spread_min_ror, spread_cw))
     else:
         y = view.yield_now_pct
         out.append(_crit("Yield", y, lambda v: v >= yield_min, f"{y or 0:.2f} % (mín. {yield_min:g} %)"))
@@ -133,10 +137,11 @@ def profile_fits(view, specs: Sequence[tuple], default_ror: Optional[float] = No
             continue
         fit = _fit(name, view, discount_min=c.strike_below_pct_min, dte_min=c.dte_min, dte_max=c.dte_max, yield_min=c.min_yield_pct,
                    delta_min=c.min_abs_delta, delta_max=c.max_abs_delta, iv_rank_min=c.min_iv_rank, iv_pct_min=c.min_iv_percentile,
-                   price=(c.min_price, c.max_price), spread_min_ror=c.min_return_on_risk_pct if spread and not other else default_ror if spread else None)
+                   price=(c.min_price, c.max_price), spread_min_ror=c.min_return_on_risk_pct or default_ror if spread else None,
+                   spread_cw=(c.min_credit_width_pct, c.max_credit_width_pct) if spread and not other else (None, None))
         if other:                        # el rendimiento no es comparable entre una put (sobre el strike) y un spread (sobre el riesgo)
             fit = replace(fit, criteria=tuple(Criterion(k.label, None, "perfil de " + ("put" if spread else "spread") + ": no comparable")
-                                              if k.label in ("Yield", "Retorno/riesgo") else k for k in fit.criteria))
+                                              if k.label in ("Yield", "Crédito/ancho") else k for k in fit.criteria))
         out.append(fit)
     return tuple(out)
 

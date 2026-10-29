@@ -103,11 +103,11 @@ def test_a_spread_does_not_use_the_yield_and_an_expired_idea_has_no_fit():
     f = strategy_fits(spread, DEFAULT_PRESETS, StrategySettings())[2]
     assert f.fits and "Yield" in f.unknown
     assert strategy_fits(run(idea(expiry=date(2026, 10, 1))), DEFAULT_PRESETS, StrategySettings()) == ()
-    # con el mínimo de los spreads se mide el retorno sobre riesgo del periodo: crédito 0,65 sobre ancho 2 = 32,5 % → 48 % sobre el riesgo
+    # con el mínimo de los spreads se mide el crédito/ancho: crédito 0,65 sobre ancho 2 = 32,5 % (mínimo de retorno 25 % = 20 % de crédito/ancho)
     ok = strategy_fits(spread, DEFAULT_PRESETS, StrategySettings(), spread_min_ror=25.0)[2]
-    assert ok.fits and "Retorno/riesgo" not in ok.unknown and ok.criteria[2].short == "R/R" and "48 %" in ok.criteria[2].text
+    assert ok.fits and "Crédito/ancho" not in ok.unknown and ok.criteria[2].short == "C/A" and "32.5 %" in ok.criteria[2].text
     bad = strategy_fits(spread, DEFAULT_PRESETS, StrategySettings(), spread_min_ror=60.0)[2]
-    assert not bad.fits and any(x.startswith("Retorno/riesgo") for x in bad.failed)
+    assert not bad.fits and any(x.startswith("Crédito/ancho") for x in bad.failed)
 
 
 def test_the_price_range_of_a_profile_is_one_more_criterion_only_when_it_has_limits():
