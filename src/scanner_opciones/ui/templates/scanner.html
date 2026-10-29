@@ -315,6 +315,7 @@
 
       {% if source_names %}
       {% call section('sec-sources', 'Fuentes del Universo', (form.fsrc | join(', ')) if form.fsrc else 'Sin filtro', form.fsrc|length > 0) %}
+        <p class="note" style="margin:0 0 6px"><button type="button" class="fs-all" data-on="1">Marcar todas</button> <button type="button" class="fs-all" data-on="0">Desmarcar todas</button></p>
         {% for s in source_names %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="fs_{{ s }}" {{ 'checked' if s in form.fsrc }}> {{ s }}</span></label>
         {% endfor %}
@@ -771,6 +772,13 @@
   })();
   // X solo se muestra con «Bid + X % del spread»
   (function () {   // «Aplicar criterios de Sosnoff»: delta de la vendida, delta de la comprada y crédito/ancho con sus valores, y escanea
+    document.querySelectorAll('button.fs-all').forEach(function (b) {      // marcar / desmarcar todas las fuentes del Universo y escanear
+      b.addEventListener('click', function () {
+        var f = document.getElementById('scan-form');
+        f.querySelectorAll('input[type=checkbox][name^="fs_"]').forEach(function (c) { c.checked = b.dataset.on === '1'; });
+        f.submit();
+      });
+    });
     var btn = document.getElementById('sosnoff-apply'); if (!btn) return;
     btn.addEventListener('click', function () {
       var f = document.getElementById('scan-form'), el = f.elements;
