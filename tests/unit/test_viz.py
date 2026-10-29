@@ -63,3 +63,19 @@ def test_columns_are_capped_at_24px_with_a_flat_base_and_rounded_top():
     html = str(viz.columns([("a", 10.0, ""), ("b", 5.0, "")], width=520))
     widths = [float(m) for m in re.findall(r'H([\d.]+) Q', html)]
     assert widths and 'class="bar1"' in html and "Sin datos" in str(viz.columns([("a", 0.0, "")]))
+
+
+def test_sector_and_week_bars_write_the_tickers_under_each_bar():
+    from datetime import date
+    from scanner_opciones.domain.enums import OptionRight
+    from scanner_opciones.domain.models import OptionContract, Position
+    from scanner_opciones.portfolio.diversification import sector_exposure, weekly_sector_exposure
+    from scanner_opciones.ui import dashboard_charts as dash
+
+    def put(t, strike, sector):
+        return Position(t, -1, 0.0, sector, OptionContract(t, date(2026, 10, 2), strike, OptionRight.PUT))
+    pos = [put("AAPL", 200, "Tech"), put("MSFT", 100, "Tech"), put("XOM", 50, "Energía"), Position("NVDA", 10, 3000.0, "Tech")]
+    sectors = dash.sector_bars(sector_exposure(pos))
+    assert 'class="hb-c">AAPL · MSFT · NVDA<' in str(sectors) and 'class="hb-c">XOM<' in str(sectors)
+    weeks = dash.week_bars(weekly_sector_exposure(pos, date(2026, 9, 29), 2))
+    assert 'class="hb-c">AAPL · MSFT · XOM<' in str(weeks) and "AAPL 20,000" in str(weeks)

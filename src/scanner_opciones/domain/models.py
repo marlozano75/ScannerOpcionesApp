@@ -129,6 +129,7 @@ class SectorExposure:
     """Exposición por sector como % de la exposición potencial total (EPT)."""
     weights_pct: dict[str, float] = field(default_factory=dict)
     total_exposure: float = 0.0
+    tickers: dict[str, dict[str, float]] = field(default_factory=dict)   # sector → {ticker: exposición}
 
 
 @dataclass(frozen=True)

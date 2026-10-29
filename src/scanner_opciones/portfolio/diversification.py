@@ -52,6 +52,17 @@ def sector_amounts(positions: Iterable[Position]) -> dict[str, float]:
     return dict(out)
 
 
+def sector_ticker_amounts(positions: Iterable[Position]) -> dict[str, dict[str, float]]:
+    """Exposición de cada sector desglosada por ticker (acciones y puts vendidas del mismo subyacente suman)."""
+    out: dict[str, dict[str, float]] = {}
+    for p in positions:
+        v = exposure_value(p)
+        if v:
+            by = out.setdefault(_sector(p), {})
+            by[p.ticker] = by.get(p.ticker, 0.0) + v
+    return out
+
+
 def total_exposure(positions: Iterable[Position]) -> float:
     return sum(sector_amounts(positions).values())
 
@@ -60,7 +71,7 @@ def sector_exposure(positions: Iterable[Position]) -> SectorExposure:
     amounts = sector_amounts(positions)
     total = sum(amounts.values())
     weights = {s: v / total * 100 for s, v in amounts.items()} if total > 0 else {}
-    return SectorExposure(weights_pct=weights, total_exposure=total)
+    return SectorExposure(weights_pct=weights, total_exposure=total, tickers=sector_ticker_amounts(positions))
 
 
 @dataclass(frozen=True)
@@ -69,6 +80,7 @@ class WeekExposure:
     amounts: dict[str, float] = field(default_factory=dict)  # nominal de puts vendidas por sector
     total: float = 0.0
     weights_pct: dict[str, float] = field(default_factory=dict)  # peso del sector dentro de la semana
+    tickers: dict[str, dict[str, float]] = field(default_factory=dict)  # sector → {ticker: nominal}
 
 
 def weekly_sector_exposure(positions: Iterable[Position], today: date, weeks: int) -> list[WeekExposure]:
@@ -76,17 +88,20 @@ def weekly_sector_exposure(positions: Iterable[Position], today: date, weeks: in
     (la semana en curso cuenta como la primera). Semanas sin contratos salen con total 0."""
     start = week_start(today)
     buckets: list[dict[str, float]] = [defaultdict(float) for _ in range(weeks)]
+    by_ticker: list[dict[str, dict[str, float]]] = [{} for _ in range(weeks)]
     for p in positions:
         if not is_short_put(p):
             continue
         idx = (p.option.expiry - start).days // 7
         if 0 <= idx < weeks:
             buckets[idx][_sector(p)] += nominal(p)
+            tk = by_ticker[idx].setdefault(_sector(p), {})
+            tk[p.ticker] = tk.get(p.ticker, 0.0) + nominal(p)
     result = []
     for i, b in enumerate(buckets):
         total = sum(b.values())
         weights = {s: v / total * 100 for s, v in b.items()} if total > 0 else {}
-        result.append(WeekExposure(start + timedelta(days=7 * i), dict(b), total, weights))
+        result.append(WeekExposure(start + timedelta(days=7 * i), dict(b), total, weights, by_ticker[i]))
     return result
 
 

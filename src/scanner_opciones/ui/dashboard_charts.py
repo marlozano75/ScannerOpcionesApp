@@ -66,9 +66,39 @@ def vix_curve(vix, today: date) -> tuple[Markup, Optional[str]]:
     return viz.line_chart(points, ticks, y_fmt=lambda v: f"{v:.1f}", height=130, markers=True, label="Curva de futuros del VIX"), shape
 
 
+MAX_NAMES = 6      # tickers que se escriben bajo cada barra; el resto («+3») va en el tooltip
+
+
+def _names(amounts: dict[str, float]) -> str:
+    """«AAPL · MSFT · NVDA +2»: los tickers por exposición descendente."""
+    ranked = [t for t, _ in sorted(amounts.items(), key=lambda kv: kv[1], reverse=True)]
+    return " · ".join(ranked[:MAX_NAMES]) + (f" +{len(ranked) - MAX_NAMES}" if len(ranked) > MAX_NAMES else "")
+
+
+def _detail(amounts: dict[str, float]) -> str:
+    return ", ".join(f"{t} {_money(a)}" for t, a in sorted(amounts.items(), key=lambda kv: kv[1], reverse=True))
+
+
+def _merge(by_sector: dict[str, dict[str, float]], sectors) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for s in sectors:
+        for t, a in by_sector.get(s, {}).items():
+            out[t] = out.get(t, 0.0) + a
+    return out
+
+
 def sector_bars(sectors) -> Markup:
-    rows = [(name, w, f"{w:.1f} % de la exposición potencial") for name, w in viz.top_with_other(sectors.weights_pct, 8)]
-    return viz.hbars(rows, fmt=lambda v: f"{v:.1f} %", message="Sin posiciones")
+    top = viz.top_with_other(sectors.weights_pct, 8)
+    kept = {name for name, _ in top} - {viz.OTHER}
+    by = getattr(sectors, "tickers", {}) or {}
+    notes = {}
+    for name, _ in top:
+        amounts = _merge(by, [s for s in by if s not in kept] if name == viz.OTHER else [name])
+        if amounts:
+            notes[name] = _names(amounts)
+    rows = [(name, w, f"{w:.1f} % de la exposición potencial" + (f" · {_detail(_merge(by, [s for s in by if s not in kept] if name == viz.OTHER else [name]))}" if name in notes else ""))
+            for name, w in top]
+    return viz.hbars(rows, fmt=lambda v: f"{v:.1f} %", message="Sin posiciones", notes=notes)
 
 
 def week_bars(weeks) -> Markup:
@@ -80,11 +110,17 @@ def week_bars(weeks) -> Markup:
     ranked = viz.top_with_other(totals, viz.SERIES)
     order = [name for name, _ in ranked]
     keep = set(order) - {viz.OTHER}
-    rows = []
+    rows, notes, seg_notes = [], {}, {}
     for w in weeks:
         merged: dict[str, float] = {}
         for sector, amount in w.amounts.items():
             key = sector if sector in keep else viz.OTHER
             merged[key] = merged.get(key, 0.0) + amount
-        rows.append((f"Sem. {_dm(w.week_start)}", [(name, merged[name]) for name in order if name in merged], _money(w.total)))
-    return viz.stacked_hbars(rows, order, fmt=_money, message="Sin puts vendidas en estas semanas")
+        label = f"Sem. {_dm(w.week_start)}"
+        rows.append((label, [(name, merged[name]) for name in order if name in merged], _money(w.total)))
+        by = getattr(w, "tickers", {}) or {}
+        if by:
+            notes[label] = _names(_merge(by, list(by)))
+            for name in merged:
+                seg_notes[(label, name)] = _detail(_merge(by, [s for s in by if s not in keep] if name == viz.OTHER else [name]))
+    return viz.stacked_hbars(rows, order, fmt=_money, message="Sin puts vendidas en estas semanas", notes=notes, seg_notes=seg_notes)

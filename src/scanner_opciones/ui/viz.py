@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from html import escape
-from typing import Callable, Optional, Sequence
+from typing import Callable, Mapping, Optional, Sequence
 
 from markupsafe import Markup
 
@@ -28,6 +28,11 @@ def _e(text) -> str:
 
 def _tip(*parts) -> str:
     return _e("|".join(str(p) for p in parts if p not in (None, "")))
+
+
+def _note(notes: Optional[Mapping[str, str]], label: str) -> str:
+    text = (notes or {}).get(label)
+    return f'<small class="hb-c">{_e(text)}</small>' if text else ""
 
 
 def series_color(index: int) -> str:
@@ -58,8 +63,9 @@ def empty(message: str = "Sin datos") -> Markup:
 
 # ---------------------------------------------------------------------------------------------- barras horizontales
 def hbars(rows: Sequence[tuple[str, float, str]], fmt: Callable[[float], str] = lambda v: f"{v:.1f}",
-          color: str = "var(--viz-1)", max_value: Optional[float] = None, message: str = "Sin datos") -> Markup:
-    """Una barra por fila (etiqueta, valor, detalle del tooltip); el valor va en la punta."""
+          color: str = "var(--viz-1)", max_value: Optional[float] = None, message: str = "Sin datos",
+          notes: Optional[Mapping[str, str]] = None) -> Markup:
+    """Una barra por fila (etiqueta, valor, detalle del tooltip); el valor va en la punta. `notes` pone un texto pequeño bajo la etiqueta."""
     if not rows:
         return empty(message)
     top = max_value if max_value is not None else max((v for _, v, _ in rows), default=0) or 1
@@ -68,7 +74,7 @@ def hbars(rows: Sequence[tuple[str, float, str]], fmt: Callable[[float], str] = 
         width = max(0.0, min(100.0, value / top * 100)) if top else 0
         out.append(
             f'<div class="hb-row" tabindex="0" data-tip="{_tip(fmt(value), label, detail)}">'
-            f'<span class="hb-l" title="{_e(label)}">{_e(label)}</span>'
+            f'<span class="hb-l" title="{_e(label)}">{_e(label)}{_note(notes, label)}</span>'
             f'<span class="hb-t"><span class="hb-f" style="width:{width:.1f}%;background:{color}"></span></span>'
             f'<span class="hb-v">{_e(fmt(value))}</span></div>')
     out.append("</div>")
@@ -76,9 +82,11 @@ def hbars(rows: Sequence[tuple[str, float, str]], fmt: Callable[[float], str] = 
 
 
 def stacked_hbars(rows: Sequence[tuple[str, Sequence[tuple[str, float]], str]], order: Sequence[str],
-                  fmt: Callable[[float], str] = lambda v: f"{v:.0f}", message: str = "Sin datos") -> Markup:
+                  fmt: Callable[[float], str] = lambda v: f"{v:.0f}", message: str = "Sin datos",
+                  notes: Optional[Mapping[str, str]] = None, seg_notes: Optional[Mapping[tuple[str, str], str]] = None) -> Markup:
     """Una barra apilada por fila (etiqueta, [(serie, valor)], texto del total); la longitud es el total de la fila
-    respecto al mayor. `order` fija el color de cada serie (la misma en todas las filas)."""
+    respecto al mayor. `order` fija el color de cada serie (la misma en todas las filas). `notes` pone un texto pequeño bajo la
+    etiqueta de la fila y `seg_notes[(fila, serie)]` añade detalle al tooltip del segmento."""
     if not rows or not any(sum(v for _, v in segs) > 0 for _, segs, _ in rows):
         return empty(message)
     colors = {name: series_color(i) for i, name in enumerate(order)}
@@ -88,9 +96,9 @@ def stacked_hbars(rows: Sequence[tuple[str, Sequence[tuple[str, float]], str]], 
         total = sum(v for _, v in segs)
         parts = "".join(
             f'<span class="sb-seg" tabindex="0" style="flex:{v:.4f} 1 0;background:{colors[name]}" '
-            f'data-tip="{_tip(fmt(v), name, label)}"></span>' for name, v in segs if v > 0)
+            f'data-tip="{_tip(fmt(v), name, ' · '.join(x for x in (label, (seg_notes or {}).get((label, name))) if x))}"></span>' for name, v in segs if v > 0)
         out.append(
-            f'<div class="hb-row"><span class="hb-l">{_e(label)}</span>'
+            f'<div class="hb-row"><span class="hb-l">{_e(label)}{_note(notes, label)}</span>'
             f'<span class="hb-t"><span class="sb-bar" style="width:{total / biggest * 100:.1f}%">{parts}</span></span>'
             f'<span class="hb-v">{_e(total_text)}</span></div>')
     out.append("</div>")
