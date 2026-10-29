@@ -23,13 +23,12 @@
     <b>put de 30Δ</b> de referencia: ✓ indica que su prima cubre al menos el <b>{{ minimum|num(2) }} % del strike hasta el vencimiento</b>, el yield del periodo del perfil «{{ cfg.profile }}».
     Los ✓ forman dos fuentes del Universo según la estrategia que propone Tortuga, y pasan a tu watchlist (solo se añaden, nunca se quitan):
     <b>{{ cfg.source_name }}</b> (Bull Put Spread) y <b>{{ cfg.puts_source_name }}</b> (venta de put; como cualquier otra fuente, sus valores pasan por la calidad mínima de las puts).
-    Con <span class="tl tl-w" style="background:#dff3e6;color:#1d6b3f;padding:0 4px;border-radius:7px;font-size:10px;font-weight:700">W</span> los que ya están en tu watchlist y <span class="own">EN CARTERA</span> los que tienes en posiciones.
+    Con <span class="own">EN CARTERA</span> los que tienes en posiciones.
     Es información de otro motor, no una recomendación: compruébalo con los filtros del Scanner (modo Spread).</p>
   <form method="get" action="/tortuga" class="tr-bar">
     <label class="check"><input type="checkbox" name="cumple" value="1" {{ 'checked' if cumple }} onchange="this.form.submit()"> Solo los que cumplen el yield (✓)</label>
     <label>Estrategia <select name="tipo" onchange="this.form.submit()"><option value="">Todas</option>
       <option value="spread" {{ 'selected' if tipo == 'spread' }}>Bull Put Spread</option><option value="put" {{ 'selected' if tipo == 'put' }}>Venta de put</option></select></label>
-    <label class="check"><input type="checkbox" name="solo" value="1" {{ 'checked' if solo }} onchange="this.form.submit()"> Solo los de mi watchlist</label>
     <span class="muted">{{ items|length }} de {{ total }} · {{ passing }} cumplen</span>
   </form>
   {% if items %}
@@ -42,7 +41,7 @@
       <th title="Nota de liquidez de opciones (0-4)">Liq.</th><th>Spread %</th><th>Vol. opc.</th><th title="Volumen de hoy / media de 20 sesiones">Vol. rel.</th><th>OI total</th><th>P/C OI</th><th>P/C vol.</th>
       <th>Muro put</th><th>Muro call</th><th>Max pain</th></tr>
     {% for i in items %}{% set r = i.row %}
-    <tr><td class="tk"><b title="{{ tk_title(company_names, r.ticker) }}">{{ r.ticker }}</b>{{ sec_flag(sec_alerts, r.ticker) }}{{ analyst_flag(analyst_alerts, r.ticker) }}{% if i.wl %} <span class="tl tl-w" title="Está en tu watchlist" style="background:#dff3e6;color:#1d6b3f;padding:0 4px;border-radius:7px;font-size:10px;font-weight:700">W</span>{% endif %}{% if i.held %} <span class="own" title="Tienes posiciones en este valor">EN CARTERA</span>{% endif %}</td>
+    <tr><td class="tk"><b title="{{ tk_title(company_names, r.ticker) }}">{{ r.ticker }}</b>{{ sec_flag(sec_alerts, r.ticker) }}{{ analyst_flag(analyst_alerts, r.ticker) }}{% if i.held %} <span class="own" title="Tienes posiciones en este valor">EN CARTERA</span>{% endif %}</td>
       <td data-sort="{{ 1 if i.ok else 0 }}" class="{{ 'tr-ok' if i.ok else 'tr-ko' }}">{{ '✓' if i.ok else '·' }}</td>
       {%- set tf = fits.get(r.ticker) %}{% for nm in fit_names %}{% set f = tf[loop.index0] if tf else none %}
       <td class="fitcell"{% if f %} data-sort="{{ f.passed / f.total }}" title="{{ f.detail or 'Cumple todo lo medible' }}"{% endif %}>

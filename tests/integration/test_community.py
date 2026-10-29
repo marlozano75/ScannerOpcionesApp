@@ -118,8 +118,6 @@ def test_the_ideas_page_values_each_idea_with_todays_quote_and_filters(client_an
     assert '<a href="/ideas" class=active>Ideas</a>' in page.replace('class="active"', "class=active") and "Ideas de la comunidad de Tortuga" in page
     assert "Vigente" in page and "Sin valorar: sin cotización de esas patas (no está en tu watchlist)" in page and "2 ideas · 1 vigentes" in page
     assert 'class="chart-link" data-ticker="AAPL"' in page and 'id="strike-dialog"' in page   # el ticker abre el gráfico del strike
-    only = client.get("/ideas?solo=1").text
-    assert "Vigente" in only and "ZZZ" not in only and "1 ideas" in only
     ana = client.get("/ideas?trader=Ana").text
     assert '>Ana<small>' in ana and '>Beto<small>' not in ana
     assert "Ninguna idea cumple los filtros" in client.get("/ideas?tipo=spread").text
@@ -181,7 +179,7 @@ def test_ideas_marked_in_the_page_feed_the_permanent_source_with_trader_and_best
     key = idea_key(views["AAPL"].idea)
     assert f'value="{key}"' in client.get("/ideas").text
     page = client.post("/ideas/perm", data={"idea": [key]}, follow_redirects=True).text
-    assert "Añadidos a TortugaTrades_Perm" in page and ">TTP<" in page and ">W<" in page
+    assert "Añadidos a TortugaTrades_Perm" in page and ">TTP<" in page
     assert svc.manual_sources["TortugaTrades_Perm"] == ["AAPL"]
     best = max((f for f in views["AAPL"].fits if f is not None), key=lambda f: (f.passed, f.passed / f.total))
     perm = svc.community_perm()["AAPL"]

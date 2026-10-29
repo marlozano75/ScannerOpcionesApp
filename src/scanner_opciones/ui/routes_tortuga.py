@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 def register(app, service, render, remembered) -> None:
     """Registra las rutas en `app` (comparten `service` y `render` de `create_app`)."""
     @app.get("/ideas", response_class=HTMLResponse)
-    async def ideas(request: Request, solo: int = 0, venc: int = 0, trader: str = "", tipo: str = "put", message: str = ""):
+    async def ideas(request: Request, venc: int = 0, trader: str = "", tipo: str = "put", message: str = ""):
         data = service.community()
         quoting = False
         task = service.community_quotes_task() if data is not None else None
@@ -33,7 +33,7 @@ def register(app, service, render, remembered) -> None:
         everything = service.community_ideas() if data is not None else []
         tipo = tipo if tipo in ("put", "spread") else "put"
         base = [v for v in everything
-                if (venc or v.status != "expired") and (not solo or v.in_watchlist) and (not trader or v.idea.trader == trader)]
+                if (venc or v.status != "expired") and (not trader or v.idea.trader == trader)]
         is_spread = lambda v: v.idea.long_strike is not None
         counts = {"put": sum(1 for v in base if not is_spread(v)), "spread": sum(1 for v in base if is_spread(v))}
         views = [v for v in base if is_spread(v) == (tipo == "spread")]
@@ -41,10 +41,10 @@ def register(app, service, render, remembered) -> None:
         specs, names = service.profile_specs(), service.fit_names()
         cols = [(i, s[0]) for i, s in enumerate(specs) if (s[2] if tipo == "spread" else s[1]) is not None] if specs else list(enumerate(names))
         cols = [(i, n.removesuffix(" (put)").removesuffix(" (spread)")) for i, n in cols]
-        tab_urls = {t: "/ideas?" + urlencode({k: v for k, v in (("solo", solo), ("venc", venc), ("trader", trader), ("tipo", t)) if v}) for t in counts}
+        tab_urls = {t: "/ideas?" + urlencode({k: v for k, v in (("venc", venc), ("trader", trader), ("tipo", t)) if v}) for t in counts}
         return render(request, "ideas.html", no_autorefresh=True, watch_data=True, nlv_usd=service.nlv_usd(), data=data, owned=service.owned_options(), held=service.held_tickers(), file_path=service.settings.community.path, views=views, total=len(base),
                       fit_cols=cols, counts=counts, tab_urls=tab_urls,
-                      valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, tipo=tipo,
+                      valid=sum(1 for v in views if v.status == "valid"), venc=venc, trader=trader, tipo=tipo,
                       traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale(),
                       auto_reload=service.market.is_open(service.now()), quoting=quoting, message=message, groups=message_groups(message),
                       keys=[idea_key(v.idea) for v in views], perm_name=service.settings.community.perm_source_name,
@@ -52,7 +52,7 @@ def register(app, service, render, remembered) -> None:
 
     # ---- Tortuga: radar de Bull Put Spreads y rutinas -------------------------------------------
     @app.get("/tortuga", response_class=HTMLResponse)
-    async def tortuga(request: Request, cumple: int = 0, solo: int = 0, tipo: str = "", message: str = "", done: int = 0):
+    async def tortuga(request: Request, cumple: int = 0, tipo: str = "", message: str = "", done: int = 0):
         runner = service.tortuga
         if done and not message:    # la página recargó sola al terminar una rutina: dice cómo acabó
             states = runner.state() if runner is not None else {}
@@ -61,16 +61,15 @@ def register(app, service, render, remembered) -> None:
                        else _grp("ok", "Terminada", [], "resultado actualizado"))
         data = service.radar_spreads()
         minimum = service.radar_min_yield()
-        watch = set(service.watchlist.list())
         held = {norm_ticker(p.ticker) for p in service.state.positions}
-        items = [dict(row=r, ok=radar_passes(r, minimum), wl=r.ticker in watch, held=norm_ticker(r.ticker) in held)
+        items = [dict(row=r, ok=radar_passes(r, minimum), held=norm_ticker(r.ticker) in held)
                  for r in (data.rows if data else ())]
         tipo = tipo if tipo in ("spread", "put") else ""
-        shown = [i for i in items if (not cumple or i["ok"]) and (not solo or i["wl"]) and (not tipo or i["row"].kind == tipo)]
+        shown = [i for i in items if (not cumple or i["ok"]) and (not tipo or i["row"].kind == tipo)]
         fits = service.radar_fits([i["row"] for i in shown])
         return render(request, "tortuga.html", no_autorefresh=True, watch_data=True, nlv_usd=service.nlv_usd(), data=data, items=shown, fits=fits,
                       fit_names=service.fit_names(), total=len(items), passing=sum(1 for i in items if i["ok"]),
-                      minimum=minimum, cumple=cumple, solo=solo, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
+                      minimum=minimum, cumple=cumple, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
                       routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,
                       enabled=runner is not None and service.settings.tortuga.enabled, busy_routines=service._tortuga_busy,
                       age_days=(service.now().date() - data.as_of).days if data and data.as_of else None)
@@ -96,7 +95,7 @@ def register(app, service, render, remembered) -> None:
     async def ideas_perm(request: Request):
         """Añade a la fuente permanente del Universo los tickers de las ideas marcadas (con su trader y su mejor estrategia)."""
         form = await request.form(max_fields=MAX_FORM_FIELDS)
-        back = {k: str(form.get(k)) for k in ("solo", "venc", "trader", "tipo") if form.get(k)}
+        back = {k: str(form.get(k)) for k in ("venc", "trader", "tipo") if form.get(k)}
         try:
             res = await service.add_community_perm([str(k) for k in form.getlist("idea")])
         except WatchlistError as exc:
