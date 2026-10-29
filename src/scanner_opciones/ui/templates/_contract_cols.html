@@ -30,12 +30,12 @@
 {%- if h %} <span class="own own-tk" title="{{ h[1] }}">◆ {{ h[0] }}</span>{% endif %}
 {%- endmacro %}
 
-{% macro lead_cells(r, long=none) -%}{% set c = r.snapshot.contract %}{% set i = r.info -%}
-<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" data-expiry="{{ c.expiry }}"{% if long is not none %} data-long="{{ long }}"{% endif %} title="{{ tk_title(company_names, c.ticker) }}">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
+{% macro lead_cells(r, long=none, prem=none) -%}{% set c = r.snapshot.contract %}{% set prem = prem if prem is not none else r.reference_price %}{% set i = r.info -%}
+<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" data-expiry="{{ c.expiry }}"{% if long is not none %} data-long="{{ long }}"{% endif %}{% if prem is not none %} data-prem="{{ prem }}"{% endif %} title="{{ tk_title(company_names, c.ticker) }}">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
 {%- endmacro %}
 
-{% macro mini_cell(r, long=none) -%}{% set c = r.snapshot.contract -%}
-<td class="mini"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" data-expiry="{{ c.expiry }}"{% if long is not none %} data-long="{{ long }}"{% endif %} title="Ver el gráfico grande"><img loading="lazy" width="80" height="24" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ c.strike }}{% if long is not none %}&amp;long={{ long }}{% endif %}"></a></td>
+{% macro mini_cell(r, long=none, prem=none) -%}{% set c = r.snapshot.contract %}{% set prem = prem if prem is not none else r.reference_price -%}
+<td class="mini"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" data-expiry="{{ c.expiry }}"{% if long is not none %} data-long="{{ long }}"{% endif %}{% if prem is not none %} data-prem="{{ prem }}"{% endif %} title="Ver el gráfico grande"><img loading="lazy" width="80" height="24" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ c.strike }}{% if long is not none %}&amp;long={{ long }}{% endif %}"></a></td>
 {%- endmacro %}
 
 {% macro vol_cells(r, community={}) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
@@ -83,8 +83,8 @@
 {%- endmacro %}
 
 {% macro spread_cells(sp, rmax=0, community={}, nlv=none) -%}{% set r = sp.short %}{% set c = r.snapshot.contract %}{% set l = sp.long -%}
-{{ lead_cells(r, l.contract.strike) }}
-<td data-sort="{{ c.strike }}"><span class="k-sold">{{ c.strike|num }}</span> <span class="muted">/</span> <span class="k-long">{{ l.contract.strike|num }}</span></td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ mini_cell(r, l.contract.strike) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+{{ lead_cells(r, l.contract.strike, sp.credit) }}
+<td data-sort="{{ c.strike }}"><span class="k-sold">{{ c.strike|num }}</span> <span class="muted">/</span> <span class="k-long">{{ l.contract.strike|num }}</span></td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ mini_cell(r, l.contract.strike, sp.credit) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
 {{ spread_core(sp, rmax, nlv) }}
 {{ extra_cells(r, community, false) }}
 <td>{{ sp.assignment_pct_of_portfolio|pct }}</td>

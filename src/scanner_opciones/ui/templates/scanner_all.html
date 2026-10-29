@@ -66,11 +66,11 @@
         {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ ('|' ~ sp.long.contract.strike if sp else '') %}
         {% set be = sp.breakeven if sp else c.strike - m.credit %}{% set px = r.info.underlying_price if r.info else none %}
         <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
-          {{ cols.lead_cells(r, sp.long.contract.strike if sp else none) }}
+          {{ cols.lead_cells(r, sp.long.contract.strike if sp else none, sp.credit if sp else none) }}
           <td class="txt" data-sort="{{ m.profiles|length }}">{% for n in m.profiles %}<span class="pf-chip" style="background:{{ colors.get(n) or 'var(--accent)' }}">{{ n }}</span>{% endfor %}</td>
           <td>{{ 'Spread' if sp else 'Put' }}</td>
           <td data-sort="{{ c.strike }}">{% if sp %}<span class="k-sold">{{ c.strike|num }}</span> <span class="muted">/</span> <span class="k-long">{{ sp.long.contract.strike|num }}</span>{% else %}{{ c.strike|num }}{% endif %}</td>
-          <td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ cols.mini_cell(r, sp.long.contract.strike if sp else none) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
+          <td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ cols.mini_cell(r, sp.long.contract.strike if sp else none, sp.credit if sp else none) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
           <td>{{ sp.width|num if sp else '—' }}</td><td>{{ (m.credit * c.multiplier)|num(0) }}{{ ccy(c.ticker) }}</td><td{% if sp %} data-sort="{{ sp.credit_width_pct }}"{% endif %}>{{ sp.credit_width_pct|pct if sp else '—' }}</td>
           <td class="hl cb"{% if rmax and m.return_on_capital_annualized_pct is not none %} style="--p:{{ (100 * m.return_on_capital_annualized_pct / rmax)|round(0)|int }}%"{% endif %}>{{ m.return_on_capital_annualized_pct|pct(0) }}</td>
           {{ cols.mkt_cells(r, sp.long if sp else none) }}
@@ -101,7 +101,7 @@
       title.textContent = a.dataset.ticker + ' · strike $' + Number(a.dataset.strike).toLocaleString('en-US') + (a.dataset.long ? ' / $' + Number(a.dataset.long).toLocaleString('en-US') : '');
       body.innerHTML = '<p class="muted">Cargando…</p>';
       if (!dlg.open) dlg.showModal();
-      fetch('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike) + (a.dataset.long ? '&long=' + encodeURIComponent(a.dataset.long) : '') + (a.dataset.expiry ? '&expiry=' + encodeURIComponent(a.dataset.expiry) : ''))
+      fetch('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike) + (a.dataset.long ? '&long=' + encodeURIComponent(a.dataset.long) : '') + (a.dataset.expiry ? '&expiry=' + encodeURIComponent(a.dataset.expiry) : '') + (a.dataset.prem ? '&prem=' + encodeURIComponent(a.dataset.prem) : ''))
         .then(function (r) { return r.text(); })
         .then(function (html) { body.innerHTML = html; applyMa(); })
         .catch(function () { body.innerHTML = '<p class="muted">No se pudo cargar el gráfico.</p>'; });

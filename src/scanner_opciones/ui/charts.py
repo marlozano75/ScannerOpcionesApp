@@ -12,7 +12,7 @@ from html import escape
 from scanner_opciones.metrics.technical import StrikeHistory
 
 W, H = 760, 300
-LEFT, RIGHT, TOP, BOTTOM = 58, 84, 20, 34
+LEFT, RIGHT, TOP, BOTTOM = 58, 112, 20, 34
 _MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 BLUE, RED, YELLOW, ORANGE = "#2f6fd1", "#d64545", "#d9a400", "#e87a1e"
 MAX_EARNINGS_AHEAD = 120          # días: unos resultados más lejanos no alargan el eje
@@ -70,6 +70,16 @@ def _pill(x: float, y: float, text: str, fill: str, anchor: str = "middle") -> s
     return out
 
 
+def _strike_tag(strike: float, current: float, expiry: Optional[date], today: Optional[date]) -> str:
+    """Texto del globo de un strike: «$85.00 −8.1%» (descuento respecto al precio actual) y, debajo, «dic 18 · 23 d» (vencimiento y DTE)."""
+    disc = (current - strike) / current * 100 if current else 0.0
+    text = f"{_usd(strike)} {'−' if disc >= 0 else '+'}{abs(disc):.1f}%"
+    if expiry is None:
+        return text
+    dte = f" · {(expiry - today).days} d" if today is not None else ""
+    return f"{text}\n{_mon3(expiry)}{dte}"
+
+
 def _side_tags(tags: list[tuple[float, str, str, str]], x: float, top: float, bottom: float) -> str:
     """Etiquetas de valor en el margen derecho (fuera de la zona de datos), separadas entre sí para que no se pisen.
     Cada una es (y, texto, color, clase CSS de la media o '')."""
@@ -94,10 +104,14 @@ def _side_tags(tags: list[tuple[float, str, str, str]], x: float, top: float, bo
 
 
 def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: float, earnings: Optional[date] = None,
-                      long_strike: Optional[float] = None, expiry: Optional[date] = None) -> str:
+                      long_strike: Optional[float] = None, expiry: Optional[date] = None, premium: Optional[float] = None,
+                      today: Optional[date] = None) -> str:
     """Resumen + gráfico (fragmento HTML). Con menos de 2 cierres mensuales devuelve solo un aviso.
     `long_strike`: strike de la put comprada si es un spread; se dibuja en azul (el vendido, `strike`, en rojo).
-    `expiry`: vencimiento del contrato; se escribe («dic 18») bajo el precio de cada strike, dentro de su globo del margen derecho."""
+    `expiry`: vencimiento del contrato; se escribe («dic 18 · 23 d», con los días hasta él si se da `today`) bajo el precio de cada strike,
+    junto al descuento respecto al precio actual, dentro de su globo del margen derecho.
+    `premium`: prima por acción que se cobra (put) o crédito neto (spread); se escribe en un recuadro y sobre la línea del strike vendido,
+    con el yield (prima / strike) en una put o la razón prima / ancho en un spread."""
     if len(h.months) < 2:
         return '<p class="muted">Sin histórico de cierres suficiente para dibujar el gráfico.</p>'
     n = len(h.months)
@@ -105,7 +119,15 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     closest = h.closest
     pct_closest = (closest[1] - strike) / strike * 100
     ok = h.above == n
-    summary = (f'<div class="sh-banner {"ok" if ok else "warn"}"><b>{"✓" if ok else "⚠"} {h.above} de {n} meses por encima del strike '
+    prem_txt = ""
+    if premium is not None and premium > 0:
+        if long_strike is not None and strike > long_strike:
+            prem_txt = f"{_usd(premium)} (prima/ancho {premium / (strike - long_strike) * 100:.1f}%)"
+        else:
+            prem_txt = f"{_usd(premium)} ({premium / strike * 100:.2f}%)"
+    prem_box = (f'<div class="sh-banner ok" style="font-size:15px"><b>Prima que se cobra: {prem_txt}</b> · {premium * 100:,.0f} $ por contrato · '
+                f'{"ratio prima/ancho del spread" if long_strike is not None else "yield sobre el strike"}</div>') if prem_txt else ""
+    summary = prem_box + (f'<div class="sh-banner {"ok" if ok else "warn"}"><b>{"✓" if ok else "⚠"} {h.above} de {n} meses por encima del strike '
                f'{_usd(strike)}</b> · Más cercano: {_usd(closest[1])} ({_mon(closest[0])}, '
                f'{abs(pct_closest):.1f}% {"por encima" if pct_closest >= 0 else "por debajo"})</div>')
     if h.touch:
@@ -166,12 +188,16 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     for (d, p), (x, y) in zip(h.months, pts):                          # puntos: rojo ≤ strike, amarillo cerca, azul resto
         colour = RED if p <= strike else (YELLOW if p <= strike * (1 + near_pct / 100) else BLUE)
         g.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.6" fill="{colour}"><title>{_mon(d)}: {_usd(p)}</title></circle>')
-    tags.append((sy, _usd(strike) + (f"\n{_mon3(expiry)}" if expiry is not None else ""), RED, ""))
+    if prem_txt:                                                       # prima sobre la línea del strike vendido
+        py = sy - 7 if sy - 7 > TOP + 10 else sy + 16
+        g.append(f'<text x="{LEFT + 8}" y="{py:.1f}" font-size="13" font-weight="700" fill="{RED}" stroke="var(--panel)" stroke-width="4" '
+                 f'paint-order="stroke">Prima {escape(prem_txt)}</text>')
+    tags.append((sy, _strike_tag(strike, current, expiry, today), RED, ""))
     if long_strike is not None:                                        # put comprada del spread, en azul
         ly = px_y(long_strike)
         g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{ly:.1f}" y2="{ly:.1f}" stroke="{LONG}" stroke-width="1.6" stroke-dasharray="6 4"/>')
         g.append(f'<text x="{LEFT - 8}" y="{ly + 4:.1f}" text-anchor="end" font-size="11" font-weight="700" fill="{LONG}">${long_strike:,.0f}</text>')
-        tags.append((ly, _usd(long_strike) + (f"\n{_mon3(expiry)}" if expiry is not None else ""), LONG, ""))
+        tags.append((ly, _strike_tag(long_strike, current, expiry, today), LONG, ""))
     if h.touch:                                                        # último toque: aro naranja con su etiqueta
         d, p, days = h.touch
         if d.toordinal() >= t0:

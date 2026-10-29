@@ -174,3 +174,16 @@ def test_strike_chart_draws_mas_and_summary():
     html = strike_chart_html(ta.strike_history(bars, 85.0, TODAY), "XYZ", 85.0, 5)
     assert 'class="sh-ma ma50"' in html and 'class="sh-ma ma200"' in html and "data-ma=\"ma200\"" in html
     assert "SMA200:" in html
+
+
+def test_strike_chart_shows_dte_discount_and_premium():
+    from scanner_opciones.ui.charts import strike_chart_html
+    bars = series([100] * 650 + [80] + [90] * 38 + [120] * 40)
+    h = ta.strike_history(bars, 85.0, TODAY)
+    exp = TODAY + timedelta(days=23)
+    put = strike_chart_html(h, "XYZ", 85.0, 5, expiry=exp, premium=1.7, today=TODAY)
+    assert "· 23 d" in put and "−29.2%" in put                          # DTE junto al vencimiento y descuento junto al strike
+    assert "Prima que se cobra: $1.70 (2.00%)" in put                   # yield = prima / strike
+    spread = strike_chart_html(h, "XYZ", 85.0, 5, long_strike=80.0, expiry=exp, premium=1.5, today=TODAY)
+    assert "prima/ancho 30.0%" in spread
+    assert "Prima que se cobra" not in strike_chart_html(h, "XYZ", 85.0, 5)

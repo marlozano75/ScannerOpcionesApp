@@ -682,7 +682,8 @@ def create_app(
         return Response(svg, media_type="image/svg+xml")
 
     @app.get("/chart/strike", response_class=HTMLResponse)
-    async def strike_chart(ticker: str, strike: float, long: Optional[float] = None, expiry: Optional[date] = None):
+    async def strike_chart(ticker: str, strike: float, long: Optional[float] = None, expiry: Optional[date] = None,
+                           prem: Optional[float] = None):
         """Gráfico de cierres mensuales del ticker frente al strike, con los días desde el último toque
         (fragmento HTML que el Scanner muestra en una ventana)."""
         closes = service.bars.closes(ticker)
@@ -696,7 +697,8 @@ def create_app(
         box = ('<div class="banner warn"><b>⚠ Presentaciones recientes ante la SEC</b><ul style="margin:4px 0 0 18px;padding:0">'
                + "".join(f"<li>{escape(a.text)}</li>" for a in alerts) + "</ul></div>") if alerts else ""
         return HTMLResponse(service.company_card(ticker) + box
-                            + strike_chart_html(history, ticker, strike, tcfg.chart_near_pct, service.next_earnings(ticker), long, expiry))
+                            + strike_chart_html(history, ticker, strike, tcfg.chart_near_pct, service.next_earnings(ticker), long, expiry,
+                                                prem, service.now().date()))
 
     @app.get("/chart/mini.svg")
     async def strike_mini(ticker: str, strike: float, long: Optional[float] = None):
