@@ -49,6 +49,19 @@ class RefreshReport:
 
 
 class RefreshJob:
+    @property
+    def instrument_markets(self) -> dict[str, MarketCalendar]:
+        """Calendario de cada instrumento actual (`settings.instruments` crece al dar de alta valores europeos); se recalcula si cambia su horario."""
+        out = {}
+        for t, i in list(self.settings.instruments.items()):
+            key = (i.timezone, i.open, i.close)
+            cached = self._instrument_calendars.get(t)
+            if cached is None or cached[0] != key:
+                cached = (key, MarketCalendar.for_instrument(i, self.settings.ibkr.delay_minutes))
+                self._instrument_calendars[t] = cached
+            out[t] = cached[1]
+        return out
+
     def __init__(
         self,
         gateway: BrokerGateway,
@@ -64,7 +77,7 @@ class RefreshJob:
     ) -> None:
         self.market = market
         # mercado propio de los instrumentos de TWS (Eurex...): fuera del horario de EE. UU. también se cotizan mientras el suyo está abierto
-        self.instrument_markets = {t: MarketCalendar.for_instrument(i, settings.ibkr.delay_minutes) for t, i in settings.instruments.items()}
+        self._instrument_calendars: dict[str, tuple] = {}
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
         self.volatility = volatility
         self.prices = prices

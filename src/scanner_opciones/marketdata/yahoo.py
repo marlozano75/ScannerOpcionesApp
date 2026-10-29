@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, datetime, timedelta
+from collections.abc import Mapping
 from typing import Callable, Optional
 
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystError, classify_changes
@@ -327,12 +328,31 @@ def ohlc_from_frame(frame) -> OhlcBars:
     return sorted(out)
 
 
+class InstrumentYahooSymbols(Mapping):
+    """Vista en vivo de `Settings.instruments`: ticker de la app -> símbolo de Yahoo, solo de los instrumentos que lo tienen."""
+
+    def __init__(self, instruments) -> None:
+        self._instruments = instruments
+
+    def __getitem__(self, ticker: str) -> str:
+        symbol = getattr(self._instruments.get(ticker), "yahoo_symbol", None)
+        if not symbol:
+            raise KeyError(ticker)
+        return symbol
+
+    def __iter__(self):
+        return (t for t, i in list(self._instruments.items()) if i.yahoo_symbol)
+
+    def __len__(self) -> int:
+        return sum(1 for i in list(self._instruments.values()) if i.yahoo_symbol)
+
+
 class YahooCandles:
     """Implementa `CandleProvider` para los instrumentos que tastytrade no cubre (índices como el Euro Stoxx 50). `symbols` traduce el ticker de la app al de Yahoo
     (`^STOXX50E`). Los cierres no se ajustan (un índice no tiene splits ni dividendos). Una petición por ticker, en hilos porque `yfinance` es síncrono."""
 
     def __init__(self, symbols: dict[str, str], concurrency: int = 4, today: Callable[[], date] = lambda: datetime.now().date()) -> None:
-        self.symbols = dict(symbols)
+        self.symbols = symbols      # se conserva la referencia: los valores europeos dados de alta desde el Universo aparecen sin reiniciar
         self.concurrency = concurrency
         self.today = today
 

@@ -113,3 +113,23 @@ def test_instruments_are_listed_in_their_manual_source_without_asking_tastytrade
     assert svc.manual_sources["Europa"] == ["ESTX50"]
     assert any(s.name == "Europa" for s in svc.universe_sources)
     assert 'name="fs_Europa"' in client.get("/scanner?reset=1").text
+
+
+def test_europe_source_registers_tickers_resolved_by_tws_and_forgets_them(client_and_service):
+    import asyncio
+    from scanner_opciones.config.settings import InstrumentSettings, default_exchanges
+    from scanner_opciones.watchlist.parser import parse_text
+    client, svc, gw, _ = client_and_service
+    sap = InstrumentSettings(symbol="SAP", exchange="EUREX", currency="EUR", multiplier=100, trading_class="SAP", kind="stock",
+                             listing_exchange="IBIS", yahoo_symbol="SAP.DE", timezone="Europe/Berlin", open=default_exchanges()["IBIS"].open,
+                             close=default_exchanges()["IBIS"].close)
+    gw.resolved["SAP"] = sap
+    res = asyncio.run(svc.add_manual_tickers(parse_text("SAP, NOPE"), "Europa"))
+    assert res["added"] == ["SAP"] and res["no_options"] == ["NOPE"]
+    assert svc.settings.instruments["SAP"].yahoo_symbol == "SAP.DE" and "SAP" in svc.refresh_job.instrument_markets
+    assert json.loads(svc.meta.get("europe_instruments"))["SAP"]["listing_exchange"] == "IBIS"
+    svc.settings.instruments.pop("SAP")
+    svc.europe_added = svc._load_europe()
+    assert svc.europe_added == {"SAP"} and svc.settings.instruments["SAP"].kind == "stock"          # sobrevive al reinicio
+    svc.remove_source_tickers("Europa", ["SAP"])
+    assert "SAP" not in svc.settings.instruments and json.loads(svc.meta.get("europe_instruments")) == {}

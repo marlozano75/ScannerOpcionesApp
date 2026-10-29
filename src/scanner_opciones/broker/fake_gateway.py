@@ -16,6 +16,7 @@ class FakeGateway:
     account: AccountSummary = field(default_factory=lambda: AccountSummary("DU000000"))
     positions: list[Position] = field(default_factory=list)
     sectors: dict[str, tuple[Optional[str], Optional[str]]] = field(default_factory=dict)
+    resolved: dict[str, object] = field(default_factory=dict)   # ticker -> InstrumentSettings que devuelve `resolve_instrument`
     prices: dict[str, float] = field(default_factory=dict)
     underlying_ivs: dict[str, float] = field(default_factory=dict)  # IV en directo
     chains: dict[str, OptionChain] = field(default_factory=dict)
@@ -67,6 +68,10 @@ class FakeGateway:
     async def get_sector_info(self, ticker: str) -> tuple[Optional[str], Optional[str]]:
         self._check(ticker)
         return self.sectors.get(ticker, (None, None))
+
+    async def resolve_instrument(self, ticker: str, exchanges):
+        self._check()
+        return self.resolved.get(ticker)
 
     async def get_underlying_price(self, ticker: str) -> Optional[float]:
         self._check(ticker)

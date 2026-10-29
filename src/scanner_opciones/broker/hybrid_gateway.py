@@ -46,7 +46,7 @@ class HybridGateway:
         instruments: Collection[str] = (),
     ) -> None:
         self.inner = inner
-        self.instruments = frozenset(instruments)   # índices (ESTX50...): el proveedor no los cubre, todo sale de TWS
+        self.instruments = instruments   # índices y valores europeos (ESTX50...): el proveedor no los cubre, todo sale de TWS. Se conserva la referencia: el mapa crece al dar de alta valores
         self.fallback_batch = fallback_batch      # contratos por petición cuando se cae a IBKR (límite de líneas de TWS)
         self.quote_batch_size = settings.quote_batch_size   # contratos por petición de cotizaciones (lo lee el refresco)
         self.provider = provider
@@ -96,6 +96,10 @@ class HybridGateway:
             return 0
         self._sector_cache.update(found)
         return len(found)
+
+    async def resolve_instrument(self, ticker: str, exchanges):
+        self._need_broker(f"Búsqueda de {ticker}")
+        return await self.inner.resolve_instrument(ticker, exchanges)
 
     async def get_sector_info(self, ticker: str) -> tuple[Optional[str], Optional[str]]:
         """Sector de EDGAR o Yahoo si lo hay; si no, de TWS (sin TWS queda vacío y se completa al reconectar)."""

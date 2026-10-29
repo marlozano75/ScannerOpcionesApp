@@ -29,7 +29,7 @@ from scanner_opciones.marketdata.sectors import ChainedSectors
 from scanner_opciones.marketdata.finnhub import FinnhubNews
 from scanner_opciones.marketdata.yahoo_financials import FallbackFinancials
 from scanner_opciones.marketdata.candles import SplitCandles
-from scanner_opciones.marketdata.yahoo import YahooAnalysts, YahooCandles, YahooDescriptions, YahooEarningsHistory, YahooFinancials, YahooFx, YahooSectors
+from scanner_opciones.marketdata.yahoo import InstrumentYahooSymbols, YahooAnalysts, YahooCandles, YahooDescriptions, YahooEarningsHistory, YahooFinancials, YahooFx, YahooSectors
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import ChainCacheRepo, MetaRepo
@@ -94,8 +94,8 @@ def build_app(settings: Settings):
                               chain_store=ChainCacheRepo(db), closed_since=closed_since, instruments=settings.instruments)
                 if md.source == "tastytrade" else ibkr)
 
-    yahoo_symbols = {t: i.yahoo_symbol for t, i in settings.instruments.items() if i.yahoo_symbol}
-    candles = SplitCandles(tasty, YahooCandles(yahoo_symbols), yahoo_symbols) if yahoo_symbols else tasty   # índices (Euro Stoxx 50): cierres de Yahoo
+    yahoo_symbols = InstrumentYahooSymbols(settings.instruments)        # vista en vivo: incluye los valores europeos que se den de alta después
+    candles = SplitCandles(tasty, YahooCandles(yahoo_symbols), yahoo_symbols)   # índices y valores europeos (Euro Stoxx 50...): cierres de Yahoo
 
     service = AppService(factory(settings.ibkr.mode), db, settings, volatility=tasty, prices=tasty, candles=candles,
                          fundamentals=tasty, financials=balance_provider, names=tasty, watchlists=tasty,

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway, chain_origin
-from scanner_opciones.config.settings import ScannerPreset, Settings, SpreadSettings, StrategySettings
+from scanner_opciones.config.settings import InstrumentSettings, ScannerPreset, Settings, SpreadSettings, StrategySettings
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError, PriceError, VolatilityError, WatchlistError
 from scanner_opciones.domain.models import (
@@ -246,6 +246,7 @@ class AppService:
         self._community_live: Optional[tuple[datetime, str, dict, dict, dict]] = self._load_community_live()   # sobrevive al reinicio
         self._community_live_running = False
         self._community_live_task: Optional[asyncio.Future] = None
+        self.europe_added: set[str] = self._load_europe()      # valores europeos dados de alta desde el Universo (ya registrados en `settings.instruments`)
         self.manual_sources: dict[str, list[str]] = self._load_manual()   # fuentes con nombre: tickers escritos a mano
         self._rename_legacy_community_source()
         self.source_excluded: dict[str, set[str]] = self._load_excluded()  # tickers quitados a mano de una fuente de fichero
@@ -370,6 +371,60 @@ class AppService:
         if not isinstance(data, dict):
             return {}
         return {str(k): [str(t) for t in v] for k, v in data.items() if isinstance(v, list) and v}
+
+    def _load_europe(self) -> set[str]:
+        """Registra en `settings.instruments` los valores europeos dados de alta desde el Universo en sesiones anteriores (`meta.europe_instruments`).
+        Se muta el mismo mapa que comparten los gateways, los calendarios y los cierres de Yahoo. Un registro inválido se ignora."""
+        try:
+            data = json.loads(self.meta.get("europe_instruments") or "{}")
+        except (ValueError, TypeError):
+            return set()
+        added = set()
+        for ticker, raw in (data.items() if isinstance(data, dict) else ()):
+            try:
+                self.settings.instruments.setdefault(ticker, InstrumentSettings.model_validate(raw))
+                added.add(ticker)
+            except ValueError:
+                log.warning("Europa: se ignora el valor guardado «%s» (ajustes no válidos)", ticker)
+        return added
+
+    def _save_europe(self) -> None:
+        self.meta.set("europe_instruments", json.dumps({t: self.settings.instruments[t].model_dump(mode="json") for t in sorted(self.europe_added)
+                                                        if t in self.settings.instruments}))
+
+    async def _resolve_europe(self, tickers: list[str]) -> tuple[set[str], list[str], Optional[str]]:
+        """Da de alta en `settings.instruments` los valores europeos que TWS reconoce (bolsa, moneda, opciones y horario salen de ella). Devuelve
+        (tickers dados de alta o ya existentes, no reconocidos, error): sin TWS no se puede comprobar y todos quedan sin alta."""
+        ok: set[str] = set()
+        missing: list[str] = []
+        for t in tickers:
+            key = clean_ticker(t)
+            if key in self.settings.instruments:
+                ok.add(key)
+                continue
+            try:
+                inst = await self.gateway.resolve_instrument(key, self.settings.europe.exchanges)
+            except BrokerError as exc:
+                return ok, [x for x in tickers if clean_ticker(x) not in ok], str(exc)
+            if inst is None:
+                missing.append(t)
+                continue
+            self.settings.instruments[key] = inst
+            self.europe_added.add(key)
+            self._has_options[key] = True
+            ok.add(key)
+        if ok & self.europe_added:
+            self._save_europe()
+        return ok, missing, None
+
+    def _forget_europe(self, tickers) -> None:
+        """Quita del registro los valores europeos dados de alta desde el Universo (los de config.yaml se quedan)."""
+        gone = {clean_ticker(t) for t in tickers} & self.europe_added
+        for t in gone:
+            self.settings.instruments.pop(t, None)
+            self.europe_added.discard(t)
+        if gone:
+            self._save_europe()
 
     def _save_manual(self) -> None:
         self.meta.set("universe_manual", json.dumps(self.manual_sources))
@@ -524,7 +579,13 @@ class AppService:
         new = [t for t in parsed.tickers if t not in already]
         no_options: list[str] = []
         checked = True
-        if new and self.volatility is not None:
+        if new and name == self.settings.europe.source_name:      # valores europeos: los resuelve TWS (tastytrade no tiene sus opciones)
+            ok, no_options, error = await self._resolve_europe(new)
+            new = [t for t in new if clean_ticker(t) in ok]
+            checked = error is None
+            if error:
+                log.warning("Europa: no se pudieron dar de alta %s: %s", ", ".join(no_options), error)
+        elif new and self.volatility is not None:
             found = await self._with_options([clean_ticker(t) for t in new])
             if found is None:
                 checked = False
@@ -563,6 +624,8 @@ class AppService:
         if source in self.manual_sources:
             kept = [t for t in self.manual_sources[source] if clean_ticker(t) not in wanted and t not in wanted]
             removed = len(self.manual_sources[source]) - len(kept)
+            if source == self.settings.europe.source_name:
+                self._forget_europe(wanted)
             if kept:
                 self.manual_sources[source] = kept
             else:

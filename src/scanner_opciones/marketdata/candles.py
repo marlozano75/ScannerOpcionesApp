@@ -49,7 +49,7 @@ class SplitCandles:
     def __init__(self, primary: CandleProvider, other: CandleProvider, tickers) -> None:
         self.primary = primary
         self.other = other
-        self.tickers = frozenset(tickers)
+        self.tickers = tickers      # se conserva la referencia: crece al dar de alta valores europeos desde el Universo
 
     async def _split(self, method: str, tickers: list[str], days: int) -> dict:
         mine = [t for t in tickers if t not in self.tickers]

@@ -7,7 +7,7 @@ from collections import Counter
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import date
-from typing import Iterator, Optional, Protocol, Sequence
+from typing import Any, Iterator, Optional, Protocol, Sequence
 
 from scanner_opciones.domain.models import (
     AccountSummary, OptionChain, OptionContract, OptionQuote, Position, UnderlyingQuote, VixData,
@@ -94,6 +94,10 @@ class BrokerGateway(Protocol):
 
     async def get_sector_info(self, ticker: str) -> tuple[Optional[str], Optional[str]]:
         """(sector, categoría) según IBKR."""
+
+    async def resolve_instrument(self, ticker: str, exchanges) -> Optional[Any]:
+        """Busca en TWS un valor europeo (acción o índice) y devuelve su `InstrumentSettings` (bolsa, moneda, opciones, horario) o None si no está en
+        las bolsas de `exchanges` (dict bolsa -> `ExchangeSettings`) o no tiene opciones."""
 
     async def get_underlying_price(self, ticker: str) -> Optional[float]: ...
 

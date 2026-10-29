@@ -306,3 +306,37 @@ def test_calendario_propio_del_instrumento():
     assert cal.is_open(datetime(2026, 10, 29, 10, 50, tzinfo=berlin))
     assert not cal.is_open(datetime(2026, 10, 29, 22, 5, tzinfo=berlin))
     assert not cal.is_open(datetime(2026, 10, 31, 12, 0, tzinfo=berlin))     # sábado
+
+
+# ---- valores europeos dados de alta desde el Universo (resolución con TWS) ----
+def _desc(symbol, sec="STK", cur="EUR", primary="IBIS", deriv=("OPT",)):
+    return NS(contract=NS(symbol=symbol, secType=sec, currency=cur, primaryExchange=primary, exchange="SMART", conId=1), derivativeSecTypes=list(deriv))
+
+
+def _chain(exchange="EUREX", tclass="SAP", mult="100", exps=3, strikes=5):
+    return NS(exchange=exchange, tradingClass=tclass, multiplier=mult, expirations=["20261218"] * exps, strikes=[100.0] * strikes)
+
+
+def test_european_candidates_keep_only_non_usd_valid_exchange_with_options():
+    from scanner_opciones.config.settings import default_exchanges
+    descs = [_desc("SAP", cur="USD", primary="NYSE"), _desc("SAP", deriv=()), _desc("SAP"), _desc("SAPX"), _desc("SAP", primary="LSEETF")]
+    found = m.european_candidates(descs, "SAP", default_exchanges())
+    assert len(found) == 1 and found[0].primaryExchange == "IBIS"
+
+
+def test_european_stock_gets_its_exchange_hours_and_yahoo_suffix_and_the_eurex_chain():
+    from scanner_opciones.config.settings import default_exchanges
+    ex = default_exchanges()
+    chain = m.pick_european_chain([_chain("SMART", exps=9), _chain("EUREX", exps=3)], ex)
+    assert chain.exchange == "EUREX"
+    inst = m.instrument_from_ib(_desc("SAP").contract, chain, ex)
+    assert (inst.kind, inst.symbol, inst.exchange, inst.currency, inst.multiplier, inst.trading_class) == ("stock", "SAP", "EUREX", "EUR", 100, "SAP")
+    assert (inst.listing_exchange, inst.yahoo_symbol, inst.timezone, str(inst.close)) == ("IBIS", "SAP.DE", "Europe/Berlin", "17:30:00")
+
+
+def test_european_index_uses_the_derivatives_exchange_hours_and_has_no_yahoo_symbol():
+    from scanner_opciones.config.settings import default_exchanges
+    ex = default_exchanges()
+    contract = _desc("DAX", sec="IND", primary="EUREX").contract
+    inst = m.instrument_from_ib(contract, _chain("EUREX", "ODAX", "5"), ex)
+    assert (inst.kind, inst.multiplier, inst.yahoo_symbol, str(inst.close), inst.listing_exchange) == ("index", 5, None, "22:00:00", None)

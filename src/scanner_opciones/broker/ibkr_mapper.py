@@ -115,6 +115,45 @@ def pick_chain(chains: Sequence[Any], ticker: str, exchange: str = "SMART", trad
     return max(chains, key=score) if chains else None
 
 
+def european_candidates(descriptions: Iterable[Any], symbol: str, exchanges: Iterable[str]) -> list[Any]:
+    """Contratos (de `reqMatchingSymbols`) que son el valor europeo `symbol`: acción o índice no USD, cotizado en una de las bolsas dadas y con
+    opciones. Primero los índices y los que tienen más tipos de derivados (el orden de IBKR no es fiable)."""
+    wanted = set(exchanges)
+    found = []
+    for d in descriptions:
+        c = d.contract
+        if (c.symbol or "").upper() != symbol.upper() or c.secType not in ("STK", "IND") or not c.currency or c.currency == "USD":
+            continue
+        if "OPT" not in (getattr(d, "derivativeSecTypes", None) or ()):
+            continue
+        if (c.primaryExchange or c.exchange) not in wanted:
+            continue
+        found.append(c)
+    return sorted(found, key=lambda c: c.secType != "IND")
+
+
+def pick_european_chain(chains: Sequence[Any], exchanges: Iterable[str]) -> Optional[Any]:
+    """Cadena de opciones de la bolsa de derivados (no SMART) con más vencimientos; prefiere las de `exchanges` (EUREX...)."""
+    wanted = set(exchanges)
+    usable = [c for c in chains if c.exchange and c.exchange != "SMART" and c.expirations and c.strikes]
+    return max(usable, key=lambda c: (c.exchange in wanted, len(c.expirations), len(c.strikes)), default=None)
+
+
+def instrument_from_ib(contract: Any, chain: Any, exchanges: dict) -> Any:
+    """`InstrumentSettings` de un valor europeo a partir de su contrato y su cadena de opciones. El horario sale de la tabla `exchanges`: el de la bolsa
+    de cotización en una acción y el de la bolsa de derivados en un índice. Los cierres de Yahoo solo se deducen en acciones (sufijo de su bolsa)."""
+    from scanner_opciones.config.settings import InstrumentSettings
+    is_index = contract.secType == "IND"
+    listing = contract.primaryExchange or contract.exchange
+    hours = exchanges.get(chain.exchange if is_index and chain.exchange in exchanges else listing) or exchanges[listing]
+    return InstrumentSettings(
+        kind="index" if is_index else "stock", symbol=contract.symbol, exchange=chain.exchange, currency=contract.currency,
+        multiplier=int(float(chain.multiplier or 100)), trading_class=chain.tradingClass or contract.symbol,
+        listing_exchange=None if is_index else listing,
+        yahoo_symbol=None if is_index else f"{contract.symbol}{hours.yahoo_suffix}",
+        sector="Índice Europa" if is_index else "Europa", timezone=hours.timezone, open=hours.open, close=hours.close)
+
+
 def parse_margin_change(text: Any) -> Optional[float]:
     """initMarginChange llega como string ('1234.5'); vacío o valor 'máximo' = sin dato."""
     n = num(text)

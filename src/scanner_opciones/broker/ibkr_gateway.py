@@ -81,7 +81,7 @@ def _quiet_unknown_contracts():
 class IBKRGateway:
     def __init__(self, settings: IbkrSettings, now=datetime.now, instruments: Optional[Mapping[str, InstrumentSettings]] = None) -> None:
         self.s = settings
-        self.instruments: Mapping[str, InstrumentSettings] = dict(instruments or {})   # índices y otros subyacentes que no son acciones de EE. UU.
+        self.instruments: Mapping[str, InstrumentSettings] = instruments if instruments is not None else {}     # el mismo mapa que `Settings.instruments`: los valores europeos dados de alta desde el Universo se ven sin reiniciar   # índices y otros subyacentes que no son acciones de EE. UU.
         self._ib_aux: Optional[IB] = None     # segunda conexión para los datos de mercado de los instrumentos (ver `_aux_ib`)
         self.ib = IB()
         self.now = now
@@ -305,18 +305,38 @@ class IBKRGateway:
             return self._stocks[ticker]
         self._require()
         inst = self.instruments.get(ticker)
-        stock = (Index(inst.symbol, inst.exchange, inst.currency) if inst is not None
-                 else Stock(m.ib_symbol(ticker), "SMART", "USD"))   # «BRK.B» -> «BRK B»
+        if inst is None:
+            stock = Stock(m.ib_symbol(ticker), "SMART", "USD")   # «BRK.B» -> «BRK B»
+        elif inst.kind == "stock":
+            stock = Stock(inst.symbol, "SMART", inst.currency, primaryExchange=inst.listing_exchange or "")
+        else:
+            stock = Index(inst.symbol, inst.exchange, inst.currency)
         qualified = await self.ib.qualifyContractsAsync(stock)
         if not qualified or not stock.conId:
             raise UnsupportedTickerError(f"Ticker no reconocido por IBKR: {ticker}")
         self._stocks[ticker] = stock
         return stock
 
+    async def resolve_instrument(self, ticker: str, exchanges) -> Optional[InstrumentSettings]:
+        """Busca en TWS el valor europeo `ticker` (acción o índice no USD con opciones, en una de las bolsas de `exchanges`) y arma su
+        `InstrumentSettings` con la cadena de opciones de su bolsa de derivados. None si no está o no tiene opciones. No verificado contra TWS."""
+        self._require()
+        symbol = m.ib_symbol(ticker)
+        try:
+            descriptions = await asyncio.wait_for(self.ib.reqMatchingSymbolsAsync(symbol), timeout=self.s.quote_wait_seconds * 4)
+        except asyncio.TimeoutError:
+            raise DataUnavailableError(f"TWS no responde buscando {ticker}") from None
+        for contract in m.european_candidates(descriptions or [], symbol, exchanges):
+            chains = await self.ib.reqSecDefOptParamsAsync(contract.symbol, "", contract.secType, contract.conId)
+            chain = m.pick_european_chain(chains or [], exchanges)
+            if chain is not None and (contract.primaryExchange or contract.exchange) in exchanges:
+                return m.instrument_from_ib(contract, chain, exchanges)
+        return None
+
     async def get_sector_info(self, ticker: str) -> tuple[Optional[str], Optional[str]]:
         if ticker in self._sector_cache:
             return self._sector_cache[ticker]
-        if (inst := self.instruments.get(ticker)) is not None:
+        if (inst := self.instruments.get(ticker)) is not None and inst.kind == "index":
             await self._stock(ticker)      # comprueba que existe
             return (inst.sector, None)
         stock = await self._stock(ticker)

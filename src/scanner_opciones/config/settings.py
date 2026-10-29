@@ -82,7 +82,7 @@ class IbkrSettings(_Model):
 class InstrumentSettings(_Model):
     """Subyacente que NO es una acción de EE. UU. en USD (p. ej. un índice europeo): su cadena, cotizaciones, precio y margen salen de TWS (tastytrade no
     lo cubre) y los cierres diarios de Yahoo. La clave del mapa `Settings.instruments` es el ticker de la app."""
-    kind: Literal["index"] = "index"
+    kind: Literal["index", "stock"] = "index"    # índice (ESTX50) o acción europea (SAP): la acción se cotiza en su bolsa y reparte dividendos
     symbol: str                                  # símbolo en IBKR («ESTX50»)
     exchange: str                                # bolsa del subyacente y de sus opciones («EUREX»)
     currency: str                                # moneda de strikes, primas y margen («EUR»)
@@ -92,6 +92,7 @@ class InstrumentSettings(_Model):
     sector: str = "Índice"                       # IBKR no da sector a los índices
     spread_widths: tuple[float, ...] = ()        # anchos de los spreads en puntos (los de `scanner.spreads.width_options` son de acciones: 1–20 $); vacío = esos
     name: Optional[str] = None
+    listing_exchange: Optional[str] = None       # bolsa de cotización de una acción («IBIS»); `exchange` es la de sus opciones («EUREX»)
     source: Optional[str] = None                 # fuente manual del Universo donde se lista («Europa»); None = ninguna
     # Horario de SU mercado (con él se cotiza mientras está abierto aunque el de EE. UU. esté cerrado); lunes–viernes, sin festivos propios
     timezone: str = "Europe/Berlin"
@@ -107,6 +108,48 @@ class InstrumentSettings(_Model):
         if self.open >= self.close:
             raise ValueError("el horario del instrumento: open debe ser anterior a close")
         return self
+
+
+class ExchangeSettings(_Model):
+    """Una bolsa europea: su horario (lunes–viernes, hora local) y el sufijo de Yahoo de sus valores (para los cierres diarios)."""
+    timezone: str
+    open: time
+    close: time
+    yahoo_suffix: str = ""
+
+    @model_validator(mode="after")
+    def _check(self) -> "ExchangeSettings":
+        try:
+            ZoneInfo(self.timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"zona horaria desconocida: {self.timezone}") from exc
+        if self.open >= self.close:
+            raise ValueError("el horario de la bolsa: open debe ser anterior a close")
+        return self
+
+
+def default_exchanges() -> dict[str, ExchangeSettings]:
+    return {
+        "EUREX": ExchangeSettings(timezone="Europe/Berlin", open=time(8, 0), close=time(22, 0)),
+        "IBIS": ExchangeSettings(timezone="Europe/Berlin", open=time(9, 0), close=time(17, 30), yahoo_suffix=".DE"),
+        "SBF": ExchangeSettings(timezone="Europe/Paris", open=time(9, 0), close=time(17, 30), yahoo_suffix=".PA"),
+        "AEB": ExchangeSettings(timezone="Europe/Amsterdam", open=time(9, 0), close=time(17, 30), yahoo_suffix=".AS"),
+        "BM": ExchangeSettings(timezone="Europe/Madrid", open=time(9, 0), close=time(17, 30), yahoo_suffix=".MC"),
+        "BVME": ExchangeSettings(timezone="Europe/Rome", open=time(9, 0), close=time(17, 30), yahoo_suffix=".MI"),
+        "EBS": ExchangeSettings(timezone="Europe/Zurich", open=time(9, 0), close=time(17, 30), yahoo_suffix=".SW"),
+        "SFB": ExchangeSettings(timezone="Europe/Stockholm", open=time(9, 0), close=time(17, 30), yahoo_suffix=".ST"),
+        "CPH": ExchangeSettings(timezone="Europe/Copenhagen", open=time(9, 0), close=time(17, 0), yahoo_suffix=".CO"),
+        "HEX": ExchangeSettings(timezone="Europe/Helsinki", open=time(10, 0), close=time(18, 30), yahoo_suffix=".HE"),
+        "BRUSSELS": ExchangeSettings(timezone="Europe/Brussels", open=time(9, 0), close=time(17, 30), yahoo_suffix=".BR"),
+    }
+
+
+class EuropeSettings(_Model):
+    """Valores europeos que se dan de alta desde el Universo: al añadir un ticker a la fuente `source_name`, la app lo busca en TWS (bolsa, moneda,
+    clase y multiplicador de sus opciones) y lo trata como `instruments`: datos de TWS y el horario de SU bolsa. `exchanges` da ese horario y el
+    sufijo de Yahoo por bolsa (clave = bolsa de cotización de IBKR); un valor en una bolsa que no esté aquí no se da de alta."""
+    source_name: str = "Europa"
+    exchanges: dict[str, ExchangeSettings] = Field(default_factory=default_exchanges)
 
 
 def default_instruments() -> dict[str, InstrumentSettings]:
@@ -846,6 +889,7 @@ class Settings(_Model):
     tasty_lists: TastyListsSettings = TastyListsSettings()
     watchlist_sync: WatchlistSyncSettings = WatchlistSyncSettings()
     super_investors: SuperInvestorsSettings = SuperInvestorsSettings()
+    europe: EuropeSettings = EuropeSettings()
     instruments: dict[str, InstrumentSettings] = Field(default_factory=default_instruments)   # índices y otros subyacentes de TWS (ticker de la app -> ajustes)
 
     @property
