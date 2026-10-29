@@ -59,3 +59,8 @@ def test_earnings_date_is_drawn_as_a_vertical_line_with_its_days_left():
     assert "resultados 31/10 · en 12 d" in svg and "Presentación de resultados" in svg
     assert "resultados" not in str(position_chart(closes(), [put(dte=35)], CFG, TODAY, 10, 110.0, None))
     assert "resultados" not in str(position_chart(closes(), [put(dte=35)], CFG, TODAY, 10, 110.0, TODAY - timedelta(days=1)))
+
+
+def test_the_current_price_is_written_next_to_the_last_point_instead_of_hoy():
+    svg = str(position_chart(closes(), [put(dte=35)], CFG, TODAY, 10, 110.25))
+    assert ">110.25</text>" in svg and ">hoy</text>" not in svg

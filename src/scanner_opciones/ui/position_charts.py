@@ -124,8 +124,10 @@ def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatu
                    f'height="{H - TOP - BOTTOM}" fill="transparent"/><line class="xh" x1="{x:.1f}" x2="{x:.1f}" y1="{TOP}" y2="{H - BOTTOM}"/>'
                    f'<circle class="dt" cx="{x:.1f}" cy="{y:.1f}" r="4.5"/></g>')
 
-    out.append(f'<line x1="{px(today):.1f}" x2="{px(today):.1f}" y1="{TOP}" y2="{H - BOTTOM}" stroke="var(--line-strong)" stroke-dasharray="2 3"/>'
-               f'<text class="ax" x="{px(today) + 3:.1f}" y="{H - BOTTOM - 4}" font-size="10">hoy</text>')
+    out.append(f'<line x1="{px(today):.1f}" x2="{px(today):.1f}" y1="{TOP}" y2="{H - BOTTOM}" stroke="var(--line-strong)" stroke-dasharray="2 3"/>')
+    near_edge = pts[-1][0] > W - RIGHT - 50                                              # el precio actual se escribe junto al último punto
+    out.append(f'<text x="{pts[-1][0] + (-8 if near_edge else 8):.1f}" y="{py(last_price) - (8 if near_edge else -4):.1f}" font-size="11" font-weight="700" '
+               f'text-anchor="{"end" if near_edge else "start"}" fill="var(--ink)" stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(f"{last_price:.2f}")}</text>')
 
     marks: list[tuple[date, str, str, str]] = []                                       # (fecha, texto, color, tooltip) de las líneas verticales
     for exp in sorted({s.expiry for s in puts}):
