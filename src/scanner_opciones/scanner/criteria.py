@@ -161,6 +161,9 @@ class ScanCriteria:
     floor_eps: bool = False                        # beneficios de los últimos 12 meses > 0
     floor_quarters: int = 0                        # trimestres con beneficios de los últimos 4 (0 = no se exige)
     floor_fcf: bool = False                        # flujo de caja libre de 12 meses > 0 (sin `edgar.contact` no hay dato y se ignora)
+    # fuentes del Universo elegidas en el perfil: un ticker que no está en ninguna no sale (None = sin filtro). Los tickers van «limpios» (`clean_ticker`)
+    source_names: tuple[str, ...] = ()
+    source_tickers: Optional[frozenset[str]] = None
     # modo spread (ver scanner/spreads.py): put vendida (filtros de arriba) + put comprada `ancho` $ por debajo
     spread_mode: bool = False
     spread_widths: tuple[float, ...] = ()

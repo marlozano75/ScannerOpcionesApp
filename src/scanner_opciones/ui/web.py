@@ -1083,6 +1083,8 @@ def create_app(
             "risk": ("max_capital_risk_pct", float, base.max_capital_risk_pct),
         }
         form.update(fl_eps=base.floor_eps, fl_q=str(base.floor_quarters), fl_fcf=base.floor_fcf)       # calidad mínima de la put (de cada perfil)
+        universe = service.universe_sources
+        form["fsrc"] = []       # fuentes del Universo elegidas (casillas `fs_<fuente>`); sin ninguna, no se filtra
         fv = service.settings.scanner.filter_values
         shown = {"oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
                  "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile, "credit": fv.min_put_credit, "risk": fv.max_capital_risk_pct}
@@ -1175,6 +1177,11 @@ def create_app(
                     form[f"use_{key}"] = f"use_{key}" in qp
                     # un perfil (o enlace) que no trae la caja la muestra con su valor preconfigurado, desmarcada
                     form[key] = qp.get(key, _fmt(shown[key])).strip()
+                form["fsrc"] = [s.name for s in universe if f"fs_{s.name}" in qp]     # una fuente que ya no existe se ignora
+                if form["fsrc"]:
+                    chosen = set(form["fsrc"])
+                    overrides["source_names"] = tuple(form["fsrc"])
+                    overrides["source_tickers"] = frozenset(clean_ticker(r.ticker) for s in universe if s.name in chosen for r in s.table.rows)
                 if "fl" in qp:      # bloque enviado: lo marcado manda; una URL sin él (perfiles guardados antes) usa la calidad mínima inicial de la configuración
                     form["fl_eps"], form["fl_fcf"] = "fl_eps" in qp, "fl_fcf" in qp
                     form["fl_q"] = qp.get("fl_q", "0").strip()
@@ -1636,6 +1643,7 @@ def create_app(
                       yield_max=yield_max, nlv_usd=service.nlv_usd(), strategy_qs=strategy_qs, strategy_on=strategy_on,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
                       candidates=service.settings.scanner.candidates,
+                      source_names=[s.name for s in service.universe_sources],
                       margin=service.settings.scanner.catalog_margin_pct,
                       sosnoff=dict(dmin=_fmt(service.settings.scanner.spreads.sosnoff_delta_min), dmax=_fmt(service.settings.scanner.spreads.sosnoff_delta_max)),
                       ma_hidden=unavailable_ma_fields(

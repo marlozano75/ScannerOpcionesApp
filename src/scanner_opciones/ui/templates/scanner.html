@@ -89,6 +89,7 @@
 {% if form.use_credit and form.set != 'spread' %}{% set _ = chips.append(('sec-credit', 'Crédito ≥ ' ~ form.credit ~ ' $', 'use_credit credit')) %}{% endif %}
 {% if form.use_risk and form.set != 'spread' %}{% set _ = chips.append(('sec-risk', 'Capital en riesgo ≤ ' ~ form.risk ~ ' % NLV', 'use_risk risk')) %}{% endif %}
 {% if form.set != 'spread' and (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = chips.append(('sec-floor', 'Calidad mínima de la put', 'fl_eps fl_q fl_fcf')) %}{% endif %}
+{% if form.fsrc %}{% set _ = chips.append(('sec-sources', 'Fuentes: ' ~ (form.fsrc | join(', ')), 'fs_' ~ (form.fsrc | join(' fs_')))) %}{% endif %}
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto, claves) #}
 {% set offs = [] %}
 {% if form.set == 'spread' %}
@@ -103,6 +104,7 @@
 {% endfor %}
 {% if not form.q_liq %}{% set _ = offs.append(('sec-optional', 'Liquidez', 'q_liq')) %}{% endif %}
 {% if form.set != 'spread' and not (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = offs.append(('sec-floor', 'Calidad mínima de la put', 'fl_eps fl_q fl_fcf')) %}{% endif %}
+{% if not form.fsrc and source_names %}{% set _ = offs.append(('sec-sources', 'Fuentes del Universo', 'fs_')) %}{% endif %}
 {% if not trend_on %}{% set _ = offs.append(('sec-trend', 'Tendencia', 'trend_dir')) %}{% endif %}
 {% if not form.support %}{% set _ = offs.append(('sec-levels', 'Soporte', 'support')) %}{% endif %}
 {% if not form.touch %}{% set _ = offs.append(('sec-levels', 'Último toque', 'touch')) %}{% endif %}
@@ -308,6 +310,15 @@
           <select name="fl_q">{% for n in ('0', '1', '2', '3', '4') %}<option value="{{ n }}" {{ 'selected' if form.fl_q == n }}>{{ 'No se exige' if n == '0' else '≥ ' ~ n }}</option>{% endfor %}</select></label>
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="fl_fcf" {{ 'checked' if form.fl_fcf }}> Flujo de caja libre &gt; 0</span></label>
         <p class="note">Solo para la put desnuda: quien no lo cumple no sale como put, solo como spread (el riesgo está acotado). Un dato que falta cuenta como «no cumple»; los ETF no se miden y las financieras y sectores exentos no miden el FCF. Sin <code>edgar.contact</code> no hay FCF y esa casilla no se aplica. Cada perfil guarda la suya.</p>
+      {% endcall %}
+      {% endif %}
+
+      {% if source_names %}
+      {% call section('sec-sources', 'Fuentes del Universo', (form.fsrc | join(', ')) if form.fsrc else 'Sin filtro', form.fsrc|length > 0) %}
+        {% for s in source_names %}
+        <label class="opt opt-row"><span class="check"><input type="checkbox" name="fs_{{ s }}" {{ 'checked' if s in form.fsrc }}> {{ s }}</span></label>
+        {% endfor %}
+        <p class="note">Solo salen los tickers que estén en alguna de las fuentes marcadas (sin ninguna marcada no se filtra). Cada perfil guarda las suyas; una fuente que se borra del Universo deja de contar.</p>
       {% endcall %}
       {% endif %}
 

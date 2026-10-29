@@ -8,6 +8,7 @@ from typing import Optional
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
 from scanner_opciones.metrics.yields import gross_yield_ref_pct, reference_price, strike_distance_pct
+from scanner_opciones.rankedstocks.loader import clean_ticker
 from scanner_opciones.scanner.criteria import ScanCriteria
 from scanner_opciones.scanner.currency import usd_rate
 
@@ -56,6 +57,8 @@ def reject_reason(
     c = snap.contract
     if c.right is not OptionRight.PUT:
         return "no es una put"
+    if criteria.source_tickers is not None and clean_ticker(c.ticker) not in criteria.source_tickers:
+        return "no está en ninguna de las fuentes elegidas"
     dte = c.dte(today)
     if not (criteria.dte_min <= dte <= criteria.dte_max):
         return f"DTE {dte} fuera de [{criteria.dte_min}, {criteria.dte_max}]"

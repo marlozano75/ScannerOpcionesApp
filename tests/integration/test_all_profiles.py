@@ -89,3 +89,18 @@ def test_mixed_tables_show_credit_over_width_and_a_dash_for_naked_puts(client_an
     assert "<td>Put</td>" in row and "<td>—</td><td>" in row                     # put desnuda: sin ancho ni crédito/ancho
     both = client.get("/scanner?submitted=1&mode=both&set=spread&discount=10&dte_min=25&dte_max=35&min_yield=1").text
     assert ">Cred/A</th>" in both
+
+
+def test_a_profile_can_limit_the_scan_to_universe_sources(client_and_service):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    base = "/scanner?submitted=1&mode=put&discount=10&dte_min=25&dte_max=35&min_yield=1"
+    crit = svc.criteria().with_filters(strike_below_pct_min=10, dte_min=25, dte_max=35, min_yield_pct=1)
+    ticker = svc.scan(crit).results[0].snapshot.contract.ticker
+    svc.manual_sources = {"Una": [ticker], "Otra": ["ZZZZ"]}
+    assert svc.scan(crit).results                                                          # sin fuentes elegidas no se filtra
+    mine = client.get(base + "&fs_Una=on").text
+    assert "Fuentes: Una" in mine and 'name="fs_Una" checked' in mine and 'name="fs_Otra" checked' not in mine
+    assert svc.scan(crit.with_filters(source_tickers=frozenset({ticker, "ZZZZ"}))).results
+    other = svc.scan(crit.with_filters(source_tickers=frozenset({"ZZZZ"})))
+    assert not other.results and other.rejected_count > 0
