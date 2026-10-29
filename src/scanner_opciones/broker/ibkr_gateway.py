@@ -173,7 +173,10 @@ class IBKRGateway:
     async def get_account_summary(self) -> AccountSummary:
         self._require()
         account = self._account_id()
-        await self._subscribe_portfolio(account)   # sin ella accountValues() va vacío (y no trae el alias)
+        try:
+            await self._subscribe_portfolio(account)   # sin ella accountValues() va vacío (y no trae el alias)
+        except BrokerError as exc:      # medido 2026-10-29: sin la suscripción llegan igualmente los valores de cuenta (NLV, márgenes, tipo de cambio)
+            log.warning("%s; la cuenta se lee sin ella", exc)
         # accountValues() se mantiene actualizado por la suscripción automática de ib_async
         values = list(self.ib.accountValues(account))
         # accountSummary aporta valores que accountValues no trae (p. ej. HighestSeverity)
@@ -200,7 +203,13 @@ class IBKRGateway:
         U14977035 y U20571357: 0 posiciones en ambas tras 8 s). Se suscribe explícitamente la cuenta de la app."""
         if self._updates_account == account:
             return
-        await asyncio.wait_for(self.ib.reqAccountUpdatesAsync(account), timeout=self.s.connect_timeout_seconds * 2)
+        try:
+            await asyncio.wait_for(self.ib.reqAccountUpdatesAsync(account), timeout=self.s.connect_timeout_seconds * 2)
+        except asyncio.TimeoutError:
+            # medido 2026-10-29 con IB Gateway: la suscripción no termina mientras haya otra sesión abierta con el mismo usuario (otro TWS,
+            # la app móvil o un segundo usuario de la cuenta); `portfolio()` queda vacío aunque `positions()` y los valores de cuenta lleguen
+            raise BrokerError("IBKR no completa la suscripción a la cuenta y las posiciones: ¿hay otra sesión abierta con el mismo usuario "
+                              "(otro TWS, la app móvil o un segundo usuario)?") from None
         self._updates_account = account
 
     async def get_positions(self) -> list[Position]:
