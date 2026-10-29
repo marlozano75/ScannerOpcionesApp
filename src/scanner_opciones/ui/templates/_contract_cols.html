@@ -26,6 +26,8 @@
 
 {% macro own_badge(ticker, expiry, strike) -%}{% set q = own_qty(owned, ticker, expiry, strike) -%}
 {%- if q %} <span class="own{{ ' own-long' if q > 0 }}" title="{{ 'Ya tienes ' ~ (q|abs|int) ~ (' contrato vendido' if q < 0 else ' contrato comprado') ~ (' de esta put' if q|abs == 1 else 's de esta put') }} en cartera">{{ 'EN CARTERA' if q < 0 else 'COMPRADA' }} ×{{ q|abs|int }}</span>{% endif %}
+{%- set h = held_note(held, ticker, expiry, strike) -%}
+{%- if h %} <span class="own own-tk" title="{{ h[1] }}">◆ {{ h[0] }}</span>{% endif %}
 {%- endmacro %}
 
 {% macro lead_cells(r, long=none) -%}{% set c = r.snapshot.contract %}{% set i = r.info -%}

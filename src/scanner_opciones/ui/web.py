@@ -22,7 +22,7 @@ from pydantic import ValidationError
 from scanner_opciones.app.service import SCANNER_USER_CONFIG, AppService, SelectedContract, norm_ticker
 from scanner_opciones.marketdata.analysts import summary
 from scanner_opciones.broker.base import BrokerGateway
-from scanner_opciones.domain.enums import AccountMode, Platform, PriceReference, TrafficLight
+from scanner_opciones.domain.enums import AccountMode, OptionRight, Platform, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.rankedstocks.loader import clean_ticker
 from scanner_opciones.community.ideas import idea_key
@@ -61,6 +61,31 @@ def own_qty(owned, ticker, expiry, strike):
 
 
 TEMPLATES.env.globals["own_qty"] = own_qty
+
+
+def held_note(held, ticker, expiry, strike):
+    """(texto corto, detalle) de lo que tienes del subyacente aparte de la put exacta de la fila (acciones, calls y otras puts), o None."""
+    entry = (held or {}).get(norm_ticker(ticker))
+    if not entry:
+        return None
+    exact = (OptionRight.PUT, expiry, round(float(strike), 4))
+    shares = entry["shares"]
+    puts = sum(q for (r, *_), q in entry["options"].items() if r is OptionRight.PUT) - entry["options"].get(exact, 0.0)
+    calls = sum(q for (r, *_), q in entry["options"].items() if r is OptionRight.CALL)
+    short, long = [], []
+    if shares:
+        short.append("ACC")
+        long.append(f"{int(shares)} acciones")
+    if puts:
+        short.append("P")
+        long.append(f"{int(abs(puts))} put{'s' if abs(puts) != 1 else ''} {'vendida' if puts < 0 else 'comprada'}{'s' if abs(puts) != 1 else ''} (otro strike o vencimiento)")
+    if calls:
+        short.append("C")
+        long.append(f"{int(abs(calls))} call{'s' if abs(calls) != 1 else ''} {'vendida' if calls < 0 else 'comprada'}{'s' if abs(calls) != 1 else ''}")
+    return (" ".join(short), "Ya tienes en cartera: " + "; ".join(long)) if short else None
+
+
+TEMPLATES.env.globals["held_note"] = held_note
 
 
 def sec_flag(alerts, ticker):
@@ -362,7 +387,7 @@ def create_app(
         rows, counts = service.scan_profiles(sets)
         return render(request, "scanner_all.html", no_autorefresh=True, rows=rows, counts=counts, candidates=candidates, chosen={p.name for p in chosen}, errors=errors,
                       colors={p.name: p.color for p in profiles}, nlv_usd=service.nlv_usd(), community=service.community_counts(),
-                      owned=service.owned_options(), techs=service.tech_summaries(ScanOutput([m.short for m in rows], 0, {}, [])),
+                      owned=service.owned_options(), held=service.held_tickers(), techs=service.tech_summaries(ScanOutput([m.short for m in rows], 0, {}, [])),
                       watch_data=True)
 
     @app.post("/scanner/profile/save")
@@ -626,7 +651,7 @@ def create_app(
         counts = service._memo("quality_counts", lambda: quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg))
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
-        return render(request, "scanner.html", no_autorefresh=True, out=out, owned=service.owned_options(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, sev=sev, marks=marks, default_qs=default_qs,
+        return render(request, "scanner.html", no_autorefresh=True, out=out, owned=service.owned_options(), held=service.held_tickers(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, sev=sev, marks=marks, default_qs=default_qs,
                       community=service.community_counts(), techs=service.tech_summaries(out) if out else {},
                       yield_max=yield_max, nlv_usd=service.nlv_usd(), strategy_qs=strategy_qs, strategy_on=strategy_on,
                       count_text=lambda field_name, value: _count_text(counts, (field_name, value)),
