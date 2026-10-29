@@ -1,10 +1,11 @@
 # Copiar a config/config.yaml y ajustar. Ningún valor de negocio está en el código.
 ibkr:
   host: 127.0.0.1
-  ports: { live: 7496, paper: 7497 }
+  ports: { live: 7496, paper: 7497, gateway_live: 4001, gateway_paper: 4002 }   # TWS y IB Gateway (puertos por defecto de cada uno)
   client_id: 1
   accounts: { live: null, paper: null }   # id por modo (U1234567); imprescindible si TWS gestiona varias cuentas
-  auto_detect_mode: true   # al arrancar elige live/paper según el puerto que responda (7496/7497); false = usa `mode`
+  auto_detect_mode: true   # al arrancar elige plataforma y live/paper según el puerto que responda (TWS 7496/7497, IB Gateway 4001/4002); false = usa `platform` y `mode`
+  platform: tws          # tws | gateway (se prefiere si responden varios)
   mode: paper            # paper | live
   reconnect_interval_seconds: 30   # si TWS está caído (o se cae), se reintenta la conexión cada tanto; la parte de tastytrade no se repite
   what_if_timeout_seconds: 15   # tiempo máximo de un what-if de margen (si TWS pierde la conexión con IBKR no responde nunca)

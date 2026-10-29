@@ -222,9 +222,14 @@
   <div class="right">
     <span><span class="dot {{ 'green' if state.connected else 'red' }}"></span>{{ 'Conectado' if state.connected else 'Desconectado' }}</span>
     <form class="inline" method="post" action="/connection">
-      <select name="mode" onchange="this.form.submit()">
-        <option value="paper" {{ 'selected' if mode == 'paper' }}>Cuenta simulada</option>
-        <option value="live" {{ 'selected' if mode == 'live' }}>Cuenta real</option>
+      <input type="hidden" name="platform" value="{{ platform }}"><input type="hidden" name="mode" value="{{ mode }}">
+      <select title="Conexión con IBKR: ● = responde ahora, ○ = no responde" onchange="var v=this.value.split(':'); this.form.platform.value=v[0]; this.form.mode.value=v[1]; this.form.submit()">
+        {% for e in endpoints %}
+        <option value="{{ e.key }}" {{ 'selected' if e.platform.value == platform and e.mode.value == mode }}>{{ '●' if e.active else '○' }} {{ 'TWS' if e.platform.value == 'tws' else 'IB Gateway' }} · {{ 'real' if e.mode.value == 'live' else 'simulada' }} ({{ e.port }})</option>
+        {% else %}
+        <option value="{{ platform }}:paper" {{ 'selected' if mode == 'paper' }}>Cuenta simulada</option>
+        <option value="{{ platform }}:live" {{ 'selected' if mode == 'live' }}>Cuenta real</option>
+        {% endfor %}
       </select>
     </form>
     {% if account_id %}<span class="acct" title="Cuenta de IBKR {{ account_id }}{{ '' if state.connected else ' (de la última conexión)' }}">{{ account_alias or account_id }}</span>{% endif %}

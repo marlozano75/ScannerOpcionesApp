@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from scanner_opciones.domain.enums import AccountMode, PriceReference
+from scanner_opciones.domain.enums import AccountMode, Platform, PriceReference
 from scanner_opciones.domain.errors import ConfigError
 
 
@@ -18,8 +18,15 @@ class _Model(BaseModel):
 
 
 class Ports(_Model):
-    live: int = Field(7496, ge=1, le=65535)
-    paper: int = Field(7497, ge=1, le=65535)
+    live: int = Field(7496, ge=1, le=65535)             # TWS real
+    paper: int = Field(7497, ge=1, le=65535)            # TWS simulada
+    gateway_live: int = Field(4001, ge=1, le=65535)     # IB Gateway real (puertos por defecto del Gateway)
+    gateway_paper: int = Field(4002, ge=1, le=65535)    # IB Gateway simulada
+
+    def get(self, platform: Platform, mode: AccountMode) -> int:
+        if platform is Platform.GATEWAY:
+            return self.gateway_live if mode is AccountMode.LIVE else self.gateway_paper
+        return self.live if mode is AccountMode.LIVE else self.paper
 
 
 class Accounts(_Model):
@@ -44,7 +51,8 @@ class IbkrSettings(_Model):
     ports: Ports = Ports()
     client_id: int = 1
     accounts: Accounts = Accounts()  # imprescindible en el modo cuyo usuario gestione varias cuentas
-    auto_detect_mode: bool = True    # al arrancar, elige live/paper según el puerto que responda
+    auto_detect_mode: bool = True    # al arrancar, elige plataforma (TWS/Gateway) y live/paper según el puerto que responda
+    platform: Platform = Platform.TWS   # TWS o IB Gateway (cada uno con sus puertos)
     mode: AccountMode = AccountMode.PAPER
     market_data_type: int = Field(2, ge=1, le=4)  # 2 = congelado: live, y con el mercado cerrado el último cierre
     delayed_minutes: float = Field(15, ge=0)  # retraso de los datos diferidos (tipos 3 y 4)
@@ -63,7 +71,7 @@ class IbkrSettings(_Model):
 
     @property
     def port(self) -> int:
-        return self.ports.live if self.mode is AccountMode.LIVE else self.ports.paper
+        return self.ports.get(self.platform, self.mode)
 
     @property
     def delay_minutes(self) -> float:

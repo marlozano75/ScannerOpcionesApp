@@ -245,6 +245,7 @@ class AppService:
         self.source_excluded: dict[str, set[str]] = self._load_excluded()  # tickers quitados a mano de una fuente de fichero
         # aviso de los tickers recién sacados de la watchlist por inservibles (ticker -> motivo); solo en memoria
         self.excluded_notice: dict[str, str] = {}
+        self.endpoints: list = []      # destinos de IBKR (TWS/Gateway × real/simulada) y cuáles responden; los rellena main.py
         if self.meta.get(EXCLUDED):
             self.meta.set(EXCLUDED, "")   # la exclusión ya no es permanente
         self.restore_universe()

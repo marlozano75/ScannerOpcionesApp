@@ -168,6 +168,14 @@ def test_switch_mode_swaps_gateway(client_and_service):
     assert bad.status_code == 400
 
 
+def test_switch_platform_to_gateway(client_and_service):
+    client, svc, gw, created = client_and_service
+    r = client.post("/connection", data={"mode": "paper", "platform": "gateway"}, follow_redirects=False)
+    assert r.status_code == 303 and created == [AccountMode.PAPER]
+    assert svc.settings.ibkr.platform.value == "gateway" and svc.settings.ibkr.port == svc.settings.ibkr.ports.gateway_paper
+    assert client.post("/connection", data={"mode": "paper", "platform": "nada"}).status_code == 400
+
+
 def test_removing_a_ticker_deletes_its_contracts(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)

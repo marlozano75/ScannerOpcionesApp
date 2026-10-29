@@ -22,7 +22,7 @@ from pydantic import ValidationError
 from scanner_opciones.app.service import SCANNER_USER_CONFIG, AppService, SelectedContract, norm_ticker
 from scanner_opciones.marketdata.analysts import summary
 from scanner_opciones.broker.base import BrokerGateway
-from scanner_opciones.domain.enums import AccountMode, PriceReference, TrafficLight
+from scanner_opciones.domain.enums import AccountMode, Platform, PriceReference, TrafficLight
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.rankedstocks.loader import clean_ticker
 from scanner_opciones.community.ideas import idea_key
@@ -624,7 +624,8 @@ def create_app(
 
     def render(request: Request, name: str, **ctx) -> HTMLResponse:
         base = dict(
-            state=service.state, mode=service.settings.ibkr.mode.value,
+            state=service.state, mode=service.settings.ibkr.mode.value, platform=service.settings.ibkr.platform.value,
+            endpoints=service.endpoints,
             account_id=(service.state.account.account_id if service.state.account else service.settings.ibkr.account),
             account_alias=service.state.account.alias if service.state.account else None, busy=service.busy,
             refresh_minutes=service.settings.refresh_interval_minutes,
@@ -699,15 +700,17 @@ def create_app(
         return RedirectResponse("/", status_code=303)
 
     @app.post("/connection")
-    async def connection(mode: str = Form(...)):
+    async def connection(mode: str = Form(...), platform: str = Form("")):
+        """Cambia de destino: modo de cuenta (real/simulada) y, si se indica, plataforma (TWS/IB Gateway)."""
         if gateway_factory is None:
             return RedirectResponse("/", status_code=303)
         try:
             new_mode = AccountMode(mode)
+            new_platform = Platform(platform) if platform else service.settings.ibkr.platform
         except ValueError:
-            raise HTTPException(status_code=400, detail=f"Modo de cuenta no válido: {mode}")
+            raise HTTPException(status_code=400, detail=f"Conexión no válida: {platform or mode}")
         service.settings = service.settings.model_copy(
-            update={"ibkr": service.settings.ibkr.model_copy(update={"mode": new_mode})}
+            update={"ibkr": service.settings.ibkr.model_copy(update={"mode": new_mode, "platform": new_platform})}
         )
         await service.switch_gateway(gateway_factory(new_mode))
         return RedirectResponse("/", status_code=303)

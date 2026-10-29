@@ -7,6 +7,12 @@ class AccountMode(str, Enum):
     PAPER = "paper"
 
 
+class Platform(str, Enum):
+    """Aplicación de IBKR a la que se conecta la API: Trader Workstation o IB Gateway."""
+    TWS = "tws"
+    GATEWAY = "gateway"
+
+
 class OptionRight(str, Enum):
     PUT = "P"
     CALL = "C"

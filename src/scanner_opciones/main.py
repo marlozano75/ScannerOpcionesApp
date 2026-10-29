@@ -18,7 +18,7 @@ from scanner_opciones.app.service import AppService
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.broker.hybrid_gateway import HybridGateway
 from scanner_opciones.broker.ibkr_gateway import IBKRGateway
-from scanner_opciones.broker.probe import detect_mode, port_open
+from scanner_opciones.broker.probe import choose_endpoint, detect_endpoint, scan_endpoints
 from scanner_opciones.config.settings import Settings, load_settings
 from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.errors import ConfigError
@@ -41,8 +41,8 @@ DEFAULT_CONFIG = Path("config/config.yaml")
 
 def build_app(settings: Settings):
     if settings.ibkr.auto_detect_mode:
-        mode = detect_mode(settings.ibkr)
-        settings = settings.model_copy(update={"ibkr": settings.ibkr.model_copy(update={"mode": mode})})
+        platform, mode = detect_endpoint(settings.ibkr)
+        settings = settings.model_copy(update={"ibkr": settings.ibkr.model_copy(update={"platform": platform, "mode": mode})})
     db = Database(settings.storage.path)
 
     tt = settings.tastytrade
@@ -83,8 +83,12 @@ def build_app(settings: Settings):
         now = datetime.now().astimezone()
         return None if calendar.is_open(now) else calendar.last_close(now)
 
+    holder: list[AppService] = []       # el servicio, cuando ya existe (la fábrica se crea antes)
+
     def factory(mode: AccountMode) -> BrokerGateway:
-        ibkr = IBKRGateway(settings.ibkr.model_copy(update={"mode": mode}), instruments=settings.instruments)
+        """Gateway para el modo pedido, con la plataforma (TWS/IB Gateway) que tengan los ajustes en ese momento."""
+        current = holder[0].settings.ibkr if holder else settings.ibkr
+        ibkr = IBKRGateway(current.model_copy(update={"mode": mode}), instruments=settings.instruments)
         # «tastytrade»: cadena, cotizaciones, precios y ex-dividendos de tastytrade; cuenta, margen, sector y VIX de IBKR
         return (HybridGateway(ibkr, tasty, md, fallback_batch=settings.refresh.batch_size, sectors=sectors,
                               chain_store=ChainCacheRepo(db), closed_since=closed_since, instruments=settings.instruments)
@@ -102,28 +106,31 @@ def build_app(settings: Settings):
                          news=(FinnhubNews(settings.finnhub.api_token.strip(), settings.company.calls_per_minute)
                                if settings.company.enabled and settings.finnhub.api_token.strip() else None),
                          tortuga=RoutineRunner(settings, MetaRepo(db)))
+    holder.append(service)
+    service.endpoints = scan_endpoints(settings.ibkr)
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     account_runner = PeriodicRunner(
         lambda: service.refresh_account(skip_closed_vix=True), settings.refresh.account_interval_minutes * 60)
     startup_task: list[asyncio.Task] = []
 
     async def reconnect() -> None:
-        """Reintenta la conexión con TWS mientras esté caída. Solo si algún puerto responde (sin ruido en el log);
-        si cambió el puerto abierto (TWS real <-> simulada) se cambia de modo, y si no se reconecta en el actual."""
+        """Actualiza qué destinos responden (TWS/IB Gateway, real/simulada) y, mientras la conexión esté caída, la
+        reintenta. Solo si algún puerto responde (sin ruido en el log); si cambió el destino abierto se cambia de
+        plataforma o de modo, y si no se reconecta en el actual."""
+        ib = service.settings.ibkr
+        service.endpoints = await asyncio.to_thread(scan_endpoints, ib)
         if service.state.connected:
             return
-        ib = service.settings.ibkr
-        mode = await asyncio.to_thread(detect_mode, ib) if ib.auto_detect_mode else ib.mode
-        port = ib.ports.live if mode is AccountMode.LIVE else ib.ports.paper
-        if not await asyncio.to_thread(port_open, ib.host, port):
+        platform, mode = choose_endpoint(ib, service.endpoints) if ib.auto_detect_mode else (ib.platform, ib.mode)
+        if not any(e.active and (e.platform, e.mode) == (platform, mode) for e in service.endpoints):
             return
-        if mode is not ib.mode:
-            service.settings = service.settings.model_copy(update={"ibkr": ib.model_copy(update={"mode": mode})})
+        if (platform, mode) != (ib.platform, ib.mode):
+            service.settings = service.settings.model_copy(update={"ibkr": ib.model_copy(update={"platform": platform, "mode": mode})})
             await service.switch_gateway(factory(mode))
         else:
             await service.reconnect()
         if service.state.connected:
-            logging.getLogger(__name__).info("Conexión con TWS recuperada (%s)", mode.value)
+            logging.getLogger(__name__).info("Conexión con IBKR recuperada (%s, %s)", platform.value, mode.value)
 
     reconnect_runner = PeriodicRunner(reconnect, settings.ibkr.reconnect_interval_seconds)
 
