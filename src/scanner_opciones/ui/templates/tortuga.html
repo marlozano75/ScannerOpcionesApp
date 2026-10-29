@@ -10,7 +10,7 @@
   .tr-err { color:#b3361b; }
 </style>
 <div class="card">
-  <h2>Tortuga · Market Radar: Bull Put Spreads y venta de puts</h2>
+  <h2>MarketRadar de Tortuga: Bull Put Spreads y venta de puts</h2>
   {% if not data %}
   <p class="muted">Todavía no hay datos del radar. {% if enabled %}La aplicación los pide sola cada {{ cfg.intervals.get('radar_spreads') }} minutos mientras está abierta con el mercado abierto (y una vez tras el cierre); también puedes lanzarlos a mano abajo.{% else %}Las rutinas de Tortuga están desactivadas (<code>tortuga.enabled</code>) o falta el lanzador.{% endif %}</p>
   {% else %}

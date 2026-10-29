@@ -5,7 +5,7 @@ import re
 from typing import Optional
 
 MAX_FORM_FIELDS = 100_000      # Starlette corta en 1000 campos; las tablas con casillas (Universo) mandan más (una por ticker o por fuente y filtro)
-IDEAS_WAIT_SECONDS = 10     # lo que espera la pestaña Ideas a que terminen las cotizaciones en directo antes de mostrarse con lo que haya
+IDEAS_WAIT_SECONDS = 10     # lo que espera la pestaña Comunidad a que terminen las cotizaciones en directo antes de mostrarse con lo que haya
 
 
 def source_initials(name: str) -> str:
