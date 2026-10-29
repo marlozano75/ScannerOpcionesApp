@@ -46,7 +46,7 @@ def _long_leg_index(snapshots: Sequence[ContractSnapshot]) -> dict[tuple, Contra
 
 
 @dataclass(frozen=True)
-class MixedRow:
+class ProfileRow:
     """Fila del escaneo de todos los perfiles: una put desnuda (`spread is None`) o un spread, con el capital que inmoviliza."""
     kind: str                        # put | spread
     short: "object"                  # ScanResult de la pata vendida
@@ -79,22 +79,22 @@ def only_reason(spread_only, ticker: str) -> str:
 
 def build_profile_rows(
     put_hits: dict, spread_hits: dict, positions: Sequence, nlv_usd: Optional[float],
-) -> list[MixedRow]:
+) -> list[ProfileRow]:
     """Filas del escaneo de TODOS los perfiles: una por put desnuda (`put_hits`: clave -> (ScanResult, nombres de perfil)) y una por spread
     (`spread_hits`: clave -> (SpreadResult, nombres)), con los perfiles cuyos filtros cumple cada una. Con el capital que inmoviliza cada una y su retorno anualizado sobre él."""
     held = ticker_exposure(positions)
-    rows: list[MixedRow] = []
+    rows: list[ProfileRow] = []
     for r, names in put_hits.values():
         c = r.snapshot.contract
         weight = (held.get(c.ticker, 0.0) + c.strike * c.multiplier * usd_rate(nlv_usd, c.ticker)) / nlv_usd * 100 if nlv_usd else None
         margin = r.snapshot.initial_margin
         ror = (r.reference_price * c.multiplier / margin * 365 / r.dte
                if margin and margin > 0 and r.reference_price and r.dte > 0 else None)
-        rows.append(MixedRow("put", r, None, r.reference_price or 0.0, margin, ror * 100 if ror is not None else None, weight, "", tuple(names)))
+        rows.append(ProfileRow("put", r, None, r.reference_price or 0.0, margin, ror * 100 if ror is not None else None, weight, "", tuple(names)))
     for sp, names in spread_hits.values():
         c = sp.short.snapshot.contract
         w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier * usd_rate(nlv_usd, c.ticker)) / nlv_usd * 100 if nlv_usd else None
-        rows.append(MixedRow("spread", sp.short, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, "", tuple(names)))
+        rows.append(ProfileRow("spread", sp.short, sp, sp.credit, sp.max_loss, sp.return_on_risk_annualized_pct, w, "", tuple(names)))
     rows.sort(key=lambda x: (x.return_on_capital_annualized_pct is not None, x.return_on_capital_annualized_pct or 0.0), reverse=True)
     return rows
 

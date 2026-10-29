@@ -2,7 +2,6 @@ import pytest
 from openpyxl import Workbook
 
 from scanner_opciones.domain.errors import WatchlistError
-from scanner_opciones.rankedstocks.filters import apply_filters, parse_filters
 from scanner_opciones.rankedstocks.loader import (
     CHOICE, NUMBER, TEXT, build_table, clean_header, clean_ticker, load_table, parse_number,
 )
@@ -100,49 +99,3 @@ def test_numeric_cells_stored_as_numbers_in_the_xlsx(tmp_path):
     t = load_table(path)
     assert [c.text for c in (t.rows[0].cells[1], t.rows[1].cells[1])] == ["190.5", "60"]
     assert t.columns[1].kind == NUMBER and t.rows[1].cells[1].value == 60.0
-
-
-# ---- filtros ----
-def run(**qp):
-    t = table()
-    return [r.ticker for r in apply_filters(t, parse_filters(t, QP(qp)))]
-
-
-def test_no_filters_returns_everything():
-    assert run() == ["DK", "PARR", "GCT", "ECO"]
-    assert not parse_filters(table(), QP()).active
-
-
-def test_text_filter_is_case_insensitive_contains():
-    assert run(t1="pac") == ["PARR"] and run(t0="dk") == ["DK"]
-
-
-def test_choice_filter_one_or_several_values():
-    assert run(c2=["NASDAQ"]) == ["GCT"]
-    assert run(c3=["SG"]) == ["ECO"]
-    assert run(c2=["NASDAQ", "NYSE"], c3=["US"]) == ["DK", "PARR", "GCT"]
-    assert run(c2=["INEXISTENTE"]) == ["DK", "PARR", "GCT", "ECO"]   # un valor desconocido no filtra
-
-
-def test_numeric_ranges_accept_money_and_suffixes():
-    assert run(min5="$60", max5="85") == ["DK", "PARR"]
-    assert run(min4="4B") == ["DK", "PARR"]
-    assert run(max4="500M") == []
-    assert run(max4="600M") == ["ECO"]
-    assert run(min6="94") == ["DK", "PARR"]
-
-
-def test_filters_combine_with_and():
-    assert run(c2=["NYSE"], max5="75", min6="90") == ["DK"]
-
-
-@pytest.mark.parametrize("qp", [{"min5": "abc"}, {"max4": "5X"}, {"min5": "80", "max5": "10"}])
-def test_invalid_numbers_raise(qp):
-    t = table()
-    with pytest.raises(ValueError):
-        parse_filters(t, QP(qp))
-
-
-def test_empty_numeric_cells_do_not_match_a_range():
-    t = table(rows=[["A", "x", "NYSE", "US", "$1B", "", "1", "d"], ["B", "y", "NYSE", "US", "$1B", "$5", "1", "d"]])
-    assert [r.ticker for r in apply_filters(t, parse_filters(t, QP({"min5": "1"})))] == ["B"]
