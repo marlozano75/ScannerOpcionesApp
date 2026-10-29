@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 def register(app, service, render, remembered) -> None:
     """Registra las rutas en `app` (comparten `service` y `render` de `create_app`)."""
     @app.get("/ideas", response_class=HTMLResponse)
-    async def ideas(request: Request, solo: int = 0, venc: int = 0, trader: str = "", strategy: str = "", message: str = ""):
+    async def ideas(request: Request, solo: int = 0, venc: int = 0, trader: str = "", tipo: str = "put", message: str = ""):
         data = service.community()
         quoting = False
         task = service.community_quotes_task() if data is not None else None
@@ -31,12 +31,20 @@ def register(app, service, render, remembered) -> None:
             except Exception:
                 log.warning("Ideas: no se pudieron cotizar en directo", exc_info=True)
         everything = service.community_ideas() if data is not None else []
-        views = [v for v in everything
-                 if (venc or v.status != "expired") and (not solo or v.in_watchlist)
-                 and (not trader or v.idea.trader == trader) and (not strategy or v.idea.strategy == strategy)]
-        return render(request, "ideas.html", no_autorefresh=True, watch_data=True, nlv_usd=service.nlv_usd(), data=data, owned=service.owned_options(), held=service.held_tickers(), file_path=service.settings.community.path, views=views, total=len(everything),
-                      fit_names=service.fit_names(),
-                      valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, strategy=strategy,
+        tipo = tipo if tipo in ("put", "spread") else "put"
+        base = [v for v in everything
+                if (venc or v.status != "expired") and (not solo or v.in_watchlist) and (not trader or v.idea.trader == trader)]
+        is_spread = lambda v: v.idea.long_strike is not None
+        counts = {"put": sum(1 for v in base if not is_spread(v)), "spread": sum(1 for v in base if is_spread(v))}
+        views = [v for v in base if is_spread(v) == (tipo == "spread")]
+        # Columnas de perfiles: solo los del instrumento elegido (cada perfil es de put o de spread); (posición en `fits`, nombre sin sufijo)
+        specs, names = service.profile_specs(), service.fit_names()
+        cols = [(i, s[0]) for i, s in enumerate(specs) if (s[2] if tipo == "spread" else s[1]) is not None] if specs else list(enumerate(names))
+        cols = [(i, n.removesuffix(" (put)").removesuffix(" (spread)")) for i, n in cols]
+        tab_urls = {t: "/ideas?" + urlencode({k: v for k, v in (("solo", solo), ("venc", venc), ("trader", trader), ("tipo", t)) if v}) for t in counts}
+        return render(request, "ideas.html", no_autorefresh=True, watch_data=True, nlv_usd=service.nlv_usd(), data=data, owned=service.owned_options(), held=service.held_tickers(), file_path=service.settings.community.path, views=views, total=len(base),
+                      fit_cols=cols, counts=counts, tab_urls=tab_urls,
+                      valid=sum(1 for v in views if v.status == "valid"), solo=solo, venc=venc, trader=trader, tipo=tipo,
                       traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale(),
                       auto_reload=service.market.is_open(service.now()), quoting=quoting, message=message, groups=message_groups(message),
                       keys=[idea_key(v.idea) for v in views], perm_name=service.settings.community.perm_source_name,
@@ -88,7 +96,7 @@ def register(app, service, render, remembered) -> None:
     async def ideas_perm(request: Request):
         """Añade a la fuente permanente del Universo los tickers de las ideas marcadas (con su trader y su mejor estrategia)."""
         form = await request.form(max_fields=MAX_FORM_FIELDS)
-        back = {k: str(form.get(k)) for k in ("solo", "venc", "trader", "strategy") if form.get(k)}
+        back = {k: str(form.get(k)) for k in ("solo", "venc", "trader", "tipo") if form.get(k)}
         try:
             res = await service.add_community_perm([str(k) for k in form.getlist("idea")])
         except WatchlistError as exc:
