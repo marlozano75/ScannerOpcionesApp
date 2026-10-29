@@ -13,7 +13,8 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import Mapping, Optional, Sequence
 
-from ib_async import IB, Future, Index, MarketOrder, Option, Stock
+from ib_async import IB, Future, Index, MarketOrder, Option, StartupFetch, Stock
+from ib_async.ib import StartupFetchALL, StartupFetchNONE
 
 from scanner_opciones.broker import ibkr_mapper as m
 from scanner_opciones.broker.rate_limiter import AsyncRateLimiter
@@ -27,6 +28,11 @@ from scanner_opciones.domain.models import (
 )
 
 log = logging.getLogger(__name__)
+
+# TWS solo mantiene UNA suscripción de actualizaciones de cuenta (`reqAccountUpdates`) y `connectAsync` la pide por defecto al conectar. La
+# conexión principal la hace explícitamente (`_subscribe_portfolio`), y la de los instrumentos no la necesita: si la pidiera, le quitaría la
+# suscripción a la principal y `portfolio()` quedaría vacío (medido 2026-10-29 con IB Gateway: error «no completa la suscripción» cada minuto).
+FETCH_WITHOUT_ACCOUNT_UPDATES = StartupFetchALL & ~StartupFetch.ACCOUNT_UPDATES & ~StartupFetch.SUB_ACCOUNT_UPDATES
 
 
 class _DropMessages(logging.Filter):
@@ -93,7 +99,8 @@ class IBKRGateway:
     async def connect(self) -> None:
         try:
             await self.ib.connectAsync(
-                self.s.host, self.s.port, clientId=self.s.client_id, timeout=self.s.connect_timeout_seconds
+                self.s.host, self.s.port, clientId=self.s.client_id, timeout=self.s.connect_timeout_seconds,
+                fetchFields=FETCH_WITHOUT_ACCOUNT_UPDATES,
             )
         except (ConnectionRefusedError, asyncio.TimeoutError, OSError) as exc:
             raise BrokerDisconnectedError(
@@ -138,7 +145,7 @@ class IBKRGateway:
         if not self._ib_aux.isConnected():
             try:
                 await self._ib_aux.connectAsync(self.s.host, self.s.port, clientId=self.s.client_id + self.s.instruments_client_offset,
-                                                timeout=self.s.connect_timeout_seconds)
+                                                timeout=self.s.connect_timeout_seconds, fetchFields=StartupFetchNONE)
             except (ConnectionRefusedError, asyncio.TimeoutError, OSError) as exc:
                 raise BrokerDisconnectedError(f"No se pudo abrir la conexión de datos de los instrumentos en {self.s.host}:{self.s.port}: {exc!r}") from exc
             self._ib_aux.reqMarketDataType(self.s.instruments_market_data_type)
