@@ -86,7 +86,14 @@
 {% if form.use_credit and form.set != 'spread' %}{% set _ = chips.append(('sec-credit', 'Crédito ≥ ' ~ form.credit ~ ' $', 'use_credit credit')) %}{% endif %}
 {% if form.use_risk and form.set != 'spread' %}{% set _ = chips.append(('sec-risk', 'Capital en riesgo ≤ ' ~ form.risk ~ ' % NLV', 'use_risk risk')) %}{% endif %}
 {% if form.set != 'spread' and (form.fl_eps or form.fl_q != '0' or form.fl_fcf) %}{% set _ = chips.append(('sec-floor', 'Calidad mínima de la put', 'fl_eps fl_q fl_fcf')) %}{% endif %}
-{% if form.use_src %}{% set _ = chips.append(('sec-sources', 'Fuentes: ' ~ ((form.fsrc | join(', ')) if form.fsrc else 'ninguna'), 'use_src fs_' ~ (form.fsrc | join(' fs_')))) %}{% endif %}
+{# resumen de fuentes: «Todas», «Todas menos X, Y» (si faltan menos de las marcadas) o la lista #}
+{% set src_on = [] %}{% set src_off = [] %}
+{% for s in source_names or [] %}{% if s in form.fsrc %}{% set _ = src_on.append(s) %}{% else %}{% set _ = src_off.append(s) %}{% endif %}{% endfor %}
+{% if not src_on %}{% set src_txt = 'Ninguna' %}
+{% elif not src_off %}{% set src_txt = 'Todas' %}
+{% elif src_off | length < src_on | length %}{% set src_txt = 'Todas menos ' ~ (src_off | join(', ')) %}
+{% else %}{% set src_txt = src_on | join(', ') %}{% endif %}
+{% if form.use_src %}{% set _ = chips.append(('sec-sources', 'Fuentes: ' ~ (src_txt | lower if src_txt == 'Ninguna' else src_txt), 'use_src fs_' ~ (form.fsrc | join(' fs_')))) %}{% endif %}
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto, claves) #}
 {% set offs = [] %}
 {% if form.set == 'spread' %}
@@ -297,7 +304,7 @@
       {% endif %}
 
       {% if source_names %}
-      {% call section('sec-sources', 'Fuentes del Universo', ((form.fsrc | join(', ')) if form.fsrc else 'Ninguna') if form.use_src else 'Sin filtro', form.use_src) %}
+      {% call section('sec-sources', 'Fuentes del Universo', src_txt if form.use_src else 'Sin filtro', form.use_src) %}
         <input type="hidden" name="src" value="1">
         <div style="display:flex;align-items:center;gap:6px;margin:0 0 6px">
           <label class="opt" style="flex:1;margin:0"><span class="check"><input type="checkbox" name="use_src" {{ 'checked' if form.use_src }}> Filtrar por fuentes</span></label>
