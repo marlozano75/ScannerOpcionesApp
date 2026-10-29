@@ -9,6 +9,7 @@ import pytest
 from scanner_opciones.app.service import AppService
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.errors import VolatilityError
+from scanner_opciones.portfolio.classify import classify_dte
 from scanner_opciones.marketdata import tastytrade as tt
 from scanner_opciones.marketdata.volatility import FakeVolatility, IVMetrics
 from scanner_opciones.storage.db import Database
@@ -230,3 +231,21 @@ def test_profiles_can_be_reordered_coloured_and_duplicated(client_and_service):
     assert by["TastyPut (copia)"].put == by["TastyPut"].put and default == "TastyPut"
     page = client.get("/scanner?reset=1").text
     assert page.index(">Tortuga</a>") < page.index(">TastyPut</a>") < page.index(">Mensual (TPC)</a>") and "--pc:#112233" in page
+
+
+def test_the_fallback_profile_can_be_renamed_but_not_deleted(client_and_service):
+    client, svc, gw, _ = client_and_service
+    client.get("/scanner?reset=1")
+    names = ["Mensual (TPC)", "Táctico (TPC)", "TastyPut", "TastySpread", "Tortuga"]
+    form = {"n_profiles": "5", "default": "0"}
+    for i, n in enumerate(names):
+        form.update({f"pf{i}_name": n, f"pf{i}_orig": n, f"pf{i}_put": "on", f"pf{i}_order": str(i)})
+    form.update({"pf4_name": "Otras", "pf4_del": "on"})
+    svc.set_put_profile("AAA|2099-01-01|10", "Tortuga")
+    assert "ok=" in client.post("/scanner/profiles", data=form, follow_redirects=False).headers["location"]
+    saved, _ = svc.stored_profiles()
+    other = next(p for p in saved if p.fallback)
+    assert other.name == "Otras" and "Tortuga" not in [p.name for p in saved]                     # renombrado, y el borrado se ignora
+    assert svc.put_profiles()["AAA|2099-01-01|10"] == "Otras"                                       # lo asignado a mano la sigue
+    assert classify_dte(999, saved) == "Otras"
+    assert "Otras" in client.get("/scanner/config").text

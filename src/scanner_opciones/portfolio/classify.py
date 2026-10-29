@@ -7,9 +7,14 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
-from scanner_opciones.scanner.profiles import Profile
+from scanner_opciones.scanner.profiles import FALLBACK_NAME, Profile
 
-FALLBACK = "Tortuga"
+FALLBACK = FALLBACK_NAME
+
+
+def fallback_name(profiles: Sequence[Profile]) -> str:
+    """Nombre actual del perfil de las puts que no encajan (el marcado como `fallback`; «Tortuga» si ninguno)."""
+    return next((p.name for p in profiles if p.fallback), FALLBACK)
 
 
 def dte_range(p: Profile) -> Optional[tuple[int, int]]:
@@ -30,9 +35,9 @@ def classify_dte(dte_open: int, profiles: Sequence[Profile]) -> str:
     """Nombre del perfil al que corresponde un DTE de apertura."""
     best: Optional[tuple[int, int, str]] = None
     for i, p in enumerate(profiles):
-        rng = None if p.name == FALLBACK else dte_range(p)
+        rng = None if p.fallback else dte_range(p)
         if rng is not None and rng[0] <= dte_open <= rng[1]:
             key = (rng[1] - rng[0], i, p.name)
             if best is None or key < best:
                 best = key
-    return best[2] if best else FALLBACK
+    return best[2] if best else fallback_name(profiles)

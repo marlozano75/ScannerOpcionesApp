@@ -515,7 +515,7 @@ def seed_fallback(settings) -> Profile:
     """Perfil «Tortuga»: recoge las puts que no encajan por DTE en ningún otro; filtros básicos (los valores iniciales) y gestión Tastytrade."""
     ini = settings.scanner.initial
     params = {"discount": _fmt(ini.strike_below_pct_min), "dte_min": str(ini.dte_min), "dte_max": str(ini.dte_max), "min_yield": _fmt(ini.min_yield_pct)}
-    return Profile(FALLBACK_PROFILE, ("put", "spread"), color=SEED_COLORS[FALLBACK_PROFILE]).with_filters("put", params).with_filters("spread", params)
+    return Profile(FALLBACK_PROFILE, ("put", "spread"), color=SEED_COLORS[FALLBACK_PROFILE], fallback=True).with_filters("put", params).with_filters("spread", params)
 
 
 def profile_link(p: Profile, mode: Optional[str] = None, shown: Optional[str] = None) -> str:
@@ -1332,7 +1332,7 @@ def create_app(
     def get_profiles() -> tuple[list[Profile], str]:
         """Perfiles guardados desde la aplicación o, mientras no haya, los que salen de los presets y la estrategia."""
         profiles, default = service.stored_profiles() or seed_profiles(service.settings)
-        if not any(p.name == FALLBACK_PROFILE for p in profiles):     # el perfil de las puts que no encajan por DTE siempre existe
+        if not any(p.fallback for p in profiles):     # el perfil de las puts que no encajan por DTE siempre existe
             profiles = [*profiles, seed_fallback(service.settings)]
         return profiles, default
 
@@ -1343,7 +1343,7 @@ def create_app(
         Tortuga: (nombre, criterios del juego de put | None, criterios del juego de spread | None)."""
         out = []
         for p in get_profiles()[0]:
-            if p.name == FALLBACK_PROFILE:
+            if p.fallback:
                 continue
             crit = {inst: parse_scan({"submitted": "1", "mode": inst, **p.set_params(inst)}, inst)["criteria"] if inst in p.instruments else None
                     for inst in ("put", "spread")}
@@ -1357,7 +1357,7 @@ def create_app(
         """Un solo escaneo con los filtros de varios perfiles (`pf` repetido; sin ninguno, todos menos el de las puts que no encajan): cada
         put o spread que cumple los de alguno sale una vez, con la columna de los perfiles que cumple. Los filtros son los guardados en cada perfil."""
         profiles, _ = get_profiles()
-        candidates = [p for p in profiles if p.name != FALLBACK_PROFILE]
+        candidates = [p for p in profiles if not p.fallback]
         asked = set(request.query_params.getlist("pf"))
         chosen = [p for p in candidates if not asked or p.name in asked]
         sets, errors = [], []
@@ -1408,14 +1408,19 @@ def create_app(
         rows: list[tuple[float, int, Profile]] = []      # (orden elegido, posición, perfil)
         chosen = str(form.get("default", ""))
         new_default = default
+        renames: dict[str, str] = {}
         for i in range(int(form.get("n_profiles", 0) or 0)):
             orig = by_name.get(str(form.get(f"pf{i}_orig", "")))
-            if orig is None or (form.get(f"pf{i}_del") and orig.name != FALLBACK_PROFILE):
+            if orig is None or (form.get(f"pf{i}_del") and not orig.fallback):
                 continue
             instruments = tuple(k for k in ("put", "spread") if form.get(f"pf{i}_{k}"))
-            name = orig.name if orig.name == FALLBACK_PROFILE else str(form.get(f"pf{i}_name", ""))     # «Tortuga» no se renombra ni se borra
+            name = str(form.get(f"pf{i}_name", ""))     # el perfil de las puts que no encajan se renombra pero no se borra
+            if orig.fallback and not name.strip():
+                name = orig.name
+            if name != orig.name:
+                renames[orig.name] = name
             color = str(form.get(f"pf{i}_color", orig.color)) if form.get(f"pf{i}_usecolor") else ""
-            kept = Profile(name, instruments, orig.put, orig.spread, orig.management, color, orig.exits)
+            kept = Profile(name, instruments, orig.put, orig.spread, orig.management, color, orig.exits, orig.fallback)
             try:
                 order = float(str(form.get(f"pf{i}_order", "")).replace(",", "."))
             except ValueError:
@@ -1428,10 +1433,11 @@ def create_app(
                 copy_name, n = f"{kept.name} (copia)", 2
                 while copy_name.casefold() in taken:
                     copy_name, n = f"{kept.name} (copia {n})", n + 1
-                rows.append((order, 2 * i + 1, replace(kept, name=copy_name)))
+                rows.append((order, 2 * i + 1, replace(kept, name=copy_name, fallback=False)))
         out = [r[2] for r in sorted(rows, key=lambda r: (r[0], r[1]))]
         try:
             service.save_profiles(out, new_default)
+            service.rename_profile_refs(renames)
         except ValueError as exc:
             return RedirectResponse("/scanner/config?" + urlencode({"error": str(exc)}), status_code=303)
         remembered.pop("scanner", None)
@@ -1515,7 +1521,7 @@ def create_app(
             gap.append(f"el DTE máx. de la estrategia ({sc.strategy.dte_max}) supera el rango guardado ({cand.dte_max})")
         if sc.strategy.strike_below_pct_min < cand.strike_below_pct_min:
             gap.append(f"el descuento mín. de la estrategia ({_fmt(sc.strategy.strike_below_pct_min)} %) es menor que el del rango guardado ({_fmt(cand.strike_below_pct_min)} %)")
-        return render(request, "scanner_config.html", profiles=profiles, default_profile=default_profile, fallback=FALLBACK_PROFILE,
+        return render(request, "scanner_config.html", profiles=profiles, default_profile=default_profile, fallback=next((p.name for p in profiles if p.fallback), FALLBACK_PROFILE),
                       profiles_saved=service.stored_profiles() is not None, vix=vix, ok=ok, error=error,
                       gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)),
                       ranges={p.name: dte_range(p) for p in profiles})

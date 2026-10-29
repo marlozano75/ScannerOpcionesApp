@@ -35,7 +35,7 @@ from scanner_opciones.community.data import CommunityData, CommunityError, load_
 from scanner_opciones.community.fit import STRATEGY_NAME, profile_fits, strategy_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
-from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, classify_dte
+from scanner_opciones.portfolio.classify import classify_dte, fallback_name
 from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry
 from scanner_opciones.portfolio import defense as defense_mod
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
@@ -1355,6 +1355,19 @@ class AppService:
         valid, default_name = profiles_mod.validate_profiles(profiles, default)
         self.meta.set(SCANNER_PROFILES, profiles_mod.dump(valid, default_name))
 
+    def rename_profile_refs(self, renames: dict[str, str]) -> None:
+        """Traslada a los nombres nuevos las puts con perfil elegido a mano o reconocido al abrirlas (se guardan por nombre)."""
+        if not renames:
+            return
+        try:
+            manual = json.loads(self.meta.get(PUT_PROFILES) or "{}")
+            self.meta.set(PUT_PROFILES, json.dumps({k: renames.get(v, v) for k, v in manual.items()}))
+        except ValueError:
+            pass
+        fits = self._entry_fits()
+        if fits:
+            self.meta.set(PUT_ENTRY_FIT, json.dumps({k: {**v.to_json(), "profile": renames.get(v.profile, v.profile)} for k, v in fits.items()}))
+
     def reset_profiles(self) -> None:
         """Vuelve a los perfiles que salen de los presets TPC y de la estrategia (config.yaml o editados en /scanner/config)."""
         self.meta.set(SCANNER_PROFILES, "")
@@ -2119,7 +2132,7 @@ class AppService:
             if v in names:
                 out[str(k)] = str(v)
             elif v in PUT_PROFILE_NAMES:
-                legacy = next((p.name for p in profiles if p.management == v and p.name != FALLBACK_PROFILE), None)
+                legacy = next((p.name for p in profiles if p.management == v and not p.fallback), None)
                 if legacy:
                     out[str(k)] = legacy
         return out
@@ -2208,7 +2221,7 @@ class AppService:
             if pos is None:
                 out[key] = classify_dte((expiry - dates[key][0]).days, profiles)
                 continue
-            fit = recognize_entry(self._entry_facts(pos, dates[key][0]), profiles, FALLBACK_PROFILE)
+            fit = recognize_entry(self._entry_facts(pos, dates[key][0]), profiles, fallback_name(profiles))
             fits[key] = fit
             out[key] = fit.profile
             changed = True

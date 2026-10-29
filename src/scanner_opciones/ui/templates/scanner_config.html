@@ -63,15 +63,15 @@
         <tbody>
         {% for p in profiles %}{% set i = loop.index0 %}
         <tr><td class="c"><input type="number" name="pf{{ i }}_order" value="{{ i + 1 }}" step="1"></td>
-          <td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}" {{ 'readonly' if p.name == fallback }}><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
+          <td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}" ><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
           <td class="c col"><input type="checkbox" name="pf{{ i }}_usecolor" {{ 'checked' if p.color }} title="Con color"> <input type="color" name="pf{{ i }}_color" value="{{ p.color or '#1f6feb' }}"></td>
           <td class="c"><input type="checkbox" name="pf{{ i }}_put" {{ 'checked' if 'put' in p.instruments }}></td>
           <td class="c"><input type="checkbox" name="pf{{ i }}_spread" {{ 'checked' if 'spread' in p.instruments }}></td>
           <td><a href="/exits#pf{{ i }}" title="Editar la estrategia de salida de este perfil">{{ 'TPC' if p.management == 'tpc' else 'Tastytrade' }} ✎</a></td>
-          <td class="muted">{% if p.name == fallback %}el resto{% elif ranges[p.name] %}{{ ranges[p.name][0] }}–{{ ranges[p.name][1] }}{% else %}—{% endif %}</td>
+          <td class="muted">{% if p.fallback %}el resto{% elif ranges[p.name] %}{{ ranges[p.name][0] }}–{{ ranges[p.name][1] }}{% else %}—{% endif %}</td>
           <td class="c"><input type="radio" name="default" value="{{ i }}" {{ 'checked' if p.name == default_profile }}></td>
           <td class="c"><input type="checkbox" name="pf{{ i }}_dup"></td>
-          <td class="c">{% if p.name != fallback %}<input type="checkbox" name="pf{{ i }}_del">{% else %}<span class="muted">—</span>{% endif %}</td></tr>
+          <td class="c">{% if not p.fallback %}<input type="checkbox" name="pf{{ i }}_del">{% else %}<span class="muted">—</span>{% endif %}</td></tr>
         {% endfor %}
         </tbody>
       </table>

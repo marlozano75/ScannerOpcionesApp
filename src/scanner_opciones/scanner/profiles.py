@@ -14,6 +14,7 @@ from typing import Optional
 from scanner_opciones.portfolio import exits as exits_mod
 
 INSTRUMENTS = ("put", "spread")
+FALLBACK_NAME = "Tortuga"      # nombre de origen del perfil de las puts que no encajan por DTE (se puede renombrar: lo identifica `Profile.fallback`)
 # claves de la URL que no son filtros de un perfil (navegación, estado de la página o identidad del perfil)
 NOT_FILTERS = frozenset(("profile", "reset", "debug", "message", "submitted", "mode", "set"))
 
@@ -27,6 +28,7 @@ class Profile:
     management: str = "tastytrade"                # reglas con las que se gestionan en el Panel las puts de este perfil: tastytrade | tpc
     color: str = ""                               # color del botón del perfil y de su etiqueta en el Panel (#rrggbb; vacío = sin color)
     exits: dict = field(default_factory=dict)     # estrategia de salida: solo lo que cambia respecto al estilo `management` (`portfolio.exits`)
+    fallback: bool = False                        # perfil de las puts que no encajan por DTE: no se borra ni se clasifica por DTE, pero sí se renombra
 
     def exit_rules(self, cfg) -> exits_mod.ExitRules:
         """Estrategia de salida efectiva: la del estilo de gestión con los cambios de este perfil."""
@@ -59,7 +61,7 @@ class Profile:
 
     def to_dict(self) -> dict:
         return {"name": self.name, "instruments": list(self.instruments), "put": self.put, "spread": self.spread, "management": self.management,
-                "color": self.color, "exits": self.exits}
+                "color": self.color, "exits": self.exits, "fallback": self.fallback}
 
 
 def validate_profile(p: Profile) -> Profile:
@@ -80,6 +82,8 @@ def validate_profiles(profiles: list[Profile], default: Optional[str]) -> tuple[
     out = [validate_profile(p) for p in profiles]
     if not out:
         raise ValueError("tiene que quedar al menos un perfil")
+    if not any(p.fallback for p in out):      # un perfil «Tortuga» sin marcar (guardado antes de poder renombrarlo) es el de las puts que no encajan
+        out = [replace(p, fallback=True) if p.name == FALLBACK_NAME else p for p in out]
     names = [p.name for p in out]
     if len(set(n.casefold() for n in names)) != len(names):
         raise ValueError("dos perfiles no pueden llamarse igual")
@@ -98,7 +102,7 @@ def load(raw: str) -> Optional[tuple[list[Profile], str]]:
         data = json.loads(raw)
         profiles = [Profile(d["name"], tuple(d["instruments"]), {str(k): str(v) for k, v in d["put"].items()},
                             {str(k): str(v) for k, v in d["spread"].items()}, d.get("management", "tastytrade"), d.get("color", ""),
-                            exits_mod.check_overrides(d.get("exits") or {})) for d in data["profiles"]]
+                            exits_mod.check_overrides(d.get("exits") or {}), bool(d.get("fallback", d["name"] == FALLBACK_NAME))) for d in data["profiles"]]
         return validate_profiles(profiles, data.get("default"))
     except Exception:
         return None
