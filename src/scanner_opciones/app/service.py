@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Callable, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway, chain_origin
-from scanner_opciones.config.settings import InstrumentSettings, ScannerPreset, Settings, SpreadSettings, StrategySettings
+from scanner_opciones.config.settings import InstrumentSettings, ScanLogSettings, ScannerPreset, Settings, SpreadSettings, StrategySettings
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError, PriceError, VolatilityError, WatchlistError
 from scanner_opciones.domain.models import (
@@ -110,6 +110,7 @@ INVESTORS_SYNCED = "super_investors_synced"   # clave de `meta`: huella de la fu
 INVESTORS_INFO = "super_investors_info"       # clave de `meta`: {ticker: {managers, max_weight}} de esa fuente (columnas del Universo)
 RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
+SCAN_LOG_CFG = "scan_log_cfg"   # clave de `meta`: configuración del Histórico guardada desde la interfaz (JSON)
 COMMUNITY_LIVE = "community_live"   # clave de `meta`: última cotización en directo de las ideas (pickle en base64)
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
 SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
@@ -200,6 +201,8 @@ class AppService:
         self.bars = BarRepo(db)
         sl = settings.scan_log
         scan_log_repo = ScanLogRepo(db)
+        self.scan_log_repo = scan_log_repo
+        sl = self._load_scan_log_cfg(sl)      # lo guardado desde la pestaña Histórico manda sobre config.yaml
         self.scan_log = ScanLogJob(scan_log_repo, sl, self.scan, self.profile_specs, self.ticker_market_open, now,
                                    SheetsWriter(sl.sheets, scan_log_repo) if sl.sheets.enabled and sl.sheets.spreadsheet_id else None)
         syncer = ContractSyncer(gateway, self.contracts, settings)  # comparte la cadena en caché
@@ -2593,9 +2596,46 @@ class AppService:
         """¿Está abierto el mercado de este ticker? El de EE. UU., o el horario propio de los instrumentos de TWS (ESTX50, valores europeos)."""
         return self.refresh_job.instrument_markets.get(ticker, self.market).is_open(self.now())
 
+    def _load_scan_log_cfg(self, base: ScanLogSettings) -> ScanLogSettings:
+        raw = self.meta.get(SCAN_LOG_CFG)
+        if not raw:
+            return base
+        try:
+            saved = json.loads(raw)
+            data = base.model_dump()
+            return ScanLogSettings.model_validate({**data, **saved, "sheets": {**data["sheets"], **saved.get("sheets", {})}})
+        except Exception:
+            log.warning("Histórico: se descarta la configuración guardada (no es válida)")
+            return base
+
+    def scan_log_cfg(self) -> ScanLogSettings:
+        return self.scan_log.cfg
+
+    def set_scan_log_cfg(self, enabled: bool, interval_minutes: float, profiles: list[str], sheets_enabled: bool, spreadsheet_id: str, auth: str) -> None:
+        """Guarda (persistente) la configuración del escaneo automático y del volcado a Google Sheets y la aplica sin reiniciar."""
+        cur = self.scan_log.cfg
+        sheets = cur.sheets.model_copy(update={"enabled": sheets_enabled, "spreadsheet_id": spreadsheet_id.strip(), "auth": auth})
+        new = ScanLogSettings.model_validate({**cur.model_dump(), "enabled": enabled, "interval_minutes": interval_minutes, "profiles": profiles,
+                                              "sheets": sheets.model_dump()})
+        self.meta.set(SCAN_LOG_CFG, json.dumps({"enabled": new.enabled, "interval_minutes": new.interval_minutes, "profiles": new.profiles,
+                                                "sheets": {"enabled": new.sheets.enabled, "spreadsheet_id": new.sheets.spreadsheet_id, "auth": new.sheets.auth}}))
+        self.scan_log.cfg = new
+        self.scan_log.writer = SheetsWriter(new.sheets, self.scan_log_repo) if new.sheets.enabled and new.sheets.spreadsheet_id else None
+        self.state.data_version += 1
+
     async def scan_log_cycle(self) -> None:
-        """Pasada del escaneo automático de perfiles (`scan_log`): registra qué contratos aparecen y desaparecen en cada uno."""
-        await self.scan_log.run()
+        """Pasada del escaneo automático de perfiles (`scan_log`): registra qué contratos aparecen y desaparecen en cada uno. El bucle late cada
+        minuto; aquí se respeta si está activado y su intervalo (ambos se cambian en la pestaña Histórico sin reiniciar)."""
+        job = self.scan_log
+        if not job.cfg.enabled:
+            return
+        if job.last_run is not None and (self.now() - job.last_run).total_seconds() < job.cfg.interval_minutes * 60:
+            return
+        await job.run()
+
+    async def scan_log_now(self) -> dict:
+        """Pasada manual desde la pestaña Histórico (aunque el escaneo automático esté apagado); sube lo pendiente si el volcado está activo."""
+        return await self.scan_log.run()
 
     def open_instruments(self) -> list[str]:
         """Instrumentos de TWS (Eurex...) cuyo mercado está abierto ahora, aunque el de EE. UU. esté cerrado."""

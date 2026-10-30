@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+{% include "_msgs.html" %}
+<style>
+  .hs-cfg { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px 24px; }
+  .hs-cfg fieldset { border:1px solid var(--line, #ddd); border-radius:8px; padding:8px 12px 10px; }
+  .hs-cfg legend { font-weight:600; padding:0 6px; }
+  .hs-cfg label.row { display:flex; gap:8px; align-items:center; margin:5px 0; }
+  .hs-cfg input[type=text] { max-width:240px; }
+  .hs-profiles { display:flex; flex-wrap:wrap; gap:4px 14px; }
+  table.hs td, table.hs th { padding:2px 8px; font-size:12.5px; white-space:nowrap; text-align:left; }
+  table.hs td.n { text-align:right; }
+</style>
+<div class="card">
+  <h2>Histórico de escaneos <span class="muted" style="font-weight:400">· cuándo aparece y desaparece cada contrato en cada perfil</span></h2>
+  <form method="post" action="/historico/config">
+    <div class="hs-cfg">
+      <fieldset><legend>Escaneo automático</legend>
+        <label class="row"><input type="checkbox" name="enabled" {{ 'checked' if cfg.enabled }}> Activado</label>
+        <label class="row">Cada <input type="number" name="interval_minutes" value="{{ cfg.interval_minutes|round(2) }}" min="1" step="any" style="width:80px"> minutos</label>
+        <p class="note">Escanea los perfiles con los filtros grabados en cada uno y anota las apariciones y desapariciones (con su motivo). Solo evalúa los tickers con el mercado abierto.
+          {% if last_run %}Última pasada: {{ last_run.strftime('%d/%m %H:%M:%S') }} · {{ last_summary.get('profiles', 0) }} perfiles, {{ last_summary.get('appeared', 0) }} nuevos, {{ last_summary.get('vanished', 0) }} desaparecen.{% else %}Todavía no ha hecho ninguna pasada en esta ejecución.{% endif %}</p>
+      </fieldset>
+      <fieldset><legend>Perfiles a registrar</legend>
+        <label class="row"><input type="checkbox" name="all_profiles" {{ 'checked' if not cfg.profiles }}> Todos</label>
+        <div class="hs-profiles">{% for p in profiles %}<label class="row"><input type="checkbox" name="profiles" value="{{ p }}" {{ 'checked' if p in cfg.profiles }}> {{ p }}</label>{% endfor %}</div>
+        <p class="note">Con «Todos» marcado se ignora la selección.</p>
+      </fieldset>
+      <fieldset><legend>Google Sheets</legend>
+        <label class="row"><input type="checkbox" name="sheets_enabled" {{ 'checked' if cfg.sheets.enabled }}> Volcar al Google Sheet</label>
+        <label class="row">ID de la hoja <input type="text" name="spreadsheet_id" value="{{ cfg.sheets.spreadsheet_id }}" placeholder="entre /d/ y /edit de la URL"></label>
+        <label class="row">Acceso <select name="auth"><option value="service_account" {{ 'selected' if cfg.sheets.auth == 'service_account' }}>Cuenta de servicio</option><option value="oauth" {{ 'selected' if cfg.sheets.auth == 'oauth' }}>Mi cuenta de Google (OAuth)</option></select></label>
+        <p class="note">Las credenciales y las rutas de sus ficheros siguen en <code>config.yaml</code> (no se editan aquí). Pestañas del Sheet: Eventos, Escaneos y Activos, igual que abajo.
+          {% if counts.pending %}Pendientes de subir: <b>{{ counts.pending }}</b>.{% endif %}</p>
+        {% if sheets_error %}<p class="banner warn">Último fallo de Google: {{ sheets_error }}</p>{% endif %}
+      </fieldset>
+    </div>
+    <p style="margin:12px 0 0"><button type="submit">Guardar</button>
+      <button type="submit" formaction="/historico/run" class="secondary" title="Hace una pasada ahora mismo con la configuración guardada (guarda antes si cambiaste algo)">Escanear ahora</button></p>
+  </form>
+</div>
+
+<div class="card">
+  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    <div class="seg" role="tablist">{% for key, label in tabs %}<a href="/historico?tab={{ key }}" class="{{ 'on' if key == tab }}" role="tab">{{ label }}</a>{% endfor %}</div>
+    <span class="muted">{{ counts.events }} eventos · {{ counts.runs }} escaneos · {{ counts.active }} activos
+      · se muestran {{ rows|length }} filas{% if rows|length >= limit %} (el Sheet recibe todas){% endif %}</span>
+  </div>
+  {% if rows %}
+  <div class="tscroll"><table class="hs sortable">
+    <tr>{% for h in header %}<th>{{ h }}</th>{% endfor %}</tr>
+    {% for r in rows %}<tr>{% for v in r %}<td{% if v is number %} class="n"{% endif %}>{{ v }}</td>{% endfor %}</tr>{% endfor %}
+  </table></div>
+  {% else %}<p class="muted">Todavía no hay nada registrado en esta pestaña.</p>{% endif %}
+</div>
+{% endblock %}

@@ -111,7 +111,7 @@ def build_app(settings: Settings):
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)
     account_runner = PeriodicRunner(
         lambda: service.refresh_account(skip_closed_vix=True), settings.refresh.account_interval_minutes * 60)
-    scan_log_runner = (PeriodicRunner(service.scan_log_cycle, settings.scan_log.interval_minutes * 60) if settings.scan_log.enabled else None)
+    scan_log_runner = PeriodicRunner(service.scan_log_cycle, 60)      # late cada minuto; el ciclo respeta lo activado y el intervalo (pestaña Histórico)
     startup_task: list[asyncio.Task] = []
 
     failed: set[tuple] = set()      # destinos con el puerto abierto cuya conexión falló en este ciclo de reintentos

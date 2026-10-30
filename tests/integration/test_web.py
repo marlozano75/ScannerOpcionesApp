@@ -1,4 +1,5 @@
 import re
+from scanner_opciones.storage.scan_log import Hit
 from urllib.parse import parse_qsl
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -987,3 +988,21 @@ def test_results_outside_saved_profile_limits_are_marked(client_and_service):
     assert row_key(out.results[0]).startswith(out.results[0].snapshot.contract.ticker + "|")
     page = client.get("/scanner?submitted=1&mode=put&profile=Tortuga&set=put&discount=0&dte_min=1&dte_max=60&min_yield=0")
     assert page.status_code == 200 and "var marks = " in page.text
+
+
+def test_historico_tab_configures_the_scan_log_and_shows_what_the_sheet_receives(client_and_service):
+    client, svc, gw, _ = client_and_service
+    svc.scan_log_repo.apply("2026-10-30T10:00:00", "TPC", "put", [Hit("AAPL", "2026-12-18", 90.0, None, 1.2, 25.0, 35, 12.0)], [], [], 0)
+    page = client.get("/historico")
+    assert page.status_code == 200 and 'href="/historico"' in page.text and "Histórico de escaneos" in page.text
+    assert "Fecha y hora" in page.text and "aparece" in page.text and "AAPL" in page.text          # pestaña Eventos, mismas columnas que el Sheet
+    assert "Primera vez" in client.get("/historico?tab=Activos").text and "Cumplen" in client.get("/historico?tab=Escaneos").text
+    r = client.post("/historico/config", data={"enabled": "on", "interval_minutes": "7", "profiles": ["TPC"], "spreadsheet_id": " abc ", "auth": "oauth"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    cfg = svc.scan_log_cfg()
+    assert cfg.enabled and cfg.interval_minutes == 7 and cfg.profiles == ["TPC"] and cfg.sheets.spreadsheet_id == "abc" and cfg.sheets.auth == "oauth"
+    assert not cfg.sheets.enabled and svc.scan_log.writer is None
+    assert svc._load_scan_log_cfg(svc.settings.scan_log).interval_minutes == 7                      # sobrevive al reinicio
+    bad = client.post("/historico/config", data={"interval_minutes": "0"}, follow_redirects=False)
+    assert "intervalo" in bad.headers["location"] or "interval" in bad.headers["location"].lower()

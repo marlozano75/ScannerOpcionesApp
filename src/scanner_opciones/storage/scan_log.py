@@ -113,3 +113,16 @@ class ScanLogRepo:
         with self.db.conn:
             self.db.conn.executemany("UPDATE scan_events SET synced = 1 WHERE id = ?", [(i,) for i in events])
             self.db.conn.executemany("UPDATE scan_runs SET synced = 1 WHERE id = ?", [(i,) for i in runs])
+
+    # ---- lo que muestra la pestaña Histórico (mismo contenido que el Google Sheet) ----------------
+    def recent_events(self, limit: int = 500) -> list:
+        return self.db.conn.execute("SELECT * FROM scan_events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+    def recent_runs(self, limit: int = 500) -> list:
+        return self.db.conn.execute("SELECT * FROM scan_runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+    def counts(self) -> dict[str, int]:
+        c = self.db.conn
+        return {"events": c.execute("SELECT COUNT(*) FROM scan_events").fetchone()[0], "runs": c.execute("SELECT COUNT(*) FROM scan_runs").fetchone()[0],
+                "active": c.execute("SELECT COUNT(*) FROM scan_log WHERE active = 1").fetchone()[0],
+                "pending": c.execute("SELECT (SELECT COUNT(*) FROM scan_events WHERE synced = 0) + (SELECT COUNT(*) FROM scan_runs WHERE synced = 0)").fetchone()[0]}

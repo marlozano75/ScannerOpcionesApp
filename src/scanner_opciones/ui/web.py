@@ -44,7 +44,7 @@ from scanner_opciones.scanner.profile_marks import row_key, row_marks
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.portfolio.overview import other_positions, portfolio_status
-from scanner_opciones.ui import dashboard_charts as dash, page_charts, routes_tortuga, routes_universe, scanner_parse, viz
+from scanner_opciones.ui import dashboard_charts as dash, page_charts, routes_historico, routes_tortuga, routes_universe, scanner_parse, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
 from scanner_opciones.universe.descriptions import describe, describe_manual
@@ -341,6 +341,7 @@ def create_app(
 
     # ---- ideas de la comunidad ---------------------------------------------------------------
     routes_tortuga.register(app, service, render, remembered)
+    routes_historico.register(app, service, render, remembered)
     routes_universe.register(app, service, render, recall, remembered)
 
     @app.post("/excluded/dismiss")
