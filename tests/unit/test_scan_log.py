@@ -16,7 +16,8 @@ class Crit:
 
 
 def result(ticker, strike, expiry=date(2026, 11, 20)):
-    return NS(snapshot=NS(contract=NS(ticker=ticker, expiry=expiry, strike=strike)), reference_price=1.5, net_price=1.5, yield_ref_annualized_pct=30.0, dte=22,
+    return NS(snapshot=NS(contract=NS(ticker=ticker, expiry=expiry, strike=strike, multiplier=100), delta=-0.2, iv_rank=40.0, iv_percentile=50.0,
+                                  spread_pct=3.0, bid_size=12), reference_price=1.5, net_price=1.5, yield_bid_annualized_pct=25.0, yield_ref_annualized_pct=30.0, dte=22,
               strike_distance_pct=12.0)
 
 
@@ -104,8 +105,9 @@ class FakeWs:
         self.rows += rows
     def clear(self):
         self.cleared += 1
-    def update(self, values, rng):
-        self.rows = list(values)
+        self.rows = []
+    def update(self, values, rng):     # desde A1: sobrescribe solo las filas dadas
+        self.rows[:len(values)] = list(values)
 
 
 class FakeSheet:

@@ -17,17 +17,25 @@ log = logging.getLogger(__name__)
 def put_hits(out: ScanOutput) -> list[Hit]:
     hits = []
     for r in out.results:
-        c = r.snapshot.contract
-        hits.append(Hit(c.ticker, c.expiry.isoformat(), c.strike, None, r.net_price if r.net_price is not None else r.reference_price, r.yield_ref_annualized_pct, r.dte, r.strike_distance_pct))
+        s = r.snapshot
+        c = s.contract
+        net = r.net_price if r.net_price is not None else r.reference_price
+        hits.append(Hit(c.ticker, c.expiry.isoformat(), c.strike, None, net, r.yield_ref_annualized_pct, r.dte, r.strike_distance_pct,
+                        credit=net * c.multiplier if net is not None else None, risk=(c.strike - net) * c.multiplier if net is not None else None,
+                        delta=s.delta, yield_bid=r.yield_bid_annualized_pct, iv_rank=s.iv_rank, iv_pct=s.iv_percentile, spread_pct=s.spread_pct,
+                        bid_size=s.bid_size))
     return hits
 
 
 def spread_hits(out: ScanOutput) -> list[Hit]:
     hits = []
     for sp in out.spreads:
-        c = sp.short.snapshot.contract
+        s = sp.short.snapshot
+        c = s.contract
         hits.append(Hit(c.ticker, c.expiry.isoformat(), c.strike, sp.long.contract.strike, sp.credit, sp.return_on_risk_annualized_pct,
-                        sp.short.dte, sp.discount_pct if sp.discount_pct is not None else sp.short.strike_distance_pct))
+                        sp.short.dte, sp.discount_pct if sp.discount_pct is not None else sp.short.strike_distance_pct,
+                        credit=sp.credit * c.multiplier, risk=sp.max_loss, delta=s.delta, long_delta=sp.long.delta, iv_rank=s.iv_rank,
+                        iv_pct=s.iv_percentile, spread_pct=s.spread_pct, bid_size=s.bid_size))
     return hits
 
 

@@ -1,10 +1,11 @@
 # Escaneo automático de perfiles y registro (2026-10-29)
 
 Cada `scan_log.interval_minutes` (15) `AppService.scan_log_cycle` → `jobs/scan_log.py::ScanLogJob` escanea los perfiles elegidos con los filtros
-GRABADOS en cada uno (`profile_specs`, los mismos de `/scanner/todos`; put y spread) y registra en SQLite (`storage/scan_log.py`, migración v30):
+GRABADOS en cada uno (`profile_specs`, los mismos de `/scanner/todos`; put y spread) y registra en SQLite (`storage/scan_log.py`, migración v30; v31 añade las columnas de mercado):
 
 - `scan_log`: un **episodio** por perfil y contrato (o spread: con `long_strike`): `first_seen`, `last_seen`, `ended_at`, `end_reason`, `active`, y precio/yield/DTE/descuento
   al aparecer y la última vez que se vio. Si vuelve a cumplir tras desaparecer, se abre un episodio nuevo. Un contrato que cumple dos perfiles se anota una vez por cada uno.
+- Además de precio/yield/DTE/descuento, cada episodio y evento guarda (v31, 2026-10-30; `EXTRA_FIELDS`, también en el Sheet y en `/historico`): crédito y riesgo por contrato en $ (put: prima neta y (strike − prima) × multiplicador; spread: crédito y pérdida máxima), delta (y delta de la comprada en spreads), yield bid anual (solo puts), IV Rank, IV Percentile, spread bid/ask % y bid size de la pata vendida. El episodio guarda la última vez vista; los eventos los valores de ese momento. Los episodios anteriores a v31 quedan con esas columnas vacías. `SheetsWriter._append` reescribe la cabecera de cada pestaña para que gane las columnas nuevas.
 - `scan_events`: `aparece` / `desaparece` con fecha y perfil. El **motivo** de la desaparición es el filtro que lo descarta ahora (`ScanOutput.rejections`); si ningún filtro
   lo evalúa: «vencido», «el spread ya no se forma…» o «sin cotización o fuera de los contratos guardados».
 - `scan_runs`: cada pasada por perfil (cumplen, nuevos, desaparecen, tickers con el mercado cerrado).

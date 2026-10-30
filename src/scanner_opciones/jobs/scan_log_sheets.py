@@ -7,16 +7,17 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from scanner_opciones.config.settings import SheetsSettings
-from scanner_opciones.storage.scan_log import ScanLogRepo
+from scanner_opciones.storage.scan_log import EXTRA_FIELDS, LoggedRow, ScanLogRepo
 
 log = logging.getLogger(__name__)
 
 CHUNK = 2000   # filas por petición de escritura
 EVENTS_TAB, ACTIVE_TAB, RUNS_TAB = "Eventos", "Activos", "Escaneos"
+EXTRA_HEADER = ["Crédito $", "Riesgo $", "Delta", "Delta comprada", "Yield bid anual %", "IV Rank", "IV Pctl", "Spread %", "Bid size"]   # = EXTRA_FIELDS
 EVENTS_HEADER = ["Fecha y hora", "Evento", "Perfil", "Tipo", "Ticker", "Vencimiento", "Strike", "Strike comprado", "Motivo", "Precio", "Yield anual %",
-                 "DTE", "Descuento %"]
+                 "DTE", "Descuento %", *EXTRA_HEADER]
 ACTIVE_HEADER = ["Perfil", "Tipo", "Ticker", "Vencimiento", "Strike", "Strike comprado", "Primera vez", "Última vez", "Precio al aparecer",
-                 "Yield al aparecer %", "Precio", "Yield anual %", "DTE", "Descuento %"]
+                 "Yield al aparecer %", "Precio", "Yield anual %", "DTE", "Descuento %", *EXTRA_HEADER]
 RUNS_HEADER = ["Fecha y hora", "Perfil", "Tipo", "Cumplen", "Nuevos", "Desaparecen", "Tickers con mercado cerrado"]
 
 
@@ -28,14 +29,20 @@ def _txt(v) -> str:
     return "" if v is None else str(v)
 
 
+def _extras(src) -> list:
+    """Los campos añadidos al registro, de una fila de SQLite o de un `LoggedRow` (el bid size es entero)."""
+    get = (lambda f: src[f]) if not isinstance(src, LoggedRow) else (lambda f: getattr(src, f))
+    return [_txt(get(f)) if f == "bid_size" else _num(get(f), 3 if "delta" in f else 2) for f in EXTRA_FIELDS]
+
+
 def event_row(e) -> list:
     return [e["at"], e["event"], e["profile"], e["kind"], e["ticker"], e["expiry"], e["strike"], _txt(e["long_strike"]), _txt(e["reason"]),
-            _num(e["price"]), _num(e["yield_ann"]), _txt(e["dte"]), _num(e["distance_pct"])]
+            _num(e["price"]), _num(e["yield_ann"]), _txt(e["dte"]), _num(e["distance_pct"]), *_extras(e)]
 
 
 def active_row(r) -> list:
     return [r.profile, r.kind, r.ticker, r.expiry, r.strike, _txt(r.long_strike), r.first_seen, r.last_seen, _num(r.first_price), _num(r.first_yield),
-            _num(r.price), _num(r.yield_ann), _txt(r.dte), _num(r.distance_pct)]
+            _num(r.price), _num(r.yield_ann), _txt(r.dte), _num(r.distance_pct), *_extras(r)]
 
 
 def run_row(r) -> list:
@@ -90,6 +97,7 @@ class SheetsWriter:
 
     def _append(self, sheet, title: str, header: list[str], rows: list[list]) -> None:
         ws = self._tab(sheet, title, header)
+        ws.update([header], "A1")     # la cabecera se refresca por si el registro ganó columnas desde que se creó la pestaña
         for i in range(0, len(rows), CHUNK):
             ws.append_rows(rows[i:i + CHUNK], value_input_option="USER_ENTERED")
 

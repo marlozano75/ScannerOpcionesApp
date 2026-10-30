@@ -18,10 +18,30 @@ class Hit:
     yield_ann: Optional[float] = None  # yield anualizado de la put, o retorno sobre riesgo anualizado del spread (%)
     dte: Optional[int] = None
     distance_pct: Optional[float] = None   # descuento del strike sobre el precio del subyacente (%)
+    credit: Optional[float] = None         # prima cobrada por contrato ($, neta de comisiones)
+    risk: Optional[float] = None           # capital en riesgo por contrato ($): (strike − prima) × multiplicador, o pérdida máxima del spread
+    delta: Optional[float] = None          # delta de la put vendida
+    long_delta: Optional[float] = None     # delta de la put comprada (solo spreads)
+    yield_bid: Optional[float] = None      # yield anualizado vendiendo al bid (%; solo puts)
+    iv_rank: Optional[float] = None
+    iv_pct: Optional[float] = None         # IV Percentile
+    spread_pct: Optional[float] = None     # spread bid/ask de la put vendida (% del mid)
+    bid_size: Optional[int] = None
 
     @property
     def key(self) -> tuple:
         return (self.ticker, self.expiry, self.strike, self.long_strike or 0.0)
+
+    @property
+    def extras(self) -> tuple:
+        return tuple(getattr(self, f) for f in EXTRA_FIELDS)
+
+
+# columnas de `scan_log` y `scan_events` que se añadieron al registro (migración v31), en el orden en que se guardan y se muestran
+EXTRA_FIELDS = ("credit", "risk", "delta", "long_delta", "yield_bid", "iv_rank", "iv_pct", "spread_pct", "bid_size")
+_EXTRA_COLS = ", ".join(EXTRA_FIELDS)
+_EXTRA_MARKS = ",".join("?" * len(EXTRA_FIELDS))
+_EXTRA_SET = ", ".join(f"{f} = ?" for f in EXTRA_FIELDS)
 
 
 @dataclass(frozen=True)
@@ -45,10 +65,23 @@ class LoggedRow:
     yield_ann: Optional[float]
     dte: Optional[int]
     distance_pct: Optional[float]
+    credit: Optional[float] = None
+    risk: Optional[float] = None
+    delta: Optional[float] = None
+    long_delta: Optional[float] = None
+    yield_bid: Optional[float] = None
+    iv_rank: Optional[float] = None
+    iv_pct: Optional[float] = None
+    spread_pct: Optional[float] = None
+    bid_size: Optional[int] = None
 
     @property
     def key(self) -> tuple:
         return (self.ticker, self.expiry, self.strike, self.long_strike or 0.0)
+
+    @property
+    def extras(self) -> tuple:
+        return tuple(getattr(self, f) for f in EXTRA_FIELDS)
 
     @property
     def rejection_key(self) -> str:
@@ -59,7 +92,7 @@ class LoggedRow:
 def _row(r) -> LoggedRow:
     return LoggedRow(r["id"], r["profile"], r["kind"], r["ticker"], r["expiry"], r["strike"], r["long_strike"], r["first_seen"], r["last_seen"],
                      r["ended_at"], r["end_reason"], bool(r["active"]), r["first_price"], r["first_yield"], r["price"], r["yield_ann"], r["dte"],
-                     r["distance_pct"])
+                     r["distance_pct"], *(r[f] for f in EXTRA_FIELDS))
 
 
 class ScanLogRepo:
@@ -82,25 +115,25 @@ class ScanLogRepo:
             c = self.db.conn
             for h in appeared:
                 c.execute("INSERT INTO scan_log (profile, kind, ticker, expiry, strike, long_strike, first_seen, last_seen, first_price, first_yield,"
-                          " price, yield_ann, dte, distance_pct) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          " price, yield_ann, dte, distance_pct, " + _EXTRA_COLS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?," + _EXTRA_MARKS + ")",
                           (profile, kind, h.ticker, h.expiry, h.strike, h.long_strike, at, at, h.price, h.yield_ann, h.price, h.yield_ann, h.dte,
-                           h.distance_pct))
+                           h.distance_pct, *h.extras))
                 self._event(at, "aparece", profile, kind, h.ticker, h.expiry, h.strike, h.long_strike, None, h.price, h.yield_ann, h.dte,
-                            h.distance_pct)
+                            h.distance_pct, h.extras)
             for row, h in kept:
-                c.execute("UPDATE scan_log SET last_seen = ?, price = ?, yield_ann = ?, dte = ?, distance_pct = ? WHERE id = ?",
-                          (at, h.price, h.yield_ann, h.dte, h.distance_pct, row.id))
+                c.execute("UPDATE scan_log SET last_seen = ?, price = ?, yield_ann = ?, dte = ?, distance_pct = ?, " + _EXTRA_SET + " WHERE id = ?",
+                          (at, h.price, h.yield_ann, h.dte, h.distance_pct, *h.extras, row.id))
             for row, reason in vanished:
                 c.execute("UPDATE scan_log SET active = 0, ended_at = ?, end_reason = ? WHERE id = ?", (at, reason, row.id))
                 self._event(at, "desaparece", profile, kind, row.ticker, row.expiry, row.strike, row.long_strike, reason, row.price, row.yield_ann,
-                            row.dte, row.distance_pct)
+                            row.dte, row.distance_pct, row.extras)
             c.execute("INSERT INTO scan_runs (at, profile, kind, found, appeared, vanished, skipped_tickers) VALUES (?,?,?,?,?,?,?)",
                       (at, profile, kind, len(appeared) + len(kept), len(appeared), len(vanished), skipped_tickers))
 
-    def _event(self, at, event, profile, kind, ticker, expiry, strike, long_strike, reason, price, yield_ann, dte, distance_pct) -> None:
+    def _event(self, at, event, profile, kind, ticker, expiry, strike, long_strike, reason, price, yield_ann, dte, distance_pct, extras) -> None:
         self.db.conn.execute("INSERT INTO scan_events (at, event, profile, kind, ticker, expiry, strike, long_strike, reason, price, yield_ann, dte,"
-                             " distance_pct) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                             (at, event, profile, kind, ticker, expiry, strike, long_strike, reason, price, yield_ann, dte, distance_pct))
+                             " distance_pct, " + _EXTRA_COLS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?," + _EXTRA_MARKS + ")",
+                             (at, event, profile, kind, ticker, expiry, strike, long_strike, reason, price, yield_ann, dte, distance_pct, *extras))
 
     # ---- lo que aún no está en el Google Sheet ------------------------------------------------
     def unsynced_events(self, limit: int = 5000) -> list:

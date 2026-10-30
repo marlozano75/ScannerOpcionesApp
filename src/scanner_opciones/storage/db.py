@@ -279,6 +279,27 @@ MIGRATIONS: list[str] = [
         synced INTEGER NOT NULL DEFAULT 0
     );
     """,
+    # v31: el registro guarda también crédito, riesgo, deltas, yield bid anual, IV Rank/Percentile, spread bid/ask y bid size
+    """
+    ALTER TABLE scan_log ADD COLUMN credit REAL;
+    ALTER TABLE scan_log ADD COLUMN risk REAL;
+    ALTER TABLE scan_log ADD COLUMN delta REAL;
+    ALTER TABLE scan_log ADD COLUMN long_delta REAL;
+    ALTER TABLE scan_log ADD COLUMN yield_bid REAL;
+    ALTER TABLE scan_log ADD COLUMN iv_rank REAL;
+    ALTER TABLE scan_log ADD COLUMN iv_pct REAL;
+    ALTER TABLE scan_log ADD COLUMN spread_pct REAL;
+    ALTER TABLE scan_log ADD COLUMN bid_size INTEGER;
+    ALTER TABLE scan_events ADD COLUMN credit REAL;
+    ALTER TABLE scan_events ADD COLUMN risk REAL;
+    ALTER TABLE scan_events ADD COLUMN delta REAL;
+    ALTER TABLE scan_events ADD COLUMN long_delta REAL;
+    ALTER TABLE scan_events ADD COLUMN yield_bid REAL;
+    ALTER TABLE scan_events ADD COLUMN iv_rank REAL;
+    ALTER TABLE scan_events ADD COLUMN iv_pct REAL;
+    ALTER TABLE scan_events ADD COLUMN spread_pct REAL;
+    ALTER TABLE scan_events ADD COLUMN bid_size INTEGER;
+    """,
 ]
 
 
