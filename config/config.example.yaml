@@ -268,3 +268,6 @@ finnhub:
 #     enabled: false
 #     spreadsheet_id: ""      # trozo de la URL entre /d/ y /edit; comparte la hoja con el email de la cuenta de servicio (editor)
 #     credentials_file: config/google-credentials.json
+#     auth: service_account   # o `oauth` (tu cuenta de Google; si tu organización bloquea las claves de cuentas de servicio):
+#     oauth_client_file: config/google-oauth-client.json   #   ID de cliente OAuth de tipo «Aplicación de escritorio»
+#     oauth_token_file: config/google-oauth-token.json     #   se crea al ejecutar `python -m scanner_opciones.jobs.scan_log_sheets`

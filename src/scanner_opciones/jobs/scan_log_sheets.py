@@ -3,6 +3,7 @@ marcado sin sincronizar en SQLite y se reintenta en la pasada siguiente."""
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Callable, Optional
 
 from scanner_opciones.config.settings import SheetsSettings
@@ -41,9 +42,15 @@ def run_row(r) -> list:
     return [r["at"], r["profile"], r["kind"], r["found"], r["appeared"], r["vanished"], r["skipped_tickers"]]
 
 
-def _open_spreadsheet(cfg: SheetsSettings):
+def _open_spreadsheet(cfg: SheetsSettings, interactive: bool = False):
     import gspread      # import perezoso: solo hace falta con el volcado activado
-    return gspread.service_account(filename=cfg.credentials_file).open_by_key(cfg.spreadsheet_id)
+    if cfg.auth == "oauth":
+        if not interactive and not Path(cfg.oauth_token_file).exists():     # el navegador solo se abre desde la autorización manual, nunca en el ciclo
+            raise RuntimeError(f"falta autorizar tu cuenta de Google: ejecuta `python -m scanner_opciones.jobs.scan_log_sheets` ({cfg.oauth_token_file})")
+        client = gspread.oauth(credentials_filename=cfg.oauth_client_file, authorized_user_filename=cfg.oauth_token_file)
+    else:
+        client = gspread.service_account(filename=cfg.credentials_file)
+    return client.open_by_key(cfg.spreadsheet_id)
 
 
 class SheetsWriter:
@@ -85,3 +92,20 @@ class SheetsWriter:
         ws = self._tab(sheet, title, header)
         for i in range(0, len(rows), CHUNK):
             ws.append_rows(rows[i:i + CHUNK], value_input_option="USER_ENTERED")
+
+
+def authorize(config_path: str) -> int:
+    """Autorización única de OAuth: abre el navegador, guarda el token y comprueba que se ve la hoja."""
+    from scanner_opciones.config.settings import load_settings
+    cfg = load_settings(config_path).scan_log.sheets
+    if not cfg.spreadsheet_id:
+        print("Falta scan_log.sheets.spreadsheet_id en la configuración.")
+        return 1
+    sheet = _open_spreadsheet(cfg, interactive=True)
+    print(f"Conectado a «{sheet.title}». Ya puedes activar scan_log.sheets.enabled.")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    raise SystemExit(authorize(sys.argv[1] if len(sys.argv) > 1 else "config/config.yaml"))

@@ -157,7 +157,10 @@ class SheetsSettings(_Model):
     """Volcado del registro de escaneos a un Google Sheet (cuenta de servicio de Google; hace falta `pip install gspread`)."""
     enabled: bool = False
     spreadsheet_id: str = ""                                  # el trozo de la URL entre /d/ y /edit
+    auth: Literal["service_account", "oauth"] = "service_account"   # oauth: tu propia cuenta de Google (si la organización bloquea las claves de cuentas de servicio)
     credentials_file: str = "config/google-credentials.json"  # clave JSON de la cuenta de servicio (gitignored)
+    oauth_client_file: str = "config/google-oauth-client.json"   # ID de cliente OAuth («Aplicación de escritorio») descargado de Google Cloud (gitignored)
+    oauth_token_file: str = "config/google-oauth-token.json"     # autorización guardada tras `python -m scanner_opciones.jobs.scan_log_sheets` (gitignored)
 
 
 class ScanLogSettings(_Model):

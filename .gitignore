@@ -6,6 +6,8 @@ data/
 logs/
 config/config.yaml
 config/google-credentials.json
+config/google-oauth-client.json
+config/google-oauth-token.json
 .env
 *.egg-info/
 

@@ -143,3 +143,12 @@ async def test_volcado_a_sheets_y_reintento():
     assert len(sheet.tabs[ACTIVE_TAB].rows) == 2       # cabecera + 1 activo
     await job.run()                                     # sin novedades: no duplica eventos
     assert len(sheet.tabs[EVENTS_TAB].rows) == 2
+
+
+def test_oauth_sin_token_no_abre_el_navegador(tmp_path):
+    import pytest
+    from scanner_opciones.jobs.scan_log_sheets import _open_spreadsheet
+    pytest.importorskip("gspread")
+    cfg = SheetsSettings(enabled=True, spreadsheet_id="x", auth="oauth", oauth_token_file=str(tmp_path / "no-existe.json"))
+    with pytest.raises(RuntimeError, match="falta autorizar"):
+        _open_spreadsheet(cfg)

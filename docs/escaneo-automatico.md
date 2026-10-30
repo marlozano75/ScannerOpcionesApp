@@ -15,3 +15,8 @@ mercado cerrado se dejan como estaban (ni aparecen ni desaparecen): sus cotizaci
 **Google Sheets** (`scan_log.sheets`, `jobs/scan_log_sheets.py`; opcional): pestañas `Eventos` y `Escaneos` (se añaden filas nuevas) y `Activos` (se reescribe). Necesita
 `gspread` y una cuenta de servicio de Google con la hoja compartida como editor (clave JSON en `config/google-credentials.json`, ignorada por git). Si Google falla, lo pendiente
 (`synced = 0`) se reintenta en la pasada siguiente y el registro en SQLite no se pierde. No verificado contra un Google Sheet real.
+
+**OAuth en vez de cuenta de servicio** (`sheets.auth: oauth`, 2026-10-30): las organizaciones de Google Cloud recientes bloquean la creación de claves de cuentas de servicio
+(`iam.disableServiceAccountKeyCreation`). Con `oauth` se usa un ID de cliente de tipo «Aplicación de escritorio» (`oauth_client_file`) y la propia cuenta de Google del usuario, sin
+compartir la hoja con ningún email. Se autoriza UNA vez con `python -m scanner_opciones.jobs.scan_log_sheets` (abre el navegador y guarda `oauth_token_file`); el ciclo automático nunca
+abre el navegador: sin token falla con ese aviso. Con la pantalla de consentimiento en «Prueba», Google caduca el token a los 7 días: publícala («En producción»). No verificado contra Google.
