@@ -235,7 +235,7 @@
     {{ charts.weeks }}
     <details class="vtable"><summary>Ver como tabla</summary>
       <div class="scroll"><table>
-        <tr><th>Semana</th><th>Vencen</th>{% for s in all_sectors %}<th>{{ s }}</th>{% endfor %}<th>Total</th></tr>
+        <tr><th>Semana</th><th>Vencimientos</th>{% for s in all_sectors %}<th>{{ s }}</th>{% endfor %}<th>Total</th></tr>
         {% for w in weeks %}
           <tr{% if w.week_start <= today_date and (today_date - w.week_start).days < 7 %} class="hb-now"{% endif %}><td>{{ w.week_start }}</td><td>{% for d in w.expiries %}{{ d.strftime('%d/%m') }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
             {% for s in all_sectors %}<td>{{ (w.weights_pct.get(s))|pct(0) if w.total else '—' }}</td>{% endfor %}

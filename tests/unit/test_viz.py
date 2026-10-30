@@ -78,5 +78,5 @@ def test_sector_and_week_bars_write_the_tickers_under_each_bar():
     sectors = dash.sector_bars(sector_exposure(pos))
     assert 'class="hb-c">AAPL · MSFT · NVDA<' in str(sectors) and 'class="hb-c">XOM<' in str(sectors)
     weeks = dash.week_bars(weekly_sector_exposure(pos, date(2026, 9, 29), 2), date(2026, 9, 29))
-    assert 'class="hb-c">vence vie 02/10 · AAPL · MSFT · XOM<' in str(weeks) and "AAPL 20,000" in str(weeks)
-    assert "Sem. 28/09 · esta semana" in str(weeks) and str(weeks).count("hb-now") == 1       # solo la semana en curso, resaltada
+    assert 'class="hb-c">AAPL · MSFT · XOM<' in str(weeks) and "AAPL 20,000" in str(weeks)
+    assert "vie 02/10 · esta semana" in str(weeks) and str(weeks).count("hb-now") == 1       # solo la semana en curso, resaltada
