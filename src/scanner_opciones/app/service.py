@@ -48,6 +48,7 @@ from scanner_opciones.scanner import profiles as profiles_mod
 from scanner_opciones.scanner.profiles import Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.metrics import technical as ta
+from scanner_opciones.metrics.yields import reference_price
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.currency import Nlv
 from scanner_opciones.scanner.quality import put_floor_reject
@@ -240,6 +241,8 @@ class AppService:
         self._radar: Optional[tuple[float, RadarData]] = None
         self._radar_error: Optional[str] = None
         self._radar_syncing = False
+        self._radar_premiums: dict[tuple, float] = {}      # (ticker, vencimiento, vendida, comprada) -> crédito cotizado, para fichas de Tortuga sin prima
+        self._radar_quoted_stamp: Optional[str] = None
         self.watchlists = watchlists
         self._tasty_lists_syncing = False
         self._position_delta_keys: set[str] = set()      # puts cuya delta real se pidió en la última cotización
@@ -1480,7 +1483,69 @@ class AppService:
         return True
 
     def radar_spreads(self) -> Optional[RadarData]:
-        """Radar de Bull Put Spreads (JSON de la rutina), releído solo si el fichero cambió; si el nuevo es inválido se conserva el último bueno."""
+        """Radar de Bull Put Spreads con la prima de los spreads cuya ficha de Tortuga no la trae (`refresh_radar_premiums`) rellenada."""
+        data = self._radar_file()
+        if data is None or not self._radar_premiums:
+            return data
+        rows = tuple(replace(r, spread_premium=self._radar_premiums[k])
+                     if r.has_spread and r.spread_premium is None and (k := (r.ticker, r.spread_expiry, r.spread_short, r.spread_long)) in self._radar_premiums
+                     else r for r in data.rows)
+        return replace(data, rows=rows)
+
+    async def refresh_radar_premiums(self) -> None:
+        """Las fichas de Tortuga a veces llegan sin prima (PFE, ABNB, ADI…): se cotizan en directo (tastytrade) las dos patas del spread que
+        proponen y el crédito es lo que se vendería (precio de referencia del Scanner) menos el ask de la comprada. Solo en memoria; una sola
+        vez por fichero de radar. Un fallo del proveedor deja el crédito/ancho «sin dato»."""
+        data, provider = self._radar_file(), self.volatility
+        if data is None or provider is None or not all(hasattr(provider, m) for m in ("get_put_listing", "get_option_quotes")):
+            return
+        stamp = data.generated_at.isoformat()
+        if self._radar_quoted_stamp == stamp:
+            return
+        today = self.now().date()
+        todo = [r for r in data.rows if r.has_spread and r.spread_premium is None and r.spread_expiry is not None and r.spread_expiry >= today]
+        self._radar_quoted_stamp = stamp
+        if not todo:
+            return
+        sem = asyncio.Semaphore(4)
+
+        async def listing(ticker: str) -> dict:
+            async with sem:
+                try:
+                    return await provider.get_put_listing(ticker)
+                except Exception as exc:
+                    log.info("Radar: sin cadena de %s (%s)", ticker, exc)
+                    return {}
+
+        tickers = sorted({r.ticker for r in todo})
+        listings = dict(zip(tickers, await asyncio.gather(*(listing(t) for t in tickers))))
+        symbols: dict[str, None] = {}
+        legs = []
+        for r in todo:
+            lst = listings[r.ticker]
+            short, long = lst.get((r.spread_expiry, round(r.spread_short, 2))), lst.get((r.spread_expiry, round(r.spread_long, 2)))
+            if short and long:
+                legs.append((r, short, long))
+                symbols[short] = symbols[long] = None
+        try:
+            quotes = await provider.get_option_quotes(list(symbols)) if symbols else {}
+        except Exception as exc:
+            log.warning("Radar: no se pudieron cotizar las patas de los spreads: %s", exc)
+            self._radar_quoted_stamp = None
+            return
+        ref = self.criteria()
+        for r, short, long in legs:
+            qs, ql = quotes.get(short), quotes.get(long)
+            sell = reference_price(qs.bid, qs.ask, ref.price_reference, ref.price_spread_pct) if qs else None
+            if sell is None or ql is None or ql.ask is None or ql.ask <= 0:
+                continue
+            credit = sell - ql.ask
+            if credit > 0:
+                self._radar_premiums[(r.ticker, r.spread_expiry, r.spread_short, r.spread_long)] = credit
+        self.state.data_version += 1
+
+    def _radar_file(self) -> Optional[RadarData]:
+        """JSON del radar de Bull Put Spreads, releído solo si el fichero cambió; si el nuevo es inválido se conserva el último bueno."""
         path = Path(self.settings.tortuga.radar_path)
         try:
             mtime = path.stat().st_mtime
@@ -1531,6 +1596,24 @@ class AppService:
             return []
         minimum, min_cw = self.radar_min_yield(), self.radar_min_credit_width()
         return [r.ticker for r in data.rows if radar_passes(r, minimum, min_cw) and (kind is None or r.kind == kind)]
+
+    def radar_premiums_in_background(self) -> None:
+        """Lanza sin esperar la cotización de los spreads del radar sin prima (nada si ya se hizo con este fichero)."""
+        data = self._radar_file()
+        if data is None or self._radar_quoted_stamp == data.generated_at.isoformat():
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        async def run() -> None:
+            try:
+                await self.refresh_radar_premiums()
+            except Exception:
+                log.warning("Radar: no se pudo cotizar los spreads sin prima", exc_info=True)
+
+        self.launch(run())
 
     def sync_radar_in_background(self) -> None:
         if self._radar_syncing or self.radar_spreads() is None:

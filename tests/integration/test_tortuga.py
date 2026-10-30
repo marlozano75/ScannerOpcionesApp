@@ -416,3 +416,23 @@ def test_held_note_detail_lists_every_position_with_strikes_and_expiries(tmp_pat
     svc.state.positions = [Position("PLTR", 100, 1.0), Position("PLTR", -1, 1.0, option=OptionContract(ticker="PLTR", expiry=exp, strike=250, right=OptionRight.CALL))]
     short, detail = held_note(svc.held_tickers(), "PLTR", exp, 180)
     assert short == "ACC C" and "• 100 acciones" in detail and "• Call vendida 250, vence 18/12/2026 ×1" in detail
+
+
+async def test_a_card_without_premium_is_priced_with_the_live_quotes_of_its_legs(tmp_path):
+    from types import SimpleNamespace
+    svc, _, _ = make(tmp_path)
+    idea = {"strategy": "Bull Put Spread", "expiry": "2026-12-04", "dte": 35, "strikes": [27, 25], "premium_per_share": None}
+    (tmp_path / "radar.json").write_text(json.dumps(doc([row("PFE", idea=idea)])), encoding="utf-8")
+    assert svc.radar_spreads().rows[0].spread_credit_width_pct is None
+
+    class Provider:
+        async def get_put_listing(self, ticker):
+            return {(date(2026, 12, 4), 27.0): "S", (date(2026, 12, 4), 25.0): "L"}
+
+        async def get_option_quotes(self, symbols):
+            return {"S": SimpleNamespace(bid=0.60, ask=0.70), "L": SimpleNamespace(bid=0.10, ask=0.20)}
+
+    svc.volatility = Provider()
+    await svc.refresh_radar_premiums()
+    cw = svc.radar_spreads().rows[0].spread_credit_width_pct
+    assert cw is not None and 20 < cw < 30            # vende ~0,6-0,7 y compra a 0,20 sobre un ancho de 2

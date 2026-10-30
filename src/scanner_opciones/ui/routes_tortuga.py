@@ -59,6 +59,7 @@ def register(app, service, render, remembered) -> None:
             failed = [r.title for r in ROUTINES if states.get(r.key, {}).get("error")]
             message = (_grp("err", "Terminó con errores", failed, "mira la columna Resultado") if failed
                        else _grp("ok", "Terminada", [], "resultado actualizado"))
+        service.radar_premiums_in_background()
         data = service.radar_spreads()
         minimum, min_cw = service.radar_min_yield(), service.radar_min_credit_width()
         held = service.held_details()

@@ -17,11 +17,11 @@
       <div class="value">{{ status.nlv|money }} {{ status.currency }}</div>
       <div class="muted">{{ status.positions }} posición{{ '' if status.positions == 1 else 'es' }}{% if status.stock_value %} · acciones {{ status.stock_value|money }} ${% endif %}</div></div>
     <div class="metric"><div class="label" title="Pérdida máxima de los spreads (ancho − crédito) + capital de asignación de las puts desnudas (strike × multiplicador), sobre el NLV. El margen de IBKR es un dato distinto.">Riesgo total abierto</div>
-      {% if mgmt.risk_pct is not none %}<div class="value{{ ' pnl neg' if mgmt.risk_level else '' }}">{{ mgmt.total_risk|num }} $</div>
+      {% if mgmt.risk_pct is not none %}<div class="value{{ ' pnl neg' if mgmt.risk_level else '' }}">{{ mgmt.total_risk|money }} $</div>
       <div class="muted">{{ mgmt.risk_pct|pct }} del NLV{% if mgmt.risk_level %} · supera el {{ mgmt_cfg.max_total_risk_pct|round|int }} %{% endif %}</div>
       {% else %}<div class="value">—</div>{% endif %}</div>
     <div class="metric"><div class="label" title="Suma del margen conocido de las puts vendidas (spreads: pérdida máxima; puts desnudas: margen what-if guardado). No es el margen real de IBKR.">Margen comprometido</div>
-      {% if mgmt.margin_total %}<div class="value">{{ mgmt.margin_total|num(0) }} $</div>
+      {% if mgmt.margin_total %}<div class="value">{{ mgmt.margin_total|money }} $</div>
       <div class="muted">{% if mgmt.margin_pct is not none %}{{ mgmt.margin_pct|pct }} del NLV{% endif %}{% if mgmt.margin_missing %} · {{ mgmt.margin_missing }} sin margen calculado{% endif %}</div>
       {% else %}<div class="value">—</div>{% endif %}</div>
   </div>
