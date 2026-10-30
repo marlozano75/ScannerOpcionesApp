@@ -1,7 +1,7 @@
 """Gráficos del Panel: medidores de riesgo, exposición, VIX (cierres y curva de futuros), sectores y semanas."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from markupsafe import Markup
@@ -101,7 +101,15 @@ def sector_bars(sectors) -> Markup:
     return viz.hbars(rows, fmt=lambda v: f"{v:.1f} %", message="Sin posiciones", notes=notes)
 
 
-def week_bars(weeks) -> Markup:
+WEEKDAYS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
+
+
+def _expiry_days(days) -> str:
+    """«vence vie 30/10»: los días de la semana en que caducan las opciones."""
+    return "vence " + ", ".join(f"{WEEKDAYS[d.weekday()]} {_dm(d)}" for d in days) if days else ""
+
+
+def week_bars(weeks, today: Optional[date] = None) -> Markup:
     """Una barra por semana de vencimiento con el nominal de puts vendidas apilado por sector (los 7 mayores y «Otros»)."""
     totals: dict[str, float] = {}
     for w in weeks:
@@ -110,17 +118,20 @@ def week_bars(weeks) -> Markup:
     ranked = viz.top_with_other(totals, viz.SERIES)
     order = [name for name, _ in ranked]
     keep = set(order) - {viz.OTHER}
-    rows, notes, seg_notes = [], {}, {}
+    rows, notes, seg_notes, now = [], {}, {}, set()
     for w in weeks:
         merged: dict[str, float] = {}
         for sector, amount in w.amounts.items():
             key = sector if sector in keep else viz.OTHER
             merged[key] = merged.get(key, 0.0) + amount
-        label = f"Sem. {_dm(w.week_start)}"
+        current = today is not None and w.week_start <= today < w.week_start + timedelta(days=7)
+        label = f"Sem. {_dm(w.week_start)}" + (" · esta semana" if current else "")
+        if current:
+            now.add(label)
         rows.append((label, [(name, merged[name]) for name in order if name in merged], _money(w.total)))
         by = getattr(w, "tickers", {}) or {}
         if by:
-            notes[label] = _names(_merge(by, list(by)))
+            notes[label] = " · ".join(x for x in (_expiry_days(getattr(w, "expiries", ())), _names(_merge(by, list(by)))) if x)
             for name in merged:
                 seg_notes[(label, name)] = _detail(_merge(by, [s for s in by if s not in keep] if name == viz.OTHER else [name]))
-    return viz.stacked_hbars(rows, order, fmt=_money, message="Sin puts vendidas en estas semanas", notes=notes, seg_notes=seg_notes)
+    return viz.stacked_hbars(rows, order, fmt=_money, message="Sin puts vendidas en estas semanas", notes=notes, seg_notes=seg_notes, highlight=now)

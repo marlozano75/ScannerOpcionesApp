@@ -123,6 +123,8 @@
   .lg li { display:flex; align-items:center; gap:6px; } .lg i { width:10px; height:10px; border-radius:2px; display:inline-block; }
   .hb { display:flex; flex-direction:column; gap:7px; }
   .hb-row { display:grid; grid-template-columns:minmax(80px,40%) 1fr 48px; gap:10px; align-items:center; font-size:13px; border-radius:6px; }
+  tr.hb-now td { background:rgba(31,45,74,.07); font-weight:600; }
+  .hb-row.hb-now { background:rgba(31,45,74,.07); box-shadow:inset 3px 0 0 var(--viz-1,#2a5db0); font-weight:600; }
   .hb-row:hover { background:rgba(31,45,74,.05); }
   .hb-l { color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .hb-c { display:block; color:var(--mute); font-size:11px; line-height:1.25; overflow:hidden; text-overflow:ellipsis; }

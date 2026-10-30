@@ -12,7 +12,7 @@ from typing import Optional, Sequence
 
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import AccountSummary, Position
-from scanner_opciones.portfolio.spreads import with_spreads
+from scanner_opciones.portfolio.spreads import Combo, split_combos, split_spreads
 
 OTHERS = "Otros"
 
@@ -35,6 +35,7 @@ class OtherPosition:
     captured_pct: Optional[float]
     pct_nlv: Optional[float]            # |valor| sobre el NLV
     profile: str = OTHERS
+    strikes: Optional[str] = None       # combos: strikes de las patas ("100/105"); si los vencimientos difieren, también ellos
 
     @property
     def is_short_option(self) -> bool:
@@ -63,11 +64,38 @@ def _other_kind(p: Position) -> str:
     return f"{right} {'vendida' if p.quantity < 0 else 'comprada'}"
 
 
+def _combo_position(c: Combo, today: date, nlv_usd: Optional[float]) -> OtherPosition:
+    """Fila de un combo: precios netos por acción (débito o crédito, en positivo); sus patas se resumen en `strikes`."""
+    legs, n = c.legs, c.contracts
+    mult, fx = legs[0].option.multiplier, legs[0].fx
+    sign = lambda p: 1 if p.quantity > 0 else -1
+    value = sum(p.market_value for p in legs) * fx                       # >0 débito, <0 crédito
+    current = abs(sum(p.market_value for p in legs)) / (n * mult)
+    entry = cost = None
+    if all(p.avg_cost is not None for p in legs):
+        net = sum(sign(p) * abs(p.avg_cost) for p in legs)               # por contrato; >0 débito, <0 crédito
+        entry, cost = abs(net) / mult, net * n * fx
+    pnl = value - cost if cost is not None else None
+    pct = pnl / abs(cost) * 100 if pnl is not None and cost else None
+    credit = cost is not None and cost < 0
+    expiry = min(p.option.expiry for p in legs)
+    strikes = "/".join(f"{p.option.strike:g}" for p in sorted(legs, key=lambda p: p.option.strike))
+    if len({p.option.expiry for p in legs}) > 1:
+        strikes += " · " + " / ".join(p.option.expiry.strftime("%d/%m") for p in sorted(legs, key=lambda p: p.option.strike))
+    return OtherPosition(
+        legs[0].ticker, c.name, n, expiry, None, (expiry - today).days, entry, current, value, pnl, pct,
+        -cost if credit else None, pnl if credit else None, pct if credit else None,
+        abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, strikes=strikes)
+
+
 def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optional[float],
                     prices: Optional[dict[str, Optional[float]]] = None) -> list[OtherPosition]:
     """Todo lo que no es una put vendida (ni parte de un spread): acciones, calls y puts compradas sueltas. Más peso primero."""
     out = []
-    for p in with_spreads(positions):
+    rest, _ = split_spreads(positions)
+    rest, combos = split_combos(rest)
+    out.extend(_combo_position(c, today, nlv_usd) for c in combos)
+    for p in rest:
         if p.option is not None and p.option.right is OptionRight.PUT and p.quantity < 0:
             continue                                  # put vendida o spread: tabla de gestión
         if p.quantity == 0:

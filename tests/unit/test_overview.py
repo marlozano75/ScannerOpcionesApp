@@ -43,6 +43,23 @@ def test_bought_option_has_pnl_but_no_premium_captured():
     assert row.kind == "Call comprada" and row.pnl == pytest.approx(100.0) and row.captured is None and row.pct_nlv is None
 
 
+def test_option_combos_are_detected_and_valued_net():
+    c = lambda s, q, mv, avg: Position("AAPL", q, mv, option=opt(OptionRight.CALL, s), avg_cost=avg)
+    pt = lambda s, q, mv, avg: Position("AAPL", q, mv, option=opt(OptionRight.PUT, s), avg_cost=avg)
+    positions = [c(100.0, 1, 500.0, 400.0), c(110.0, -1, -200.0, 150.0),        # Call Debit Spread: débito 2,50 → 3,00
+                 pt(90.0, 2, 160.0, 100.0), pt(80.0, -2, -60.0, 40.0),          # Bear Put Spread x2: débito 0,60 → 0,50
+                 c(120.0, -1, -50.0, 80.0), c(125.0, 1, 20.0, 30.0)]            # Call Credit Spread: crédito 0,50 → 0,30
+    rows = {r.kind: r for r in other_positions(positions, TODAY, 20_000.0)}
+    assert set(rows) == {"Call Debit Spread", "Bear Put Spread", "Call Credit Spread"}
+    cds = rows["Call Debit Spread"]
+    assert cds.strikes == "100/110" and cds.entry == pytest.approx(2.5) and cds.current == pytest.approx(3.0)
+    assert cds.pnl == pytest.approx(50.0) and cds.premium is None
+    bps = rows["Bear Put Spread"]
+    assert bps.quantity == 2 and bps.pnl == pytest.approx(-20.0) and bps.current == pytest.approx(0.5)
+    ccs = rows["Call Credit Spread"]
+    assert ccs.premium == pytest.approx(50.0) and ccs.captured == pytest.approx(20.0)
+
+
 def test_put_status_reports_captured_amount_and_report_totals():
     puts = [Position("AAPL", -2, -300.0, option=opt(OptionRight.PUT, 90.0), avg_cost=300.0)]     # cobró 600, recomprar cuesta 300
     report = manage_puts(puts, 50_000.0, TODAY, {"AAPL": 100.0}, ManagementSettings())

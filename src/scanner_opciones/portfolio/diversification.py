@@ -81,6 +81,7 @@ class WeekExposure:
     total: float = 0.0
     weights_pct: dict[str, float] = field(default_factory=dict)  # peso del sector dentro de la semana
     tickers: dict[str, dict[str, float]] = field(default_factory=dict)  # sector → {ticker: nominal}
+    expiries: tuple[date, ...] = ()                          # días de la semana en que vencen puts vendidas
 
 
 def weekly_sector_exposure(positions: Iterable[Position], today: date, weeks: int) -> list[WeekExposure]:
@@ -89,19 +90,21 @@ def weekly_sector_exposure(positions: Iterable[Position], today: date, weeks: in
     start = week_start(today)
     buckets: list[dict[str, float]] = [defaultdict(float) for _ in range(weeks)]
     by_ticker: list[dict[str, dict[str, float]]] = [{} for _ in range(weeks)]
+    days: list[set[date]] = [set() for _ in range(weeks)]
     for p in positions:
         if not is_short_put(p):
             continue
         idx = (p.option.expiry - start).days // 7
         if 0 <= idx < weeks:
             buckets[idx][_sector(p)] += nominal(p)
+            days[idx].add(p.option.expiry)
             tk = by_ticker[idx].setdefault(_sector(p), {})
             tk[p.ticker] = tk.get(p.ticker, 0.0) + nominal(p)
     result = []
     for i, b in enumerate(buckets):
         total = sum(b.values())
         weights = {s: v / total * 100 for s, v in b.items()} if total > 0 else {}
-        result.append(WeekExposure(start + timedelta(days=7 * i), dict(b), total, weights, by_ticker[i]))
+        result.append(WeekExposure(start + timedelta(days=7 * i), dict(b), total, weights, by_ticker[i], tuple(sorted(days[i]))))
     return result
 
 

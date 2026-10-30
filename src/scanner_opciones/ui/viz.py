@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from html import escape
-from typing import Callable, Mapping, Optional, Sequence
+from typing import Callable, Collection, Mapping, Optional, Sequence
 
 from markupsafe import Markup
 
@@ -83,10 +83,11 @@ def hbars(rows: Sequence[tuple[str, float, str]], fmt: Callable[[float], str] = 
 
 def stacked_hbars(rows: Sequence[tuple[str, Sequence[tuple[str, float]], str]], order: Sequence[str],
                   fmt: Callable[[float], str] = lambda v: f"{v:.0f}", message: str = "Sin datos",
-                  notes: Optional[Mapping[str, str]] = None, seg_notes: Optional[Mapping[tuple[str, str], str]] = None) -> Markup:
+                  notes: Optional[Mapping[str, str]] = None, seg_notes: Optional[Mapping[tuple[str, str], str]] = None,
+                  highlight: Collection[str] = ()) -> Markup:
     """Una barra apilada por fila (etiqueta, [(serie, valor)], texto del total); la longitud es el total de la fila
     respecto al mayor. `order` fija el color de cada serie (la misma en todas las filas). `notes` pone un texto pequeño bajo la
-    etiqueta de la fila y `seg_notes[(fila, serie)]` añade detalle al tooltip del segmento."""
+    etiqueta de la fila y `seg_notes[(fila, serie)]` añade detalle al tooltip del segmento; las filas de `highlight` llevan la clase `hb-now`."""
     if not rows or not any(sum(v for _, v in segs) > 0 for _, segs, _ in rows):
         return empty(message)
     colors = {name: series_color(i) for i, name in enumerate(order)}
@@ -98,7 +99,7 @@ def stacked_hbars(rows: Sequence[tuple[str, Sequence[tuple[str, float]], str]], 
             f'<span class="sb-seg" tabindex="0" style="flex:{v:.4f} 1 0;background:{colors[name]}" '
             f'data-tip="{_tip(fmt(v), name, ' · '.join(x for x in (label, (seg_notes or {}).get((label, name))) if x))}"></span>' for name, v in segs if v > 0)
         out.append(
-            f'<div class="hb-row"><span class="hb-l">{_e(label)}{_note(notes, label)}</span>'
+            f'<div class="hb-row{" hb-now" if label in highlight else ""}"><span class="hb-l">{_e(label)}{_note(notes, label)}</span>'
             f'<span class="hb-t"><span class="sb-bar" style="width:{total / biggest * 100:.1f}%">{parts}</span></span>'
             f'<span class="hb-v">{_e(total_text)}</span></div>')
     out.append("</div>")

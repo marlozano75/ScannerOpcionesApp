@@ -78,9 +78,89 @@ def split_spreads(positions: Sequence[Position]) -> tuple[list[Position], list[S
     return rest, spreads
 
 
+@dataclass(frozen=True)
+class Combo:
+    """Combinación de opciones que no es un bull put spread: spread vertical de calls o de puts compradas (débito), calendario,
+    diagonal, straddle o strangle. `legs` lleva cada pata con la cantidad y el valor prorrateados."""
+    name: str
+    legs: tuple[Position, ...]
+
+    @property
+    def contracts(self) -> int:
+        return int(abs(self.legs[0].quantity))
+
+
+def _is_option(p: Position) -> bool:
+    return p.option is not None and p.quantity != 0
+
+
+def _pair(pool: list[list], pick, accept) -> list[tuple[Position, Position, float]]:
+    """Empareja patas de `pool` (listas [posición, cantidad libre]): para cada una, en orden, la mejor candidata según `pick`
+    entre las que cumplen `accept(a, b)`. Devuelve (a, b, contratos)."""
+    pairs = []
+    for ent in pool:
+        a = ent[0]
+        while ent[1] > 0:
+            cands = [e for e in pool if e is not ent and e[1] > 0 and accept(a, e[0])]
+            if not cands:
+                break
+            e = min(cands, key=lambda c: pick(a, c[0]))
+            n = min(ent[1], e[1])
+            pairs.append((a, e[0], n))
+            ent[1] -= n
+            e[1] -= n
+    return pairs
+
+
+def _name_vertical(long: Position, short: Position) -> str:
+    call = long.option.right is OptionRight.CALL
+    debit = (long.option.strike < short.option.strike) if call else (long.option.strike > short.option.strike)
+    if call:
+        return f"Call {'Debit' if debit else 'Credit'} Spread"
+    return "Bear Put Spread" if debit else "Bull Put Spread"
+
+
+def split_combos(positions: Sequence[Position]) -> tuple[list[Position], list[Combo]]:
+    """(posiciones que no forman combo, combos). Se aplica a lo que deja `split_spreads`. Orden de emparejado: verticales
+    (mismo vencimiento y derecho), straddle/strangle (mismo vencimiento, call y put del mismo signo) y calendarios/diagonales
+    (mismo derecho, distinto vencimiento, signo opuesto); dentro de cada paso, las patas con strikes más cercanos primero."""
+    opts = [[p, abs(p.quantity)] for p in positions if _is_option(p)]
+    rest = [p for p in positions if not _is_option(p)]
+    combos: list[Combo] = []
+
+    def run(group_key, accept, pick, name):
+        groups: dict[tuple, list[list]] = defaultdict(list)
+        for ent in opts:
+            if ent[1] > 0:
+                groups[group_key(ent[0])].append(ent)
+        for pool in groups.values():
+            for a, b, n in _pair(pool, pick, accept):
+                legs = (_part(a, n if a.quantity > 0 else -n), _part(b, n if b.quantity > 0 else -n))
+                combos.append(Combo(name(a, b), legs))
+
+    near = lambda a, b: abs(a.option.strike - b.option.strike)
+    opposite = lambda a, b: (a.quantity > 0) != (b.quantity > 0) and a.option.strike != b.option.strike
+    run(lambda p: (p.ticker, p.option.expiry, p.option.multiplier, p.option.right),
+        lambda a, b: a.quantity > 0 and b.quantity < 0 and opposite(a, b), near,
+        lambda a, b: _name_vertical(a, b))
+    run(lambda p: (p.ticker, p.option.expiry, p.option.multiplier),
+        lambda a, b: a.option.right is OptionRight.CALL and b.option.right is OptionRight.PUT and (a.quantity > 0) == (b.quantity > 0),
+        near, lambda a, b: f"{'Straddle' if a.option.strike == b.option.strike else 'Strangle'} {'comprado' if a.quantity > 0 else 'vendido'}")
+    run(lambda p: (p.ticker, p.option.multiplier, p.option.right),
+        lambda a, b: a.quantity > 0 and b.quantity < 0 and a.option.expiry != b.option.expiry,
+        lambda a, b: (abs(a.option.strike - b.option.strike), abs((a.option.expiry - b.option.expiry).days)),
+        lambda a, b: "Calendar Spread" if a.option.strike == b.option.strike else "Diagonal Spread")
+    for p, left in opts:
+        if left > 0:
+            rest.append(p if left == abs(p.quantity) else _part(p, left if p.quantity > 0 else -left))
+    return rest, combos
+
+
 def with_spreads(positions: Sequence[Position]) -> list[Position]:
-    """Las posiciones con cada spread fundido en una sola put vendida cuyo nominal es el ancho (para exposición y apalancamiento)."""
+    """Las posiciones con cada spread fundido en una sola put vendida cuyo nominal es el ancho (para exposición y apalancamiento).
+    Las patas de otros combos (`split_combos`) no salen: no son puts vendidas sueltas."""
     rest, spreads = split_spreads(positions)
+    rest, _ = split_combos(rest)
     return rest + [s.combined() for s in spreads]
 
 
