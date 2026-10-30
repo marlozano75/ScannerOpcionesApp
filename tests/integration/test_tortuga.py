@@ -436,3 +436,15 @@ async def test_a_card_without_premium_is_priced_with_the_live_quotes_of_its_legs
     await svc.refresh_radar_premiums()
     cw = svc.radar_spreads().rows[0].spread_credit_width_pct
     assert cw is not None and 20 < cw < 30            # vende ~0,6-0,7 y compra a 0,20 sobre un ancho de 2
+
+
+async def test_radar_premiums_are_net_of_the_opening_commission(tmp_path):
+    svc, _, _ = make(tmp_path)
+    idea = {"strategy": "Bull Put Spread", "expiry": "2026-12-04", "dte": 35, "strikes": [180, 170], "premium_per_share": 3.85}
+    (tmp_path / "radar.json").write_text(json.dumps(doc([row("MPC", idea=idea)])), encoding="utf-8")
+    r = svc.radar_spreads().rows[0]
+    assert r.net_of_commissions and abs(r.put_mid - (15.0 - 0.0105)) < 1e-9 and abs(r.spread_premium - (3.85 - 0.011)) < 1e-9
+    assert abs(r.distance_pct - (476.65 - (440.0 - r.put_mid)) / 476.65 * 100) < 1e-9                  # descuento hasta el breakeven
+    off = Settings.model_validate({"commissions": {"enabled": False}, "tortuga": {"radar_path": str(tmp_path / "radar.json")}})
+    svc.settings = off
+    assert svc.radar_spreads().rows[0].put_mid == 15.0 and not svc.radar_spreads().rows[0].net_of_commissions

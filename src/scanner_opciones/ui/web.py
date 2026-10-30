@@ -44,6 +44,7 @@ from scanner_opciones.scanner.profile_marks import row_key, row_marks
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.portfolio.overview import other_positions, portfolio_status
+from scanner_opciones.scanner.criteria import commission_model
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, routes_historico, routes_tortuga, routes_universe, scanner_parse, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
@@ -264,7 +265,8 @@ def create_app(
         mgmt = manage_puts(service.state.positions, nlv, service.now().date(),
                            {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
                            service.put_management(), service.put_assignments(), service.put_open_dates(), service.put_margins(),
-                           service.put_assignment_notes(), service.put_exit_rules(), service.defense_context(), service.state.position_deltas)
+                           service.put_assignment_notes(), service.put_exit_rules(), service.defense_context(), service.state.position_deltas,
+                           commission_model(service.settings))
         today = service.now().date()
         others = other_positions(service.state.positions, today, nlv,
                                  {t: i.underlying_price for t, i in service.ticker_info.all().items()})
@@ -376,7 +378,7 @@ def create_app(
         for p in get_profiles()[0]:
             if p.fallback:
                 continue
-            crit = {inst: parse_scan({"submitted": "1", "mode": inst, **p.set_params(inst)}, inst)["criteria"] if inst in p.instruments else None
+            crit = {inst: parse_scan({"submitted": "1", "mode": inst, "profile": p.name, **p.set_params(inst)}, inst)["criteria"] if inst in p.instruments else None
                     for inst in ("put", "spread")}
             out.append((p.name, crit["put"], crit["spread"]))
         return out
@@ -394,7 +396,7 @@ def create_app(
         sets, errors = [], []
         for p in chosen:
             for inst in p.instruments:
-                parsed = parse_scan({"submitted": "1", "mode": inst, **p.set_params(inst)}, inst)
+                parsed = parse_scan({"submitted": "1", "mode": inst, "profile": p.name, **p.set_params(inst)}, inst)
                 if parsed["criteria"] is None:
                     errors.append(f"{p.name} ({'put' if inst == 'put' else 'spread'}): {parsed['error']}")
                 else:

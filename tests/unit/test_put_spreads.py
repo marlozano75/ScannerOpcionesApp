@@ -9,7 +9,7 @@ from scanner_opciones.scanner.engine import run_scan
 
 TODAY = date(2026, 10, 6)
 NOW = datetime(2026, 10, 6, 12, 0)
-BASE = criteria_from_settings(Settings()).with_filters(
+BASE = criteria_from_settings(Settings()).with_filters(commission=None, 
     strike_below_pct_min=0, dte_min=1, dte_max=60, min_yield_pct=50.0, price_reference=PriceReference.BID,
     min_bid=None, spread_mode=True, spread_widths=(5.0,))
 INFO = {"AAPL": TickerInfo("AAPL", underlying_price=100.0)}

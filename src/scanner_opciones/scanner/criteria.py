@@ -6,6 +6,7 @@ from typing import Optional
 
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.enums import PriceReference
+from scanner_opciones.metrics.commissions import CommissionModel
 
 
 MA_LINES = {"ma50": ("sma", 50), "ma100": ("sma", 100), "ma200": ("sma", 200), "ema9": ("ema", 9), "ema20": ("ema", 20)}
@@ -154,6 +155,8 @@ class ScanCriteria:
             or any(getattr(self, k) != "any" for k in (*MA_LINES, *MA_CROSSES, *MA_SLOPES))
         )
     price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD
+    commission: Optional[CommissionModel] = None   # comisiones de apertura que se restan de la prima (None = prima bruta)
+    exit_commission: bool = False                  # el perfil sale antes del vencimiento (recoger al X %, revisar a N DTE): se resta también la comisión de cierre
     price_spread_pct: float = 25.0
     min_put_credit: Optional[float] = None         # crédito mínimo de la put desnuda: precio de venta de referencia × multiplicador, en $
     max_capital_risk_pct: Optional[float] = None   # capital en riesgo de la put desnuda ((strike − prima) × multiplicador) como % del NLV; sin NLV en USD no se aplica
@@ -180,6 +183,12 @@ class ScanCriteria:
     min_return_on_risk_pct: Optional[float] = None  # crédito / pérdida máxima mínimo (%)
     max_loss_nlv_pct: Optional[float] = None       # pérdida máxima del spread como % del NLV
 
+    def cost_ps(self, multiplier: float, legs: int = 1) -> float:
+        """Comisiones por acción que se restan de la prima: la apertura y, si el perfil sale antes del vencimiento, también el cierre."""
+        if self.commission is None:
+            return 0.0
+        return self.commission.per_share(multiplier, legs, 2 if self.exit_commission else 1)
+
     @property
     def floor_active(self) -> bool:
         return self.floor_eps or self.floor_quarters > 0 or self.floor_fcf
@@ -187,6 +196,11 @@ class ScanCriteria:
     def with_filters(self, **overrides) -> "ScanCriteria":
         """Copia con filtros modificados (p. ej. desde la UI)."""
         return replace(self, **overrides)
+
+
+def commission_model(settings: Settings) -> Optional[CommissionModel]:
+    c = settings.commissions
+    return CommissionModel(c.per_contract, c.min_per_order, c.fees_per_contract, c.contracts) if c.enabled else None
 
 
 def criteria_from_settings(settings: Settings) -> ScanCriteria:
@@ -210,6 +224,7 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
         manageable_min_cover=settings.scanner.quality.manageable_debt.min_interest_coverage,
         price_reference=settings.scanner.price_reference.mode,
         price_spread_pct=settings.scanner.price_reference.spread_pct,
+        commission=commission_model(settings),
     )
 
 

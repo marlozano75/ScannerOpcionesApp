@@ -271,3 +271,13 @@ finnhub:
 #     auth: service_account   # o `oauth` (tu cuenta de Google; si tu organización bloquea las claves de cuentas de servicio):
 #     oauth_client_file: config/google-oauth-client.json   #   ID de cliente OAuth de tipo «Aplicación de escritorio»
 #     oauth_token_file: config/google-oauth-token.json     #   se crea al ejecutar `python -m scanner_opciones.jobs.scan_log_sheets`
+
+# Comisiones de IBKR (tarifa fija de IBKR Pro, medida con las ejecuciones reales): se restan de la prima en el yield, el crédito/ancho, el
+# retorno/riesgo y el descuento (que pasa a medirse hasta el breakeven con la prima neta). Los perfiles que salen antes del vencimiento
+# (recoger al X %, revisar a N DTE) descuentan además la comisión de cierre. Solo opciones de EE. UU.; enabled: false = prima bruta.
+# commissions:
+#   enabled: true
+#   per_contract: 0.65
+#   min_per_order: 1.0
+#   fees_per_contract: 0.05
+#   contracts: 1            # contratos por orden con los que se reparte el mínimo

@@ -49,6 +49,7 @@ from scanner_opciones.scanner.profiles import Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.metrics import technical as ta
 from scanner_opciones.metrics.yields import reference_price
+from scanner_opciones.scanner.criteria import commission_model
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.currency import Nlv
 from scanner_opciones.scanner.quality import put_floor_reject
@@ -1488,12 +1489,30 @@ class AppService:
     def radar_spreads(self) -> Optional[RadarData]:
         """Radar de Bull Put Spreads con la prima de los spreads cuya ficha de Tortuga no la trae (`refresh_radar_premiums`) rellenada."""
         data = self._radar_file()
-        if data is None or not self._radar_premiums:
+        if data is None:
             return data
-        rows = tuple(replace(r, spread_premium=self._radar_premiums[k])
-                     if r.has_spread and r.spread_premium is None and (k := (r.ticker, r.spread_expiry, r.spread_short, r.spread_long)) in self._radar_premiums
-                     else r for r in data.rows)
-        return replace(data, rows=rows)
+        com = commission_model(self.settings)
+        rows = []
+        for r in data.rows:
+            if r.has_spread and r.spread_premium is None and (k := (r.ticker, r.spread_expiry, r.spread_short, r.spread_long)) in self._radar_premiums:
+                r = replace(r, spread_premium=self._radar_premiums[k])
+            if com is not None:      # prima neta de la comisión de apertura (el spread, una sola orden combo)
+                r = self._radar_net(r, com)
+            rows.append(r)
+        return replace(data, rows=tuple(rows))
+
+    @staticmethod
+    def _radar_net(r, com):
+        changes: dict = {"net_of_commissions": True}
+        if r.put_mid is not None:
+            changes["put_mid"] = r.put_mid - com.per_share(100, 1)
+        if r.spread_premium is not None and r.has_spread:
+            net = r.spread_premium - com.per_share(100, 2)
+            changes["spread_premium"] = net
+            width = r.spread_short - r.spread_long
+            if r.spread_dte and 0 < net < width:       # rendimiento anualizado sobre el riesgo con la prima neta (Tortuga calcula el suyo con la bruta)
+                changes["spread_annual_pct"] = net / (width - net) * 100 * 365 / r.spread_dte
+        return replace(r, **changes)
 
     async def refresh_radar_premiums(self) -> None:
         """Las fichas de Tortuga a veces llegan sin prima (PFE, ABNB, ADI…): se cotizan en directo (tastytrade) las dos patas del spread que
@@ -1995,7 +2014,8 @@ class AppService:
             for t, bars in live[4].items():
                 closes.setdefault(t, bars)
         ref = self.criteria()
-        views = evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct)
+        views = evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct,
+                               commission=ref.commission)
         sc = self.settings.scanner
         prices = self._profile_price_ranges()
         specs = self.profile_specs()
@@ -2007,6 +2027,16 @@ class AppService:
         """Filtros GRABADOS ahora en cada perfil del Scanner (sin el de las puts que no encajan): (nombre, criterios de put | None, criterios de
         spread | None). Los lee la interfaz web (`profile_criteria_provider`); sin ella, lista vacía."""
         return self.profile_criteria_provider() if self.profile_criteria_provider is not None else []
+
+    def profile_exits_early(self, name: Optional[str]) -> bool:
+        """¿Sale el perfil `name` antes del vencimiento (recoger al X %, revisar a N DTE)? Entonces su yield descuenta también la comisión de cierre.
+        Sin perfil (filtros a mano) o con uno que mantiene hasta el vencimiento (TPC), solo cuenta la de apertura."""
+        if not name or self.profile_provider is None:
+            return False
+        for p in self.profile_provider()[0]:
+            if p.name == name:
+                return not p.exit_rules(self.settings.management).holds_to_expiry
+        return False
 
     def fit_names(self) -> list[str]:
         """Nombres de las columnas de «filtros cumplidos» de Ideas y Tortuga: los perfiles guardados o, sin ellos, los de la configuración."""

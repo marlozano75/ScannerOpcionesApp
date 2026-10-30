@@ -16,7 +16,7 @@ class Crit:
 
 
 def result(ticker, strike, expiry=date(2026, 11, 20)):
-    return NS(snapshot=NS(contract=NS(ticker=ticker, expiry=expiry, strike=strike)), reference_price=1.5, yield_ref_annualized_pct=30.0, dte=22,
+    return NS(snapshot=NS(contract=NS(ticker=ticker, expiry=expiry, strike=strike)), reference_price=1.5, net_price=1.5, yield_ref_annualized_pct=30.0, dte=22,
               strike_distance_pct=12.0)
 
 

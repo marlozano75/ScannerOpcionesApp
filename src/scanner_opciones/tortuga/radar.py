@@ -89,6 +89,7 @@ class RadarRow:
     spread_dte: Optional[int] = None
     spread_premium: Optional[float] = None
     spread_annual_pct: Optional[float] = None   # rendimiento anualizado sobre el riesgo que calcula Tortuga para ese spread
+    net_of_commissions: bool = False            # `put_mid` y `spread_premium` ya van sin las comisiones (las resta el servicio) y las distancias llegan al breakeven
 
     @property
     def has_spread(self) -> bool:
@@ -104,10 +105,11 @@ class RadarRow:
 
     @property
     def spread_distance_pct(self) -> Optional[float]:
-        """% del strike vendido del spread por debajo del precio."""
+        """% del strike vendido del spread por debajo del precio (con comisiones, del breakeven: strike vendido − prima neta)."""
         if self.spread_short is None or not self.price or self.price <= 0:
             return None
-        return (self.price - self.spread_short) / self.price * 100
+        strike = self.spread_short - (self.spread_premium or 0.0) if self.net_of_commissions else self.spread_short
+        return (self.price - strike) / self.price * 100
 
     @property
     def kind(self) -> str:
@@ -128,10 +130,11 @@ class RadarRow:
 
     @property
     def distance_pct(self) -> Optional[float]:
-        """% del strike de 30Δ por debajo del precio."""
+        """% del strike de 30Δ por debajo del precio (con comisiones, del breakeven: strike − prima neta)."""
         if self.put_strike is None or not self.price or self.price <= 0:
             return None
-        return (self.price - self.put_strike) / self.price * 100
+        strike = self.put_strike - (self.put_mid or 0.0) if self.net_of_commissions else self.put_strike
+        return (self.price - strike) / self.price * 100
 
 
 def _opt_int(value: Any) -> Optional[int]:

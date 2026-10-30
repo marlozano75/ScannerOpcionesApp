@@ -16,6 +16,7 @@ from datetime import date
 from typing import Optional, Sequence
 
 from scanner_opciones.config.settings import ManagementSettings
+from scanner_opciones.metrics.commissions import CommissionModel
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import Position
 from scanner_opciones.portfolio import defense as defense_mod
@@ -177,18 +178,22 @@ def committed_margin(p: Position, entry: Optional[float], contracts: int, what_i
 
 def put_status(p: Position, today: date, underlying: Optional[float], cfg: ManagementSettings, profile: str = TASTYTRADE,
                what_if_margin: Optional[float] = None, rules: Optional[ExitRules] = None, defense_ctx: Optional[dict] = None,
-               live_delta: Optional[float] = None) -> PutStatus:
+               live_delta: Optional[float] = None, commission: Optional[CommissionModel] = None) -> PutStatus:
     """`rules`: estrategia de salida del perfil de la put; sin ella, la del estilo `profile` (tastytrade | tpc) con los valores de `cfg`.
     `defense_ctx`: datos del subyacente para la defensa (`iv_rank`, `iv30` en fracción, `next_earnings`, `ex_dividend_in`).
-    `live_delta`: |delta| real de la put (cotización de tastytrade); sin ella la defensa la estima con Black-Scholes."""
+    `live_delta`: |delta| real de la put (cotización de tastytrade); sin ella la defensa la estima con Black-Scholes.
+    `commission`: tarifa de IBKR. Si la estrategia de salida cierra antes del vencimiento, lo capturado descuenta la comisión de recomprar (una orden;
+    un spread, una sola orden combo): es lo que te quedaría de verdad al recoger. La de apertura ya está pagada y no se resta."""
     o = p.option
     contracts = int(abs(p.quantity))
     dte = (o.expiry - today).days
     per_share = contracts * o.multiplier
     current = abs(p.market_value) / per_share if per_share else None
     entry = abs(p.avg_cost) / o.multiplier if p.avg_cost else None
-    captured = (entry - current) / entry * 100 if entry and current is not None else None
     r = rules or style_rules(profile, cfg)
+    exit_ps = (replace(commission, contracts=contracts).per_share(o.multiplier, 2 if p.hedge_strike is not None else 1)
+               if commission is not None and not r.holds_to_expiry else 0.0)
+    captured = (entry - current - exit_ps) / entry * 100 if entry and current is not None else None
     alerts: list[Alert] = []
     if r.take_profit_pct is not None and captured is not None and captured >= r.take_profit_pct:
         rango = f"{r.take_profit_pct:g}–{r.take_profit_max_pct:g} %" if r.take_profit_max_pct else f"{r.take_profit_pct:g} %"
@@ -235,7 +240,7 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         elif (underlying - o.strike) / underlying * 100 < cfg.near_strike_pct:
             alerts.append(Alert("info", f"El precio ({underlying:g}) está a menos de {cfg.near_strike_pct:g} % del strike."))
     premium = entry * per_share if entry else None
-    amount = (entry - current) * per_share if entry and current is not None else None
+    amount = (entry - current - exit_ps) * per_share if entry and current is not None else None
     return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts), p.hedge_strike,
                      profile, put_key(p), margin=committed_margin(p, entry, contracts, what_if_margin), margin_exact=spread, rules=r, defense=defense,
                      premium_amount=premium, captured_amount=amount, fx=p.fx)
@@ -280,6 +285,7 @@ def manage_puts(
     assigned: Optional[dict[str, str]] = None, opened: Optional[dict[str, tuple[date, bool]]] = None,
     margins: Optional[dict[str, float]] = None, notes: Optional[dict[str, str]] = None, rules: Optional[dict[str, ExitRules]] = None,
     defense_ctx: Optional[dict[str, dict]] = None, live_deltas: Optional[dict[str, float]] = None,
+    commission: Optional[CommissionModel] = None,
 ) -> ManagementReport:
     """`profiles`: perfil de gestión elegido por put (`put_key`); las que no están usan `cfg.default_profile`.
     `rules`: estrategia de salida de cada put (`put_key`, la de su perfil); las que no están usan la del estilo.
@@ -288,7 +294,7 @@ def manage_puts(
     positions = with_spreads(positions)     # cada spread es una sola fila: prima y valor netos, riesgo = ancho
     profiles = profiles or {}
     assigned, opened, margins, notes, rules = assigned or {}, opened or {}, margins or {}, notes or {}, rules or {}
-    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile), margins.get(put_key(p)), rules.get(put_key(p)), (defense_ctx or {}).get(p.ticker), (live_deltas or {}).get(put_key(p))),
+    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile), margins.get(put_key(p)), rules.get(put_key(p)), (defense_ctx or {}).get(p.ticker), (live_deltas or {}).get(put_key(p)), commission),
                            assigned=assigned.get(put_key(p), ""), assign_note=notes.get(put_key(p), ""), opened=opened.get(put_key(p), (None, False))[0],
                            opened_exact=opened.get(put_key(p), (None, False))[1])
                    for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))

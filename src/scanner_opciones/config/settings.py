@@ -163,6 +163,17 @@ class SheetsSettings(_Model):
     oauth_token_file: str = "config/google-oauth-token.json"     # autorización guardada tras `python -m scanner_opciones.jobs.scan_log_sheets` (gitignored)
 
 
+class CommissionSettings(_Model):
+    """Comisiones de IBKR (tarifa fija de IBKR Pro, medida con las ejecuciones reales de la cuenta, ver `metrics/commissions.py`). Se restan de la prima en
+    el yield, el crédito/ancho, el retorno/riesgo y el descuento (que pasa a medirse hasta el punto de equilibrio con la prima neta). Solo opciones de EE. UU.
+    Con `enabled: false` todo vuelve a calcularse con la prima bruta."""
+    enabled: bool = True
+    per_contract: float = Field(0.65, ge=0)
+    min_per_order: float = Field(1.0, ge=0)
+    fees_per_contract: float = Field(0.05, ge=0)
+    contracts: int = Field(1, ge=1)         # contratos por orden con los que se reparte el mínimo (más contratos = menos comisión por contrato)
+
+
 class ScanLogSettings(_Model):
     """Escaneo automático de perfiles con registro de cuándo aparece y desaparece cada contrato (y por qué). Solo se evalúan los tickers
     cuyo mercado está abierto (EE. UU. o el horario propio de cada instrumento europeo); los demás se dejan como estaban."""
@@ -910,6 +921,7 @@ class Settings(_Model):
     super_investors: SuperInvestorsSettings = SuperInvestorsSettings()
     europe: EuropeSettings = EuropeSettings()
     scan_log: ScanLogSettings = ScanLogSettings()
+    commissions: CommissionSettings = CommissionSettings()
     instruments: dict[str, InstrumentSettings] = Field(default_factory=default_instruments)   # índices y otros subyacentes de TWS (ticker de la app -> ajustes)
 
     @property

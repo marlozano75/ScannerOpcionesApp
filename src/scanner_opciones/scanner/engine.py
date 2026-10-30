@@ -8,7 +8,7 @@ from typing import Optional, Sequence
 from scanner_opciones.domain.models import ContractSnapshot, Position, TickerInfo
 from scanner_opciones.domain.enums import PriceReference
 from scanner_opciones.metrics.yields import (
-    annualized_yield_pct, gross_yield_ref_pct, reference_price, strike_distance_pct,
+    annualized_yield_pct, effective_discount_pct, net_yield_ref_pct, reference_price, strike_distance_pct,
 )
 from scanner_opciones.portfolio.diversification import CandidateImpact, candidate_impact
 from scanner_opciones.scanner.criteria import ScanCriteria
@@ -33,6 +33,8 @@ class ScanResult:
     yield_ref_annualized_pct: Optional[float] = None
     yield_bid_pct: Optional[float] = None         # yield vendiendo al bid (para comparar)
     yield_bid_annualized_pct: Optional[float] = None
+    net_price: Optional[float] = None             # prima neta por acción: precio de venta de referencia − comisiones (igual al de referencia sin comisiones)
+    commission: float = 0.0                       # comisiones por acción que se restaron (apertura y, si el perfil sale antes del vencimiento, cierre)
 
 
 @dataclass(frozen=True)
@@ -105,12 +107,18 @@ def build_result(
     impact = candidate_impact(positions, info.sector if info else None, c.strike, c.multiplier * usd_rate(nlv_usd, c.ticker), c.expiry)
     dte = c.dte(today)
     ref = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct)
-    y_ref = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)
+    cost = criteria.cost_ps(c.multiplier)
+    net = ref - cost if ref is not None else None
+    y_ref = net_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct, cost)
     # un bid de 0 no se puede vender: el yield al bid no existe («—»), no vale 0,00 %
-    y_bid = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, PriceReference.BID) if snap.bid and snap.bid > 0 else None
+    y_bid = net_yield_ref_pct(snap.bid, snap.ask, c.strike, PriceReference.BID, 25.0, cost) if snap.bid and snap.bid > 0 else None
+    discount = strike_distance_pct(price, c.strike)
+    if criteria.commission is not None and net is not None:      # con comisiones el descuento llega al punto de equilibrio con la prima neta
+        discount = effective_discount_pct(price, c.strike, net)
     return ScanResult(
-        snap, info, dte, strike_distance_pct(price, c.strike), impact,
+        snap, info, dte, discount, impact,
         reference_price=ref, yield_ref_pct=y_ref,
         yield_ref_annualized_pct=annualized_yield_pct(y_ref, dte),
         yield_bid_pct=y_bid, yield_bid_annualized_pct=annualized_yield_pct(y_bid, dte),
+        net_price=net, commission=cost,
     )

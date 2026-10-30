@@ -30,6 +30,8 @@ class SpreadResult:
     breakeven: float                 # strike vendido − crédito
     breakeven_distance_pct: Optional[float]   # % por debajo del precio actual
     assignment_pct_of_portfolio: Optional[float]   # nominal = ancho
+    discount_pct: Optional[float] = None           # descuento: del strike vendido; con comisiones, del breakeven (strike − crédito neto)
+    commission: float = 0.0                        # comisiones por acción restadas del crédito (las dos patas; cierre incluido si el perfil sale antes)
 
 
 def combo_spread_pct(short: ContractSnapshot, long: ContractSnapshot, credit: float) -> float:
@@ -88,9 +90,9 @@ def build_profile_rows(
         c = r.snapshot.contract
         weight = (held.get(c.ticker, 0.0) + c.strike * c.multiplier * usd_rate(nlv_usd, c.ticker)) / nlv_usd * 100 if nlv_usd else None
         margin = r.snapshot.initial_margin
-        ror = (r.reference_price * c.multiplier / margin * 365 / r.dte
-               if margin and margin > 0 and r.reference_price and r.dte > 0 else None)
-        rows.append(ProfileRow("put", r, None, r.reference_price or 0.0, margin, ror * 100 if ror is not None else None, weight, "", tuple(names)))
+        ror = (r.net_price * c.multiplier / margin * 365 / r.dte
+               if margin and margin > 0 and r.net_price and r.dte > 0 else None)
+        rows.append(ProfileRow("put", r, None, r.net_price or 0.0, margin, ror * 100 if ror is not None else None, weight, "", tuple(names)))
     for sp, names in spread_hits.values():
         c = sp.short.snapshot.contract
         w = (held.get(c.ticker, 0.0) + sp.width * c.multiplier * usd_rate(nlv_usd, c.ticker)) / nlv_usd * 100 if nlv_usd else None
@@ -123,7 +125,8 @@ def build_spreads(
             if criteria.max_long_spread_pct is not None:   # un ask sin bid no es un mercado: spread de 200 % o más
                 if long.bid is None or long.bid <= 0 or (long.ask - long.bid) / mid_price(long.bid, long.ask) * 100 > criteria.max_long_spread_pct + EPS:
                     continue
-            credit = sell - long.ask
+            cost = criteria.cost_ps(sc.multiplier, legs=2)      # un spread se envía como una sola orden combo: un solo mínimo y las tasas de las dos patas
+            credit = sell - long.ask - cost
             max_loss_ps = width - credit
             if credit <= EPS or max_loss_ps <= EPS:
                 continue
@@ -146,10 +149,13 @@ def build_spreads(
                 continue
             breakeven = sc.strike - credit
             price = r.info.underlying_price if r.info else None
+            discount = (price - breakeven) / price * 100 if price and criteria.commission is not None else r.strike_distance_pct
+            if criteria.commission is not None and discount is not None and discount < criteria.strike_below_pct_min - EPS:
+                continue        # con comisiones el descuento mínimo se mide hasta el breakeven con el crédito neto del spread
             impact = candidate_impact(positions, r.info.sector if r.info else None, width, sc.multiplier * rate, sc.expiry)
             out.append(SpreadResult(
                 r, long, width, credit, max_loss, credit_width, ror, ror * 365 / r.dte if r.dte > 0 else 0.0,
-                breakeven, (price - breakeven) / price * 100 if price else None, impact.assignment_pct_of_portfolio,
+                breakeven, (price - breakeven) / price * 100 if price else None, impact.assignment_pct_of_portfolio, discount, cost,
             ))
     out.sort(key=lambda s: s.return_on_risk_annualized_pct, reverse=True)
     if criteria.best_width:   # ya ordenado: el primero de cada put vendida es el de mayor retorno

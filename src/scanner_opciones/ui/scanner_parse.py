@@ -262,7 +262,7 @@ def parse_scan(service, qp, set_name: str = "put") -> dict:
                 if not widths or any(w <= 0 for w in widths):
                     raise ValueError("Anchos fijos ($): indica al menos un ancho positivo")
                 overrides["spread_widths"] = widths
-        criteria = base.with_filters(**overrides)
+        criteria = base.with_filters(**overrides, exit_commission=service.profile_exits_early(qp.get("profile")))
         if criteria.strike_below_pct_min < cand.strike_below_pct_min:
             warnings.append(f"Descuento mín. por debajo del rango guardado ({cand.strike_below_pct_min:g}%): "
                             "no hay contratos con menos descuento.")

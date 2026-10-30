@@ -14,6 +14,7 @@ from typing import Mapping, Optional, Sequence
 from scanner_opciones.community.data import CommunityIdea
 from scanner_opciones.domain.enums import PriceReference
 from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
+from scanner_opciones.metrics.commissions import CommissionModel
 from scanner_opciones.metrics.yields import reference_price
 from scanner_opciones.portfolio.openings import Close, norm_ticker
 
@@ -83,8 +84,10 @@ def _otm(price: Optional[float], strike: float) -> Optional[float]:
 def evaluate_idea(
     idea: CommunityIdea, today: date, snapshots: Mapping[SNAPSHOT_KEY, ContractSnapshot], infos: Mapping[str, TickerInfo],
     closes: Mapping[str, Sequence[tuple[date, float]]], watchlist: set[str], mode: PriceReference, spread_pct: float,
-    drop_warn_pct: float = 5.0, min_premium_ratio: float = 0.8,
+    drop_warn_pct: float = 5.0, min_premium_ratio: float = 0.8, commission: Optional[CommissionModel] = None,
 ) -> IdeaView:
+    """`commission`: tarifa de IBKR. La prima de hoy (`premium_now`), su yield y el descuento de hoy son NETOS de la comisión de apertura (un spread, una sola
+    orden combo); la comparación con lo que cobró la idea (`LOWER`) se hace con la prima bruta, para no penalizarla dos veces."""
     dte = (idea.expiry - today).days
     base = idea.short_strike - idea.long_strike if idea.long_strike is not None else idea.short_strike
     yield_open = idea.credit / base * 100 if base > 0 else None
@@ -104,7 +107,12 @@ def evaluate_idea(
         sell = reference_price(short.bid, short.ask, mode, spread_pct) if short.bid and short.bid > 0 else None
         if sell is not None and (idea.long_strike is None or (long_ is not None and long_.ask)):
             premium = sell - (long_.ask if long_ is not None else 0.0)
+    gross = premium
     if premium is not None:
+        if commission is not None:
+            premium -= commission.per_share(short.contract.multiplier, 1 if idea.long_strike is None else 2)
+            if price_now:
+                common.update(otm_now_pct=(price_now - (idea.short_strike - premium)) / price_now * 100)     # descuento hasta el breakeven con la prima neta
         common.update(premium_now=premium, yield_now_pct=premium / base * 100 if base > 0 else None, delta_now=short.delta)
     if price_now is not None and price_now <= idea.short_strike:
         return IdeaView(status=ITM, text=f"En el dinero: el precio ({price_now:.2f}) ya está por debajo del strike vendido", **common)
@@ -113,7 +121,7 @@ def evaluate_idea(
     if premium is None:
         why = "sin cotización de esas patas" + ("" if idea.ticker in watchlist else " (no está en tu watchlist)")
         return IdeaView(status=NO_DATA, text=f"Sin valorar: {why}", **common)
-    ratio = premium / idea.credit if idea.credit > 0 else None
+    ratio = gross / idea.credit if idea.credit > 0 else None
     if ratio is not None and ratio < min_premium_ratio:
         return IdeaView(status=LOWER, text=f"Prima menor: hoy cobrarías el {ratio * 100:.0f} % de lo que cobró", **common)
     return IdeaView(status=VALID, text="Vigente: prima y distancia parecidas a las de la apertura", **common)

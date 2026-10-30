@@ -189,7 +189,7 @@ def test_scanner_shows_desc_and_bid_size_columns(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     r = client.get("/scanner?reset=1")
-    assert re.search(r'<th[^>]*title="Descuento: distancia del strike por debajo del precio actual del subyacente, en %">Desc.</th>', r.text) and "<th>Dist.</th>" not in r.text
+    assert re.search(r'<th[^>]*title="Descuento: distancia del punto de equilibrio[^"]*">Desc.</th>', r.text) and "<th>Dist.</th>" not in r.text
     assert re.search(r"<th[^>]*>Bid size</th>", r.text)
 
 

@@ -62,14 +62,17 @@ def row_marks(r, kind: str, c, spread=None, nlv=None) -> dict[str, str]:
     contract = r.snapshot.contract
     rate = usd_rate(nlv, contract.ticker) if nlv else 1.0
     m = _short_marks(r, c, kind, nlv, rate)
+    if kind == "spread" and spread is not None and spread.discount_pct is not None:      # el descuento de un spread llega al breakeven con su crédito neto
+        m.pop("desc", None)
+        _put(m, "desc", _sev(spread.discount_pct, c.strike_below_pct_min, minimum=True))
     if kind == "put":
-        if r.reference_price is not None:
-            credit = r.reference_price * contract.multiplier * rate
+        if r.net_price is not None:
+            credit = r.net_price * contract.multiplier * rate
             _put(m, "yp", _sev(r.yield_ref_pct, c.min_yield_pct, minimum=True))
             _put(m, "credit", _sev(credit, c.min_put_credit, minimum=True))
             _put(m, "scredit", m.get("credit"))
             if nlv:
-                risk = (contract.strike - r.reference_price) * contract.multiplier * rate / nlv * 100
+                risk = (contract.strike - r.net_price) * contract.multiplier * rate / nlv * 100
                 _put(m, "risk", _sev(risk, c.max_capital_risk_pct, minimum=False))
                 _put(m, "lossnlv", m.get("risk"))
         return m

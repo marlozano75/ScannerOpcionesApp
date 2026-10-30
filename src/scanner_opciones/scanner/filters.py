@@ -7,7 +7,7 @@ from typing import Optional
 
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
-from scanner_opciones.metrics.yields import gross_yield_ref_pct, reference_price, strike_distance_pct
+from scanner_opciones.metrics.yields import effective_discount_pct, gross_yield_ref_pct, net_yield_ref_pct, reference_price, strike_distance_pct
 from scanner_opciones.rankedstocks.loader import clean_ticker
 from scanner_opciones.scanner.criteria import ScanCriteria
 from scanner_opciones.scanner.currency import usd_rate
@@ -65,25 +65,34 @@ def reject_reason(
     dist = strike_distance_pct(underlying_price, c.strike)
     if dist is None:
         return "sin precio del subyacente"
-    if not (criteria.strike_below_pct_min - _EPS <= dist <= criteria.strike_below_pct_max + _EPS):
+    if dist > criteria.strike_below_pct_max + _EPS:
         return f"strike a {dist:.2f}% fuera de [{criteria.strike_below_pct_min}, {criteria.strike_below_pct_max}]"
+    # con comisiones el descuento se mide hasta el punto de equilibrio con la prima neta (en un spread lo comprueba `build_spreads` con su crédito)
+    discount = dist
+    if criteria.commission is not None and not criteria.spread_mode:
+        ref = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct)
+        if ref is not None:
+            discount = effective_discount_pct(underlying_price, c.strike, ref - criteria.cost_ps(c.multiplier))
+    if criteria.commission is None or not criteria.spread_mode:
+        if discount < criteria.strike_below_pct_min - _EPS:
+            return f"strike a {discount:.2f}% fuera de [{criteria.strike_below_pct_min}, {criteria.strike_below_pct_max}]"
     if criteria.min_price is not None and underlying_price < criteria.min_price - _EPS:
         return f"precio {underlying_price:g} < mínimo {criteria.min_price:g}"
     if criteria.max_price is not None and underlying_price > criteria.max_price + _EPS:
         return f"precio {underlying_price:g} > máximo {criteria.max_price:g}"
     if criteria.min_bid is not None and snap.bid is not None and 0 <= snap.bid < criteria.min_bid - _EPS:
         return f"bid {snap.bid:g} < mínimo {criteria.min_bid:g}"      # sin bid no se vende (y el ask, a menudo irreal, inflaría el yield)
-    y = gross_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct)
+    y = net_yield_ref_pct(snap.bid, snap.ask, c.strike, criteria.price_reference, criteria.price_spread_pct, criteria.cost_ps(c.multiplier))
     if y is None:
         return "sin yield (cotización no válida)"
     if y < criteria.min_yield_pct - _EPS:        # yield del periodo (prima / strike hasta el vencimiento), no anualizado
         return f"yield del periodo {y:.2f}% < {criteria.min_yield_pct}%"
     if criteria.min_put_credit is not None:      # prima por contrato con el precio de venta de referencia (las de céntimos se comen las comisiones)
-        credit = (reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct) or 0.0) * c.multiplier * usd_rate(nlv_usd, c.ticker)
+        credit = ((reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct) or 0.0) - criteria.cost_ps(c.multiplier)) * c.multiplier * usd_rate(nlv_usd, c.ticker)
         if credit < criteria.min_put_credit - _EPS:
             return f"crédito {credit:.0f} $ < mínimo {criteria.min_put_credit:g} $"
     if criteria.max_capital_risk_pct is not None and nlv_usd:     # capital en riesgo: lo que se pierde si el subyacente llega a 0 (strike − prima)
-        premium = reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct) or 0.0
+        premium = (reference_price(snap.bid, snap.ask, criteria.price_reference, criteria.price_spread_pct) or 0.0) - criteria.cost_ps(c.multiplier)
         risk = (c.strike - premium) * c.multiplier * usd_rate(nlv_usd, c.ticker) / nlv_usd * 100
         if risk > criteria.max_capital_risk_pct + _EPS:
             return f"capital en riesgo {risk:.1f}% del NLV > máximo {criteria.max_capital_risk_pct:g}%"

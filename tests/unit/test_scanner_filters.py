@@ -11,7 +11,7 @@ from scanner_opciones.scanner.filters import reject_reason
 
 TODAY = date(2026, 9, 29)
 NOW = datetime(2026, 9, 29, 12, 0)
-BASE = criteria_from_settings(Settings())
+BASE = criteria_from_settings(Settings()).with_filters(commission=None)      # prima bruta; las comisiones se prueban en test_commissions.py
 # los antiguos perfiles Regular y Táctica, ahora solo rangos concretos del mismo filtro
 REGULAR = BASE.with_filters(strike_below_pct_min=20, strike_below_pct_max=40, dte_min=25, dte_max=35)
 TACTICAL = BASE.with_filters(strike_below_pct_min=10, strike_below_pct_max=40, dte_min=1, dte_max=15)

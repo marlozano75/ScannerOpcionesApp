@@ -52,3 +52,21 @@ def strike_distance_pct(price: Optional[float], strike: Optional[float]) -> Opti
     if price is None or strike is None or price <= 0:
         return None
     return (price - strike) / price * 100
+
+
+def net_yield_ref_pct(
+    bid: Optional[float], ask: Optional[float], strike: Optional[float],
+    mode: PriceReference, spread_pct: float = 25.0, cost_ps: float = 0.0,
+) -> Optional[float]:
+    """Yield del periodo en % con la prima NETA de comisiones (`cost_ps`: comisiones por acción que se restan del precio de referencia)."""
+    price = reference_price(bid, ask, mode, spread_pct)
+    if price is None or strike is None or strike <= 0:
+        return None
+    return (price - cost_ps) / strike * 100
+
+
+def effective_discount_pct(price: Optional[float], strike: Optional[float], net_premium: Optional[float]) -> Optional[float]:
+    """Descuento efectivo en %: distancia del punto de equilibrio (strike − prima neta) por debajo del precio, (precio − strike + prima) / precio."""
+    if price is None or strike is None or net_premium is None or price <= 0:
+        return None
+    return (price - (strike - net_premium)) / price * 100

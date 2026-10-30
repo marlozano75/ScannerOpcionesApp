@@ -18,7 +18,7 @@ def put_hits(out: ScanOutput) -> list[Hit]:
     hits = []
     for r in out.results:
         c = r.snapshot.contract
-        hits.append(Hit(c.ticker, c.expiry.isoformat(), c.strike, None, r.reference_price, r.yield_ref_annualized_pct, r.dte, r.strike_distance_pct))
+        hits.append(Hit(c.ticker, c.expiry.isoformat(), c.strike, None, r.net_price if r.net_price is not None else r.reference_price, r.yield_ref_annualized_pct, r.dte, r.strike_distance_pct))
     return hits
 
 
@@ -27,7 +27,7 @@ def spread_hits(out: ScanOutput) -> list[Hit]:
     for sp in out.spreads:
         c = sp.short.snapshot.contract
         hits.append(Hit(c.ticker, c.expiry.isoformat(), c.strike, sp.long.contract.strike, sp.credit, sp.return_on_risk_annualized_pct,
-                        sp.short.dte, sp.short.strike_distance_pct))
+                        sp.short.dte, sp.discount_pct if sp.discount_pct is not None else sp.short.strike_distance_pct))
     return hits
 
 
