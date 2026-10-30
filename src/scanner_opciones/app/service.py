@@ -42,7 +42,7 @@ from scanner_opciones.portfolio.classify import classify_dte, fallback_name
 from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry
 from scanner_opciones.portfolio import defense as defense_mod
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
-from scanner_opciones.portfolio.spreads import with_spreads
+from scanner_opciones.portfolio.spreads import split_combos, split_spreads, with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner import profiles as profiles_mod
 from scanner_opciones.scanner.profiles import Profile as ScannerProfile
@@ -3106,6 +3106,37 @@ class AppService:
                 key = (o.right, o.expiry, round(float(o.strike), 4))
                 entry["options"][key] = entry["options"].get(key, 0.0) + p.quantity
         return held
+
+    def held_details(self) -> dict[str, list[str]]:
+        """Descripción de lo que tienes de cada subyacente (ticker normalizado), una línea por posición o combo: tipo de operación (acciones,
+        Bull Put Spread, combo de opciones, put/call suelta), strikes, vencimiento y contratos. Para el tooltip de «EN CARTERA»."""
+        by_ticker: dict[str, list[Position]] = {}
+        for p in self.state.positions:
+            if p.quantity:
+                by_ticker.setdefault(norm_ticker(p.option.ticker if p.option else p.ticker), []).append(p)
+        day = lambda d: d.strftime("%d/%m/%Y")
+        n = lambda q: f"{int(abs(q)) if float(abs(q)).is_integer() else abs(q):g}"
+        out: dict[str, list[str]] = {}
+        for tk, positions in by_ticker.items():
+            lines: list[str] = []
+            rest, spreads = split_spreads(positions)
+            rest, combos = split_combos(rest)
+            for sp in spreads:
+                lines.append(f"Bull Put Spread vendido {sp.short.option.strike:g}/{sp.long.option.strike:g}, vence {day(sp.short.option.expiry)} ×{sp.contracts}")
+            for c in combos:
+                legs = sorted(c.legs, key=lambda p: p.option.strike)
+                strikes = "/".join(f"{p.option.strike:g}" for p in legs)
+                dates = sorted({p.option.expiry for p in legs})
+                lines.append(f"{c.name} {strikes}, vence {' y '.join(day(d) for d in dates)} ×{c.contracts}")
+            for p in rest:
+                o = p.option
+                if o is None:
+                    lines.append(f"{n(p.quantity)} acciones" if p.quantity > 0 else f"{n(p.quantity)} acciones en corto")
+                else:
+                    kind = f"{'Put' if o.right is OptionRight.PUT else 'Call'} {'vendida' if p.quantity < 0 else 'comprada'}"
+                    lines.append(f"{kind} {o.strike:g}, vence {day(o.expiry)} ×{n(p.quantity)}")
+            out[tk] = lines
+        return out
 
     def nlv_usd(self) -> Optional[float]:
         """NLV de la cuenta en USD: con el tipo de cambio de IBKR y, si no llega, `scanner.spreads.usd_per_base` o el de respaldo online (`_update_base_fx`).

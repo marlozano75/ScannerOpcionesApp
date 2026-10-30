@@ -61,8 +61,8 @@ def register(app, service, render, remembered) -> None:
                        else _grp("ok", "Terminada", [], "resultado actualizado"))
         data = service.radar_spreads()
         minimum, min_cw = service.radar_min_yield(), service.radar_min_credit_width()
-        held = {norm_ticker(p.ticker) for p in service.state.positions}
-        items = [dict(row=r, ok=radar_passes(r, minimum, min_cw), held=norm_ticker(r.ticker) in held)
+        held = service.held_details()
+        items = [dict(row=r, ok=radar_passes(r, minimum, min_cw), held=norm_ticker(r.ticker) in held, held_lines=held.get(norm_ticker(r.ticker), []))
                  for r in (data.rows if data else ())]
         base = [i for i in items if not cumple or i["ok"]]
         counts = {t: sum(1 for i in base if i["row"].kind == t) for t in ("put", "spread")}

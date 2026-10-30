@@ -389,3 +389,18 @@ def test_a_spread_with_card_passes_by_credit_width_and_without_card_by_put_yield
     assert passes(a, 100.0, 30.0) and not passes(b, 0.0, 30.0)         # con ficha manda el crédito/ancho, no el yield de la put
     assert passes(c, 1.0, 30.0) and not passes(c, 5.0, 30.0)           # sin ficha, el yield de la put de 30Δ (3,41 %)
     assert not passes(a, 100.0) and passes(b, 1.0)                     # sin mínimo de crédito/ancho, como antes
+
+
+def test_held_details_describe_stocks_spreads_combos_and_loose_options(tmp_path):
+    from datetime import date
+    from scanner_opciones.domain.enums import OptionRight
+    from scanner_opciones.domain.models import OptionContract, Position
+    svc, _, _ = make(tmp_path)
+
+    def opt(strike, right, exp=date(2026, 12, 18)):
+        return OptionContract(ticker="PLTR", expiry=exp, strike=strike, right=right)
+    pos = lambda q, o=None: Position("PLTR", q, 100.0, option=o)
+    svc.state.positions = [pos(100), pos(-2, opt(180, OptionRight.PUT)), pos(2, opt(170, OptionRight.PUT)), pos(-1, opt(250, OptionRight.CALL))]
+    lines = svc.held_details()["PLTR"]
+    assert "Bull Put Spread vendido 180/170, vence 18/12/2026 ×2" in lines and "Call vendida 250, vence 18/12/2026 ×1" in lines
+    assert "100 acciones" in lines and len(lines) == 3
