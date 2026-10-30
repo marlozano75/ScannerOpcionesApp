@@ -131,7 +131,7 @@ def test_loading_a_profile_replaces_the_form_and_saving_stores_the_current_filte
                         follow_redirects=False)
     assert saved.status_code == 303 and "profile=Mio" in saved.headers["location"] and "use_oi=on" in saved.headers["location"]
     mine = client.get(saved.headers["location"]).text
-    assert "OI ≥ 300" in mine and ">✓ Mio</a>" in mine and '<option value="put" selected>' in mine
+    assert "OI ≥ 300" in mine and ">✓ Mio</a>" in mine and 'name="mode" id="mode" value="put"' in mine
     # perfil inicial: desde /scanner/config; sin consulta se carga ese perfil
     names = [p.name for p in svc.stored_profiles()[0]]
     form = {"n_profiles": str(len(names)), "default": str(names.index("Mio"))}

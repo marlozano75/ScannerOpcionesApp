@@ -242,11 +242,7 @@
           title="Guarda los filtros que ves ahora (activados y valores) en un perfil: el del nombre que elijas, o uno nuevo">💾 Guardar en perfil</button>
       </div>
 
-      <label class="field" style="margin:6px 0">Instrumento
-        <select name="mode" id="mode">
-          <option value="put" {{ 'selected' if form.mode == 'put' }}>Put vendida</option>
-          <option value="spread" {{ 'selected' if form.mode == 'spread' }}>Spread de puts (vendida + comprada)</option>
-        </select></label>
+      <input type="hidden" name="mode" id="mode" value="{{ form.mode }}">
       {% if form.set == 'spread' %}
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
         <label class="check" title="Se prueban todos los anchos y gana el de mayor retorno anualizado sobre riesgo"><input type="checkbox" name="best_width" {{ 'checked' if form.best_width }}> Solo el mejor ancho por put</label>

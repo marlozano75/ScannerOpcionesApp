@@ -870,7 +870,7 @@ def test_scanner_spread_mode_renders_and_validates(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     put = client.get(BASE)
-    assert put.status_code == 200 and 'value="spread"' in put.text and "sec-spread" not in put.text.split("<aside")[1].split("</aside>")[0]
+    assert put.status_code == 200 and 'name="mode" id="mode" value="put"' in put.text and "sec-spread" not in put.text.split("<aside")[1].split("</aside>")[0]
     r = client.get(BASE + "&mode=spread&use_rr=on&rr=25&use_mc=on&mc=20&use_mn=on&mn=2&best_width=on")
     assert r.status_code == 200
     assert "R/R anual" in r.text and "Mejor ancho por put" in r.text and "Crédito ≥ 20 $" in r.text and "spreads" in r.text
