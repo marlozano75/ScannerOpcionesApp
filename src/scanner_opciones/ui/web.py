@@ -263,7 +263,8 @@ def create_app(
                            service.put_management(), service.put_assignments(), service.put_open_dates(), service.put_margins(),
                            service.put_assignment_notes(), service.put_exit_rules(), service.defense_context(), service.state.position_deltas)
         today = service.now().date()
-        others = other_positions(service.state.positions, today, nlv)
+        others = other_positions(service.state.positions, today, nlv,
+                                 {t: i.underlying_price for t, i in service.ticker_info.all().items()})
         status = portfolio_status(service.state.account, others, mgmt.puts)
         by_ticker: dict[str, list] = {}
         for s in mgmt.puts:

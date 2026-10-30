@@ -35,6 +35,7 @@ class OtherPosition:
     captured_pct: Optional[float]
     pct_nlv: Optional[float]            # |valor| sobre el NLV
     profile: str = OTHERS
+    underlying: Optional[float] = None  # precio actual del subyacente
     strikes: Optional[str] = None       # combos: strikes de las patas ("100/105"); si los vencimientos difieren, también ellos
 
     @property
@@ -64,7 +65,7 @@ def _other_kind(p: Position) -> str:
     return f"{right} {'vendida' if p.quantity < 0 else 'comprada'}"
 
 
-def _combo_position(c: Combo, today: date, nlv_usd: Optional[float]) -> OtherPosition:
+def _combo_position(c: Combo, today: date, nlv_usd: Optional[float], underlying: Optional[float] = None) -> OtherPosition:
     """Fila de un combo: precios netos por acción (débito o crédito, en positivo); sus patas se resumen en `strikes`."""
     legs, n = c.legs, c.contracts
     mult, fx = legs[0].option.multiplier, legs[0].fx
@@ -85,7 +86,7 @@ def _combo_position(c: Combo, today: date, nlv_usd: Optional[float]) -> OtherPos
     return OtherPosition(
         legs[0].ticker, c.name, n, expiry, None, (expiry - today).days, entry, current, value, pnl, pct,
         -cost if credit else None, pnl if credit else None, pct if credit else None,
-        abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, strikes=strikes)
+        abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=underlying, strikes=strikes)
 
 
 def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optional[float],
@@ -94,7 +95,7 @@ def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optiona
     out = []
     rest, _ = split_spreads(positions)
     rest, combos = split_combos(rest)
-    out.extend(_combo_position(c, today, nlv_usd) for c in combos)
+    out.extend(_combo_position(c, today, nlv_usd, (prices or {}).get(c.legs[0].ticker)) for c in combos)
     for p in rest:
         if p.option is not None and p.option.right is OptionRight.PUT and p.quantity < 0:
             continue                                  # put vendida o spread: tabla de gestión
@@ -117,7 +118,7 @@ def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optiona
         out.append(OtherPosition(
             p.ticker, _other_kind(p), p.quantity, o.expiry if o else None, o.strike if o else None,
             (o.expiry - today).days if o else None, entry, current, value, pnl, pct, premium, captured, cpct,
-            abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None))
+            abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=(prices or {}).get(p.ticker)))
     return sorted(out, key=lambda x: -abs(x.value))
 
 

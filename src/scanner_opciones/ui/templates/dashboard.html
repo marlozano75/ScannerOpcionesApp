@@ -101,16 +101,18 @@
   {% if others %}
   <div class="tscroll">
   <table class="sortable">
-    <tr><th>Ticker</th><th title="Acciones y opciones que no son puts vendidas ni parte de un spread. No tienen perfil del Scanner: se les asigna «Otros»">Tipo</th><th title="Acciones o contratos (negativo = vendidos)">Cant.</th><th title="Vencimiento y días que quedan (DTE)">Venc. · DTE</th><th>Strike</th><th title="Precio medio de entrada por acción (opción: prima por acción) → precio actual">Entrada → actual</th><th title="Valor de mercado en USD (con signo)">Valor ($)</th><th title="Ganancia o pérdida latente en USD; en una opción vendida es la prima ya ganada">P&amp;L ($)</th><th title="Peso de la posición sobre el NLV">% NLV</th><th>Perfil</th></tr>
+    <tr><th>Ticker</th><th title="Acciones y opciones que no son puts vendidas ni parte de un spread. No tienen perfil del Scanner: se les asigna «Otros»">Tipo</th><th title="Acciones o contratos (negativo = vendidos)">Cant.</th><th title="Vencimiento y días que quedan (DTE)">Venc. · DTE</th><th>Strike</th><th title="Precio actual del subyacente">Subyacente</th><th title="Precio medio de entrada por acción (opción: prima por acción) → precio actual">Entrada → actual</th><th title="Valor de mercado en USD (con signo)">Valor ($)</th><th title="Ganancia o pérdida latente en USD; en una opción vendida es la prima ya ganada">P&amp;L ($)</th><th title="P&amp;L sobre la prima cobrada (opciones vendidas y combos de crédito: prima capturada) o sobre lo invertido (acciones, opciones compradas y combos de débito)">% prima capturada</th><th title="Peso de la posición sobre el NLV">% NLV</th><th>Perfil</th></tr>
     {% for x in others %}
     <tr><td><b title="{{ tk_title(company_names, x.ticker) }}">{{ x.ticker }}</b>{{ sec_flag(sec_alerts, x.ticker) }}{{ analyst_flag(analyst_alerts, x.ticker) }}</td>
       <td>{{ x.kind }}</td>
       <td data-sort="{{ x.quantity }}">{{ x.quantity|num(0) if x.quantity == x.quantity|round else x.quantity|num }}</td>
       <td{% if x.expiry %} data-sort="{{ x.expiry.isoformat() }}" title="{{ x.expiry.strftime('%d/%m/%Y') }}"{% endif %}>{% if x.expiry %}{{ x.expiry.strftime('%d/%m') }} · <b>{{ x.dte }}</b> d{% else %}—{% endif %}</td>
       <td data-sort="{{ x.strike if x.strike is not none else -1 }}">{{ x.strikes if x.strikes else (x.strike|num if x.strike is not none else '—') }}</td>
+      <td{% if x.underlying is not none %} data-sort="{{ x.underlying }}"{% endif %}>{{ x.underlying|num if x.underlying is not none else '—' }}</td>
       <td>{{ x.entry|num if x.entry is not none else '—' }} → {{ x.current|num if x.current is not none else '—' }}</td>
       <td data-sort="{{ x.value }}">{{ x.value|signed }}</td>
-      <td{% if x.pnl is not none %} data-sort="{{ x.pnl }}"{% if x.pnl_pct is not none %} title="{{ x.pnl_pct|signed(1) }} % sobre {{ 'lo cobrado' if x.is_short_option else 'lo invertido' }}"{% endif %}{% endif %}>{% if x.pnl is not none %}<span class="pnl {{ 'neg' if x.pnl < 0 else 'pos' }}">{{ x.pnl|signed }}</span>{% if x.strikes and x.pnl_pct is not none %} · {{ x.pnl_pct|signed(1) }} %{% endif %}{% else %}—{% endif %}</td>
+      <td{% if x.pnl is not none %} data-sort="{{ x.pnl }}"{% endif %}>{% if x.pnl is not none %}<span class="pnl {{ 'neg' if x.pnl < 0 else 'pos' }}">{{ x.pnl|signed }}</span>{% else %}—{% endif %}</td>
+      <td{% if x.pnl_pct is not none %} data-sort="{{ x.pnl_pct }}" title="Sobre {{ 'lo cobrado' if x.is_short_option or (x.premium is not none) else 'lo invertido' }}"{% endif %}>{% if x.pnl_pct is not none %}<span class="pnl {{ 'neg' if x.pnl_pct < 0 else 'pos' }}">{{ x.pnl_pct|signed(1) }} %</span>{% else %}—{% endif %}</td>
       <td{% if x.pct_nlv is not none %} data-sort="{{ x.pct_nlv }}"{% endif %}>{{ x.pct_nlv|pct(1) if x.pct_nlv is not none else '—' }}</td>
       <td><span class="chip">{{ x.profile }}</span></td></tr>
     {% endfor %}
