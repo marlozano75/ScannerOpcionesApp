@@ -16,17 +16,14 @@
     <div class="metric"><div class="label">Net Liquidation (NLV)</div>
       <div class="value">{{ status.nlv|money }} {{ status.currency }}</div>
       <div class="muted">{{ status.positions }} posición{{ '' if status.positions == 1 else 'es' }}{% if status.stock_value %} · acciones {{ status.stock_value|money }} ${% endif %}</div></div>
-    <div class="metric"><div class="label" title="Cambio del día de la cuenta según IBKR (reqPnL), en la moneda base. El porcentaje es sobre el NLV de ayer (NLV − cambio).">Cambio diario</div>
-      {% if status.daily_pnl is not none %}<div class="value pnl {{ 'neg' if status.daily_pnl < 0 else 'pos' }}">{{ status.daily_pnl|signed }} {{ status.currency }}</div>
-      <div class="muted pnl {{ 'neg' if status.daily_pnl < 0 else 'pos' }}">{{ (status.daily_pct|signed(2) ~ ' %') if status.daily_pct is not none else '—' }}</div>
-      {% else %}<div class="value">—</div><div class="muted">Sin dato de IBKR (aparece al conectar TWS)</div>{% endif %}</div>
-    <div class="metric"><div class="label" title="Ganancia o pérdida latente de toda la cuenta según IBKR, en la moneda base">P&amp;L latente</div>
-      {% if status.unrealized_pnl is not none %}<div class="value pnl {{ 'neg' if status.unrealized_pnl < 0 else 'pos' }}">{{ status.unrealized_pnl|signed }} {{ status.currency }}</div>
-      {% else %}<div class="value">—</div>{% endif %}
-      {% if status.stock_pnl is not none %}<div class="muted">acciones {{ status.stock_pnl|signed }} $</div>{% endif %}</div>
-    <div class="metric"><div class="label" title="Prima de todas las opciones vendidas (puts, spreads y calls): lo cobrado y la parte que ya es beneficio (cobrada − coste de recompra). Importes en USD.">Prima capturada</div>
-      <div class="value">{{ status.captured|signed }} $</div>
-      <div class="muted">de {{ status.premium|money }} $ cobrados{% if status.captured_pct is not none %} · {{ status.captured_pct|pct(0) }}{% endif %}</div></div>
+    <div class="metric"><div class="label" title="Pérdida máxima de los spreads (ancho − crédito) + capital de asignación de las puts desnudas (strike × multiplicador), sobre el NLV. El margen de IBKR es un dato distinto.">Riesgo total abierto</div>
+      {% if mgmt.risk_pct is not none %}<div class="value{{ ' pnl neg' if mgmt.risk_level else '' }}">{{ mgmt.total_risk|num }} $</div>
+      <div class="muted">{{ mgmt.risk_pct|pct }} del NLV{% if mgmt.risk_level %} · supera el {{ mgmt_cfg.max_total_risk_pct|round|int }} %{% endif %}</div>
+      {% else %}<div class="value">—</div>{% endif %}</div>
+    <div class="metric"><div class="label" title="Suma del margen conocido de las puts vendidas (spreads: pérdida máxima; puts desnudas: margen what-if guardado). No es el margen real de IBKR.">Margen comprometido</div>
+      {% if mgmt.margin_total %}<div class="value">{{ mgmt.margin_total|num(0) }} $</div>
+      <div class="muted">{% if mgmt.margin_pct is not none %}{{ mgmt.margin_pct|pct }} del NLV{% endif %}{% if mgmt.margin_missing %} · {{ mgmt.margin_missing }} sin margen calculado{% endif %}</div>
+      {% else %}<div class="value">—</div>{% endif %}</div>
   </div>
   {% else %}<p class="muted">Sin datos de cuenta (¿TWS conectado?).</p>{% endif %}
 </div>
@@ -53,9 +50,6 @@
 
 <div class="card" id="gestion">
   <h2>Gestión de puts vendidas{% if mgmt.attention %} <span class="muted" style="font-weight:400">· {{ mgmt.attention }} aviso{{ '' if mgmt.attention == 1 else 's' }} importante{{ '' if mgmt.attention == 1 else 's' }}</span>{% endif %}</h2>
-  {% if mgmt.risk_pct is not none %}<p class="banner {{ 'warn' if mgmt.risk_level else 'info' }}" title="Pérdida máxima de los spreads (ancho − crédito) + capital de asignación de las puts desnudas (strike × multiplicador), sobre el NLV. El margen de IBKR es un dato distinto.">Riesgo total abierto: <b>{{ mgmt.total_risk|num }} $</b> = {{ mgmt.risk_pct|pct }} del NLV{% if mgmt.risk_level %} · supera el {{ mgmt_cfg.max_total_risk_pct|round|int }} %: reduce tamaño o cierra posiciones{% endif %}</p>{% endif %}
-  {% if mgmt.margin_total %}<p class="banner info" title="Suma del margen conocido de las puts vendidas (spreads: pérdida máxima; puts desnudas: margen what-if guardado). No es el margen real de IBKR.">Margen comprometido en puts: <b>{{ mgmt.margin_total|num(0) }} $</b>{% if mgmt.margin_pct is not none %} = {{ mgmt.margin_pct|pct }} del NLV{% endif %}{% if mgmt.margin_missing %} · {{ mgmt.margin_missing }} posición{{ '' if mgmt.margin_missing == 1 else 'es' }} sin margen calculado (no suma{{ '' if mgmt.margin_missing == 1 else 'n' }}){% endif %}</p>{% endif %}
-  {% if mgmt.premium_total %}<p class="banner info" title="Prima cobrada por las puts y spreads vendidos abiertos y parte que ya es beneficio (cobrada − coste de recompra), en USD.">Prima capturada en puts y spreads: <b>{{ mgmt.captured_total|signed }} $</b> de {{ mgmt.premium_total|money }} $ cobrados{% if mgmt.captured_total_pct is not none %} = {{ mgmt.captured_total_pct|pct(0) }}{% endif %}</p>{% endif %}
   {% if mgmt.puts %}
   <div class="tscroll">
   <table class="sortable">
