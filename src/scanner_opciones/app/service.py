@@ -1510,13 +1510,27 @@ class AppService:
                     return value
         return self.settings.scanner.strategy.min_yield_pct
 
+    def radar_min_credit_width(self) -> float:
+        """Crédito/ancho mínimo (%) que exige el perfil `tortuga.profile` a los spreads: el suyo, o el retorno sobre riesgo mínimo convertido
+        (r/(100+r)); sin perfil, el de `scanner.spreads`."""
+        name = self.settings.tortuga.profile
+        for spec in self.profile_specs():
+            if spec[0] == name or {name, spec[0]} == {"Tastytrade", "TastyPut"}:
+                c = spec[2]
+                if c is not None and c.min_credit_width_pct is not None:
+                    return c.min_credit_width_pct
+                if c is not None and c.min_return_on_risk_pct is not None:
+                    return c.min_return_on_risk_pct / (100 + c.min_return_on_risk_pct) * 100
+        ror = self.settings.scanner.spreads.min_return_on_risk_pct
+        return ror / (100 + ror) * 100
+
     def radar_passing(self, kind: Optional[str] = None) -> list[str]:
         """Tickers del radar cuya put de 30Δ rinde el yield del perfil; `kind` = `spread` o `put` limita a esa estrategia propuesta."""
         data = self.radar_spreads()
         if data is None:
             return []
-        minimum = self.radar_min_yield()
-        return [r.ticker for r in data.rows if radar_passes(r, minimum) and (kind is None or r.kind == kind)]
+        minimum, min_cw = self.radar_min_yield(), self.radar_min_credit_width()
+        return [r.ticker for r in data.rows if radar_passes(r, minimum, min_cw) and (kind is None or r.kind == kind)]
 
     def sync_radar_in_background(self) -> None:
         if self._radar_syncing or self.radar_spreads() is None:
@@ -1828,7 +1842,7 @@ class AppService:
 
     async def _sync_radar_kind(self, kind: str, source: str, stamp_key: str, data: RadarData) -> Optional[dict]:
         cfg = self.settings.tortuga
-        stamp = f"{data.generated_at.isoformat()}|{self.radar_min_yield():g}"
+        stamp = f"{data.generated_at.isoformat()}|{self.radar_min_yield():g}|{self.radar_min_credit_width():g}"
         if self.meta.get(stamp_key) == stamp and source in self.manual_sources:
             return None
         parsed = parse_tokens(self.radar_passing(kind))
@@ -1927,16 +1941,24 @@ class AppService:
     def radar_fits(self, rows, spread: bool = False) -> dict[str, tuple]:
         """{ticker: filtros de cada perfil que cumple HOY la put de 30Δ de referencia del radar de Tortuga} (mismos criterios que las ideas:
         descuento, DTE, yield del periodo, delta, IV Rank/Percentile y precio). Con `spread` se comparan con los perfiles de spread: el radar no
-        trae el spread que propone, así que el retorno sobre riesgo queda «sin dato». Sin put de referencia, el ticker no aparece."""
+        trae el spread que propone, pero sí su ficha (`idea`): con ella el descuento, el DTE y el crédito/ancho son los del spread propuesto (la
+        delta queda «sin dato»: la de 30Δ es de otro strike). Sin ficha se usa la put de 30Δ y el crédito/ancho queda «sin dato». Sin put de
+        referencia (ni spread), el ticker no aparece."""
         sc = self.settings.scanner
         prices = self._profile_price_ranges()
         specs = self.profile_specs()
         out = {}
         for r in rows:
-            if r.put_dte is None or r.put_dte < 0:
+            card = spread and r.has_spread
+            dte = r.spread_dte if card else r.put_dte
+            if dte is None or dte < 0:
                 continue
-            view = SimpleNamespace(dte=r.put_dte, otm_now_pct=r.distance_pct, yield_now_pct=None if spread else r.put_yield_period_pct, delta_now=r.put_delta,
-                                   iv_rank=r.iv_rank, iv_percentile=r.iv_percentile, price_now=r.price, idea=SimpleNamespace(long_strike=0.0 if spread else None))
+            if card:
+                view = SimpleNamespace(dte=dte, otm_now_pct=r.spread_distance_pct, yield_now_pct=r.spread_credit_width_pct, delta_now=None,
+                                       iv_rank=r.iv_rank, iv_percentile=r.iv_percentile, price_now=r.price, idea=SimpleNamespace(long_strike=r.spread_long))
+            else:
+                view = SimpleNamespace(dte=dte, otm_now_pct=r.distance_pct, yield_now_pct=None if spread else r.put_yield_period_pct, delta_now=r.put_delta,
+                                       iv_rank=r.iv_rank, iv_percentile=r.iv_percentile, price_now=r.price, idea=SimpleNamespace(long_strike=0.0 if spread else None))
             out[r.ticker] = (profile_fits(view, specs, sc.spreads.min_return_on_risk_pct) if specs
                              else strategy_fits(view, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct))
         return out

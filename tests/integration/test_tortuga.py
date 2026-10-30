@@ -306,6 +306,37 @@ def test_the_radar_reads_both_strategies_and_labels_each_row_with_its_kind():
         build_radar_document(calls, NOW)
 
 
+def test_the_card_of_a_symbol_adds_the_proposed_spread_to_its_row():
+    calls = zone_calls({"z": [row("MPC"), row("PSX")]})
+    idea = {"strategy": "Bull Put Spread", "expiry": "2026-12-04", "dte": 35, "strikes": [180, 170], "premium_per_share": 3.85}
+    calls.append(ToolCall("get_market_radar", {"symbol": "MPC"}, json.dumps({"symbol": "MPC", "idea": idea})))
+    calls.append(ToolCall("get_market_radar", {"symbol": "PSX"}, json.dumps({"symbol": "PSX", "idea": {**idea, "strategy": "Venta de PUT"}})))
+    rows = {r.ticker: r for r in parse_radar(build_radar_document(calls, NOW)).rows}
+    mpc = rows["MPC"]
+    assert mpc.has_spread and (mpc.spread_short, mpc.spread_long, mpc.spread_dte) == (180, 170, 35) and str(mpc.spread_expiry) == "2026-12-04"
+    assert round(mpc.spread_credit_width_pct, 1) == 38.5 and round(mpc.spread_distance_pct, 1) == 62.2
+    assert not rows["PSX"].has_spread and rows["PSX"].spread_credit_width_pct is None          # la ficha de otra estrategia no cuenta
+
+
+async def test_radar_cards_are_fetched_only_for_bull_put_spread_rows_and_a_failure_is_tolerated():
+    from scanner_opciones.tortuga.api import TortugaApi
+    import httpx
+    asked = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        q = dict(request.url.params)
+        if q.get("symbol"):
+            asked.append(q["symbol"])
+            return httpx.Response(404 if q["symbol"] == "BAD" else 200, json={"symbol": q["symbol"], "idea": {"strategy": "Bull Put Spread", "strikes": [10, 5]}})
+        rows = [row("OK"), row("BAD"), row("PUT", top_strategy={"key": "ventaPut", "name": "Venta de PUT"})] if q["strategy"] == "bull_put_spread" else []
+        return httpx.Response(200, json={"as_of": "2026-10-16", "matched": len(rows), "rows": rows})
+    api = TortugaApi("tt_live_x", client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    calls = await api.radar_calls()
+    assert sorted(asked) == ["BAD", "OK"] and [c.input["symbol"] for c in calls if c.input.get("symbol")] == ["OK"]
+    d = build_radar_document(calls, NOW)
+    assert "idea" in next(r for r in d["rows"] if r["symbol"] == "OK") and all("idea" not in r for r in d["rows"] if r["symbol"] != "OK")
+
+
 async def test_the_radar_fills_a_source_for_spreads_and_another_for_puts(tmp_path):
     svc, runner, _ = make(tmp_path)
     rows = [row("MPC"), put_row("PSX", strike=275, mid=6.7), put_row("XYZ", strike=100, mid=0.2)]        # el último no llega al yield
@@ -340,3 +371,21 @@ async def test_daily_tortuga_routines_only_run_on_business_days_at_their_time(tm
     holiday = svc.settings.model_copy(update={"market": MarketSettings(holidays=[date(2026, 10, 26)])})
     runner = RoutineRunner(holiday, MetaRepo(svc.watchlist.db), lambda: clock["now"], fake_claude({"*": "{}"}), tmp_path, fake_calls([]))
     assert daily() == []                                                             # un lunes festivo se salta igual
+
+
+async def test_radar_fits_use_the_proposed_spread_for_credit_width(tmp_path):
+    svc, _, _ = make(tmp_path)
+    idea = {"strategy": "Bull Put Spread", "expiry": "2026-12-04", "dte": 35, "strikes": [440, 430], "premium_per_share": 3.5}
+    with_card = parse_radar(doc([row("MPC", idea=idea), row("PSX")])).rows
+    fits = svc.radar_fits(with_card, spread=True)
+    cw = lambda t: [c for f in fits[t] if f for c in f.criteria if c.label in ("Crédito/ancho", "Yield")]
+    assert any(c.label == "Crédito/ancho" and c.ok is not None and "35.0 %" in c.text for c in cw("MPC"))      # 3,5 / 10
+    assert all(c.ok is None for c in cw("PSX"))                                                                   # sin ficha: sin dato
+
+
+def test_a_spread_with_card_passes_by_credit_width_and_without_card_by_put_yield():
+    idea = {"strategy": "Bull Put Spread", "expiry": "2026-12-04", "dte": 35, "strikes": [440, 430], "premium_per_share": 3.5}      # 35 % del ancho
+    a, b, c = parse_radar(doc([row("A", idea=idea), row("B", idea={**idea, "premium_per_share": 1.0}), row("C")])).rows               # B: 10 %; C: sin ficha
+    assert passes(a, 100.0, 30.0) and not passes(b, 0.0, 30.0)         # con ficha manda el crédito/ancho, no el yield de la put
+    assert passes(c, 1.0, 30.0) and not passes(c, 5.0, 30.0)           # sin ficha, el yield de la put de 30Δ (3,41 %)
+    assert not passes(a, 100.0) and passes(b, 1.0)                     # sin mínimo de crédito/ancho, como antes

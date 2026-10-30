@@ -14,4 +14,10 @@ trend, no IV filters, never a symbol).
     with NO price_max.
  3. For every call of step 2 that comes back CUT, split its range in two halves at the middle (for the open range 200+ use 200-350
     and price_min=350) and call both halves. Repeat for any half that is still cut. Never repeat a range already called.
-If a call fails, retry it once. When no response of either strategy is cut any more, reply with the single word DONE.
+If a call fails, retry it once.
+
+CARDS (after the lists are complete): for every row of the strategy="bull_put_spread" lists whose top_strategy.key is "bullPutSpread",
+call get_market_radar once with only symbol=<that symbol> (no other argument), in parallel batches. These cards carry the strikes of
+the proposed spread. If a card fails after one retry, skip it.
+
+When no list response is cut any more and the cards are done, reply with the single word DONE.

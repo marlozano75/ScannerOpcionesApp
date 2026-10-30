@@ -6,8 +6,9 @@ tal como las devuelve la herramienta. Formato (versión 1):
     {"version": 1, "generated_at": "2026-10-17T11:45:00+02:00", "as_of": "2026-10-16", "matched": 59, "returned": 59,   # la app lo arma con las 4 llamadas por cuadrante
      "rows": [ {"symbol": "MPC", "sector": "Energy", "price": 476.65, "iv_rank": 97.3, ..., "put30": {"strike": 440, ...}}, ... ]}
 
-La lista del radar NO trae los strikes del spread que propone (solo su ficha, una por valor) sino la put de 30Δ de referencia: aquí se
-usa esa. Un dato que falta queda en None. Comprobación: `python -m scanner_opciones.tortuga.radar fichero.json`."""
+La lista del radar NO trae los strikes del spread que propone sino la put de 30Δ de referencia; los strikes, el vencimiento y la prima del
+spread salen de la ficha de cada valor (`get_market_radar` con `symbol`, bloque `idea`), que `build_radar_document` añade a la fila como
+`idea`. Sin ficha, el valor se evalúa con la put de 30Δ y el crédito/ancho queda sin dato. Un dato que falta queda en None. Comprobación: `python -m scanner_opciones.tortuga.radar fichero.json`."""
 from __future__ import annotations
 
 import json
@@ -82,6 +83,31 @@ class RadarRow:
     put_yield_annual_pct: Optional[float] = None
     put_expiry: Optional[date] = None
     put_dte: Optional[int] = None
+    spread_short: Optional[float] = None    # spread que propone la ficha del valor: strike vendido, comprado, vencimiento, DTE y prima por acción
+    spread_long: Optional[float] = None
+    spread_expiry: Optional[date] = None
+    spread_dte: Optional[int] = None
+    spread_premium: Optional[float] = None
+    spread_annual_pct: Optional[float] = None   # rendimiento anualizado sobre el riesgo que calcula Tortuga para ese spread
+
+    @property
+    def has_spread(self) -> bool:
+        return (self.spread_short is not None and self.spread_long is not None and self.spread_short > self.spread_long
+                and self.spread_dte is not None)
+
+    @property
+    def spread_credit_width_pct(self) -> Optional[float]:
+        """Crédito / ancho del spread propuesto (%)."""
+        if not self.has_spread or self.spread_premium is None:
+            return None
+        return self.spread_premium / (self.spread_short - self.spread_long) * 100
+
+    @property
+    def spread_distance_pct(self) -> Optional[float]:
+        """% del strike vendido del spread por debajo del precio."""
+        if self.spread_short is None or not self.price or self.price <= 0:
+            return None
+        return (self.price - self.spread_short) / self.price * 100
 
     @property
     def kind(self) -> str:
@@ -122,7 +148,12 @@ def _parse_row(item: Mapping) -> RadarRow:
     levels = item.get("levels") or {}
     p30 = item.get("put30") or {}
     earn = item.get("earnings") or {}
+    idea = item.get("idea") if isinstance(item.get("idea"), dict) else {}
+    strikes = [_num(s) for s in idea.get("strikes") or ()] if isinstance(idea.get("strikes"), list) else []
+    strikes = strikes if len(strikes) == 2 and None not in strikes else [None, None]
     return RadarRow(
+        spread_short=max(strikes) if strikes[0] is not None else None, spread_long=min(strikes) if strikes[0] is not None else None,
+        spread_expiry=_day(idea.get("expiry")), spread_dte=_opt_int(idea.get("dte")), spread_premium=_num(idea.get("premium_per_share")), spread_annual_pct=_num(idea.get("annualized_pct")),
         ticker=ticker, sector=item.get("sector"), price=_num(item.get("price")), change_pct=_num(item.get("change_pct")),
         iv30_pct=_num(item.get("iv30_pct")), iv_change_pp=_num(item.get("iv_change_pp")), iv_rank=_num(item.get("iv_rank")),
         iv_percentile=_num(item.get("iv_percentile")), rv20_pct=_num(item.get("rv20_pct")), vrp_pp=_num(item.get("vrp_pp")),
@@ -198,9 +229,19 @@ def build_radar_document(calls: list, now: datetime) -> dict:
     sin duplicados no suman exactamente el total."""
     groups: dict[str, dict] = {s: {"rows": {}, "total": None} for s in STRATEGIES}
     as_of = None
+    ideas: dict[str, dict] = {}                 # fichas por valor: el spread que propone el radar (opcionales: sin ficha, sin crédito/ancho)
     for call in calls:
         args = getattr(call, "input", None) or {}
-        if getattr(call, "name", "") != "get_market_radar" or args.get("symbol") or args.get("strategy") not in groups:
+        if getattr(call, "name", "") == "get_market_radar" and args.get("symbol"):
+            try:
+                card = json.loads(call.output)
+            except ValueError:
+                continue
+            idea = card.get("idea") if isinstance(card, dict) else None
+            if isinstance(idea, dict) and "bullputspread" in str(idea.get("strategy", "")).lower().replace(" ", ""):
+                ideas[str(args["symbol"]).upper()] = idea
+            continue
+        if getattr(call, "name", "") != "get_market_radar" or args.get("strategy") not in groups:
             continue
         try:
             result = json.loads(call.output)
@@ -225,13 +266,19 @@ def build_radar_document(calls: list, now: datetime) -> dict:
                              "respuesta recortada o faltan tramos de precio")
         for sym, item in group["rows"].items():
             rows.setdefault(sym, item)
+    for sym, idea in ideas.items():
+        if sym in rows:
+            rows[sym] = {**rows[sym], "idea": idea}
     ordered = sorted(rows.values(), key=lambda r: -(_num(r.get("iv_rank")) or -1))
     return {"version": VERSION, "generated_at": now.astimezone().isoformat(timespec="seconds"), "source": "tortuga-market-radar",
             "as_of": as_of, "matched": len(ordered), "returned": len(ordered), "rows": ordered}
 
 
-def passes(row: RadarRow, min_yield_pct: float) -> bool:
-    """¿La put de 30Δ rinde en el periodo al menos el yield que exige el perfil? Sin dato no cumple."""
+def passes(row: RadarRow, min_yield_pct: float, min_credit_width_pct: Optional[float] = None) -> bool:
+    """¿El valor rinde lo que exige el perfil? Un spread con ficha (y mínimo de crédito/ancho) se mide por su crédito/ancho; los demás, por el
+    yield del periodo de la put de 30Δ (prima / strike). Sin dato no cumple."""
+    if min_credit_width_pct is not None and row.has_spread and row.spread_credit_width_pct is not None:
+        return row.spread_credit_width_pct >= min_credit_width_pct - 1e-9
     y = row.put_yield_period_pct
     return y is not None and y >= min_yield_pct - 1e-9
 

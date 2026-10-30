@@ -16,16 +16,16 @@
   {% else %}
   <div class="help-scope" style="min-height:24px;padding-right:32px"><p class="note" style="margin-top:0">Valores del Market Radar de Tortuga cuya estrategia propuesta es <b>Bull Put Spread</b> o <b>venta de put</b>, con los datos del {{ data.as_of.strftime('%d/%m/%Y') if data.as_of else '—' }}{% if age_days and age_days > 3 %} <b class="tr-err">(hace {{ age_days }} días: la rutina no se ha ejecutado)</b>{% endif %}.
     El radar de Tortuga se refresca durante la sesión (precio e IV cada ~15 min, primas en pasadas de ~10 min; el OI es el del cierre anterior) y la aplicación lo relee cada {{ cfg.intervals.get('radar_spreads') }} minutos con el mercado abierto y una vez más tras el cierre (también al abrirla fuera de sesión si le falta esa foto). La lista no trae los strikes del spread que propone (solo su ficha, una por valor), así que se muestra la
-    <b>put de 30Δ</b> de referencia: ✓ indica que su prima cubre al menos el <b>{{ minimum|num(2) }} % del strike hasta el vencimiento</b>, el yield del periodo del perfil «{{ cfg.profile }}».
+    <b>put de 30Δ</b> de referencia: ✓ indica que su prima cubre al menos el <b>{{ minimum|num(2) }} % del strike hasta el vencimiento</b>, el yield del periodo del perfil «{{ cfg.profile }}»; en un spread con ficha, ✓ indica que su crédito/ancho llega al <b>{{ min_cw|num(1) }} %</b> (el mínimo de spread del perfil).
     Los ✓ forman dos fuentes del Universo según la estrategia que propone Tortuga, y pasan a tu watchlist (solo se añaden, nunca se quitan):
     <b>{{ cfg.source_name }}</b> (Bull Put Spread) y <b>{{ cfg.puts_source_name }}</b> (venta de put; como cualquier otra fuente, sus valores pasan por la calidad mínima de las puts).
     Con <span class="own">EN CARTERA</span> los que tienes en posiciones.
     Es información de otro motor, no una recomendación: compruébalo con los filtros del Scanner (modo Spread).
-    El selector PUT / SPREAD elige la estrategia que propone Tortuga y los perfiles del Scanner con los que se compara la put de 30Δ (en SPREAD el retorno sobre riesgo queda sin dato, porque el radar no trae los strikes del spread). Cada columna de perfil dice cuántos filtros cumple (n/total y un cuadrito por filtro: verde cumple, rojo no, gris sin comprobar). Los técnicos y la calidad de la empresa no se evalúan.</p></div>
+    El selector PUT / SPREAD elige la estrategia que propone Tortuga y los perfiles del Scanner con los que se compara la put de 30Δ (en SPREAD, con los strikes, el vencimiento y la prima del spread que propone la ficha de cada valor: descuento y DTE de la vendida y crédito/ancho = prima / ancho; la delta queda sin comprobar, y sin ficha también el crédito/ancho). Cada columna de perfil dice cuántos filtros cumple (n/total y un cuadrito por filtro: verde cumple, rojo no, gris sin comprobar). Los técnicos y la calidad de la empresa no se evalúan.</p></div>
   <div class="tr-bar"><div class="seg" role="tablist">{% for t, lbl in (('put', 'PUT'), ('spread', 'SPREAD')) %}<a href="{{ tab_urls[t] }}" class="{{ 'on' if t == tipo }}" role="tab" title="{{ 'Venta de put' if t == 'put' else 'Bull Put Spread' }} (estrategia que propone Tortuga)">{{ lbl }}<span>{{ counts[t] }}</span></a>{% endfor %}</div></div>
   <form method="get" action="/tortuga" class="tr-bar">
     <input type="hidden" name="tipo" value="{{ tipo }}">
-    <label class="check"><input type="checkbox" name="cumple" value="1" {{ 'checked' if cumple }} onchange="this.form.submit()"> Solo los que cumplen el yield (✓)</label>
+    <label class="check"><input type="checkbox" name="cumple" value="1" {{ 'checked' if cumple }} onchange="this.form.submit()"> Solo los que cumplen (✓)</label>
     <span class="muted">{{ items|length }} valores · {{ passing }} cumplen en total</span>
   </form>
   {% if items %}
@@ -33,10 +33,10 @@
   <table class="sortable cmp">
     <tr><th>Ticker</th><th class="c" title="La put de 30Δ rinde en el periodo al menos el yield del perfil">✓</th>
       <th class="n" title="Último precio y variación del día">Precio</th>
-      <th class="n" title="Put de 30Δ de referencia: strike y, debajo, vencimiento y días hasta él">Put 30Δ</th>
+      <th class="n" title="{{ 'Spread que propone la ficha del valor: strike vendido / comprado y, debajo, vencimiento y días hasta él (sin ficha, la put de 30Δ)' if tipo == 'spread' else 'Put de 30Δ de referencia: strike y, debajo, vencimiento y días hasta él' }}">{{ 'Spread' if tipo == 'spread' and items|selectattr('row.has_spread')|list else 'Put 30Δ' }}</th>
       <th class="n" title="Distancia del strike por debajo del precio y, debajo, su delta">Descuento</th>
-      <th class="n" title="Prima por contrato (mid) y, debajo, capital en riesgo como % del NLV en USD: (strike − prima) × 100">Prima ($)</th>
-      <th class="n hl" data-sort-default="desc" title="Prima / strike hasta el vencimiento, sin anualizar, y debajo el rendimiento anualizado de la put de 30Δ según Tortuga">Yield</th>
+      <th class="n" title="Prima por contrato (mid) y, debajo, capital en riesgo como % del NLV en USD: put = (strike − prima) × 100; spread = (ancho − prima) × 100">Prima ($)</th>
+      <th class="n hl" data-sort-default="desc" title="Put: prima / strike hasta el vencimiento, sin anualizar, y debajo el rendimiento anualizado de la put de 30Δ según Tortuga. Spread: crédito / ancho y debajo el rendimiento anualizado sobre el riesgo según Tortuga">Yield</th>
       <th class="n" title="IV Rank y, debajo, IV Percentile">IV Rank</th>
       <th class="n" title="IV a 30 días y, debajo, VRP (IV30 − RV20, en puntos)">IV30 · VRP</th>
       <th title="Tendencia y, debajo, RSI(14)">Tendencia</th>
@@ -49,10 +49,15 @@
     <tr><td class="tk"><b title="{{ tk_title(company_names, r.ticker) }}">{% if r.put_strike is not none %}<a href="#" class="chart-link" data-ticker="{{ r.ticker }}" data-strike="{{ r.put_strike }}"{% if r.put_expiry %} data-expiry="{{ r.put_expiry }}"{% endif %}{% if r.put_mid is not none %} data-prem="{{ r.put_mid }}"{% endif %}>{{ r.ticker }}</a>{% else %}{{ r.ticker }}{% endif %}</b>{{ sec_flag(sec_alerts, r.ticker) }}{{ analyst_flag(analyst_alerts, r.ticker) }}{% if i.held %} <span class="own" title="Tienes posiciones en este valor">EN CARTERA</span>{% endif %}{% if r.sector %}<small>{{ r.sector }}</small>{% endif %}</td>
       <td class="c {{ 'tr-ok' if i.ok else 'tr-ko' }}" data-sort="{{ 1 if i.ok else 0 }}">{{ '✓' if i.ok else '·' }}</td>
       <td class="n"{% if r.price is not none %} data-sort="{{ r.price }}"{% endif %}>{{ n(r.price) }}{% if r.change_pct is not none %}<small class="{{ 'up' if r.change_pct >= 0 else 'dn' }}">{{ '▲' if r.change_pct >= 0 else '▼' }} {{ r.change_pct|abs|pct }}</small>{% endif %}</td>
-      <td class="n"{% if r.put_expiry %} data-sort="{{ r.put_expiry.toordinal() }}"{% endif %}><b>{{ n(r.put_strike) }}</b><small>{{ r.put_expiry.strftime('%d/%m') if r.put_expiry else '—' }} · {{ r.put_dte if r.put_dte is not none else '—' }} d</small></td>
-      <td class="n"{% if r.distance_pct is not none %} data-sort="{{ r.distance_pct }}"{% endif %}>{{ n(r.distance_pct, 1) }} %<small>Δ {{ n(r.put_delta) }}</small></td>
-      <td class="n"{% if r.put_mid is not none %} data-sort="{{ r.put_mid }}"{% endif %}>{{ (r.put_mid * 100)|num(0) if r.put_mid is not none else '—' }}<small>{{ (((r.put_strike - r.put_mid) * 100 / nlv_usd * 100)|pct ~ ' NLV') if nlv_usd and r.put_strike is not none and r.put_mid is not none else '—' }}</small></td>
-      <td class="n hl"{% if r.put_yield_period_pct is not none %} data-sort="{{ r.put_yield_period_pct }}"{% endif %}>{{ n(r.put_yield_period_pct) }} %<small>{{ n(r.put_yield_annual_pct, 1) }} % anual</small></td>
+      {%- set sp = tipo == 'spread' and r.has_spread %}
+      {% if sp %}<td class="n"{% if r.spread_expiry %} data-sort="{{ r.spread_expiry.toordinal() }}"{% endif %} title="Spread que propone la ficha del valor en Tortuga (put 30Δ de referencia: {{ n(r.put_strike) }})"><b>{{ n(r.spread_short) }} / {{ n(r.spread_long) }}</b><small>{{ r.spread_expiry.strftime('%d/%m') if r.spread_expiry else '—' }} · {{ r.spread_dte }} d</small></td>
+      <td class="n"{% if r.spread_distance_pct is not none %} data-sort="{{ r.spread_distance_pct }}"{% endif %}>{{ n(r.spread_distance_pct, 1) }} %<small>vendida</small></td>
+      {% else %}<td class="n"{% if r.put_expiry %} data-sort="{{ r.put_expiry.toordinal() }}"{% endif %}><b>{{ n(r.put_strike) }}</b><small>{{ r.put_expiry.strftime('%d/%m') if r.put_expiry else '—' }} · {{ r.put_dte if r.put_dte is not none else '—' }} d</small></td>
+      <td class="n"{% if r.distance_pct is not none %} data-sort="{{ r.distance_pct }}"{% endif %}>{{ n(r.distance_pct, 1) }} %<small>Δ {{ n(r.put_delta) }}</small></td>{% endif %}
+      {% if sp %}<td class="n"{% if r.spread_premium is not none %} data-sort="{{ r.spread_premium }}"{% endif %}>{{ (r.spread_premium * 100)|num(0) if r.spread_premium is not none else '—' }}<small>{{ (((r.spread_short - r.spread_long - r.spread_premium) * 100 / nlv_usd * 100)|pct ~ ' NLV') if nlv_usd and r.spread_premium is not none else '—' }}</small></td>
+      <td class="n hl"{% if r.spread_credit_width_pct is not none %} data-sort="{{ r.spread_credit_width_pct }}"{% endif %}>{{ n(r.spread_credit_width_pct) }} %<small>{{ n(r.spread_annual_pct, 1) }} % anual</small></td>
+      {% else %}<td class="n"{% if r.put_mid is not none %} data-sort="{{ r.put_mid }}"{% endif %}>{{ (r.put_mid * 100)|num(0) if r.put_mid is not none else '—' }}<small>{{ (((r.put_strike - r.put_mid) * 100 / nlv_usd * 100)|pct ~ ' NLV') if nlv_usd and r.put_strike is not none and r.put_mid is not none else '—' }}</small></td>
+      <td class="n hl"{% if r.put_yield_period_pct is not none %} data-sort="{{ r.put_yield_period_pct }}"{% endif %}>{{ n(r.put_yield_period_pct) }} %<small>{{ n(r.put_yield_annual_pct, 1) }} % anual</small></td>{% endif %}
       <td class="n"{% if r.iv_rank is not none %} data-sort="{{ r.iv_rank }}"{% endif %}>{{ n(r.iv_rank, 0) }}<small>P {{ n(r.iv_percentile, 0) }}</small></td>
       <td class="n"{% if r.iv30_pct is not none %} data-sort="{{ r.iv30_pct }}"{% endif %}>{{ n(r.iv30_pct, 1) }}<small>VRP {{ n(r.vrp_pp, 1) }}</small></td>
       <td>{{ r.trend or '—' }}<small>RSI {{ n(r.rsi14, 0) }}</small></td>

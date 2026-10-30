@@ -22,6 +22,7 @@ RADAR_LIMIT = 100
 PRICE_RANGES = ((0, 50), (50, 100), (100, 200), (200, None))
 SPLIT_OPEN_AT = 350                       # el tramo abierto «200+» se parte en 200-350 y 350+
 MAX_SPLIT_DEPTH = 6
+CARD_CONCURRENCY = 5                      # fichas por valor a la vez
 API_ROUTINES = frozenset({"aperturas", "radar_spreads", "super_investors"})
 
 
@@ -63,7 +64,30 @@ class TortugaApi:
         """Por estrategia: una llamada sin filtros (da el total `matched`) y, si viene recortada, los tramos de precio, que se parten por la
         mitad mientras sigan recortados (el mismo procedimiento que seguía `scripts/radar_spreads_prompt.md`)."""
         groups = await asyncio.gather(*(self._radar_strategy(s) for s in STRATEGIES))
-        return [c for group in groups for c in group]
+        calls = [c for group in groups for c in group]
+        return calls + await self._spread_cards(calls)
+
+    async def _spread_cards(self, calls: list[ToolCall]) -> list[ToolCall]:
+        """Ficha de cada valor cuya estrategia propuesta es Bull Put Spread: la lista no trae los strikes del spread, la ficha sí (`idea`).
+        Un fallo no invalida el radar: ese valor se queda sin crédito/ancho."""
+        symbols: dict[str, None] = {}
+        for call in calls:
+            try:
+                rows = json.loads(call.output).get("rows", [])
+            except (ValueError, AttributeError):
+                continue
+            for r in rows:
+                if isinstance(r, dict) and r.get("symbol") and "bullputspread" in str((r.get("top_strategy") or {}).get("key", "")).lower():
+                    symbols[str(r["symbol"])] = None
+        gate = asyncio.Semaphore(CARD_CONCURRENCY)
+
+        async def card(sym: str) -> Optional[ToolCall]:
+            async with gate:
+                try:
+                    return await self.call("get_market_radar", symbol=sym)
+                except TortugaApiError:
+                    return None
+        return [c for c in await asyncio.gather(*(card(s) for s in symbols)) if c is not None]
 
     async def _radar_strategy(self, strategy: str) -> list[ToolCall]:
         first = await self.call("get_market_radar", strategy=strategy, sort="iv_rank", limit=RADAR_LIMIT)

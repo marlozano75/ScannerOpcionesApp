@@ -60,9 +60,9 @@ def register(app, service, render, remembered) -> None:
             message = (_grp("err", "Terminó con errores", failed, "mira la columna Resultado") if failed
                        else _grp("ok", "Terminada", [], "resultado actualizado"))
         data = service.radar_spreads()
-        minimum = service.radar_min_yield()
+        minimum, min_cw = service.radar_min_yield(), service.radar_min_credit_width()
         held = {norm_ticker(p.ticker) for p in service.state.positions}
-        items = [dict(row=r, ok=radar_passes(r, minimum), held=norm_ticker(r.ticker) in held)
+        items = [dict(row=r, ok=radar_passes(r, minimum, min_cw), held=norm_ticker(r.ticker) in held)
                  for r in (data.rows if data else ())]
         base = [i for i in items if not cumple or i["ok"]]
         counts = {t: sum(1 for i in base if i["row"].kind == t) for t in ("put", "spread")}
@@ -76,7 +76,7 @@ def register(app, service, render, remembered) -> None:
         tab_urls = {t: "/tortuga?" + urlencode({k: v for k, v in (("cumple", cumple), ("tipo", t)) if v}) for t in counts}
         return render(request, "tortuga.html", no_autorefresh=True, watch_data=True, nlv_usd=service.nlv_usd(), data=data, items=shown, fits=fits,
                       fit_cols=cols, counts=counts, tab_urls=tab_urls, total=len(items), passing=sum(1 for i in items if i["ok"]),
-                      minimum=minimum, cumple=cumple, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
+                      minimum=minimum, min_cw=min_cw, cumple=cumple, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
                       routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,
                       enabled=runner is not None and service.settings.tortuga.enabled, busy_routines=service._tortuga_busy,
                       age_days=(service.now().date() - data.as_of).days if data and data.as_of else None)
