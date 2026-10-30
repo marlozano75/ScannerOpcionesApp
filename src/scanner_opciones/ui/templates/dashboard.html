@@ -35,11 +35,6 @@
     {{ light(state.risk.current, "Cushion actual", charts.cushion_current) }}
     {{ light(state.risk.look_ahead, "Look Ahead", charts.cushion_look_ahead) }}
     {{ light(state.risk.post_expiration, "Post-Expiration", charts.cushion_post) }}
-    <div class="metric">
-      <div class="label">Severidad IBKR (HighestSeverity)</div>
-      <div class="value"><span class="dot {{ state.risk.severity.light.value }}"></span>{{ state.risk.severity.level if state.risk.severity.level is not none else '—' }}</div>
-      <div class="muted">{{ state.risk.severity.label }}</div>
-    </div>
   </div>
   <p class="muted" style="margin:10px 0 0">Las marcas de cada medidor son los umbrales: &gt; {{ risk_cfg.normal_above|round|int }}% Normal · {{ risk_cfg.concern_above|round|int }}–{{ risk_cfg.normal_above|round|int }}% Preocupación · ≤ {{ risk_cfg.concern_above|round|int }}% Riesgo alto.
     Net Liquidation: {{ state.account.net_liquidation|money }}.

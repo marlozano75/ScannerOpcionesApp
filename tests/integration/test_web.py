@@ -47,7 +47,7 @@ def test_dashboard_renders_risk_and_vix(client_and_service):
     client, svc, gw, _ = client_and_service
     r = client.get("/")
     assert r.status_code == 200
-    assert "Look Ahead" in r.text and "HighestSeverity" in r.text and "Post-Expiration" in r.text
+    assert "Look Ahead" in r.text and "HighestSeverity" not in r.text and "Post-Expiration" in r.text
     assert "18.50" in r.text  # VIX
     assert "Leverage Assignment" in r.text and "Gross Position Value" in r.text and "Nominal Assignment Exposure" in r.text
 
