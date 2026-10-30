@@ -40,10 +40,14 @@ def scan_endpoints(s: IbkrSettings, timeout: float = 0.5) -> list[Endpoint]:
     return [Endpoint(p, m, s.ports.get(p, m), ok) for (p, m), ok in zip(combos, opened)]
 
 
-def choose_endpoint(s: IbkrSettings, endpoints: list[Endpoint]) -> tuple[Platform, AccountMode]:
+def choose_endpoint(s: IbkrSettings, endpoints: list[Endpoint],
+                    skip: frozenset[tuple[Platform, AccountMode]] = frozenset()) -> tuple[Platform, AccountMode]:
     """Destino al que conectar: el único que responde; si responden varios, el configurado si está entre ellos
-    (si no, el primero: TWS antes que Gateway, simulada antes que real); si no responde ninguno, el configurado."""
+    (si no, el primero: TWS antes que Gateway, simulada antes que real); si no responde ninguno, el configurado.
+    `skip` son los destinos cuya conexión acaba de fallar aunque su puerto esté abierto (la API no contesta): se
+    prueban los demás antes de volver a ellos; si solo quedan esos, se vuelve a intentar con ellos."""
     active = [e for e in endpoints if e.active]
+    active = [e for e in active if (e.platform, e.mode) not in skip] or active
     configured = (s.platform, s.mode)
     if not active or any((e.platform, e.mode) == configured for e in active):
         return configured

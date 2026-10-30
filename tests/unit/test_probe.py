@@ -59,6 +59,19 @@ def test_con_tws_y_gateway_abiertos_manda_el_configurado_y_si_no_el_primero():
         assert probe.detect_endpoint(_four(platform=Platform.TWS, mode=AccountMode.LIVE, **both)) == (Platform.TWS, AccountMode.PAPER)
 
 
+def test_un_destino_que_falla_cede_el_turno_a_otro_que_responde():
+    a, tws = _listener()
+    b, gw = _listener()
+    with a, b:
+        s = _four(platform=Platform.GATEWAY, tws_paper=tws, gw_paper=gw)
+        eps = probe.scan_endpoints(s)
+        # el Gateway (configurado) tiene el puerto abierto pero su API no contesta: se prueba TWS
+        assert probe.choose_endpoint(s, eps, frozenset({(Platform.GATEWAY, AccountMode.PAPER)})) == (Platform.TWS, AccountMode.PAPER)
+        # si ya fallaron todos los que responden, se vuelve a empezar por el configurado
+        both = frozenset({(Platform.GATEWAY, AccountMode.PAPER), (Platform.TWS, AccountMode.PAPER)})
+        assert probe.choose_endpoint(s, eps, both) == (Platform.GATEWAY, AccountMode.PAPER)
+
+
 def test_sin_ningun_destino_activo_se_respeta_la_configuracion():
     s = _four(platform=Platform.GATEWAY, mode=AccountMode.LIVE)
     assert probe.detect_endpoint(s) == (Platform.GATEWAY, AccountMode.LIVE)

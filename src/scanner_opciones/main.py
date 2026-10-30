@@ -114,24 +114,34 @@ def build_app(settings: Settings):
     scan_log_runner = (PeriodicRunner(service.scan_log_cycle, settings.scan_log.interval_minutes * 60) if settings.scan_log.enabled else None)
     startup_task: list[asyncio.Task] = []
 
+    failed: set[tuple] = set()      # destinos con el puerto abierto cuya conexión falló en este ciclo de reintentos
+
     async def reconnect() -> None:
         """Actualiza qué destinos responden (TWS/IB Gateway, real/simulada) y, mientras la conexión esté caída, la
         reintenta. Solo si algún puerto responde (sin ruido en el log); si cambió el destino abierto se cambia de
-        plataforma o de modo, y si no se reconecta en el actual."""
+        plataforma o de modo, y si no se reconecta en el actual. Un destino cuyo puerto está abierto pero cuya API no
+        contesta (el Gateway aún iniciando sesión, TWS con la API apagada) no bloquea a los demás: tras el fallo se
+        prueba otro destino que responda antes de repetirlo."""
+        log = logging.getLogger(__name__)
         ib = service.settings.ibkr
         service.endpoints = await asyncio.to_thread(scan_endpoints, ib)
         if service.state.connected:
+            failed.clear()
             return
-        platform, mode = choose_endpoint(ib, service.endpoints) if ib.auto_detect_mode else (ib.platform, ib.mode)
+        platform, mode = choose_endpoint(ib, service.endpoints, frozenset(failed)) if ib.auto_detect_mode else (ib.platform, ib.mode)
         if not any(e.active and (e.platform, e.mode) == (platform, mode) for e in service.endpoints):
             return
         if (platform, mode) != (ib.platform, ib.mode):
+            log.info("Reintento de conexión: se prueba %s (%s)", platform.value, mode.value)
             service.settings = service.settings.model_copy(update={"ibkr": ib.model_copy(update={"platform": platform, "mode": mode})})
             await service.switch_gateway(factory(mode))
         else:
             await service.reconnect()
         if service.state.connected:
-            logging.getLogger(__name__).info("Conexión con IBKR recuperada (%s, %s)", platform.value, mode.value)
+            failed.clear()
+            log.info("Conexión con IBKR recuperada (%s, %s)", platform.value, mode.value)
+        else:
+            failed.add((platform, mode))
 
     reconnect_runner = PeriodicRunner(reconnect, settings.ibkr.reconnect_interval_seconds)
 

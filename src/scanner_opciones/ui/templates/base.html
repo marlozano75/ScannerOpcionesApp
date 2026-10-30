@@ -426,6 +426,22 @@
   });
 })();
 </script>
+<script>
+/* Vigila la conexión con IBKR en TODAS las páginas: si pasa de desconectado a conectado (o al revés) mientras la
+   página está abierta, se recarga para mostrar el estado real (cuenta, posiciones, cabecera). No recarga con un
+   gráfico abierto ni con el formulario modificado (se reintenta en 5 s). */
+(function () {
+  var connected = {{ 'true' if state.connected else 'false' }}, dirty = false;
+  document.addEventListener('input', function () { dirty = true; });
+  setInterval(function () {
+    fetch('/data-version', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.connected === connected || dirty) return;
+      if (document.querySelector('dialog[open], #pos-overlay:not([hidden])')) return;
+      location.reload();
+    }).catch(function () {});
+  }, 5000);
+})();
+</script>
 {% if watch_data %}<script>
 /* Recarga la tabla cuando termina un refresco (cambia data_version; el Panel también vigila el refresco de cuenta,
    `watch_account`). El servidor recalcula las condiciones con los precios nuevos; la posición de desplazamiento se

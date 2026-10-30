@@ -7,7 +7,7 @@ ibkr:
   auto_detect_mode: true   # al arrancar elige plataforma y live/paper según el puerto que responda (TWS 7496/7497, IB Gateway 4001/4002); false = usa `platform` y `mode`
   platform: tws          # tws | gateway (se prefiere si responden varios)
   mode: paper            # paper | live
-  reconnect_interval_seconds: 30   # si TWS está caído (o se cae), se reintenta la conexión cada tanto; la parte de tastytrade no se repite
+  reconnect_interval_seconds: 10  # si TWS está caído (o se cae), se reintenta la conexión cada tanto; la parte de tastytrade no se repite
   what_if_timeout_seconds: 15   # tiempo máximo de un what-if de margen (si TWS pierde la conexión con IBKR no responde nunca)
   market_data_type: 2    # 1 = live, 2 = congelado (live; con el mercado cerrado, el último bid/ask del cierre), 3 = diferido
                          # (3 no ocupa la suscripción en tiempo real: la app móvil de IBKR conserva sus datos en vivo)

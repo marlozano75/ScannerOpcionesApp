@@ -723,7 +723,8 @@ def create_app(
     async def data_version():
         """Versión de los datos guardados: el scanner la consulta y se recarga
         si cambia (RF: refresco automático de la tabla al terminar una cotización)."""
-        return {"version": service.state.data_version, "account": service.state.account_version, "busy": service.busy}
+        return {"version": service.state.data_version, "account": service.state.account_version, "busy": service.busy,
+                "connected": service.state.connected}
 
     @app.get("/simulate")
     async def simulate_get():
