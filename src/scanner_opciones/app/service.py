@@ -3093,13 +3093,14 @@ class AppService:
 
     def held_tickers(self) -> dict[str, dict]:
         """Lo que tienes en cartera de cada subyacente (ticker normalizado): `shares` (acciones), y para las opciones un dict
-        `{(right, expiry, strike): contratos}` en `options` (negativo = vendidos), para marcar el ticker en el Scanner aunque el contrato no sea el mismo."""
+        `{(right, expiry, strike): contratos}` en `options` (negativo = vendidos) y `lines` (descripción de cada posición o combo, `held_details`), para marcar el ticker en el Scanner aunque el contrato no sea el mismo."""
         held: dict[str, dict] = {}
+        lines = self.held_details()
         for p in self.state.positions:
             if not p.quantity:
                 continue
             o = p.option
-            entry = held.setdefault(norm_ticker(o.ticker if o else p.ticker), {"shares": 0.0, "options": {}})
+            entry = held.setdefault(norm_ticker(o.ticker if o else p.ticker), {"shares": 0.0, "options": {}, "lines": lines.get(norm_ticker(o.ticker if o else p.ticker), [])})
             if o is None:
                 entry["shares"] += p.quantity
             else:

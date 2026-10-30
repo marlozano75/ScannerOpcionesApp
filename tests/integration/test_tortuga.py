@@ -404,3 +404,15 @@ def test_held_details_describe_stocks_spreads_combos_and_loose_options(tmp_path)
     lines = svc.held_details()["PLTR"]
     assert "Bull Put Spread vendido 180/170, vence 18/12/2026 ×2" in lines and "Call vendida 250, vence 18/12/2026 ×1" in lines
     assert "100 acciones" in lines and len(lines) == 3
+
+
+def test_held_note_detail_lists_every_position_with_strikes_and_expiries(tmp_path):
+    from datetime import date
+    from scanner_opciones.domain.enums import OptionRight
+    from scanner_opciones.domain.models import OptionContract, Position
+    from scanner_opciones.ui.web import held_note
+    svc, _, _ = make(tmp_path)
+    exp = date(2026, 12, 18)
+    svc.state.positions = [Position("PLTR", 100, 1.0), Position("PLTR", -1, 1.0, option=OptionContract(ticker="PLTR", expiry=exp, strike=250, right=OptionRight.CALL))]
+    short, detail = held_note(svc.held_tickers(), "PLTR", exp, 180)
+    assert short == "ACC C" and "• 100 acciones" in detail and "• Call vendida 250, vence 18/12/2026 ×1" in detail

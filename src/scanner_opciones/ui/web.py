@@ -83,7 +83,10 @@ def held_note(held, ticker, expiry, strike):
     if calls:
         short.append("C")
         long.append(f"{int(abs(calls))} call{'s' if abs(calls) != 1 else ''} {'vendida' if calls < 0 else 'comprada'}{'s' if abs(calls) != 1 else ''}")
-    return (" ".join(short), "Ya tienes en cartera: " + "; ".join(long)) if short else None
+    if not short:
+        return None
+    lines = entry.get("lines")      # detalle de cada posición o combo (tipo, strikes, vencimientos); sin él, el resumen por tipo
+    return (" ".join(short), "Ya tienes en cartera:" + "".join(f"\n• {l}" for l in lines) if lines else "Ya tienes en cartera: " + "; ".join(long))
 
 
 TEMPLATES.env.globals["held_note"] = held_note
