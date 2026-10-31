@@ -231,7 +231,7 @@ class StaticFeed:
 async def test_the_community_is_a_contract_feed_that_marks_the_source_and_the_trader(tmp_path):
     from scanner_opciones.feeds.base import ContractFeed
     svc = make(tmp_path)
-    assert isinstance(svc.community_feed, ContractFeed) and list(svc.feeds) == ["Comunidad"]
+    assert isinstance(svc.community_feed, ContractFeed) and list(svc.feeds) == ["Comunidad", "MarketRadar"]
     assert svc.feed_contracts() == [] and svc.feed_stamp() is None                          # sin fichero: sin contratos
     text = json.dumps({"version": 1, "generated_at": "2026-10-12T13:00:00", "tickers": [],
                        "ideas": [{"date": "2026-10-09", "trader": "Ana", "ticker": "PEP", "strategy": "Short Put", "expiry": "2026-11-20",
@@ -415,3 +415,37 @@ async def test_your_own_trades_are_not_published_as_tickers_of_other_traders(tmp
     info = svc.contract_feeds_info()[0]
     assert (info["contracts"], info["traders"], info["tickers"]) == (1, 1, 1)
     assert "1 contratos de 1 traders" in svc.feed_source_note("Comunidad_Contratos")
+
+
+# ---- el Market Radar como fuente de contratos ---------------------------------------------------------------------------
+def radar_json(contract):
+    """Radar con un valor de spread (con ficha) sobre `contract` y otro de venta de put (put de 30Δ)."""
+    def item(symbol, key, name, **extra):
+        return {"symbol": symbol, "price": 200.0, "iv_rank": 50, "top_strategy": {"key": key, "name": name}, **extra}
+    spread = item("AAPL", "bullPutSpread", "Bull Put Spread", idea={"strategy": "Bull Put Spread", "strikes": [contract.strike, contract.strike - 5],
+                                                                 "expiry": contract.expiry.isoformat(), "dte": 30, "premium_per_share": 1.0})
+    put = item("MSFT", "ventaPut", "Venta de PUT", put30={"strike": 180, "mid": 2.0, "delta": -0.3, "expiry": "2026-12-18", "dte": 40})
+    nocard = item("NVDA", "bullPutSpread", "Bull Put Spread", put30={"strike": 100, "mid": 1.0, "expiry": "2026-12-18", "dte": 40})     # sin ficha: sin spread concreto
+    rows = [spread, put, nocard]
+    return json.dumps({"version": 1, "generated_at": "2026-10-12T13:00:00+02:00", "as_of": "2026-10-09", "matched": 3, "returned": 3, "rows": rows})
+
+
+async def test_the_market_radar_is_a_contract_feed_logged_in_the_historico(client_and_service, tmp_path):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    client.get("/scanner?reset=1")
+    contract = svc.contracts.list("AAPL")[0]
+    path = tmp_path / "radar.json"
+    write(path, radar_json(contract))
+    object.__setattr__(svc.settings, "tortuga", svc.settings.tortuga.model_copy(update={"radar_path": str(path), "radar_puts_path": str(tmp_path / "no.json")}))
+    contracts = {c.ticker: c for c in svc.radar_feed.contracts()}
+    assert set(contracts) == {"AAPL", "MSFT"} and svc.radar_feed.tickers() == ["AAPL", "MSFT"]                 # NVDA no trae spread concreto
+    assert contracts["AAPL"].long_strike == contract.strike - 5 and contracts["AAPL"].credit == 1.0 and contracts["AAPL"].max_loss == 400.0
+    assert contracts["MSFT"].long_strike is None and contracts["MSFT"].strategy == "Short Put" and str(contracts["MSFT"].day) == "2026-10-09"
+    assert all(c.source == "MarketRadar" and c.trader is None for c in contracts.values()) and not svc.feed_publishes("MarketRadar")
+    assert {v.idea.source for v in svc.community_ideas()} == {"MarketRadar"}
+    await svc.scan_log_now()
+    rows = [dict(r) for r in svc.scan_log_repo.db.conn.execute("SELECT * FROM scan_log WHERE origin = 'MarketRadar'")]
+    # MSFT no está en la watchlist: sin precio no se mide su distancia y, como en cualquier fuente, se deja sin anotar
+    assert {r["ticker"] for r in rows} == {"AAPL"} and {r["opened"] for r in rows} == {"2026-10-09"} and all(r["trader"] is None for r in rows)
+    assert "MarketRadar" in svc.scan_log_repo.origins()

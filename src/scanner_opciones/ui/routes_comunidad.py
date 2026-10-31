@@ -33,7 +33,7 @@ def register(app, service, render, remembered) -> None:
             except Exception:
                 log.warning("Comunidad: no se pudieron cotizar en directo", exc_info=True)
         me = service.settings.community.my_trader.casefold()      # tus operaciones no se muestran (siguen sirviendo al Panel para reconocer el perfil)
-        everything = [v for v in service.community_ideas() if not me or (v.idea.trader or "").casefold() != me] if data is not None else []
+        everything = [v for v in service.community_ideas() if v.idea.source == service.community_feed.name and (not me or (v.idea.trader or "").casefold() != me)] if data is not None else []
         tipo = tipo if tipo in ("put", "spread") else "put"
         base = [v for v in everything
                 if (venc or v.status != "expired") and (not trader or v.idea.trader == trader)]

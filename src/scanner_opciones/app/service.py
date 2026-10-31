@@ -38,6 +38,7 @@ from scanner_opciones.portfolio.diversification import WeekExposure, sector_expo
 from scanner_opciones.community.data import CommunityData
 from scanner_opciones.feeds.base import ContractFeed, ContractIdea, combined_stamp
 from scanner_opciones.feeds.community import CommunityFeed
+from scanner_opciones.feeds.marketradar import MarketRadarFeed
 from scanner_opciones.community.fit import profile_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
@@ -250,7 +251,8 @@ class AppService:
         self.universe_info: dict[str, dict[str, str]] = self._load_info()   # nombre/sector que ninguna fuente trae
         self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
         self.community_feed = CommunityFeed(lambda: self.settings.community.path, me=lambda: self.settings.community.my_trader)      # la comunidad de Tortuga (JSON de la rutina diaria)
-        self.feeds: dict[str, ContractFeed] = {self.community_feed.name: self.community_feed}      # fuentes de contratos, por nombre
+        self.radar_feed = MarketRadarFeed(self._radar_file)      # las propuestas del Market Radar de Tortuga (ficha del spread / put de 30Δ)
+        self.feeds: dict[str, ContractFeed] = {self.community_feed.name: self.community_feed, self.radar_feed.name: self.radar_feed}      # fuentes de contratos, por nombre
         self._community_syncing = False
         self.tortuga = tortuga                    # rutinas que lanzan la CLI de Claude (None en los tests: nunca se ejecuta nada externo)
         self._tortuga_busy = False
@@ -2480,6 +2482,8 @@ class AppService:
             saved = {}
         if isinstance(saved, dict) and isinstance(saved.get("publish"), bool):
             return saved["publish"]
+        if feed == self.radar_feed.name:        # sus tickers ya llegan por RadarSpreads / RadarPuts (con el yield mínimo): publicarlos todos ampliaría la watchlist
+            return False
         return self.settings.community.contracts_source if feed == self.community_feed.name else True
 
     def set_feed_publish(self, publish: dict[str, bool]) -> None:
