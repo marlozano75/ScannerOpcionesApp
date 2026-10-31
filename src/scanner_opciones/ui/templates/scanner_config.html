@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Perfiles del Scanner{% endblock %}
+{% block title %}Perfiles y fuentes de contratos{% endblock %}
 {% block content %}
 <style>
   .cfg h2 { margin-bottom:2px; }
@@ -35,7 +35,7 @@
   .cfg-actions button { width:auto; }
 </style>
 <div class="card cfg">
-  <h2>Perfiles del Scanner</h2>
+  <h2>Perfiles de escaneo y fuentes de contratos</h2>
   <p class="cfg-lead muted">
     <span data-tip="Perfiles|Cada perfil guarda todos los filtros del Scanner. Aquí solo se gestionan los perfiles: los filtros se editan en el Scanner y se guardan con «💾 Guardar en perfil». Cargar un perfil reemplaza el formulario entero." tabindex="0">ⓘ Cada perfil guarda todos los filtros</span>
     <a href="/scanner">← Volver al Scanner</a></p>
@@ -44,7 +44,7 @@
   {% for g in gap %}<div class="banner info">Aviso: {{ g }}: solo se escanean los contratos guardados, amplía <code>scanner.candidates</code> en config.yaml.</div>{% endfor %}
   <form method="post" action="/scanner/profiles">
     <details class="cfg-sec" open>
-      <summary>Perfiles
+      <summary>Perfiles de escaneo
         <span class="cfg-hint" data-tip="Origen|{{ 'Perfiles guardados desde la aplicación.' if profiles_saved else 'Todavía se generan desde config.yaml (presets TPC y estrategia Tastytrade); al guardar aquí pasan a ser propios.' }}" tabindex="0">{{ 'guardados' if profiles_saved else 'desde config.yaml' }}</span></summary>
       <div class="cfg-tbl-wrap">
       <table class="cfg-pre">
@@ -80,6 +80,33 @@
         <button type="submit" formaction="/scanner/profiles/reset" formnovalidate class="secondary"
           onclick="return confirmClick(this, '¿Regenerar los perfiles desde config.yaml? Se pierden los filtros guardados en ellos.')" {{ '' if profiles_saved else 'disabled' }}>Regenerar desde config.yaml</button>
       </div>
+    </details>
+  </form>
+  <form method="post" action="/scanner/feeds">
+    <details class="cfg-sec" open>
+      <summary>Fuentes de contratos
+        <span class="cfg-hint" data-tip="Fuentes de contratos|Traen contratos ya concretos (ticker, strike, vencimiento, prima) en vez de tickers: no tienen filtros propios, se valoran con los datos de hoy y se comparan con los perfiles de escaneo (columnas de Ideas y Tortuga). Sus contratos se anotan en el Histórico con su trader y sirven para reconocer el perfil de tus puts abiertas. Además pueden publicar sus tickers como fuente del Universo para que un perfil de escaneo busque contratos propios sobre ellos." tabindex="0">Comparan con los perfiles</span></summary>
+      {% if feeds %}
+      <div class="cfg-tbl-wrap">
+      <table class="cfg-pre">
+        <thead><tr><th>Fuente</th><th class="c">Contratos</th><th class="c">Traders</th><th class="c">Tickers</th><th>Datos de</th>
+          <th class="c" data-tip="Publicar tickers|Los tickers de sus contratos vigentes forman la fuente del Universo indicada, que se sustituye con cada actualización. Si la desmarcas, la fuente que ya existía se queda (bórrala desde el Universo)." tabindex="0">Publicar tickers</th>
+          <th>Fuente del Universo</th><th>Fuente permanente</th><th></th></tr></thead>
+        <tbody>
+        {% for f in feeds %}
+        <tr><td><b>{{ f.name }}</b><input type="hidden" name="feed" value="{{ f.name }}"></td>
+          <td class="c">{{ f.contracts }}</td><td class="c">{{ f.traders or '—' }}</td><td class="c">{{ f.tickers }}</td>
+          <td class="muted">{{ f.stamp[:16]|replace('T', ' ') if f.stamp else 'sin datos' }}</td>
+          <td class="c"><input type="checkbox" name="publish_{{ f.name }}" {{ 'checked' if f.publish }}></td>
+          <td>{% if f.in_universe %}<a href="/universe?src={{ f.source|urlencode }}">{{ f.source }}</a> <span class="muted">({{ f.in_universe }})</span>{% else %}<span class="muted">{{ f.source }} (aún sin tickers)</span>{% endif %}</td>
+          <td>{% if f.perm_count %}<a href="/universe?src={{ f.perm|urlencode }}">{{ f.perm }}</a> <span class="muted">({{ f.perm_count }})</span>{% else %}<span class="muted">{{ f.perm }}</span>{% endif %}</td>
+          <td><a href="/ideas">Ver contratos</a></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <div class="cfg-actions"><button>Guardar fuentes</button></div>
+      {% else %}<p class="muted">No hay fuentes de contratos.</p>{% endif %}
     </details>
   </form>
   <form method="post" action="/scanner/config">

@@ -385,3 +385,21 @@ async def test_another_feed_gets_its_own_universe_source_and_permanent_source(cl
     page = client.get("/universe").text
     assert ">contratos<" in page
     assert "contratos vigentes" in client.get("/universe?src=Otra_Contratos").text
+
+
+def test_the_config_page_separates_scan_profiles_from_contract_feeds_and_saves_whether_they_publish_tickers(client_and_service, tmp_path):
+    client, svc, gw, _ = client_and_service
+    write(tmp_path / "tortuga.json", ideas_json("2026-10-12T13:00:00", [one_idea("PEP"), one_idea("MCD", "Beto")]))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(tmp_path / "tortuga.json")))
+    svc.feeds["Otra"] = StaticFeed([])
+    page = client.get("/scanner/config").text
+    assert "Perfiles de escaneo" in page and "Fuentes de contratos" in page and 'name="feed" value="Comunidad"' in page and 'name="feed" value="Otra"' in page
+    info = {f["name"]: f for f in svc.contract_feeds_info()}
+    assert (info["Comunidad"]["contracts"], info["Comunidad"]["traders"], info["Comunidad"]["tickers"]) == (2, 2, 2) and info["Comunidad"]["publish"] is True
+    assert info["Otra"]["contracts"] == 0 and info["Otra"]["stamp"] == "v1"
+    r = client.post("/scanner/feeds", data={"feed": ["Comunidad", "Otra"], "publish_Otra": "on"}, follow_redirects=False)     # la comunidad deja de publicar
+    assert r.status_code == 303 and "ok=" in r.headers["location"]
+    assert svc.feed_publishes("Comunidad") is False and svc.feed_publishes("Otra") is True and "Comunidad_Contratos" not in svc.manual_sources
+    client.post("/scanner/feeds", data={"feed": ["Comunidad", "Otra"], "publish_Comunidad": "on"}, follow_redirects=False)
+    assert svc.feed_publishes("Comunidad") is True and svc.manual_sources["Comunidad_Contratos"] == ["MCD", "PEP"]      # al activarla se publica al guardar
+    assert "Comunidad_Contratos" in client.get("/scanner/config").text

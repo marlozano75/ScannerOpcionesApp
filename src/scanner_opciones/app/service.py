@@ -117,6 +117,7 @@ RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spr
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 SCAN_LOG_CFG = "scan_log_cfg"   # clave de `meta`: configuración del Histórico guardada desde la interfaz (JSON)
 COMMUNITY_LIVE = "community_live"   # clave de `meta`: última cotización en directo de las ideas (pickle en base64)
+FEEDS_CFG = "feeds_cfg"   # clave de `meta`: ajustes de las fuentes de contratos editados en /scanner/config (JSON {fuente: {publish: bool}}); manda sobre config.yaml
 FEED_PERM_PREFIX = "feed_perm:"   # clave de `meta` de la fuente permanente de cada fuente de contratos que NO es la comunidad (la comunidad usa COMMUNITY_PERM)
 FEED_SYNCED_PREFIX = "feed_synced:"   # clave de `meta`: marca de los contratos de una fuente ya volcados en su fuente del Universo
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
@@ -2298,7 +2299,7 @@ class AppService:
         sustituye entera con cada versión nueva de los datos de la fuente y no hace nada si ya se volcó esa. Devuelve {fuente: resultado de `add_manual_tickers`}."""
         out: dict[str, dict] = {}
         for feed in list(self.feeds.values()):
-            if feed is self.community_feed and not self.settings.community.contracts_source:
+            if not self.feed_publishes(feed.name):
                 continue
             stamp, name = feed.stamp(), self.feed_source_name(feed.name)
             if stamp is None or (self.meta.get(FEED_SYNCED_PREFIX + feed.name) == stamp and name in self.manual_sources):
@@ -2313,6 +2314,32 @@ class AppService:
                 continue
             self.meta.set(FEED_SYNCED_PREFIX + feed.name, stamp)
             self.state.data_version += 1
+        return out
+
+    def feed_publishes(self, feed: str) -> bool:
+        """¿Publica la fuente de contratos sus tickers como fuente del Universo? Lo guardado en /scanner/config manda; si no, `community.contracts_source` para la
+        comunidad y sí para las demás."""
+        try:
+            saved = json.loads(self.meta.get(FEEDS_CFG) or "{}").get(feed, {})
+        except (ValueError, TypeError, AttributeError):
+            saved = {}
+        if isinstance(saved, dict) and isinstance(saved.get("publish"), bool):
+            return saved["publish"]
+        return self.settings.community.contracts_source if feed == self.community_feed.name else True
+
+    def set_feed_publish(self, publish: dict[str, bool]) -> None:
+        """Guarda qué fuentes de contratos publican sus tickers en el Universo. Una fuente que deja de publicar conserva la fuente que ya había (se borra desde el Universo)."""
+        self.meta.set(FEEDS_CFG, json.dumps({n: {"publish": bool(v)} for n, v in publish.items() if n in self.feeds}))
+
+    def contract_feeds_info(self) -> list[dict]:
+        """Una fila por fuente de contratos para /scanner/config: cuántos contratos y traders trae, su versión y sus fuentes del Universo."""
+        out = []
+        for name, feed in self.feeds.items():
+            contracts = feed.contracts()
+            source, perm = self.feed_source_name(name), self.feed_perm_source(name)
+            out.append(dict(name=name, contracts=len(contracts), traders=len({c.trader for c in contracts if c.trader}), tickers=len(feed.tickers()),
+                            stamp=feed.stamp(), publish=self.feed_publishes(name), source=source, in_universe=len(self.manual_sources.get(source, [])),
+                            perm=perm, perm_count=len(self.manual_sources.get(perm, []))))
         return out
 
     def feed_source_note(self, name: str) -> Optional[str]:

@@ -551,8 +551,17 @@ def create_app(
             gap.append(f"el descuento mín. de la estrategia ({_fmt(sc.strategy.strike_below_pct_min)} %) es menor que el del rango guardado ({_fmt(cand.strike_below_pct_min)} %)")
         return render(request, "scanner_config.html", profiles=profiles, default_profile=default_profile, unassigned=UNASSIGNED,
                       profiles_saved=service.stored_profiles() is not None, vix=vix, ok=ok, error=error,
-                      gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)),
+                      gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)), feeds=service.contract_feeds_info(),
                       ranges={p.name: dte_range(p) for p in profiles})
+
+    @app.post("/scanner/feeds")
+    async def scanner_feeds_save(request: Request):
+        """Fuentes de contratos: qué fuentes publican sus tickers como fuente del Universo."""
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
+        names = [str(n) for n in form.getlist("feed")]
+        service.set_feed_publish({n: form.get(f"publish_{n}") is not None for n in names})
+        await service.sync_feed_sources()
+        return RedirectResponse("/scanner/config?" + urlencode({"ok": "Fuentes de contratos guardadas."}), status_code=303)
 
     @app.post("/scanner/config")
     async def scanner_config_save(request: Request):
