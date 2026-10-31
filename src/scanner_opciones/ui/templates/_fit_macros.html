@@ -10,7 +10,7 @@
    (profit factor < 1 o esperanza < 0) se tiñe de rojo y lleva ⚠, aunque su escalón sea alto. El detalle va en el tooltip. #}
 {% macro trader_badge(prof) -%}
 {%- if prof -%}
-  {%- set colors = {'diamond': '#4aa3c7', 'platinum': '#6b7a8f', 'gold': '#b07d12', 'silver': '#6b7684', 'bronze': '#9a5a12'} -%}
+  {%- set colors = {'masters': '#7a3ea7', 'diamond': '#4aa3c7', 'platinum': '#6b7a8f', 'gold': '#b07d12', 'silver': '#6b7684', 'bronze': '#9a5a12'} -%}
   {%- set bad = (prof.profit_factor is not none and prof.profit_factor < 1) or (prof.expectancy is not none and prof.expectancy < 0) -%}
   {%- set col = '#b3361b' if bad else colors.get(prof.tier, '#3b4a8a') -%}
   <span class="tbadge" style="color:{{ col }};border-color:{{ col }}" title="Fiabilidad de {{ prof.username }}{% if prof.tier %} · {{ prof.tier|capitalize }}{% endif %}{% if prof.rank is not none %} · #{{ prof.rank }}{% endif %}&#10;{% if prof.win_rate is not none %}Aciertos {{ prof.win_rate|round(1) }} %&#10;{% endif %}{% if prof.profit_factor is not none %}Profit factor {{ prof.profit_factor|round(2) }}{% if bad %} — pierde dinero{% endif %}&#10;{% endif %}{% if prof.expectancy is not none %}Esperanza {{ '%+.0f'|format(prof.expectancy) }} por operación&#10;{% endif %}{% if prof.twr is not none %}Rentab. del año {{ prof.twr|round(1) }} %&#10;{% endif %}{% if prof.capital_return is not none %}Retorno s/ capital {{ prof.capital_return|round(1) }} %&#10;{% endif %}{% if prof.trades is not none %}{{ prof.trades }} operaciones{% endif %}">{{ '⚠ ' if bad }}{{ prof.tier|capitalize if prof.tier else 'perfil' }}</span>
