@@ -803,6 +803,7 @@ class CommunitySettings(_Model):
     path: str = "data/community/tortuga.json"
     source_name: str = "TortugaTrades_Dia"       # fuente del Universo con los tickers más vendidos por la comunidad (se sustituye con cada JSON)
     perm_source_name: str = "TortugaTrades_Perm"  # fuente permanente: tickers que el usuario va añadiendo desde Ideas
+    contracts_source: bool = True                # publicar los tickers de los contratos vigentes de la comunidad como fuente del Universo («Comunidad_Contratos»)
     legacy_source_name: str = "Tortuga"          # nombre anterior de la fuente diaria: se renombra al arrancar
     universe_top: int = Field(40, ge=1)    # cuántos tickers entran en esa fuente (los de más traders en 30 días)
     min_traders: int = Field(3, ge=1)      # traders mínimos en 30 días para entrar en la fuente

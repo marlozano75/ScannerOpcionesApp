@@ -117,6 +117,8 @@ RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spr
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 SCAN_LOG_CFG = "scan_log_cfg"   # clave de `meta`: configuración del Histórico guardada desde la interfaz (JSON)
 COMMUNITY_LIVE = "community_live"   # clave de `meta`: última cotización en directo de las ideas (pickle en base64)
+FEED_PERM_PREFIX = "feed_perm:"   # clave de `meta` de la fuente permanente de cada fuente de contratos que NO es la comunidad (la comunidad usa COMMUNITY_PERM)
+FEED_SYNCED_PREFIX = "feed_synced:"   # clave de `meta`: marca de los contratos de una fuente ya volcados en su fuente del Universo
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
 SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
 NO_CANDLES = "no_candles"   # clave de `meta`: símbolos que tastytrade no responde con velas (JSON {símbolo: epoch}); no se reintentan en cada arranque
@@ -313,16 +315,26 @@ class AppService:
                         continue
                     src = replace(src, table=replace(src.table, rows=rows))
                 sources.append(src)
-        perm_name, perm = self.settings.community.perm_source_name, self.community_perm()
+        perms = {self.feed_perm_source(n): n for n in self.feeds}
+        published = {self.feed_source_name(n): n for n in self.feeds}
         for name, tickers in self.manual_sources.items():
             if not tickers:
                 continue
-            if name == perm_name:      # la fuente permanente lleva además el trader y la estrategia que más filtros cumplía
+            kind = "tickers"
+            if name in perms:      # la fuente permanente lleva además el trader y la estrategia que más filtros cumplía
+                perm = self.feed_perm(perms[name])
                 raw = [["Ticker", SOURCE_COLUMN, "Trader", "Estrategia", "Filtros"]]
                 for t in tickers:
                     p = perm.get(t, {})
                     raw.append([t, name, ", ".join(p.get("traders", [])), p.get("strategy", ""),
                                 f"{p['passed']}/{p['total']}" if "passed" in p else ""])
+            elif name in published:      # los tickers de los contratos vigentes de una fuente de contratos, con cuántos son y de qué traders
+                kind = "contracts"
+                mine = [c for c in self.feeds[published[name]].contracts()]
+                raw = [["Ticker", SOURCE_COLUMN, "Contratos", "Traders"]]
+                for t in tickers:
+                    here = [c for c in mine if clean_ticker(c.ticker) == clean_ticker(t)]
+                    raw.append([t, name, str(len(here)), ", ".join(sorted({c.trader for c in here if c.trader}, key=str.casefold))])
             elif name == self.settings.super_investors.source_name:     # lleva además los gestores que la tienen y su peso máximo
                 info = self.investors_info()
                 raw = [["Ticker", SOURCE_COLUMN, "Gestores", "Peso máx. %"]]
@@ -331,7 +343,7 @@ class AppService:
                     raw.append([t, name, ", ".join(i.get("managers", [])), (f"{i['max_weight']:g}" if "max_weight" in i else "")])
             else:
                 raw = [["Ticker", SOURCE_COLUMN]] + [[t, name] for t in tickers]
-            sources.append(Source(name, name, build_table(name, raw)))
+            sources.append(Source(name, name, build_table(name, raw), kind=kind))
         return sources
 
     def ticker_lists(self) -> dict[str, list[str]]:
@@ -351,23 +363,55 @@ class AppService:
             self._save_manual()
             log.info("Fuente del Universo «%s» renombrada a «%s»", old, cfg.source_name)
 
-    def community_perm(self) -> dict[str, dict]:
-        """{ticker: {traders, strategy, passed, total}} de la fuente permanente de la comunidad."""
+    def feed_source_name(self, feed: str) -> str:
+        """Nombre de la fuente del Universo con los tickers de los contratos vigentes de una fuente de contratos."""
+        return f"{feed}_Contratos"
+
+    def feed_perm_source(self, feed: str) -> str:
+        """Nombre de la fuente permanente de una fuente de contratos: los tickers que el usuario marca en Ideas (la de la comunidad es la configurada)."""
+        return self.settings.community.perm_source_name if feed == self.community_feed.name else f"{feed}_Perm"
+
+    def _feed_perm_key(self, feed: str) -> str:
+        return COMMUNITY_PERM if feed == self.community_feed.name else FEED_PERM_PREFIX + feed
+
+    def feed_perm(self, feed: str) -> dict[str, dict]:
+        """{ticker: {traders, strategy, passed, total}} de la fuente permanente de una fuente de contratos."""
         try:
-            data = json.loads(self.meta.get(COMMUNITY_PERM) or "{}")
+            data = json.loads(self.meta.get(self._feed_perm_key(feed)) or "{}")
         except (ValueError, TypeError):
             return {}
         return {str(t): d for t, d in data.items() if isinstance(d, dict)} if isinstance(data, dict) else {}
 
-    async def add_community_perm(self, keys) -> dict:
-        """Añade a la fuente permanente los tickers de las ideas marcadas (`idea_key`). De cada ticker guarda el trader (si hay
-        varias ideas, todos) y la estrategia del Scanner que más filtros cumple hoy (a igualdad, la de mayor proporción; si el
-        ticker ya estaba, se conserva la mejor de las dos). Devuelve el resultado de `add_manual_tickers` más `selected`."""
+    def community_perm(self) -> dict[str, dict]:
+        """{ticker: {traders, strategy, passed, total}} de la fuente permanente de la comunidad."""
+        return self.feed_perm(self.community_feed.name)
+
+    async def add_feed_perm(self, keys) -> dict:
+        """Añade a la fuente permanente de cada fuente de contratos los tickers de los contratos marcados (`idea_key`). Si se marcan contratos de varias
+        fuentes, cada una va a la suya; el resultado junta los de todas."""
         wanted = set(keys)
-        views = [v for v in self.community_ideas() if v.idea.source == self.community_feed.name and idea_key(v.idea) in wanted]
+        views = [v for v in self.community_ideas() if v.idea.source in self.feeds and idea_key(v.idea) in wanted]
         if not views:
             raise WatchlistError("No hay ninguna idea marcada (o ya no está en los datos de la comunidad)")
-        perm = self.community_perm()
+        results = [await self._add_perm(source, [v for v in views if v.idea.source == source]) for source in sorted({v.idea.source for v in views})]
+        if len(results) == 1:
+            return results[0]
+        merged = {**results[0], "source": ", ".join(r["source"] for r in results)}
+        for r in results[1:]:
+            for k in ("added", "no_options", "removed", "kept", "selected", "new_in_universe"):
+                merged[k] = [*merged.get(k, []), *r.get(k, [])]
+            for k in ("already", "perm"):
+                merged[k] = {**merged.get(k, {}), **r.get(k, {})}
+            merged["checked"] = merged["checked"] and r["checked"]
+        return merged
+
+    add_community_perm = add_feed_perm      # nombre antiguo (la ruta de Ideas y los tests lo usan)
+
+    async def _add_perm(self, source: str, views: list) -> dict:
+        """Añade a la fuente permanente de `source` los tickers de las ideas `views`. De cada ticker guarda el trader (si hay
+        varias ideas, todos) y la estrategia del Scanner que más filtros cumple hoy (a igualdad, la de mayor proporción; si el
+        ticker ya estaba, se conserva la mejor de las dos). Devuelve el resultado de `add_manual_tickers` más `selected`."""
+        perm = self.feed_perm(source)
         for v in views:
             entry = perm.setdefault(v.idea.ticker, {"traders": []})
             if v.idea.trader and v.idea.trader not in entry["traders"]:
@@ -376,9 +420,9 @@ class AppService:
                 if f is not None and f.total and (f.passed, f.passed / f.total) > (entry.get("passed", -1), entry["passed"] / entry["total"] if "passed" in entry else -1):
                     entry.update(strategy=f.name, passed=f.passed, total=f.total)
         tickers = sorted({v.idea.ticker for v in views})
-        res = await self.add_manual_tickers(parse_tokens(tickers), self.settings.community.perm_source_name)
+        res = await self.add_manual_tickers(parse_tokens(tickers), self.feed_perm_source(source))
         in_source = {clean_ticker(t) for t in self.manual_sources.get(res["source"], [])}
-        self.meta.set(COMMUNITY_PERM, json.dumps({t: d for t, d in perm.items() if clean_ticker(t) in in_source}))
+        self.meta.set(self._feed_perm_key(source), json.dumps({t: d for t, d in perm.items() if clean_ticker(t) in in_source}))
         self.state.data_version += 1
         return {**res, "selected": tickers, "perm": {t: perm[t] for t in tickers if t in perm}}
 
@@ -535,7 +579,8 @@ class AppService:
         """Fuentes manuales que rellena la propia aplicación (comunidad y radar de Tortuga, listas de tastytrade)."""
         return {self.settings.community.source_name, self.settings.community.perm_source_name, self.settings.tortuga.source_name,
                 self.settings.tortuga.puts_source_name, self.settings.super_investors.source_name,
-                *(s.name for s in self.settings.tasty_lists.sources)}
+                *(s.name for s in self.settings.tasty_lists.sources),
+                *(self.feed_source_name(n) for n in self.feeds), *(self.feed_perm_source(n) for n in self.feeds)}
 
     def is_renamable_source(self, name: str) -> bool:
         """Fuente manual escrita por el usuario (no las que rellena la aplicación: comunidad y radar de Tortuga)."""
@@ -2229,7 +2274,7 @@ class AppService:
 
     def sync_community_in_background(self) -> None:
         """Vuelca los tickers de la comunidad en su fuente del Universo si hay un JSON nuevo, sin esperar y sin solaparse."""
-        if self._community_syncing or self.community() is None:
+        if self._community_syncing or not any(f.stamp() for f in self.feeds.values()):
             return
         try:
             asyncio.get_running_loop()
@@ -2240,12 +2285,45 @@ class AppService:
         async def run() -> None:
             try:
                 await self.sync_community_source()
+                await self.sync_feed_sources()
             except Exception:
                 log.exception("No se pudo actualizar la fuente de la comunidad")
             finally:
                 self._community_syncing = False
 
         self.launch(run())
+
+    async def sync_feed_sources(self) -> dict[str, dict]:
+        """Cada fuente de contratos publica los tickers de sus contratos vigentes como una fuente del Universo (`feed_source_name`, tipo «contratos»): se
+        sustituye entera con cada versión nueva de los datos de la fuente y no hace nada si ya se volcó esa. Devuelve {fuente: resultado de `add_manual_tickers`}."""
+        out: dict[str, dict] = {}
+        for feed in list(self.feeds.values()):
+            if feed is self.community_feed and not self.settings.community.contracts_source:
+                continue
+            stamp, name = feed.stamp(), self.feed_source_name(feed.name)
+            if stamp is None or (self.meta.get(FEED_SYNCED_PREFIX + feed.name) == stamp and name in self.manual_sources):
+                continue
+            parsed = parse_tokens(feed.tickers())
+            if not parsed.tickers:
+                continue
+            try:
+                out[name] = await self.add_manual_tickers(parsed, name, replace_source=True)
+            except WatchlistError as exc:
+                log.warning("Fuentes de contratos: no se pudo actualizar la fuente «%s»: %s", name, exc)
+                continue
+            self.meta.set(FEED_SYNCED_PREFIX + feed.name, stamp)
+            self.state.data_version += 1
+        return out
+
+    def feed_source_note(self, name: str) -> Optional[str]:
+        """Explicación de una fuente del Universo que sale de una fuente de contratos; None si `name` no lo es."""
+        feed = next((f for n, f in self.feeds.items() if self.feed_source_name(n) == name), None)
+        if feed is None:
+            return None
+        contracts = feed.contracts()
+        traders = len({c.trader for c in contracts if c.trader})
+        return (f"Fuente de contratos «{feed.name}»: los tickers de sus contratos vigentes ({len(contracts)} contratos"
+                + (f" de {traders} traders" if traders else "") + "). Se sustituye entera con cada actualización de la fuente; no la edites a mano.")
 
     async def sync_community_source(self) -> Optional[dict]:
         """La fuente del Universo (`community.source_name`) pasa a ser los tickers con más traders vendiendo puts en 30 días

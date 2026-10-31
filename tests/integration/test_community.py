@@ -326,3 +326,62 @@ def test_the_historico_filters_by_origin_and_trader_and_the_sheet_gets_the_new_c
     page = client.get("/historico?origen=Comunidad&trader=Ana").text
     assert "MSFT" in page and "AAPL" not in page.split("<table")[1]
     assert "AAPL" in client.get("/historico?origen=scan").text.split("<table")[1]
+
+
+# ---- las fuentes de contratos como fuente de tickers del Universo -----------------------------------------------------------
+def ideas_json(generated, ideas):
+    return json.dumps({"version": 1, "generated_at": generated, "tickers": [], "ideas": ideas})
+
+
+def one_idea(ticker, trader="Ana", strike=150):
+    return {"date": "2026-10-09", "trader": trader, "ticker": ticker, "strategy": "Short Put", "expiry": "2026-11-20",
+            "short_strike": strike, "long_strike": None, "contracts": 1, "credit": 1.5}
+
+
+async def test_a_contract_feed_publishes_its_tickers_as_a_universe_source_of_kind_contracts(tmp_path):
+    svc = make(tmp_path)
+    assert await svc.sync_feed_sources() == {}                                       # sin datos: nada
+    write(tmp_path / "tortuga.json", ideas_json("2026-10-12T13:00:00", [one_idea("PEP"), one_idea("MCD", "Beto"), one_idea("PEP", "Beto", 140)]))
+    res = await svc.sync_feed_sources()
+    assert list(res) == ["Comunidad_Contratos"] and svc.manual_sources["Comunidad_Contratos"] == ["MCD", "PEP"]
+    src = next(s for s in svc.universe_sources if s.name == "Comunidad_Contratos")
+    assert src.kind == "contracts" and [c.name for c in src.table.columns][-2:] == ["Contratos", "Traders"]
+    pep = next(r for r in src.table.rows if r.ticker == "PEP")
+    assert [c.name for c in src.table.columns].index("Contratos") and "Ana, Beto" in str(pep.cells) and "2" in str(pep.cells)
+    assert all(s.kind == "tickers" for s in svc.universe_sources if s.name != "Comunidad_Contratos")
+    assert "Comunidad_Contratos" in svc.managed_sources() and not svc.is_renamable_source("Comunidad_Contratos")
+    assert await svc.sync_feed_sources() == {}                                       # misma versión: no se repite
+    write(tmp_path / "tortuga.json", ideas_json("2026-10-13T13:00:00", [one_idea("ASTS")]), bump=60)
+    again = await svc.sync_feed_sources()
+    assert svc.manual_sources["Comunidad_Contratos"] == ["ASTS"] and again["Comunidad_Contratos"]["removed"] == ["MCD", "PEP"]      # se sustituye entera
+    assert "contratos vigentes" in svc.feed_source_note("Comunidad_Contratos") and svc.feed_source_note("TortugaTrades_Dia") is None
+
+
+async def test_the_contracts_source_of_the_community_can_be_switched_off(tmp_path):
+    svc = make(tmp_path, contracts_source=False)
+    write(tmp_path / "tortuga.json", ideas_json("2026-10-12T13:00:00", [one_idea("PEP")]))
+    assert await svc.sync_feed_sources() == {} and "Comunidad_Contratos" not in svc.manual_sources
+
+
+async def test_another_feed_gets_its_own_universe_source_and_permanent_source(client_and_service, tmp_path):
+    from datetime import date
+    from scanner_opciones.community.ideas import idea_key
+    from scanner_opciones.feeds.base import ContractIdea
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    client.get("/scanner?reset=1")
+    contract = svc.contracts.list("AAPL")[0]
+    write(tmp_path / "tortuga.json", ideas_payload(contract))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(tmp_path / "tortuga.json")))
+    mine = ContractIdea(date(2026, 10, 9), "Carla", "AAPL", "Short Put", contract.expiry, contract.strike, None, 1, 1.0, None, source="Otra")
+    svc.feeds["Otra"] = StaticFeed([mine])
+    res = await svc.sync_feed_sources()
+    assert set(res) == {"Comunidad_Contratos", "Otra_Contratos"} and svc.manual_sources["Otra_Contratos"] == ["AAPL"]
+    views = {v.idea.source: v for v in svc.community_ideas() if v.idea.ticker == "AAPL"}
+    out = await svc.add_feed_perm([idea_key(views["Otra"].idea), idea_key(views["Comunidad"].idea)])
+    assert svc.manual_sources["Otra_Perm"] == ["AAPL"] and svc.manual_sources["TortugaTrades_Perm"] == ["AAPL"]       # cada una, en la suya
+    assert svc.feed_perm("Otra")["AAPL"]["traders"] == ["Carla"] and svc.community_perm()["AAPL"]["traders"] == ["Ana"]
+    assert "Otra_Perm" in out["source"] and "TortugaTrades_Perm" in out["source"]
+    page = client.get("/universe").text
+    assert ">contratos<" in page
+    assert "contratos vigentes" in client.get("/universe?src=Otra_Contratos").text

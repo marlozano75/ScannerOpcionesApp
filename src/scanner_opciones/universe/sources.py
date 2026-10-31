@@ -34,6 +34,7 @@ class Source:
     file: str                                      # fichero del que sale
     table: RankedTable                             # con la columna «Fuente» justo detrás del símbolo
     criteria: tuple[tuple[str, str], ...] = ()     # (métrica, condición) con que la fuente selecciona; solo el HTML de HelloStocks
+    kind: str = "tickers"                          # tickers (lista de valores) | contracts (sale de una fuente de contratos: `feeds/`)
 
 
 def _is_ranked(header: list[object]) -> bool:

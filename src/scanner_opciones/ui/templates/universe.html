@@ -88,7 +88,7 @@
         <a class="src-item hist {{ 'active' if view == 'history' }}" href="/universe?view=history"><b>⏱</b><span class="nm">Historial de carga</span></a>
         <a class="src-item all {{ 'active' if not src and view != 'history' }}" href="/universe?reset=1" title="Todas las acciones de todas las fuentes, una fila por ticker"><span class="nm">Universo</span><small>{{ all_count }}</small></a>
         <div class="src-label">Fuentes</div>
-        {% for s in sources %}<a class="src-item {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}" title="{{ s.name }}"><b>{{ numbers[s.name] }}</b><span class="nm">{{ s.name }}</span><small>{{ s.table.rows|length }}</small></a>{% endfor %}
+        {% for s in sources %}<a class="src-item {{ 'active' if s.name == src }}" href="/universe?src={{ s.name|urlencode }}" title="{{ s.name }}"><b>{{ numbers[s.name] }}</b><span class="nm">{{ s.name }}</span>{% if s.kind == 'contracts' %}<small class="kind" title="Fuente de contratos: sus tickers salen de los contratos vigentes de la fuente">contratos</small>{% endif %}<small>{{ s.table.rows|length }}</small></a>{% endfor %}
       </nav>
     </div>
   </aside>

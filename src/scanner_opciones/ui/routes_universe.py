@@ -15,7 +15,7 @@ from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.tortuga.schedule import FeedSchedule, ScheduleError, describe as describe_schedule, parse_times
 from scanner_opciones.ui.common import MAX_FORM_FIELDS, _grp, _load_groups, message_groups
 from scanner_opciones.ui.scanner_forms import SOLVENCY_UI, _fmt, _sector_of, quality_form, read_quality, solvency_controls
-from scanner_opciones.universe.descriptions import describe, describe_manual
+from scanner_opciones.universe.descriptions import SourceInfo, describe, describe_manual
 from scanner_opciones.universe.hellostocks_html import HTML_SUFFIXES, missing_strategies
 from scanner_opciones.universe.sources import ALL, load_sources, merge
 from scanner_opciones.watchlist.parser import parse_text
@@ -86,7 +86,8 @@ def register(app, service, render, recall, remembered) -> None:
         files = [(name, at, [s.name for s in srcs if s.name in active]) for name, (at, srcs) in service.universe_files.items()]
         info = None
         if current is not None:
-            info = describe_manual(current.name) if current.name in service.manual_sources \
+            feed_note = service.feed_source_note(current.name)
+            info = SourceInfo(current.name, feed_note) if feed_note else describe_manual(current.name) if current.name in service.manual_sources \
                 else describe(current.name, current.criteria)
         identity_cols = {"company", "empresa", "sector"} | set(SYMBOL_HEADERS)   # van delante: no se repiten al final
         skip = {i for i, c in enumerate(table.columns) if _plain(c.name) in identity_cols} if table else set()
