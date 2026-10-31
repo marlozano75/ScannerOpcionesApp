@@ -42,7 +42,10 @@
 
 <div class="card">
   <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
-    <div class="seg" role="tablist">{% for key, label in tabs %}<a href="/historico?tab={{ key }}" class="{{ 'on' if key == tab }}" role="tab">{{ label }}</a>{% endfor %}</div>
+    <div class="seg" role="tablist">{% for key, label in tabs %}<a href="/historico?tab={{ key }}{% if origen %}&origen={{ origen|urlencode }}{% endif %}{% if trader %}&trader={{ trader|urlencode }}{% endif %}" class="{{ 'on' if key == tab }}" role="tab">{{ label }}</a>{% endfor %}</div>
+    <form method="get" action="/historico" style="display:flex;gap:8px;align-items:center;margin:0"><input type="hidden" name="tab" value="{{ tab }}">
+      <label>Origen <select name="origen" onchange="this.form.submit()"><option value="">Todos</option>{% for o in origins %}<option value="{{ o }}" {{ 'selected' if o == origen }}>{{ 'Escaneo de perfiles' if o == 'scan' else o }}</option>{% endfor %}</select></label>
+      <label title="Solo los contratos de las fuentes de contratos llevan trader; las pasadas no">Trader <select name="trader" onchange="this.form.submit()"><option value="">Todos</option>{% for t in traders %}<option value="{{ t }}" {{ 'selected' if t == trader }}>{{ t }}</option>{% endfor %}</select></label></form>
     <span class="muted">{{ counts.events }} eventos · {{ counts.runs }} escaneos · {{ counts.active }} activos
       · se muestran {{ rows|length }} filas{% if rows|length >= limit %} (el Sheet recibe todas){% endif %}</span>
   </div>

@@ -16,20 +16,20 @@ LIMIT = 500      # filas que muestra la página (el Google Sheet recibe todas)
 
 def register(app, service, render, remembered) -> None:
     @app.get("/historico", response_class=HTMLResponse)
-    async def historico(request: Request, tab: str = EVENTS_TAB, message: str = ""):
+    async def historico(request: Request, tab: str = EVENTS_TAB, message: str = "", origen: str = "", trader: str = ""):
         tab = tab if tab in {t for t, _ in TABS} else EVENTS_TAB
         repo, cfg = service.scan_log_repo, service.scan_log_cfg()
         if tab == EVENTS_TAB:
-            header, rows = EVENTS_HEADER, [event_row(e) for e in repo.recent_events(LIMIT)]
+            header, rows = EVENTS_HEADER, [event_row(e) for e in repo.recent_events(LIMIT, origen, trader)]
         elif tab == RUNS_TAB:
-            header, rows = RUNS_HEADER, [run_row(r) for r in repo.recent_runs(LIMIT)]
+            header, rows = RUNS_HEADER, [run_row(r) for r in repo.recent_runs(LIMIT, origen)]       # las pasadas no llevan trader
         else:
-            header, rows = ACTIVE_HEADER, [active_row(r) for r in repo.all_active()[:LIMIT]]
+            header, rows = ACTIVE_HEADER, [active_row(r) for r in repo.all_active(origen, trader)[:LIMIT]]
         job = service.scan_log
         writer = job.writer
         return render(request, "historico.html", no_autorefresh=True, watch_data=True, cfg=cfg, tab=tab, tabs=TABS, header=header, rows=rows,
                       limit=LIMIT, counts=repo.counts(), profiles=[p[0] for p in service.profile_specs()], last_run=job.last_run,
-                      last_summary=job.last_summary, sheets_error=writer.last_error if writer is not None else None, message=message,
+                      last_summary=job.last_summary, origen=origen, trader=trader, origins=repo.origins(), traders=repo.traders(), sheets_error=writer.last_error if writer is not None else None, message=message,
                       groups=message_groups(message))
 
     @app.post("/historico/config")

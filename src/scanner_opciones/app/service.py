@@ -27,6 +27,7 @@ from scanner_opciones.app import portfolio_cache, vix_cache
 from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.daily_update import DailyUpdater, DailyUpdateReport
 from scanner_opciones.jobs.refresh import RefreshJob, RefreshReport
+from scanner_opciones.jobs.feed_log import FeedLogJob
 from scanner_opciones.jobs.scan_log import ScanLogJob
 from scanner_opciones.jobs.scan_log_sheets import SheetsWriter
 from scanner_opciones.storage.scan_log import ScanLogRepo
@@ -210,7 +211,9 @@ class AppService:
         self.scan_log_repo = scan_log_repo
         sl = self._load_scan_log_cfg(sl)      # lo guardado desde la pestaña Histórico manda sobre config.yaml
         self.scan_log = ScanLogJob(scan_log_repo, sl, self.scan, self.profile_specs, self.ticker_market_open, now,
-                                   SheetsWriter(sl.sheets, scan_log_repo) if sl.sheets.enabled and sl.sheets.spreadsheet_id else None)
+                                   SheetsWriter(sl.sheets, scan_log_repo) if sl.sheets.enabled and sl.sheets.spreadsheet_id else None,
+                                   FeedLogJob(scan_log_repo, self.community_ideas, self.fit_names,
+                                              lambda source: source in self.feeds and self.feeds[source].stamp() is not None, now))
         syncer = ContractSyncer(gateway, self.contracts, settings)  # comparte la cadena en caché
         self.daily = DailyUpdater(gateway, self.watchlist, self.ticker_info, self.contracts, settings,
                                   now, volatility, prices, candles, self.bars, syncer, fundamentals, financials, analysts,

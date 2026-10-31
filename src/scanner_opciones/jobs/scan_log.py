@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Callable, Optional
 
 from scanner_opciones.config.settings import ScanLogSettings
+from scanner_opciones.jobs.feed_log import FeedLogJob
 from scanner_opciones.jobs.scan_log_sheets import SheetsWriter
 from scanner_opciones.scanner.engine import ScanOutput
 from scanner_opciones.storage.scan_log import Hit, LoggedRow, ScanLogRepo
@@ -53,7 +54,8 @@ def vanish_reason(row: LoggedRow, rejections: dict[str, str], today: date) -> st
 
 class ScanLogJob:
     def __init__(self, repo: ScanLogRepo, cfg: ScanLogSettings, scan: Callable[..., ScanOutput], profile_criteria: Callable[[], list[tuple]],
-                 is_open: Callable[[str], bool], now: Callable[[], datetime] = datetime.now, writer: Optional[SheetsWriter] = None) -> None:
+                 is_open: Callable[[str], bool], now: Callable[[], datetime] = datetime.now, writer: Optional[SheetsWriter] = None,
+                 feeds: Optional[FeedLogJob] = None) -> None:
         self.repo = repo
         self.cfg = cfg
         self.scan = scan                          # (criterios, include_rejections) -> ScanOutput
@@ -61,12 +63,20 @@ class ScanLogJob:
         self.is_open = is_open                    # ¿está abierto el mercado de este ticker?
         self.now = now
         self.writer = writer
+        self.feeds = feeds                        # contratos de las fuentes de contratos, en el mismo registro
         self.last_run: Optional[datetime] = None
         self.last_summary: dict[str, int] = {}
 
     async def run(self) -> dict[str, int]:
         """Una pasada de todos los perfiles elegidos; después sube lo nuevo al Google Sheet (si está activado)."""
         summary = self.scan_all()
+        if self.feeds is not None:
+            try:
+                for k, n in self.feeds.run().items():
+                    summary[k] += n
+                self.last_summary = summary
+            except Exception:  # noqa: BLE001 - las fuentes no deben impedir subir el escaneo al Sheet
+                log.exception("Histórico: falló el registro de las fuentes de contratos")
         if self.writer is not None:
             await asyncio.to_thread(self.writer.sync)
         return summary

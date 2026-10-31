@@ -14,11 +14,14 @@ log = logging.getLogger(__name__)
 CHUNK = 2000   # filas por petición de escritura
 EVENTS_TAB, ACTIVE_TAB, RUNS_TAB = "Eventos", "Activos", "Escaneos"
 EXTRA_HEADER = ["Crédito $", "Riesgo $", "Delta", "Delta comprada", "Yield bid anual %", "IV Rank", "IV Pctl", "Spread %", "Bid size"]   # = EXTRA_FIELDS
+# columnas añadidas al final (v33), para no descolocar las filas que ya tiene el Sheet: de dónde sale el contrato (`scan` o el nombre de la fuente de
+# contratos), el trader que lo abrió y su fecha de apertura
+ORIGIN_HEADER = ["Origen", "Trader", "Abierto el"]
 EVENTS_HEADER = ["Fecha y hora", "Evento", "Perfil", "Tipo", "Ticker", "Vencimiento", "Strike", "Strike comprado", "Motivo", "Precio", "Yield anual %",
-                 "DTE", "Descuento %", *EXTRA_HEADER]
+                 "DTE", "Descuento %", *EXTRA_HEADER, *ORIGIN_HEADER]
 ACTIVE_HEADER = ["Perfil", "Tipo", "Ticker", "Vencimiento", "Strike", "Strike comprado", "Primera vez", "Última vez", "Precio al aparecer",
-                 "Yield al aparecer %", "Precio", "Yield anual %", "DTE", "Descuento %", *EXTRA_HEADER]
-RUNS_HEADER = ["Fecha y hora", "Perfil", "Tipo", "Cumplen", "Nuevos", "Desaparecen", "Tickers con mercado cerrado"]
+                 "Yield al aparecer %", "Precio", "Yield anual %", "DTE", "Descuento %", *EXTRA_HEADER, *ORIGIN_HEADER]
+RUNS_HEADER = ["Fecha y hora", "Perfil", "Tipo", "Cumplen", "Nuevos", "Desaparecen", "Tickers con mercado cerrado", "Origen"]
 
 
 def _num(v: Optional[float], digits: int = 2):
@@ -37,16 +40,16 @@ def _extras(src) -> list:
 
 def event_row(e) -> list:
     return [e["at"], e["event"], e["profile"], e["kind"], e["ticker"], e["expiry"], e["strike"], _txt(e["long_strike"]), _txt(e["reason"]),
-            _num(e["price"]), _num(e["yield_ann"]), _txt(e["dte"]), _num(e["distance_pct"]), *_extras(e)]
+            _num(e["price"]), _num(e["yield_ann"]), _txt(e["dte"]), _num(e["distance_pct"]), *_extras(e), e["origin"], _txt(e["trader"]), _txt(e["opened"])]
 
 
 def active_row(r) -> list:
     return [r.profile, r.kind, r.ticker, r.expiry, r.strike, _txt(r.long_strike), r.first_seen, r.last_seen, _num(r.first_price), _num(r.first_yield),
-            _num(r.price), _num(r.yield_ann), _txt(r.dte), _num(r.distance_pct), *_extras(r)]
+            _num(r.price), _num(r.yield_ann), _txt(r.dte), _num(r.distance_pct), *_extras(r), r.origin, _txt(r.trader), _txt(r.opened)]
 
 
 def run_row(r) -> list:
-    return [r["at"], r["profile"], r["kind"], r["found"], r["appeared"], r["vanished"], r["skipped_tickers"]]
+    return [r["at"], r["profile"], r["kind"], r["found"], r["appeared"], r["vanished"], r["skipped_tickers"], r["origin"]]
 
 
 def _open_spreadsheet(cfg: SheetsSettings, interactive: bool = False):

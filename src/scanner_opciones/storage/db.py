@@ -311,6 +311,17 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (key, at)
     );
     """,
+    # v33: el registro admite contratos de las fuentes de contratos (no solo escaneos): `origin` (`scan` o el nombre de la fuente), el trader que los abrió
+    # y la fecha de apertura del propio contrato (`opened`; en la comunidad llega un día tarde, así que no es la de `first_seen`)
+    """
+    ALTER TABLE scan_log ADD COLUMN origin TEXT NOT NULL DEFAULT 'scan';
+    ALTER TABLE scan_log ADD COLUMN trader TEXT;
+    ALTER TABLE scan_log ADD COLUMN opened TEXT;
+    ALTER TABLE scan_events ADD COLUMN origin TEXT NOT NULL DEFAULT 'scan';
+    ALTER TABLE scan_events ADD COLUMN trader TEXT;
+    ALTER TABLE scan_events ADD COLUMN opened TEXT;
+    ALTER TABLE scan_runs ADD COLUMN origin TEXT NOT NULL DEFAULT 'scan';
+    """,
 ]
 
 

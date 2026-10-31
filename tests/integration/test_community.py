@@ -257,3 +257,72 @@ def test_another_feed_is_added_by_registering_it_and_its_contracts_are_valued_li
     other = next(v for v in views if v.idea.source == "Otra")
     assert other.idea.trader is None and other.fits                                           # también se compara con los perfiles de escaneo
     assert svc.feed_stamp().endswith("|v1") and "|" in svc.feed_stamp()                       # la marca junta las de todas las fuentes
+
+
+# ---- los contratos de las fuentes en el Histórico ------------------------------------------------------------------------
+def feed_rows(svc, table="scan_log"):
+    return [dict(r) for r in svc.scan_log_repo.db.conn.execute(f"SELECT * FROM {table} WHERE origin = 'Comunidad' ORDER BY id")]
+
+
+async def test_the_contracts_of_a_feed_are_logged_with_trader_origin_and_open_date(client_and_service, tmp_path):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    client.get("/scanner?reset=1")                                                       # registra los perfiles
+    contract = svc.contracts.list("AAPL")[0]
+    path = tmp_path / "tortuga.json"
+    write(path, ideas_payload(contract))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
+    summary = await svc.scan_log_now()
+    rows = [r for r in feed_rows(svc) if r["ticker"] == "AAPL"]
+    assert rows and {r["trader"] for r in rows} == {"Ana"} and {r["opened"] for r in rows} == {"2026-10-09"}      # su fecha, no la de first_seen
+    assert all(r["active"] == 1 and r["profile"] for r in rows)
+    names = set(svc.fit_names()) | {"Sin perfil"}
+    assert {r["profile"] for r in rows} <= names and summary["appeared"] >= len(rows)
+    assert all(r["trader"] == "Ana" for r in feed_rows(svc, "scan_events") if r["ticker"] == "AAPL" and r["event"] == "aparece")
+    # el escaneo de perfiles no se mezcla: sus episodios siguen siendo `scan` y sin trader
+    assert svc.scan_log_repo.active("Sin perfil", "put") == [] and all(r.trader is None for r in svc.scan_log_repo.all_active("scan"))
+    before = len(feed_rows(svc, "scan_events"))
+    await svc.scan_log_now()
+    assert len(feed_rows(svc, "scan_events")) == before                                  # nada cambió: ni apariciones ni desapariciones
+    # el contrato sale de la fuente: desaparece con su motivo y queda cerrado
+    write(path, ideas_payload(contract).replace('"ticker": "AAPL"', '"ticker": "ZZZ"'), bump=60)
+    await svc.scan_log_now()
+    gone = [r for r in feed_rows(svc, "scan_events") if r["ticker"] == "AAPL" and r["event"] == "desaparece"]
+    assert gone and {r["reason"] for r in gone} == {"ya no está en la fuente"}
+    assert not [r for r in feed_rows(svc) if r["ticker"] == "AAPL" and r["active"]]
+
+
+async def test_a_feed_without_data_does_not_make_its_contracts_vanish(client_and_service, tmp_path):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    client.get("/scanner?reset=1")
+    contract = svc.contracts.list("AAPL")[0]
+    path = tmp_path / "tortuga.json"
+    write(path, ideas_payload(contract))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
+    await svc.scan_log_now()
+    assert any(r["active"] for r in feed_rows(svc))
+    path.unlink()                                                                        # el fichero desaparece: no se sabe nada de la fuente
+    await svc.scan_log_now()
+    assert any(r["active"] for r in feed_rows(svc)) and not [r for r in feed_rows(svc, "scan_events") if r["event"] == "desaparece"]
+
+
+def test_the_historico_filters_by_origin_and_trader_and_the_sheet_gets_the_new_columns(client_and_service):
+    from scanner_opciones.jobs.scan_log_sheets import ACTIVE_HEADER, EVENTS_HEADER, RUNS_HEADER, active_row, event_row, run_row
+    from scanner_opciones.storage.scan_log import Hit
+    client, svc, gw, _ = client_and_service
+    repo = svc.scan_log_repo
+    repo.apply("2026-10-30T10:00:00", "TPC", "put", [Hit("AAPL", "2026-12-18", 90.0, None, 1.2, 25.0, 35, 12.0)], [], [], 0)
+    repo.apply("2026-10-30T11:00:00", "TPC", "put", [Hit("MSFT", "2026-12-18", 300.0, None, 2.0, 20.0, 35, 10.0, trader="Ana", opened="2026-10-29")], [], [], 0,
+               origin="Comunidad")
+    assert repo.origins() == ["Comunidad", "scan"] and repo.traders() == ["Ana"]
+    assert [e["ticker"] for e in repo.recent_events(origin="Comunidad")] == ["MSFT"] and [e["ticker"] for e in repo.recent_events(trader="Ana")] == ["MSFT"]
+    assert [e["ticker"] for e in repo.recent_events(origin="scan")] == ["AAPL"] and len(repo.recent_runs(origin="Comunidad")) == 1
+    ev = event_row(repo.recent_events(origin="Comunidad")[0])
+    assert len(ev) == len(EVENTS_HEADER) and ev[-3:] == ["Comunidad", "Ana", "2026-10-29"]
+    act = active_row(repo.all_active(origin="Comunidad")[0])
+    assert len(act) == len(ACTIVE_HEADER) and act[-3:] == ["Comunidad", "Ana", "2026-10-29"]
+    assert len(run_row(repo.recent_runs()[0])) == len(RUNS_HEADER) and EVENTS_HEADER[-3:] == ["Origen", "Trader", "Abierto el"]
+    page = client.get("/historico?origen=Comunidad&trader=Ana").text
+    assert "MSFT" in page and "AAPL" not in page.split("<table")[1]
+    assert "AAPL" in client.get("/historico?origen=scan").text.split("<table")[1]
