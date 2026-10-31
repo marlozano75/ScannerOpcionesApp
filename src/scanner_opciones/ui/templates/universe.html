@@ -152,6 +152,40 @@
   </form>
 </details>
 {% endif %}
+{% if routines is defined and view != 'history' %}
+<style>table.routines td, table.routines th { padding:3px 10px; text-align:left; font-size:13px; } .tr-err { color:#b3361b; }</style>
+<div class="card">
+  <h2>Rutinas de lectura de Tortuga</h2>
+  <p class="muted" style="margin-top:0">La aplicación llama sola a la CLI de Claude (solo herramientas de lectura del conector de Tortuga) a la hora indicada (una vez al día) o con la frecuencia indicada, mientras está abierta;
+    si algo falla se conserva el fichero anterior y se reintenta pasadas {{ cfg.retry_minutes }} minutos. Necesitas la CLI <code>{{ cfg.command }}</code> con la sesión iniciada.
+    {% if not enabled %}<b class="tr-err">Desactivadas.</b>{% endif %}</p>
+  <table class="routines">
+    <tr><th>Rutina</th><th>Hora</th><th>Última vez que salió bien</th><th>Resultado</th><th>Qué alimenta</th><th></th></tr>
+    {% for r in routines %}{% set st = rstate.get(r.key, {}) %}
+    <tr><td><b>{{ r.title }}</b></td><td>{{ ('cada ' ~ cfg.intervals[r.key] ~ ' min') if r.key in cfg.intervals else cfg.times.get(r.key, '—') }}</td>
+      <td>{{ st.last_ok[:16].replace('T', ' ') if st.last_ok else 'nunca' }}</td>
+      <td>{% if running == r.key %}<i>ejecutándose…</i>{% elif st.error %}<span class="tr-err" title="{{ st.error }}">Falló: {{ st.error[:90] }}</span>{% elif st.summary %}{{ st.summary }}{% else %}—{% endif %}</td>
+      <td class="muted">{{ r.produces }}</td>
+      <td><form method="post" action="/universe/routines/run" style="margin:0"><input type="hidden" name="key" value="{{ r.key }}"><button type="submit" {{ 'disabled' if not enabled or busy_routines }}>Actualizar ahora</button></form></td></tr>
+    {% endfor %}
+  </table>
+  <form method="post" action="/universe/routines/run" style="margin:10px 0 0"><input type="hidden" name="key" value="all"><button type="submit" {{ 'disabled' if not enabled or busy_routines }}>Actualizar todas</button></form>
+</div>
+{% if busy_routines %}<script>
+  // Hay una rutina en marcha: se consulta cada 3 s y, al terminar, la página se recarga sola con el resultado
+  (function () {
+    const timer = setInterval(function () {
+      fetch('/universe/routines/status').then(function (r) { return r.json(); }).then(function (s) {
+        if (s.busy) return;
+        clearInterval(timer);
+        const url = new URL(location.href);
+        url.searchParams.delete('message'); url.searchParams.set('done', '1');
+        location.href = url.toString();
+      }).catch(function () { /* se reintenta en el siguiente ciclo */ });
+    }, 3000);
+  })();
+</script>{% endif %}
+{% endif %}
 {% if table and view != 'history' %}
 <details class="card qbar" id="qbar" open>
   <summary>Filtros de calidad de la empresa <span class="muted">· {{ n_active }} activo{{ '' if n_active == 1 else 's' }} · pasan {{ rows|length }} de {{ total_rows }}</span></summary>
