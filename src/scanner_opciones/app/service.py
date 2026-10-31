@@ -35,7 +35,7 @@ from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.community.data import CommunityData, CommunityError, load_community
-from scanner_opciones.community.fit import STRATEGY_NAME, profile_fits, strategy_fits
+from scanner_opciones.community.fit import profile_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import classify_dte
@@ -2041,15 +2041,14 @@ class AppService:
         views = evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct,
                                commission=ref.commission)
         sc = self.settings.scanner
-        prices = self._profile_price_ranges()
         specs = self.profile_specs()
         closes = self.openings().closes if self.openings() is not None else ()
         days, today = self.settings.community.closed_marker_days, self.now().date()
-        return [replace(v, fits=profile_fits(v, specs, sc.spreads.min_return_on_risk_pct) if specs else strategy_fits(v, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct), traded=past_trade(v.idea, closes, today, days)) for v in views]
+        return [replace(v, fits=profile_fits(v, specs, sc.spreads.min_return_on_risk_pct), traded=past_trade(v.idea, closes, today, days)) for v in views]
 
     def profile_specs(self) -> list[tuple]:
-        """Filtros GRABADOS ahora en cada perfil del Scanner (sin el de las puts que no encajan): (nombre, criterios de put | None, criterios de
-        spread | None). Los lee la interfaz web (`profile_criteria_provider`); sin ella, lista vacía."""
+        """Filtros GRABADOS ahora en cada perfil del Scanner: (nombre, criterios de put | None, criterios de spread | None). Son las columnas de
+        «filtros cumplidos» de Ideas y Tortuga. Los lee la interfaz web (`profile_criteria_provider`); sin ella, lista vacía."""
         return self.profile_criteria_provider() if self.profile_criteria_provider is not None else []
 
     def profile_exits_early(self, name: Optional[str]) -> bool:
@@ -2063,20 +2062,8 @@ class AppService:
         return False
 
     def fit_names(self) -> list[str]:
-        """Nombres de las columnas de «filtros cumplidos» de Ideas y Tortuga: los perfiles guardados o, sin ellos, los de la configuración."""
-        specs = self.profile_specs()
-        if specs:
-            return [s[0] for s in specs]
-        return [p.name for p in self.settings.scanner.presets] + [STRATEGY_NAME]
-
-    def _profile_price_ranges(self) -> dict[str, tuple[Optional[float], Optional[float]]]:
-        """Rango de precio del subyacente que cada perfil (por nombre) tiene en su juego de filtros de put."""
-        prices = {}
-        for prof in self.scanner_profiles():
-            lo, hi = (_to_float(prof.put.get(k)) for k in ("price_min", "price_max"))
-            if lo is not None or hi is not None:
-                prices[prof.name] = (lo, hi)
-        return prices
+        """Nombres de las columnas de «filtros cumplidos» de Ideas y Tortuga: los perfiles guardados."""
+        return [s[0] for s in self.profile_specs()]
 
     def radar_fits(self, rows, spread: bool = False) -> dict[str, tuple]:
         """{ticker: filtros de cada perfil que cumple HOY la put de 30Δ de referencia del radar de Tortuga} (mismos criterios que las ideas:
@@ -2085,7 +2072,6 @@ class AppService:
         delta queda «sin dato»: la de 30Δ es de otro strike). Sin ficha se usa la put de 30Δ y el crédito/ancho queda «sin dato». Sin put de
         referencia (ni spread), el ticker no aparece."""
         sc = self.settings.scanner
-        prices = self._profile_price_ranges()
         specs = self.profile_specs()
         out = {}
         for r in rows:
@@ -2099,8 +2085,7 @@ class AppService:
             else:
                 view = SimpleNamespace(dte=dte, otm_now_pct=r.distance_pct, yield_now_pct=None if spread else r.put_yield_period_pct, delta_now=r.put_delta,
                                        iv_rank=r.iv_rank, iv_percentile=r.iv_percentile, price_now=r.price, idea=SimpleNamespace(long_strike=0.0 if spread else None))
-            out[r.ticker] = (profile_fits(view, specs, sc.spreads.min_return_on_risk_pct) if specs
-                             else strategy_fits(view, sc.presets, sc.strategy, prices, sc.spreads.min_return_on_risk_pct))
+            out[r.ticker] = profile_fits(view, specs, sc.spreads.min_return_on_risk_pct)
         return out
 
     async def refresh_community_quotes(self, max_age_seconds: Optional[float] = 300) -> None:

@@ -83,40 +83,53 @@ def test_ideas_are_sorted_newest_first_and_valid_before_the_rest():
     assert [(v.idea.day, v.idea.short_strike, v.status) for v in views] == [(OPEN, 42.0, VALID), (OPEN, 40.0, NO_DATA), (date(2026, 10, 8), 42.0, VALID)]
 
 
-def test_the_idea_is_checked_against_each_profile_with_its_default_values():
-    from scanner_opciones.community.fit import strategy_fits
-    from scanner_opciones.config.settings import DEFAULT_PRESETS, StrategySettings
+def specs(**by_name):
+    """(nombre, criterios de put, criterios de spread) como los da `AppService.profile_specs`: valores de los perfiles TPC y Tastytrade de siempre."""
+    from dataclasses import replace
+    from scanner_opciones.config.settings import Settings
+    from scanner_opciones.scanner.criteria import criteria_from_settings
+    base = replace(criteria_from_settings(Settings()), min_abs_delta=None, max_abs_delta=None, min_iv_rank=None, min_iv_percentile=None, min_price=None, max_price=None)
+    mensual = replace(base, strike_below_pct_min=20.0, dte_min=25, dte_max=35, min_yield_pct=1.0, **by_name.get("Mensual (TPC)", {}))
+    tactico = replace(base, strike_below_pct_min=10.0, dte_min=10, dte_max=14, min_yield_pct=1.0, **by_name.get("Táctico (TPC)", {}))
+    tasty = replace(base, strike_below_pct_min=5.0, dte_min=30, dte_max=45, min_yield_pct=1.0, min_abs_delta=0.16, max_abs_delta=0.30,
+                    min_iv_rank=30.0, min_iv_percentile=50.0, **by_name.get("Tastytrade", {}))
+    return [("Mensual (TPC)", mensual, None), ("Táctico (TPC)", tactico, None), ("Tastytrade", tasty, None)]
+
+
+def test_the_idea_is_checked_against_each_saved_profile():
+    from scanner_opciones.community.fit import profile_fits
     v = run(idea(), [snap("VZ", 42.0, 0.95, 1.10)])          # 39 DTE, strike 16 % por debajo, yield 2,26 %, delta 0,2
-    fits = {f.name: f for f in strategy_fits(v, DEFAULT_PRESETS, StrategySettings())}
+    fits = {f.name: f for f in profile_fits(v, specs())}
     assert not fits["Mensual (TPC)"].fits and "Descuento" in fits["Mensual (TPC)"].failed[0] and any("DTE 39" in x for x in fits["Mensual (TPC)"].failed)
     assert not fits["Táctico (TPC)"].fits
     assert fits["Tastytrade"].fits and fits["Tastytrade"].unknown == ("IV Rank", "IV Percentile")      # sin ficha de IV no se puede medir
-    close = strategy_fits(run(idea(expiry=date(2026, 11, 9)), [snap("VZ", 42.0, 0.95, 1.10, expiry=date(2026, 11, 9))], price=55.0),
-                          DEFAULT_PRESETS, StrategySettings())
+    close = profile_fits(run(idea(expiry=date(2026, 11, 9)), [snap("VZ", 42.0, 0.95, 1.10, expiry=date(2026, 11, 9))], price=55.0), specs())
     assert close[0].fits and close[0].name == "Mensual (TPC)"                                  # 28 DTE, strike 24 % por debajo, yield 2,26 %
+    assert [f.name for f in profile_fits(v, specs()[:1])] == ["Mensual (TPC)"]                 # las columnas son los perfiles que haya, no una lista fija
 
 
-def test_a_spread_does_not_use_the_yield_and_an_expired_idea_has_no_fit():
-    from scanner_opciones.community.fit import strategy_fits
-    from scanner_opciones.config.settings import DEFAULT_PRESETS, StrategySettings
+def test_a_spread_uses_credit_width_and_an_expired_idea_has_no_fit():
+    from dataclasses import replace
+    from scanner_opciones.community.fit import profile_fits
     spread = run(idea(strike=42.0, long_strike=40.0), [snap("VZ", 42.0, 0.95, 1.10), snap("VZ", 40.0, 0.20, 0.30)])
-    f = strategy_fits(spread, DEFAULT_PRESETS, StrategySettings())[2]
+    f = profile_fits(spread, specs())[2]                                           # perfil de put: el rendimiento de un spread no es comparable
     assert f.fits and "Yield" in f.unknown
-    assert strategy_fits(run(idea(expiry=date(2026, 10, 1))), DEFAULT_PRESETS, StrategySettings()) == ()
-    # con el mínimo de los spreads se mide el crédito/ancho: crédito 0,65 sobre ancho 2 = 32,5 % (mínimo de retorno 25 % = 20 % de crédito/ancho)
-    ok = strategy_fits(spread, DEFAULT_PRESETS, StrategySettings(), spread_min_ror=25.0)[2]
+    assert profile_fits(run(idea(expiry=date(2026, 10, 1))), specs()) == ()
+    # crédito 0,65 sobre ancho 2 = 32,5 %
+    put_set = specs()[2][1]
+    ok = profile_fits(spread, [("TastySpread", None, replace(put_set, min_credit_width_pct=20.0))])[0]
     assert ok.fits and "Crédito/ancho" not in ok.unknown and ok.criteria[2].short == "C/A" and "32.5 %" in ok.criteria[2].text
-    bad = strategy_fits(spread, DEFAULT_PRESETS, StrategySettings(), spread_min_ror=60.0)[2]
+    bad = profile_fits(spread, [("TastySpread", None, replace(put_set, min_credit_width_pct=40.0))])[0]
     assert not bad.fits and any(x.startswith("Crédito/ancho") for x in bad.failed)
+    assert profile_fits(spread, specs(), 25.0)[0].unknown == ("Crédito/ancho",)    # con el retorno mínimo de los spreads, un perfil de put queda «no comparable»
 
 
 def test_the_price_range_of_a_profile_is_one_more_criterion_only_when_it_has_limits():
-    from scanner_opciones.community.fit import strategy_fits
-    from scanner_opciones.config.settings import DEFAULT_PRESETS, StrategySettings
+    from scanner_opciones.community.fit import profile_fits
     v = run(idea(), [snap("VZ", 42.0, 0.95, 1.10)])                                  # precio del subyacente ≈ 50
-    base = {f.name: f for f in strategy_fits(v, DEFAULT_PRESETS, StrategySettings())}
+    base = {f.name: f for f in profile_fits(v, specs())}
     assert all(c.label != "Precio" for f in base.values() for c in f.criteria)       # sin rango en el perfil no se comprueba
-    fits = {f.name: f for f in strategy_fits(v, DEFAULT_PRESETS, StrategySettings(), {"Tastytrade": (10.0, 20.0), "Mensual (TPC)": (None, 100.0)})}
+    fits = {f.name: f for f in profile_fits(v, specs(Tastytrade=dict(min_price=10.0, max_price=20.0), **{"Mensual (TPC)": dict(max_price=100.0)}))}
     tt = next(c for c in fits["Tastytrade"].criteria if c.label == "Precio")
     assert tt.ok is False and tt.short == "PRE" and not fits["Tastytrade"].fits
     assert next(c for c in fits["Mensual (TPC)"].criteria if c.label == "Precio").ok is True

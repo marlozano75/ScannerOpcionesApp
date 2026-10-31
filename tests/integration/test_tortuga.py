@@ -374,7 +374,11 @@ async def test_daily_tortuga_routines_only_run_on_business_days_at_their_time(tm
 
 
 async def test_radar_fits_use_the_proposed_spread_for_credit_width(tmp_path):
+    from dataclasses import replace
+    from scanner_opciones.scanner.criteria import criteria_from_settings
     svc, _, _ = make(tmp_path)
+    crit = replace(criteria_from_settings(svc.settings), min_credit_width_pct=30.0, max_credit_width_pct=None)
+    svc.profile_criteria_provider = lambda: [("TastySpread", None, crit)]      # lo pone la interfaz web: los filtros grabados en cada perfil
     idea = {"strategy": "Bull Put Spread", "expiry": "2026-12-04", "dte": 35, "strikes": [440, 430], "premium_per_share": 3.5}
     with_card = parse_radar(doc([row("MPC", idea=idea), row("PSX")])).rows
     fits = svc.radar_fits(with_card, spread=True)

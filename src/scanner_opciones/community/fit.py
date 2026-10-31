@@ -1,21 +1,17 @@
-"""¿Encaja una idea de la comunidad en alguno de los perfiles del Scanner (TPC Mensual, TPC Táctico, Tastytrade)?
+"""¿Encaja un contrato de una fuente externa (ideas de la comunidad, radar de Tortuga) en alguno de los perfiles del Scanner?
 
 Se compara con los valores de HOY (DTE, distancia del strike, yield y delta de la cotización actual) y con los filtros GRABADOS en cada
-perfil del Scanner (`profile_fits`: el juego de put para una put y el de spread para un spread; `strategy_fits` queda con los valores por
-defecto de `scanner.presets` y `scanner.strategy`). Solo se comprueban los criterios que una idea permite medir: descuento del strike,
+perfil del Scanner (`profile_fits`: el juego de put para una put y el de spread para un spread). No hay lista propia de perfiles: los que
+haya guardados son las columnas, así que un perfil nuevo se compara sin tocar código. Solo se comprueban los criterios que una idea permite medir: descuento del strike,
 DTE, yield del periodo (en un spread, en su lugar, el crédito/ancho que muestra la tabla, contra el mínimo y máximo de crédito/ancho del
 perfil o, sin mínimo, el retorno sobre riesgo mínimo de `scanner.spreads` convertido), delta, IV Rank e IV Percentile
-(solo si el ticker tiene ficha) y el precio del subyacente (solo si el perfil del mismo nombre lo limita). No se evalúan los técnicos (RSI, medias, ATR…), la calidad de la empresa ni la liquidez: «encaja» significa
+(solo si el ticker tiene ficha) y el precio del subyacente (solo si el perfil lo limita). No se evalúan los técnicos (RSI, medias, ATR…), la calidad de la empresa ni la liquidez: «encaja» significa
 «cumple lo medible», y lo que no se pudo medir se indica aparte.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Mapping, Optional, Sequence
-
-from scanner_opciones.config.settings import ScannerPreset, StrategySettings
-
-STRATEGY_NAME = "Tastytrade"
+from typing import Optional, Sequence
 
 
 SHORT = {"Precio": "PRE", "Descuento": "DES", "DTE": "DTE", "Yield": "YLD", "Crédito/ancho": "C/A", "Delta": "DEL", "IV Rank": "IVR", "IV Percentile": "IVP"}
@@ -143,21 +139,4 @@ def profile_fits(view, specs: Sequence[tuple], default_ror: Optional[float] = No
             fit = replace(fit, criteria=tuple(Criterion(k.label, None, "perfil de " + ("put" if spread else "spread") + ": no comparable")
                                               if k.label in ("Yield", "Crédito/ancho") else k for k in fit.criteria))
         out.append(fit)
-    return tuple(out)
-
-
-def strategy_fits(view, presets: Sequence[ScannerPreset], strategy: StrategySettings,
-                  prices: Optional[Mapping[str, tuple[Optional[float], Optional[float]]]] = None,
-                  spread_min_ror: Optional[float] = None) -> tuple[Fit, ...]:
-    """Un `Fit` por perfil: los TPC (`presets`) y el de Tastytrade (`strategy`). `prices` da el rango de precio del subyacente del perfil de
-    cada nombre; `spread_min_ror` es el retorno mínimo sobre riesgo de los spreads (sin él, el criterio queda «no comparable»). Vacío si la idea ya venció."""
-    prices = prices or {}
-    if view.dte < 0:
-        return ()
-    out = [_fit(p.name, view, discount_min=p.strike_below_pct_min, dte_min=p.dte_min, dte_max=p.dte_max, yield_min=p.min_yield_pct, price=prices.get(p.name, (None, None)), spread_min_ror=spread_min_ror)
-           for p in presets]
-    out.append(_fit(STRATEGY_NAME, view, discount_min=strategy.strike_below_pct_min, dte_min=strategy.dte_min, dte_max=strategy.dte_max,
-                    yield_min=strategy.min_yield_pct, delta_min=strategy.min_abs_delta, delta_max=strategy.max_abs_delta,
-                    iv_rank_min=strategy.min_iv_rank, iv_pct_min=strategy.min_iv_percentile,
-                    price=prices.get(STRATEGY_NAME, (None, None)), spread_min_ror=spread_min_ror))
     return tuple(out)
