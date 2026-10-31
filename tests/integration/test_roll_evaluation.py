@@ -324,3 +324,52 @@ async def test_put_assignments_prefer_the_profiles_that_showed_the_contract_in_t
                      "VALUES ('B','put','AAPL',?,100.0,NULL,?,?,1)", ((TODAY + timedelta(days=14)).isoformat(), NOW.isoformat(), NOW.isoformat()))
     assert svc.put_assignments()[put_key(pos)] == "B"
     assert "registro de escaneos" in svc.put_assignment_notes()[put_key(pos)]
+
+
+def _feed_row(svc, profile, trader, opened, origin="Comunidad"):
+    with svc.scan_log_repo.db.conn as conn:
+        conn.execute("INSERT INTO scan_log (profile, kind, ticker, expiry, strike, long_strike, first_seen, last_seen, active, origin, trader, opened) "
+                     "VALUES (?,'put','AAPL',?,100.0,NULL,?,?,1,?,?,?)",
+                     (profile, (TODAY + timedelta(days=14)).isoformat(), NOW.isoformat(), NOW.isoformat(), origin, trader, opened))
+
+
+async def test_put_assignments_use_the_feed_history_with_the_trader_when_the_scan_log_says_nothing():
+    from scanner_opciones.scanner.profiles import Profile
+    svc, gw = await started_service()
+    pos = put_position()
+    svc.state.positions = [pos]
+    a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})       # por filtros ganaría A (rango estrecho)
+    b = Profile("B", ("put",), {"discount": "0", "dte_min": "1", "dte_max": "60", "min_yield": "0"}, {})
+    svc.save_profiles([a, b], "A")
+    svc._note_put_opened()
+    key = put_key(pos)
+    _feed_row(svc, "B", "Ana", TODAY.isoformat())
+    _feed_row(svc, "Sin perfil", "Ana", TODAY.isoformat())                         # «Sin perfil» de la fuente no cuenta
+    _feed_row(svc, "A", "Beto", (TODAY - timedelta(days=3)).isoformat())          # otro día de apertura: otro contrato
+    assert svc.put_assignments()[key] == "B"
+    note = svc.put_assignment_notes()[key]
+    assert "histórico de Comunidad" in note and "la abrió Ana" in note and "encaja en B" in note
+    assert svc.put_assignments()[key] == "B"                                      # definitiva: no cambia aunque cambien los registros
+    _feed_row(svc, "A", "Ana", TODAY.isoformat())
+    assert svc.put_assignments()[key] == "B"
+
+
+async def test_the_scan_log_goes_before_the_feed_and_a_filter_based_fit_is_upgraded_when_the_history_arrives():
+    from scanner_opciones.scanner.profiles import Profile
+    svc, gw = await started_service()
+    pos = put_position()
+    svc.state.positions = [pos]
+    a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})
+    b = Profile("B", ("put",), {"discount": "0", "dte_min": "1", "dte_max": "60", "min_yield": "0"}, {})
+    svc.save_profiles([a, b], "A")
+    svc._note_put_opened()
+    key = put_key(pos)
+    assert svc.put_assignments()[key] == "A" and "filtros al abrir" in svc.put_assignment_notes()[key]      # sin registros: filtros
+    assert svc.put_assignments()[key] == "A"
+    _feed_row(svc, "B", "Ana", TODAY.isoformat())                                  # la comunidad publica al día siguiente: llega la prueba
+    assert svc.put_assignments()[key] == "B" and "la abrió Ana" in svc.put_assignment_notes()[key]
+    svc.meta.set("put_entry_fit", "{}")
+    with svc.scan_log_repo.db.conn as conn:                                        # el registro de escaneos manda sobre la fuente
+        conn.execute("INSERT INTO scan_log (profile, kind, ticker, expiry, strike, long_strike, first_seen, last_seen, active) "
+                     "VALUES ('A','put','AAPL',?,100.0,NULL,?,?,1)", ((TODAY + timedelta(days=14)).isoformat(), NOW.isoformat(), NOW.isoformat()))
+    assert svc.put_assignments()[key] == "A" and "registro de escaneos" in svc.put_assignment_notes()[key]

@@ -136,6 +136,14 @@ class ScanLogRepo:
             (kind, ticker, expiry.isoformat(), strike, long_strike, d, d)).fetchall()
         return [r["profile"] for r in rows]
 
+    def feed_profiles(self, kind: str, ticker: str, expiry: date, strike: float, long_strike: Optional[float], opened: date) -> list[tuple[str, Optional[str], str]]:
+        """(perfil de escaneo, trader, fuente) de las filas de las fuentes de contratos sobre ese mismo contrato (o spread, con `long_strike`) abierto el día
+        `opened` (la fecha del propio contrato, no la de `first_seen`). Incluye los episodios ya cerrados."""
+        rows = self.db.conn.execute(
+            "SELECT DISTINCT profile, trader, origin FROM scan_log WHERE origin != 'scan' AND kind = ? AND ticker = ? AND expiry = ? AND strike = ? "
+            "AND long_strike IS ? AND opened = ?", (kind, ticker, expiry.isoformat(), strike, long_strike, opened.isoformat())).fetchall()
+        return [(r["profile"], r["trader"], r["origin"]) for r in rows]
+
     def all_active(self, origin: Optional[str] = None, trader: Optional[str] = None) -> list[LoggedRow]:
         where, args = _filters(origin, trader)
         rows = self.db.conn.execute(f"SELECT * FROM scan_log WHERE active = 1{where} ORDER BY origin, profile, kind, ticker, expiry, strike", args).fetchall()

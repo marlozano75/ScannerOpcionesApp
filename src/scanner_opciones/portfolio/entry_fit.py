@@ -8,10 +8,12 @@ Elección: 1) los perfiles que cumplen TODO lo medible; entre ellos gana el más
 DTE más estrecho; 2) si ninguno lo cumple del todo, el que tiene el DTE de apertura en su rango y más criterios cumple (aproximado); 3) si ni
 el DTE encaja en ninguno, «Sin perfil».
 
-`recognize_shown` es el paso previo cuando el registro de escaneos cubre el día de la apertura: solo compite entre los perfiles que mostraban el contrato."""
+`recognize_shown` es el paso previo cuando el registro de escaneos cubre el día de la apertura: solo compite entre los perfiles que mostraban el contrato.
+`recognize_feed` va después: si una fuente de contratos (la comunidad) trajo ese mismo contrato abierto ese día, compite entre los perfiles de escaneo a los que
+encajaba y la nota dice quién lo abrió."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Optional, Sequence
 
@@ -34,13 +36,14 @@ class EntryFit:
     total: int
     exact: bool                         # cumple todo lo medible
     note: str                           # texto para el Panel
+    source: str = "filters"             # de dónde sale: filters (filtros al abrir) | scan_log (registro de escaneos) | feed (histórico de una fuente de contratos)
 
     def to_json(self) -> dict:
-        return {"profile": self.profile, "passed": self.passed, "total": self.total, "exact": self.exact, "note": self.note}
+        return {"profile": self.profile, "passed": self.passed, "total": self.total, "exact": self.exact, "note": self.note, "source": self.source}
 
     @classmethod
     def from_json(cls, raw: dict) -> "EntryFit":
-        return cls(str(raw["profile"]), int(raw["passed"]), int(raw["total"]), bool(raw.get("exact")), str(raw.get("note", "")))
+        return cls(str(raw["profile"]), int(raw["passed"]), int(raw["total"]), bool(raw.get("exact")), str(raw.get("note", "")), str(raw.get("source", "filters")))
 
 
 def _num(params: dict, key: str) -> Optional[float]:
@@ -127,7 +130,25 @@ def recognize_shown(facts: EntryFacts, profiles: Sequence[Profile], shown: Seque
     else:
         note = (f"Reconocida por el registro de escaneos: aparecía en {names} el {day:%d/%m}; desempate por filtros y, a igualdad, el rango de DTE más estrecho: "
                 + _note(best, "cumple lo medible" if best["exact"] else "aproximado").split(": ", 1)[1])
-    return EntryFit(best["p"].name, best["passed"], best["known"], best["exact"], note)
+    return EntryFit(best["p"].name, best["passed"], best["known"], best["exact"], note, "scan_log")
+
+
+def recognize_feed(facts: EntryFacts, profiles: Sequence[Profile], logged: Sequence[tuple[str, Optional[str], str]], day: date) -> Optional[EntryFit]:
+    """Perfil según el histórico de las fuentes de contratos. `logged` = (perfil de escaneo al que encaja, trader, fuente) de cada fila de ese mismo contrato
+    abierto el día `day`. Solo cuentan los perfiles de escaneo (no «Sin perfil»: una fuente que no lo encaja en ninguno no dice nada); entre varios, el
+    mismo desempate que `recognize_shown`. None si ninguno sirve para este instrumento (el llamante usa entonces los filtros)."""
+    names = [p for p, _, _ in logged if p != UNASSIGNED]
+    fit = recognize_shown(facts, profiles, names, day) if names else None
+    if fit is None:
+        return None
+    who = ", ".join(sorted({t for _, t, _ in logged if t}, key=str.casefold))
+    origins = ", ".join(sorted({o for _, _, o in logged}))
+    opened = f"la abrió {who} el {day:%d/%m}" if who else f"se abrió el {day:%d/%m}"
+    fitting = ", ".join(sorted(set(names)))
+    note = (f"Reconocida por el histórico de {origins}: {opened} y encaja en {fitting}"
+            + (f"; gana {fit.profile} por filtros y, a igualdad, el rango de DTE más estrecho" if len(set(names)) > 1 else "")
+            + f" ({fit.passed}/{fit.total} filtros medibles al abrir).")
+    return replace(fit, note=note, source="feed")
 
 
 def _note(s: dict, verdict: str) -> str:

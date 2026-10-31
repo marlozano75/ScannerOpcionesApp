@@ -42,7 +42,7 @@ from scanner_opciones.community.fit import profile_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import classify_dte
-from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry, recognize_shown
+from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry, recognize_feed, recognize_shown
 from scanner_opciones.portfolio import defense as defense_mod
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
 from scanner_opciones.portfolio.spreads import split_combos, split_spreads, with_spreads
@@ -2375,22 +2375,39 @@ class AppService:
                 out[key] = manual[key]
                 continue
             stored = fits.get(key)
-            if stored is not None and stored.profile in names:      # reconocida al abrir: no cambia aunque cambien los filtros después
+            known = stored is not None and stored.profile in names      # reconocida al abrir: no cambia aunque cambien los filtros después
+            if known and stored.source != "filters":                    # ... y la que salió de un registro (escaneos o fuente de contratos) es definitiva
                 out[key] = stored.profile
                 continue
             pos = positions.get(key)
             if pos is None:
-                out[key] = classify_dte((expiry - dates[key][0]).days, profiles)
+                out[key] = stored.profile if known else classify_dte((expiry - dates[key][0]).days, profiles)
                 continue
             facts, opened = self._entry_facts(pos, dates[key][0]), dates[key][0]
-            shown = self.scan_log_repo.profiles_showing(facts.kind, pos.ticker.replace(" ", "-"), pos.option.expiry, pos.option.strike, pos.hedge_strike, opened)
-            fit = (recognize_shown(facts, profiles, shown, opened) if shown else None) or recognize_entry(facts, profiles)
+            fit = self._logged_fit(pos, facts, profiles, opened)
+            if fit is None:
+                if known:           # sin pruebas nuevas en los registros (la comunidad publica con un día de retraso): se conserva la de los filtros
+                    out[key] = stored.profile
+                    continue
+                fit = recognize_entry(facts, profiles)
             fits[key] = fit
             out[key] = fit.profile
             changed = True
         if changed:
             self.meta.set(PUT_ENTRY_FIT, json.dumps({k: v.to_json() for k, v in fits.items() if k.split("|")[1] >= today}))
         return out
+
+    def _logged_fit(self, pos: Position, facts: EntryFacts, profiles: list[ScannerProfile], opened: date) -> Optional[EntryFit]:
+        """Perfil de una put o spread según lo REGISTRADO el día de su apertura: 1) los perfiles cuyo escaneo lo mostraba ese día; 2) si ninguno, los perfiles
+        de escaneo a los que encajaba el mismo contrato en una fuente de contratos (con su trader). None si los registros no dicen nada."""
+        ticker = pos.ticker.replace(" ", "-")
+        o = pos.option
+        shown = self.scan_log_repo.profiles_showing(facts.kind, ticker, o.expiry, o.strike, pos.hedge_strike, opened)
+        fit = recognize_shown(facts, profiles, shown, opened) if shown else None
+        if fit is None:
+            feed = self.scan_log_repo.feed_profiles(facts.kind, ticker, o.expiry, o.strike, pos.hedge_strike, opened)
+            fit = recognize_feed(facts, profiles, feed, opened) if feed else None
+        return fit
 
     def _entry_fits(self) -> dict[str, EntryFit]:
         try:

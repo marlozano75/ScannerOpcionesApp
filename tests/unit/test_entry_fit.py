@@ -89,3 +89,32 @@ def test_profiles_showing_covers_the_day_of_the_opening_only():
     assert repo.profiles_showing(*args, date(2026, 10, 14)) == ["B"]
     assert repo.profiles_showing(*args, date(2026, 10, 11)) == []              # el registro aún no existía
     assert repo.profiles_showing("spread", "FRO", date(2026, 11, 20), 49.2, 45.0, DAY) == ["S"]
+
+
+# ---- histórico de las fuentes de contratos --------------------------------------------------------------------------------
+def test_the_feed_history_decides_among_the_profiles_the_contract_fitted_and_names_the_trader():
+    from scanner_opciones.portfolio.entry_fit import recognize_feed
+    fit = recognize_feed(put(38, 8.0), PROFILES, [("TastyPut", "Ana", "Comunidad"), ("Mensual (TPC)", "Ana", "Comunidad")], DAY)
+    assert fit.profile == "TastyPut" and fit.source == "feed"                     # 8 % de descuento: Mensual (20 %) no lo cumple
+    assert "la abrió Ana el 13/10" in fit.note and "Comunidad" in fit.note and "gana TastyPut" in fit.note
+    one = recognize_feed(put(38, 25.0), PROFILES, [("TastyPut", "Beto", "Comunidad")], DAY)
+    assert one.profile == "TastyPut" and "gana" not in one.note                   # uno solo: ese, aunque por filtros ganaría otro
+    assert recognize_feed(put(38, 8.0), PROFILES, [(UNASSIGNED, "Ana", "Comunidad")], DAY) is None      # «Sin perfil» no dice nada
+    assert recognize_feed(put(38, 8.0), PROFILES, [("TastySpread", "Ana", "Comunidad")], DAY) is None    # perfil de otro instrumento
+    anon = recognize_feed(put(38, 8.0), PROFILES, [("TastyPut", None, "Otra")], DAY)
+    assert "se abrió el 13/10" in anon.note and "la abrió" not in anon.note
+    assert EntryFit.from_json(fit.to_json()) == fit and EntryFit.from_json({"profile": "A", "passed": 1, "total": 2}).source == "filters"
+
+
+def test_feed_profiles_match_the_contract_and_its_own_open_date():
+    repo = ScanLogRepo(Database(":memory:"))
+    with repo.db.conn:
+        c = repo.db.conn
+        cols = "(profile, kind, ticker, expiry, strike, long_strike, first_seen, last_seen, ended_at, active, origin, trader, opened)"
+        c.execute(f"INSERT INTO scan_log {cols} VALUES ('A','put','FRO','2026-11-20',49.2,NULL,'2026-10-14T10:00:00','2026-10-14T10:00:00',NULL,1,'Comunidad','Ana','2026-10-13')")
+        c.execute(f"INSERT INTO scan_log {cols} VALUES ('B','put','FRO','2026-11-20',49.2,NULL,'2026-10-14T10:00:00','2026-10-15T10:00:00','2026-10-15T11:00:00',0,'Comunidad','Beto','2026-10-13')")
+        c.execute(f"INSERT INTO scan_log {cols} VALUES ('C','put','FRO','2026-11-20',49.2,NULL,'2026-10-14T10:00:00','2026-10-14T10:00:00',NULL,1,'scan',NULL,NULL)")
+    args = ("put", "FRO", date(2026, 11, 20), 49.2, None)
+    assert sorted(repo.feed_profiles(*args, DAY)) == [("A", "Ana", "Comunidad"), ("B", "Beto", "Comunidad")]      # incluye episodios cerrados; no los del escaneo
+    assert repo.feed_profiles(*args, date(2026, 10, 14)) == []                    # cuenta la fecha del contrato, no la de first_seen
+    assert repo.profiles_showing(*args, date(2026, 10, 14)) == ["C"]              # y el registro de escaneos sigue mirando solo `scan`
