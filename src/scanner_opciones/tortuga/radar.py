@@ -224,14 +224,16 @@ def load_radar(path: "str | Path") -> RadarData:
 # Se leen dos estrategias propuestas por el motor del radar: Bull Put Spread y venta de put (`short_put`: «Venta de PUT»; 6 valores el 2026-10-18).
 COUNT_ARGS = {"strategy", "limit", "sort"}      # una llamada con solo estos argumentos no lleva ningún filtro: su `matched` es el total
 STRATEGIES = ("bull_put_spread", "short_put")
+# Cada estrategia tiene su rutina y su fichero (2026-10-31): `radar_spreads` lee Bull Put Spread (con las fichas de los spreads) y `radar_puts`, venta de put.
+ROUTINE_STRATEGIES = {"radar_spreads": ("bull_put_spread",), "radar_puts": ("short_put",)}
 
 
-def build_radar_document(calls: list, now: datetime) -> dict:
-    """Documento de la versión 1 a partir de las llamadas a `get_market_radar` de cada estrategia de `STRATEGIES`, con lo que la herramienta
+def build_radar_document(calls: list, now: datetime, strategies: tuple = STRATEGIES) -> dict:
+    """Documento de la versión 1 a partir de las llamadas a `get_market_radar` de cada estrategia de `strategies` (por defecto `STRATEGIES`), con lo que la herramienta
     devolvió: por estrategia, una llamada SIN filtros (de ahí sale el total `matched`; si no viene recortada ya es la lista entera) y, si hace
     falta, las de los tramos de precio. Las respuestas recortadas aportan sus filas (son reales), pero se rechaza todo si, por estrategia, las filas
     sin duplicados no suman exactamente el total."""
-    groups: dict[str, dict] = {s: {"rows": {}, "total": None} for s in STRATEGIES}
+    groups: dict[str, dict] = {s: {"rows": {}, "total": None} for s in strategies}
     as_of = None
     ideas: dict[str, dict] = {}                 # fichas por valor: el spread que propone el radar (opcionales: sin ficha, sin crédito/ancho)
     for call in calls:

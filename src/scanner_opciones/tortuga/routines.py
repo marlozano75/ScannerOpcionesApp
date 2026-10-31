@@ -22,7 +22,7 @@ from scanner_opciones.storage.repositories import MetaRepo
 from scanner_opciones.tortuga.api import API_ROUTINES, TortugaApi, TortugaApiError
 from scanner_opciones.tortuga.claude_runner import ClaudeRunError, ToolCall, extract_json, run_claude, run_claude_calls, tool_names
 from scanner_opciones.tortuga.investors import InvestorsError, build_investors_document, parse_investors
-from scanner_opciones.tortuga.radar import RadarError, build_radar_document, parse_radar
+from scanner_opciones.tortuga.radar import ROUTINE_STRATEGIES, RadarError, build_radar_document, parse_radar
 from scanner_opciones.tortuga.schedule import load_schedule
 
 log = logging.getLogger(__name__)
@@ -52,7 +52,9 @@ ROUTINES = (
     Routine("comunidad", "Comunidad de traders", "comunidad_prompt.md", ("get_context", "get_community_screener", "list_public_operations"), 25,
             "columna Comunidad del Scanner, pestaña Comunidad y fuente TortugaTrades_Dia"),
     Routine("radar_spreads", "Radar de Bull Put Spreads", "radar_spreads_prompt.md", ("get_context", "get_market_radar"), 30,
-            "pestaña MarketRadar y fuente TortugaSpreads (pasa a la watchlist)", via_calls=True),
+            "pestaña MarketRadar (SPREAD) y fuente TortugaSpreads (pasa a la watchlist)", via_calls=True),
+    Routine("radar_puts", "Radar de venta de puts", "radar_puts_prompt.md", ("get_context", "get_market_radar"), 30,
+            "pestaña MarketRadar (PUT) y fuente TortugaPuts (pasa a la watchlist)", via_calls=True),
     Routine("super_investors", "Super Investors (13F de gestores de calidad)", "super_investors_prompt.md", ("get_super_investors",), 30,
             "fuente SuperInvestors del Universo (empresas de calidad para puts)", via_calls=True),
 )
@@ -94,16 +96,16 @@ def finish_calls(settings: Settings, key: str, calls: list[ToolCall], now: datet
             raise RoutineError(str(exc)) from exc
         _atomic_write(Path(settings.super_investors.path), json.dumps(doc, ensure_ascii=False))
         return f"{len(data.managers)} gestores, {sum(len(m.holdings) for m in data.managers)} posiciones"
-    if key != "radar_spreads":
+    if key not in ROUTINE_STRATEGIES:
         raise RoutineError(f"rutina desconocida: {key}")
     try:
-        doc = build_radar_document(calls, now)
+        doc = build_radar_document(calls, now, ROUTINE_STRATEGIES[key])
         data = parse_radar(doc)            # lo que se escribe tiene que ser válido
     except (RadarError, ValueError) as exc:
         raise RoutineError(str(exc)) from exc
-    _atomic_write(Path(settings.tortuga.radar_path), json.dumps(doc, ensure_ascii=False))
-    spreads = sum(1 for r in data.rows if r.kind == "spread")
-    return f"{len(data.rows)} valores ({spreads} Bull Put Spread, {len(data.rows) - spreads} venta de put)"
+    cfg = settings.tortuga
+    _atomic_write(Path(cfg.radar_path if key == "radar_spreads" else cfg.radar_puts_path), json.dumps(doc, ensure_ascii=False))
+    return f"{len(data.rows)} valores ({'Bull Put Spread' if key == 'radar_spreads' else 'venta de put'})"
 
 
 class RoutineRunner:
@@ -173,8 +175,8 @@ class RoutineRunner:
         api = self._api or TortugaApi(self.settings.tortuga.api_token)
         if key == "aperturas":
             return finish(self.settings, key, await api.openings_document(self.now()))
-        if key == "radar_spreads":
-            return finish_calls(self.settings, key, await api.radar_calls(), self.now())
+        if key in ROUTINE_STRATEGIES:
+            return finish_calls(self.settings, key, await api.radar_calls(ROUTINE_STRATEGIES[key]), self.now())
         return finish_calls(self.settings, key, await api.investor_calls(self.settings.super_investors.managers), self.now())
 
 

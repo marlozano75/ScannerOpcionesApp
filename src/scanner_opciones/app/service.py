@@ -254,8 +254,9 @@ class AppService:
         self._community_syncing = False
         self.tortuga = tortuga                    # rutinas que lanzan la CLI de Claude (None en los tests: nunca se ejecuta nada externo)
         self._tortuga_busy = False
-        self._radar: Optional[tuple[float, RadarData]] = None
+        self._radar: Optional[tuple[tuple, RadarData]] = None
         self._radar_error: Optional[str] = None
+        self._radar_parts: dict = {}      # {fichero: (mtime, RadarData)} de las dos rutinas del radar
         self._radar_syncing = False
         # cotización en directo de los contratos del radar (instante, marca del fichero, {clave de contrato: cotización}, {ticker: precio}); solo en memoria
         self._radar_live: Optional[tuple[datetime, str, dict, dict]] = self._load_radar_live()      # sobrevive al reinicio
@@ -1732,24 +1733,52 @@ class AppService:
             self._radar_live_running = False
 
     def _radar_file(self) -> Optional[RadarData]:
-        """JSON del radar de Bull Put Spreads, releído solo si el fichero cambió; si el nuevo es inválido se conserva el último bueno."""
-        path = Path(self.settings.tortuga.radar_path)
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
+        """Radar de Tortuga: los dos ficheros (Bull Put Spreads y venta de puts, uno por rutina) juntos, releídos solo si cambió alguno. Si un fichero
+        nuevo es inválido se conserva su última versión buena. Un `radar_spreads.json` anterior a la separación aún trae también las puts: esas
+        filas se ignoran en cuanto existe el fichero de puts."""
+        cfg = self.settings.tortuga
+        paths = (Path(cfg.radar_path), Path(cfg.radar_puts_path))
+        mtimes = []
+        for path in paths:
+            try:
+                mtimes.append(path.stat().st_mtime)
+            except OSError:
+                mtimes.append(None)
+                self._radar_parts.pop(path, None)
+        if all(m is None for m in mtimes):
             self._radar = None
             return None
-        if self._radar is not None and self._radar[0] == mtime:
+        if self._radar is not None and self._radar[0] == tuple(mtimes):
             return self._radar[1]
-        try:
-            data = load_radar(path)
-        except RadarError as exc:
-            if self._radar_error != str(exc):
-                log.warning("Radar de Tortuga: %s no es válido (%s); se conservan los últimos datos buenos", path, exc)
-                self._radar_error = str(exc)
+        for path, mtime in zip(paths, mtimes):
+            if mtime is None or (path in self._radar_parts and self._radar_parts[path][0] == mtime):
+                continue
+            try:
+                self._radar_parts[path] = (mtime, load_radar(path))
+            except RadarError as exc:
+                if self._radar_error != str(exc):
+                    log.warning("Radar de Tortuga: %s no es válido (%s); se conservan los últimos datos buenos", path, exc)
+                    self._radar_error = str(exc)
+                if path in self._radar_parts:      # se queda la versión buena anterior, marcada con la fecha nueva para no repetir el aviso
+                    self._radar_parts[path] = (mtime, self._radar_parts[path][1])
+            else:
+                self._radar_error = None
+        spreads, puts = (self._radar_parts.get(p, (None, None))[1] for p in paths)
+        parts = [d for d in (spreads, puts) if d is not None]
+        if not parts:
             return self._radar[1] if self._radar is not None else None
-        self._radar, self._radar_error = (mtime, data), None
-        return data
+        rows: dict[str, object] = {}
+        for data, is_spreads in ((spreads, True), (puts, False)):
+            for r in (data.rows if data is not None else ()):
+                if is_spreads and puts is not None and r.kind == "put":
+                    continue
+                rows.setdefault(r.ticker, r)
+        as_of = [d.as_of for d in parts if d.as_of is not None]
+        merged = RadarData(max(d.generated_at for d in parts), max(as_of) if as_of else None,
+                           tuple(sorted(rows.values(), key=lambda r: -(r.iv_rank if r.iv_rank is not None else -1))),
+                           tuple(w for d in parts for w in d.warnings))
+        self._radar = (tuple(mtimes), merged)
+        return merged
 
     def radar_min_yield(self) -> float:
         """Yield mínimo del periodo (% de la prima sobre el strike) que exige el perfil `tortuga.profile` a las puts; si el perfil no lo
@@ -1936,7 +1965,7 @@ class AppService:
         cfg = self.settings
         runner_state = self.tortuga.state() if self.tortuga is not None else {}
         api = bool(cfg.tortuga.api_token)
-        routine_sources = {"radar_spreads": [cfg.tortuga.source_name, cfg.tortuga.puts_source_name], "comunidad": [cfg.community.source_name],
+        routine_sources = {"radar_spreads": [cfg.tortuga.source_name], "radar_puts": [cfg.tortuga.puts_source_name], "comunidad": [cfg.community.source_name],
                            "super_investors": [cfg.super_investors.source_name], "aperturas": []}
         out = []
         for r in TORTUGA_ROUTINES.values():

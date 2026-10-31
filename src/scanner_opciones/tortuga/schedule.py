@@ -103,6 +103,8 @@ def default_schedule(settings: Settings, key: str) -> FeedSchedule:
         every = settings.tasty_lists.refresh_minutes
         return FeedSchedule(every, every)
     cfg = settings.tortuga
+    if key == "radar_puts" and key not in cfg.intervals and key not in cfg.times:      # config.yaml anterior a la separación: igual que el radar de spreads
+        key = "radar_spreads"
     if key in cfg.intervals:
         return FeedSchedule(in_market=cfg.intervals[key], after_close=True)
     return FeedSchedule(times=(cfg.times.get(key, "11:00"),))

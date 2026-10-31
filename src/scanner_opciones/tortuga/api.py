@@ -23,7 +23,7 @@ PRICE_RANGES = ((0, 50), (50, 100), (100, 200), (200, None))
 SPLIT_OPEN_AT = 350                       # el tramo abierto «200+» se parte en 200-350 y 350+
 MAX_SPLIT_DEPTH = 6
 CARD_CONCURRENCY = 5                      # fichas por valor a la vez
-API_ROUTINES = frozenset({"aperturas", "radar_spreads", "super_investors"})
+API_ROUTINES = frozenset({"aperturas", "radar_spreads", "radar_puts", "super_investors"})
 
 
 class TortugaApiError(RuntimeError):
@@ -60,10 +60,10 @@ class TortugaApi:
         raise TortugaApiError(f"{name}: {last}")
 
     # ---- radar -------------------------------------------------------------------------------
-    async def radar_calls(self) -> list[ToolCall]:
+    async def radar_calls(self, strategies: tuple = STRATEGIES) -> list[ToolCall]:
         """Por estrategia: una llamada sin filtros (da el total `matched`) y, si viene recortada, los tramos de precio, que se parten por la
         mitad mientras sigan recortados (el mismo procedimiento que seguía `scripts/radar_spreads_prompt.md`)."""
-        groups = await asyncio.gather(*(self._radar_strategy(s) for s in STRATEGIES))
+        groups = await asyncio.gather(*(self._radar_strategy(s) for s in strategies))
         calls = [c for group in groups for c in group]
         return calls + await self._spread_cards(calls)
 

@@ -130,9 +130,9 @@ def test_tool_calls_are_read_from_the_stream_without_the_model_copying_anything(
 def make(tmp_path, run=None, run_calls=None, **tortuga):
     settings = Settings.model_validate({
         "community": {"path": str(tmp_path / "tortuga.json"), "openings_path": str(tmp_path / "aperturas.json")},
-        "tortuga": {"radar_path": str(tmp_path / "radar.json"), "prompts_dir": str(tmp_path / "prompts"), **tortuga}})
+        "tortuga": {"radar_path": str(tmp_path / "radar.json"), "radar_puts_path": str(tmp_path / "radar_puts.json"), "prompts_dir": str(tmp_path / "prompts"), **tortuga}})
     (tmp_path / "prompts").mkdir(exist_ok=True)
-    for name in ("aperturas_prompt.md", "comunidad_prompt.md", "radar_spreads_prompt.md"):
+    for name in ("aperturas_prompt.md", "comunidad_prompt.md", "radar_spreads_prompt.md", "radar_puts_prompt.md"):
         (tmp_path / "prompts" / name).write_text("prompt", encoding="utf-8")
     db = Database(tmp_path / "app.db")
     clock = {"now": NOW}
@@ -182,7 +182,7 @@ async def test_due_routines_follow_the_schedule_and_back_off_after_a_failure(tmp
     svc, runner, clock = make(tmp_path, fake_claude({}), retry_minutes=60)
     clock["now"] = datetime(2026, 10, 19, 10, 0)
     def daily():
-        return [r.key for r in runner.due() if r.key != "radar_spreads"]            # el radar va por intervalo, no por hora
+        return [r.key for r in runner.due() if r.key not in ("radar_spreads", "radar_puts")]            # el radar va por intervalo, no por hora
 
     assert daily() == []                                                            # antes de la primera hora (11:10)
     clock["now"] = datetime(2026, 10, 19, 11, 20)
@@ -355,7 +355,7 @@ async def test_daily_tortuga_routines_only_run_on_business_days_at_their_time(tm
     mad = ZoneInfo("Europe/Madrid")                                                  # la hora de las rutinas es la local; el calendario, el de Nueva York
     svc, _, clock = make(tmp_path)
     runner = RoutineRunner(svc.settings, MetaRepo(svc.watchlist.db), lambda: clock["now"], fake_claude({"*": "{}"}), tmp_path, fake_calls([]))
-    daily = lambda: [r.key for r in runner.due() if r.key != "radar_spreads"]        # noqa: E731
+    daily = lambda: [r.key for r in runner.due() if r.key not in ("radar_spreads", "radar_puts")]        # noqa: E731
     at = lambda d, h, m: datetime(2026, 10, d, h, m, tzinfo=mad)                     # noqa: E731
     for key, m in (("aperturas", 10), ("comunidad", 15)):
         runner._save(key, last_ok=at(23, 11, m).isoformat())                         # viernes 11:10 / 11:15
@@ -517,3 +517,36 @@ def test_old_tab_addresses_redirect_to_the_new_names(client_and_service):
     r = client.get("/tortuga?cumple=1", follow_redirects=False)
     assert r.status_code == 307 and r.headers["location"] == "/marketradar?cumple=1"
     assert client.get("/comunidad").status_code == 200 and client.get("/marketradar").status_code == 200
+
+
+def put_row(symbol, **over):
+    return row(symbol, top_strategy={"key": "ventaPut", "name": "Venta de PUT", "score": 60, "signal": "bullish"}, **over)
+
+
+async def test_each_radar_routine_writes_its_own_file_and_the_tab_merges_them(tmp_path):
+    put_calls = [ToolCall("get_market_radar", {"strategy": "short_put", "sort": "iv_rank", "limit": 100},
+                          json.dumps({"as_of": "2026-10-16", "matched": 1, "returned": 1, "rows": [put_row("PSX")]}))]
+    svc, runner, _ = make(tmp_path, run_calls=fake_calls(zone_calls({"sell_premium": [row("MPC")]})))
+    ok, summary = await runner.run_one("radar_spreads")
+    assert ok and "Bull Put Spread" in summary and (tmp_path / "radar.json").exists() and not (tmp_path / "radar_puts.json").exists()
+    assert [r.ticker for r in svc.radar_spreads().rows] == ["MPC"]
+    puts = RoutineRunner(svc.settings, MetaRepo(svc.watchlist.db), lambda: NOW, fake_claude({}), tmp_path, fake_calls(put_calls))
+    ok, summary = await puts.run_one("radar_puts")
+    assert ok and "venta de put" in summary and (tmp_path / "radar_puts.json").exists()
+    rows = {r.ticker: r.kind for r in svc.radar_spreads().rows}
+    assert rows == {"MPC": "spread", "PSX": "put"}
+    assert all(puts.state()[k].get("last_ok") for k in ("radar_spreads", "radar_puts"))             # cada rutina lleva su propio estado
+
+
+async def test_a_radar_file_from_before_the_split_loses_its_puts_once_the_puts_file_exists(tmp_path):
+    svc, _, _ = make(tmp_path)
+    (tmp_path / "radar.json").write_text(json.dumps(doc([row("MPC"), put_row("OLD")])), encoding="utf-8")
+    assert {r.ticker for r in svc.radar_spreads().rows} == {"MPC", "OLD"}                  # sin fichero de puts se usa todo
+    (tmp_path / "radar_puts.json").write_text(json.dumps(doc([put_row("PSX")])), encoding="utf-8")
+    assert {r.ticker for r in svc.radar_spreads().rows} == {"MPC", "PSX"}
+
+
+def test_the_puts_radar_follows_the_spreads_schedule_when_config_does_not_name_it():
+    from scanner_opciones.tortuga.schedule import default_schedule
+    old = Settings.model_validate({"tortuga": {"intervals": {"radar_spreads": 20}, "times": {"radar_spreads": "11:45"}}})
+    assert default_schedule(old, "radar_puts").in_market == 20

@@ -825,17 +825,18 @@ class TortugaSettings(_Model):
     timeout_seconds: int = Field(900, ge=60)  # tiempo máximo de cada rutina
     retry_minutes: int = Field(120, ge=1)     # tras un fallo no se reintenta hasta pasado este tiempo
     prompts_dir: str = "scripts"              # carpeta de los *_prompt.md
-    radar_path: str = "data/community/radar_spreads.json"
+    radar_path: str = "data/community/radar_spreads.json"       # radar de Bull Put Spreads (rutina `radar_spreads`)
+    radar_puts_path: str = "data/community/radar_puts.json"     # radar de venta de puts (rutina `radar_puts`)
     source_name: str = "TortugaSpreads"       # fuente del Universo con los tickers del radar (Bull Put Spread) que cumplen el yield del perfil
     # fuente con los del radar cuya estrategia propuesta es la venta de put
     puts_source_name: str = "TortugaPuts"
     profile: str = "TastyPut"                 # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
-    times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "radar_spreads": "11:45", "super_investors": "11:30"}
+    times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "radar_spreads": "11:45", "radar_puts": "11:50", "super_investors": "11:30"}
     # días mínimos entre dos lecturas buenas de una rutina diaria (los 13F cambian una vez al trimestre: una semana sobra)
     min_days: dict[str, int] = {"super_investors": 7}
     # rutinas que se repiten cada N minutos mientras la aplicación está abierta y el mercado abierto (más una pasada tras el cierre; en vez de una vez al día a su hora de `times`): el radar de
     # Tortuga se refresca durante la sesión (precio e IV cada ~15 min; las primas, en pasadas de ~10 min)
-    intervals: dict[str, int] = {"radar_spreads": 30}
+    intervals: dict[str, int] = {"radar_spreads": 30, "radar_puts": 30}
 
     @model_validator(mode="after")
     def _check(self) -> "TortugaSettings":
