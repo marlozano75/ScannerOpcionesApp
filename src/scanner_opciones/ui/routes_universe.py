@@ -6,14 +6,13 @@ import tempfile
 from dataclasses import replace
 from datetime import datetime
 from fastapi import Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pathlib import Path
 from scanner_opciones.domain.errors import WatchlistError
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.tortuga.schedule import FeedSchedule, ScheduleError, describe as describe_schedule, parse_times
-from scanner_opciones.tortuga.routines import ROUTINES
 from scanner_opciones.ui.common import MAX_FORM_FIELDS, _grp, _load_groups, message_groups
 from scanner_opciones.ui.scanner_forms import SOLVENCY_UI, _fmt, _sector_of, quality_form, read_quality, solvency_controls
 from scanner_opciones.universe.descriptions import SourceInfo, describe, describe_manual
@@ -28,14 +27,8 @@ log = logging.getLogger(__name__)
 def register(app, service, render, recall, remembered) -> None:
     """Registra las rutas en `app` (comparten `service` y `render` de `create_app`)."""
     @app.get("/universe", response_class=HTMLResponse)
-    async def universe(request: Request, src: str = ALL, message: str = "", view: str = "", done: int = 0):
-        runner = service.tortuga
-        if done and not message:    # la página recargó sola al terminar una rutina: dice cómo acabó
-            states = runner.state() if runner is not None else {}
-            failed = [r.title for r in ROUTINES if states.get(r.key, {}).get("error")]
-            message = (_grp("err", "Terminó con errores", failed, "mira la columna Resultado") if failed
-                       else _grp("ok", "Terminada", [], "resultado actualizado"))
-        if (back := recall(request, "universe", ignore=("message", "debug", "view", "done"))) is not None:
+    async def universe(request: Request, src: str = ALL, message: str = "", view: str = ""):
+        if (back := recall(request, "universe", ignore=("message", "debug", "view"))) is not None:
             return back
         sources = service.universe_sources
         if view == "history":
@@ -107,8 +100,6 @@ def register(app, service, render, recall, remembered) -> None:
                       qinfos=qinfos, with_quality=with_quality, edgar=bool(service.settings.edgar.contact.strip()),
                       exempt_tickers=exempt_tickers, exempt_names=", ".join(qcfg.exempt_sectors),
                       feeds=service.feed_rows(), describe=describe_schedule,
-                      routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,
-                      enabled=runner is not None and service.settings.tortuga.enabled, busy_routines=service._tortuga_busy, cfg=service.settings.tortuga,
                       renamable=bool(current) and service.is_renamable_source(current.name),
                       total_rows=total_rows, qform=form, filter_error=filter_error, n_active=n_active, q_presets=q_presets,
                       solvency=solvency_controls(qcfg, form), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
@@ -264,20 +255,3 @@ def register(app, service, render, recall, remembered) -> None:
         return RedirectResponse(f"/universe?{urlencode(query)}", status_code=303)
 
     # ---- scanner y simulador ---------------------------------------------------------------
-
-    @app.get("/universe/routines/status")
-    async def universe_routines_status():
-        """¿Hay una rutina de Tortuga en marcha? La página del Universo lo consulta mientras espera para recargarse al terminar."""
-        return {"busy": bool(service._tortuga_busy)}
-
-    @app.post("/universe/routines/run")
-    async def universe_routines_run(request: Request):
-        """Lanza a mano una rutina de Tortuga (o todas las que toquen si no se indica) sin esperar a su hora."""
-        form = await request.form(max_fields=MAX_FORM_FIELDS)
-        key = str(form.get("key", ""))
-        if key not in {"all", *(r.key for r in ROUTINES)}:
-            return Response("Rutina desconocida", status_code=400)
-        started = service.tortuga_in_background(force=key)
-        msg = _grp("ok", "Lanzada", [], "se está ejecutando en segundo plano; recarga la página en un par de minutos") if started else \
-            _grp("skip", "No se ha lanzado", [], "ya hay una rutina en curso, no hay nada pendiente o las rutinas están desactivadas")
-        return RedirectResponse(f"/universe?{urlencode({'message': msg})}", status_code=303)

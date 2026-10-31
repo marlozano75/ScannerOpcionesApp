@@ -279,16 +279,6 @@ def test_tortuga_page_renders_rows_routines_and_manual_launch(client_and_service
     html = client.get("/marketradar").text
     assert "MPC" in html and "Put 30Δ" in html and "Prima ($)" in html and 'class="seg"' in html and "✓" in html and "Actualizar todas" not in html
     assert "XYZ" in html and "XYZ" not in client.get("/marketradar?cumple=1").text
-    assert "Rutinas de lectura de Tortuga" in client.get("/universe").text      # las rutinas viven en el Universo
-    r = client.post("/universe/routines/run", data={"key": "nope"})
-    assert r.status_code == 400
-    assert client.post("/universe/routines/run", data={"key": "all"}, follow_redirects=False).status_code == 303
-    # mientras hay una rutina en marcha la página sondea /universe/routines/status y se recarga sola al terminar (con ?done=1 dice cómo acabó)
-    svc._tortuga_busy = True
-    assert client.get("/universe/routines/status").json() == {"busy": True} and "/universe/routines/status" in client.get("/universe").text
-    svc._tortuga_busy = False
-    assert client.get("/universe/routines/status").json() == {"busy": False} and "/universe/routines/status" not in client.get("/universe").text
-    assert "Terminada" in client.get("/universe?done=1").text
 
 
 def test_the_radar_reads_both_strategies_and_labels_each_row_with_its_kind():
