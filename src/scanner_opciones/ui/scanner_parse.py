@@ -138,7 +138,8 @@ def parse_scan(service, qp, set_name: str = "put") -> dict:
                 form[f"use_{key}"] = f"use_{key}" in qp
                 # un perfil (o enlace) que no trae la caja la muestra con su valor preconfigurado, desmarcada
                 form[key] = qp.get(key, _fmt(shown[key])).strip()
-            form["fsrc"] = [s.name for s in universe if f"fs_{s.name}" in qp]     # una fuente que ya no existe se ignora
+            legacy = {new: old for old, new in service.legacy_radar_source_names().items()}     # enlaces y perfiles con el nombre anterior de una fuente
+            form["fsrc"] = [s.name for s in universe if f"fs_{s.name}" in qp or f"fs_{legacy.get(s.name)}" in qp]     # una fuente que ya no existe se ignora
             # con `src` (bloque enviado) manda la casilla «Filtrar por fuentes»: activa y sin ninguna marcada no sale nada;
             # una URL sin él (perfiles guardados antes) filtra solo si trae fuentes marcadas
             form["use_src"] = ("use_src" in qp) if "src" in qp else bool(form["fsrc"])

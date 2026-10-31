@@ -380,6 +380,29 @@ class AppService:
                 log.info("Fuente del Universo «%s» renombrada a «%s»", old, new)
         if changed:
             self._save_manual()
+        renames = self.legacy_radar_source_names()
+        history = self._load_history()
+        if any(h.get("name") in renames for h in history):
+            self.meta.set("universe_history", json.dumps([{**h, "name": renames[h["name"]]} if h.get("name") in renames else h for h in history]))
+        self._rename_radar_source_filters(renames)
+
+    def legacy_radar_source_names(self) -> dict[str, str]:
+        """{nombre anterior: nombre actual} de las fuentes del radar."""
+        cfg = self.settings.tortuga
+        return {old: getattr(cfg, attr) for old, attr in cfg.legacy_source_names.items() if old != getattr(cfg, attr)}
+
+    def _rename_radar_source_filters(self, renames: dict[str, str]) -> None:
+        """Los perfiles guardados llevan el filtro de fuentes como claves `fs_<fuente>`: traslada las de los nombres anteriores a los actuales."""
+        parsed = profiles_mod.parse(self.meta.get(SCANNER_PROFILES) or "")
+        if parsed is None or not renames:
+            return
+
+        def fix(params: dict) -> dict:
+            return {(f"fs_{renames[k[3:]]}" if k.startswith("fs_") and k[3:] in renames else k): v for k, v in params.items()}
+        profiles = [replace(p, put=fix(p.put), spread=fix(p.spread)) for p in parsed[0]]
+        if profiles != parsed[0]:
+            self.save_profiles(profiles, parsed[1])
+            log.info("Perfiles del Scanner: filtro de fuentes del radar trasladado a los nombres nuevos")
 
     def feed_source_name(self, feed: str) -> str:
         """Nombre de la fuente del Universo con los tickers de los contratos vigentes de una fuente de contratos."""

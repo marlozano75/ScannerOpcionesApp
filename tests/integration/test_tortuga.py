@@ -357,6 +357,16 @@ async def test_old_radar_source_names_are_renamed_on_startup(tmp_path):
     assert svc.manual_sources == {"RadarSpreads": ["MPC"], "RadarPuts": ["PSX"], "Mia": ["AAA"]}
 
 
+async def test_old_radar_source_names_are_renamed_in_history_and_saved_profile_filters(tmp_path):
+    from scanner_opciones.scanner.profiles import Profile
+    svc, _, _ = make(tmp_path)
+    svc.meta.set("universe_history", json.dumps([{"name": "TortugaPuts", "at": "2026-10-01T10:00:00"}, {"name": "Mia", "at": "2026-10-01T10:00:00"}]))
+    svc.save_profiles([Profile("P", put={"discount": "10", "fs_TortugaSpreads": "on", "fs_Mia": "on"})], "P")
+    svc._rename_legacy_radar_sources()
+    assert [h["name"] for h in svc._load_history()] == ["RadarPuts", "Mia"]
+    assert svc.stored_profiles()[0][0].put == {"discount": "10", "fs_RadarSpreads": "on", "fs_Mia": "on"}
+
+
 async def test_daily_tortuga_routines_only_run_on_business_days_at_their_time(tmp_path):
     from zoneinfo import ZoneInfo
     mad = ZoneInfo("Europe/Madrid")                                                  # la hora de las rutinas es la local; el calendario, el de Nueva York
