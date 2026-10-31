@@ -28,6 +28,7 @@ from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.jobs.daily_update import DailyUpdater, DailyUpdateReport
 from scanner_opciones.jobs.refresh import RefreshJob, RefreshReport
 from scanner_opciones.jobs.feed_log import FeedLogJob
+from scanner_opciones.jobs.community_trade_log import CommunityTradeLogJob
 from scanner_opciones.jobs.scan_log import ScanLogJob
 from scanner_opciones.jobs.scan_log_sheets import SheetsWriter
 from scanner_opciones.storage.scan_log import ScanLogRepo
@@ -37,6 +38,7 @@ from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_e
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.community.data import CommunityData, TraderProfile
 from scanner_opciones.community.feed_data import FeedData, FeedError, load_feed
+from scanner_opciones.storage.community_trades import CommunityTradeRepo
 from scanner_opciones.feeds.base import ContractFeed, ContractIdea, combined_stamp
 from scanner_opciones.feeds.community import CommunityFeed
 from scanner_opciones.feeds.marketradar import MarketRadarFeed
@@ -124,6 +126,7 @@ FEEDS_CFG = "feeds_cfg"   # clave de `meta`: ajustes de las fuentes de contratos
 FEED_PERM_PREFIX = "feed_perm:"   # clave de `meta` de la fuente permanente de cada fuente de contratos que NO es la comunidad (la comunidad usa COMMUNITY_PERM)
 FEED_SYNCED_PREFIX = "feed_synced:"   # clave de `meta`: marca de los contratos de una fuente ya volcados en su fuente del Universo
 COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrategia de cada ticker de la fuente permanente (JSON)
+FEED_TRADES_SYNCED = "feed_trades_synced"   # clave de `meta`: `generated_at` del Feed de la comunidad ya volcado en el libro `community_trades`
 SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
 NO_CANDLES = "no_candles"   # clave de `meta`: símbolos que tastytrade no responde con velas (JSON {símbolo: epoch}); no se reintentan en cada arranque
 PUT_OPENED = "put_opened"   # clave de `meta`: día en que la app vio por primera vez cada put vendida (JSON {put_key: AAAA-MM-DD})
@@ -252,6 +255,9 @@ class AppService:
         self.universe_info: dict[str, dict[str, str]] = self._load_info()   # nombre/sector que ninguna fuente trae
         self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
         self.community_feed = CommunityFeed(lambda: self.settings.community.path, me=lambda: self.settings.community.my_trader)      # la comunidad de Tortuga (JSON de la rutina diaria)
+        self.community_trades = CommunityTradeRepo(db)      # libro apertura->cierre de las operaciones compartidas del Feed (`community_trades`)
+        self.community_trade_log = CommunityTradeLogJob(self.community_trades, self.community_feed_trades,
+                                                        lambda: self.meta.get(FEED_TRADES_SYNCED), lambda s: self.meta.set(FEED_TRADES_SYNCED, s), now)
         self.radar_feed = MarketRadarFeed(self._radar_file)      # las propuestas del Market Radar de Tortuga (ficha del spread / put de 30Δ)
         self.feeds: dict[str, ContractFeed] = {self.community_feed.name: self.community_feed, self.radar_feed.name: self.radar_feed}      # fuentes de contratos, por nombre
         self._community_syncing = False
@@ -996,6 +1002,7 @@ class AppService:
         else:
             await self.refresh_all()
         self.update_financials_in_background()
+        self.ingest_feed_trades()      # acumula en el libro el Feed que dejó la rutina (independiente de que haya ideas nuevas que volcar)
         self.sync_community_in_background()
         self.sync_watchlist_in_background()
         if self._offline_capable():
@@ -2211,6 +2218,20 @@ class AppService:
         except FeedError:
             return None
 
+    def ingest_feed_trades(self, force: bool = False) -> dict[str, int]:
+        """Vuelca el Feed de la comunidad en el libro `community_trades` si hay un JSON nuevo (acumula el historial apertura->cierre). No pide nada a
+        Tortuga; lo llama el refresco en segundo plano de la comunidad y el arranque. Devuelve {new, closed, updated}."""
+        try:
+            return self.community_trade_log.run(force=force)
+        except Exception:      # noqa: BLE001 - un Feed roto no debe tumbar el refresco
+            log.exception("No se pudo volcar el Feed de la comunidad en el libro de operaciones")
+            return {"new": 0, "closed": 0, "updated": 0}
+
+    def trader_exit_styles(self, min_closed: int = 3) -> list:
+        """Estilo de salida de cada trader (DTE al cerrar, % de prima capturado, días en posición, win rate) a partir de sus operaciones de crédito
+        ya cerradas que hemos ido guardando del Feed. Solo traders con al menos `min_closed` operaciones cerradas."""
+        return self.community_trades.exit_styles(min_closed)
+
     def feed_contracts(self) -> list[ContractIdea]:
         """Contratos de todas las fuentes de contratos juntos."""
         return [c for f in self.feeds.values() for c in f.contracts()]
@@ -2448,6 +2469,7 @@ class AppService:
             try:
                 await self.sync_community_source()
                 await self.sync_feed_sources()
+                self.ingest_feed_trades()
             except Exception:
                 log.exception("No se pudo actualizar la fuente de la comunidad")
             finally:

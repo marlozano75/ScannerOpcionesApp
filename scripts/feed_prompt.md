@@ -18,25 +18,32 @@ STEPS
    - closed   = the date part of closed_at, or null if it is null.
    - pnl       = realized_pnl when status is "closed" (a JSON number), else null.
    - currency = the trade "currency".
-   - legs     = a short human string built from the "legs" array: for each leg write "ACTION QTY RIGHT" where RIGHT is the
-                strike followed by C or P for options (e.g. "SELL 1 490P", "BUY 1 485P") or "acc" for a stock leg (right STK, e.g.
-                "BUY 2000 acc"); join the legs with " / ". If the option legs share one expiry, append " · vence DD/MM" with that
-                expiry. Keep it under ~90 characters.
+   - legs      = the "legs" array, one object per leg with EXACTLY these keys, copied from the tool result:
+                 {"action": "BUY"|"SELL", "right": "C"|"P"|"STK", "strike": <number or null for stock>,
+                  "expiry": "YYYY-MM-DD" or null for stock, "qty": <number>, "price": <number, the opening price>}.
+   - close_legs = when status is "closed", the "close_legs" array as objects {"qty": <number>, "price": <number>} IN THE SAME ORDER
+                  as "legs" (close_legs[i] is how leg i was closed). Use null when status is "open" or the tool gives no close_legs.
    - note     = the trade "note" (the trader's own text) as a string, or null when it is null or empty.
 
-OUTPUT FORMAT (version 1) - exactly these keys:
+OUTPUT FORMAT (version 2) - exactly these keys:
 {
-  "version": 1,
+  "version": 2,
   "generated_at": "<today as YYYY-MM-DDT13:00:00+02:00 or +01:00, the Madrid offset of today>",
   "source": "tortuga",
   "trades": [
     {"id": "cb8a", "trader": "A.A.G", "ticker": "MSFT", "strategy": "Iron Condor", "status": "open",
-     "opened": "2026-10-30", "closed": null, "pnl": null, "currency": "USD",
-     "legs": "SELL 1 550C / BUY 1 555C / BUY 1 485P / SELL 1 490P · vence 06/11", "note": null},
+     "opened": "2026-10-30", "closed": null, "pnl": null, "currency": "USD", "note": null,
+     "legs": [{"action": "SELL", "right": "C", "strike": 550, "expiry": "2026-11-06", "qty": 1, "price": 0.81},
+              {"action": "BUY", "right": "C", "strike": 555, "expiry": "2026-11-06", "qty": 1, "price": 0.56},
+              {"action": "BUY", "right": "P", "strike": 485, "expiry": "2026-11-06", "qty": 1, "price": 0.71},
+              {"action": "SELL", "right": "P", "strike": 490, "expiry": "2026-11-06", "qty": 1, "price": 1.01}],
+     "close_legs": null},
     {"id": "7e30", "trader": "Kike", "ticker": "AMZN", "strategy": "Long Call", "status": "closed",
-     "opened": "2026-10-30", "closed": "2026-10-30", "pnl": 83.42, "currency": "USD",
-     "legs": "BUY 3 245C · vence 02/11", "note": "entro por el hueco"}
+     "opened": "2026-10-30", "closed": "2026-10-30", "pnl": 83.42, "currency": "USD", "note": "entro por el hueco",
+     "legs": [{"action": "BUY", "right": "C", "strike": 245, "expiry": "2026-11-02", "qty": 3, "price": 0.8}],
+     "close_legs": [{"qty": 3, "price": 1.09}]}
   ]
 }
-Rules: numbers are JSON numbers, dates are YYYY-MM-DD, "note" holds only the trader's own text (never invent one). If get_context or
-list_community_trades fails, retry it once; if it still fails, print the single word FAILED and nothing else.
+Rules: numbers are JSON numbers, dates are YYYY-MM-DD, copy every price from the tool result (never invent one), "note" holds only
+the trader's own text. A stock leg has "right":"STK", "strike":null, "expiry":null. If get_context or list_community_trades fails,
+retry it once; if it still fails, print the single word FAILED and nothing else.

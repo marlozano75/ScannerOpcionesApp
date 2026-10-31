@@ -322,6 +322,36 @@ MIGRATIONS: list[str] = [
     ALTER TABLE scan_events ADD COLUMN opened TEXT;
     ALTER TABLE scan_runs ADD COLUMN origin TEXT NOT NULL DEFAULT 'scan';
     """,
+    # v34: libro de operaciones compartidas del Feed de la comunidad (list_community_trades), una fila por operación (clave = su id del Feed),
+    # con su ciclo apertura->cierre (status, closed, pnl), las patas y precios de apertura y cierre y las métricas de salida derivadas
+    # (crédito de apertura, coste de cierre, % de prima capturado, DTE al abrir y al cerrar, días en posición). Se acumula aunque la tarjeta
+    # salga de la ventana del Feed: así se puede analizar el historial de salida de cada trader siempre que la operación se viera una vez.
+    """
+    CREATE TABLE community_trades (
+        id TEXT PRIMARY KEY,
+        trader TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        strategy TEXT NOT NULL,
+        currency TEXT,
+        status TEXT NOT NULL,
+        opened TEXT NOT NULL,
+        closed TEXT,
+        pnl REAL,
+        note TEXT,
+        legs TEXT,
+        close_legs TEXT,
+        credit_open REAL,
+        close_cost REAL,
+        pct_captured REAL,
+        dte_open INTEGER,
+        dte_close INTEGER,
+        hold_days INTEGER,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_community_trades_trader ON community_trades (trader, status);
+    """,
 ]
 
 
