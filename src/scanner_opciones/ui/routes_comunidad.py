@@ -53,6 +53,22 @@ def register(app, service, render, remembered) -> None:
                       keys=[idea_key(v.idea) for v in views], perm_name=service.settings.community.perm_source_name,
                       lists={t: [(source_initials(n), n) for n in names] for t, names in service.ticker_lists().items()})
 
+    @app.get("/comunidad/feed", response_class=HTMLResponse)
+    async def comunidad_feed(request: Request, trader: str = "", estado: str = ""):
+        """Feed de la comunidad: operaciones que los traders comparten (cualquier estrategia, abiertas y cerradas con P&L y su tesis)."""
+        feed = service.community_feed_trades()
+        community = service.community()        # para el chip de fiabilidad de cada trader
+        me = service.settings.community.my_trader.casefold()
+        everything = [t for t in (feed.trades if feed is not None else []) if not me or t.trader.casefold() != me]
+        estado = estado if estado in ("open", "closed") else ""
+        views = [t for t in everything if (not trader or t.trader == trader) and (not estado or t.status == estado)]
+        counts = {"open": sum(1 for t in everything if t.status == "open"), "closed": sum(1 for t in everything if t.status == "closed")}
+        return render(request, "feed.html", no_autorefresh=True, watch_data=True, data=feed, community=community,
+                      views=views, total=len(everything), counts=counts,
+                      trader=trader, estado=estado, file_path=service.settings.community.feed_path,
+                      traders=sorted({t.trader for t in everything}, key=str.casefold),
+                      auto_reload=service.market.is_open(service.now()))
+
     @app.post("/comunidad/perm")
     async def comunidad_perm(request: Request):
         """Añade a la fuente permanente del Universo los tickers de las ideas marcadas (con su trader y su mejor estrategia)."""

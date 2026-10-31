@@ -186,9 +186,9 @@ async def test_due_routines_follow_the_schedule_and_back_off_after_a_failure(tmp
 
     assert daily() == []                                                            # antes de la primera hora (11:10)
     clock["now"] = datetime(2026, 10, 19, 11, 20)
-    assert daily() == ["aperturas", "comunidad"]
+    assert daily() == ["aperturas", "comunidad", "feed"]
     await runner.run_one("aperturas")                                               # falla: no hay respuesta simulada
-    assert daily() == ["comunidad"]                           # no se reintenta enseguida
+    assert daily() == ["comunidad", "feed"]                   # no se reintenta enseguida
     clock["now"] = datetime(2026, 10, 19, 12, 30)
     assert "aperturas" in [r.key for r in runner.due()]                             # pasada la hora de espera, sí
 
@@ -374,7 +374,7 @@ async def test_daily_tortuga_routines_only_run_on_business_days_at_their_time(tm
     clock["now"] = at(26, 10, 59)                                                    # lunes antes de su hora: todavía no
     assert daily() == []
     clock["now"] = at(26, 11, 20)                                                    # lunes a las 11:20: toca, como el 1.er día hábil
-    assert daily() == ["aperturas", "comunidad"]
+    assert daily() == ["aperturas", "comunidad", "feed"]                             # feed es diaria a las 11:20
     from scanner_opciones.config.settings import MarketSettings
     holiday = svc.settings.model_copy(update={"market": MarketSettings(holidays=[date(2026, 10, 26)])})
     runner = RoutineRunner(holiday, MetaRepo(svc.watchlist.db), lambda: clock["now"], fake_claude({"*": "{}"}), tmp_path, fake_calls([]))

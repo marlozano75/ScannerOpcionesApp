@@ -127,6 +127,30 @@ def test_the_ideas_page_values_each_idea_with_todays_quote_and_filters(client_an
     assert "Ninguna idea cumple los filtros" in client.get("/comunidad?tipo=spread").text
 
 
+def test_the_feed_page_shows_shared_trades_with_outcome_thesis_and_reliability(client_and_service, tmp_path):
+    client, svc, gw, _ = client_and_service
+    assert "Todavía no hay datos del Feed" in client.get("/comunidad/feed").text
+    feed = {"version": 1, "generated_at": "2026-10-31T13:00:00+02:00", "source": "tortuga", "trades": [
+        {"id": "a1", "trader": "Ana", "ticker": "MSFT", "strategy": "Iron Condor", "status": "open",
+         "opened": "2026-10-30", "closed": None, "pnl": None, "currency": "USD", "legs": "SELL 1 490P / BUY 1 485P", "note": None},
+        {"id": "a2", "trader": "Beto", "ticker": "AMZN", "strategy": "Long Call", "status": "closed",
+         "opened": "2026-10-30", "closed": "2026-10-30", "pnl": 83.42, "currency": "USD", "legs": "BUY 3 245C", "note": "entro por el hueco"},
+    ]}
+    ideas = {"version": 2, "generated_at": "2026-10-31T13:00:00+02:00", "tickers": [], "ideas": [],
+             "profiles": {"Ana": {"tier": "gold", "profit_factor": 1.24}}}
+    fp, cp = tmp_path / "feed.json", tmp_path / "tortuga.json"
+    write(fp, json.dumps(feed))
+    write(cp, json.dumps(ideas))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(cp), feed_path=str(fp)))
+    page = client.get("/comunidad/feed").text
+    assert "Feed de la comunidad" in page and "Iron Condor" in page and "Long Call" in page
+    assert "entro por el hueco" in page and "+83" in page                       # tesis y P&L realizado de la cerrada
+    assert 'class="tbadge"' in page and ">Gold</span>" in page                   # chip de fiabilidad (Ana tiene perfil)
+    assert "Cerrada" in client.get("/comunidad/feed?estado=closed").text
+    only_ana = client.get("/comunidad/feed?trader=Ana").text
+    assert "MSFT" in only_ana and "AMZN" not in only_ana
+
+
 def test_the_ideas_page_shows_each_traders_reliability_badge(client_and_service, tmp_path):
     client, svc, gw, _ = client_and_service
     refresh(client)

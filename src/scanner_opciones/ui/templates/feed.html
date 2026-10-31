@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+{% from "_fit_macros.html" import trader_badge %}
+{% include "_msgs.html" %}
+<style>
+  .feed-bar { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin:0 0 10px; }
+  .st { display:inline-block; padding:1px 8px; border-radius:9px; font-size:11.5px; font-weight:600; }
+  .st-open { background:#e8eaf3; color:#3b4a8a; } .st-closed { background:#eceff1; color:var(--mute); }
+  table.cmp td.th { white-space:normal; min-width:200px; max-width:340px; line-height:1.35; vertical-align:top; }
+  table.cmp td.lg { white-space:normal; min-width:160px; max-width:280px; line-height:1.3; }
+</style>
+<div class="card">
+  <h2>Feed de la comunidad: operaciones compartidas</h2>
+  <div class="feed-bar">
+    <div class="seg" role="tablist">
+      <a href="/comunidad" role="tab">Ideas</a><a href="/comunidad/feed" class="on" role="tab">Feed</a>
+    </div>
+  </div>
+  {% if not data %}
+  <p class="muted">Todavía no hay datos del Feed. La rutina <code>feed</code> deja el fichero <code>{{ file_path }}</code> a su hora
+    (se ejecuta sola mientras la app está abierta).</p>
+  {% else %}
+  <div class="help-scope" style="min-height:24px;padding-right:32px"><p class="note" style="margin-top:0">Lo que los traders de Tortuga <b>comparten</b> en Ranking › Trades, generado el
+    {{ data.generated_at.strftime('%d/%m/%Y %H:%M') }}. A diferencia de «Ideas» (solo puts y spreads abiertos que se valoran y comparan con tus perfiles), el Feed trae
+    <b>cualquier estrategia</b>, operaciones <b>abiertas y cerradas</b> (con su P&amp;L realizado) y la <b>tesis</b> del trader si la escribió. Es informativo: no se valora ni se compara.
+    Junto a cada trader, la píldora de fiabilidad (escalón del ranking; roja con ⚠ si su track record pierde dinero). P&amp;L y prima en la moneda de la operación. No es una recomendación.</p></div>
+  <div class="feed-bar">
+    <div class="seg" role="tablist">{% for e, lbl in (('', 'Todas'), ('open', 'Abiertas'), ('closed', 'Cerradas')) %}<a href="/comunidad/feed?{{ ({'estado': e, 'trader': trader}|urlencode) }}" class="{{ 'on' if e == estado }}" role="tab">{{ lbl }}{% if e %}<span>{{ counts[e] }}</span>{% endif %}</a>{% endfor %}</div>
+    <form method="get" action="/comunidad/feed" class="feed-bar" style="margin:0">
+      {% if estado %}<input type="hidden" name="estado" value="{{ estado }}">{% endif %}
+      <label>Trader <select name="trader" onchange="this.form.submit()"><option value="">Todos</option>
+        {% for t in traders %}<option value="{{ t }}" {{ 'selected' if t == trader }}>{{ t }}</option>{% endfor %}</select></label>
+      <span class="muted">{{ views|length }} de {{ total }}</span>
+    </form>
+  </div>
+  {% if views %}
+  <div class="tscroll">
+  <table class="sortable cmp">
+    <tr><th>Ticker</th><th title="Estrategia que etiquetó Tortuga">Estrategia</th><th title="Patas de la operación (acción, cantidad y strike)">Patas</th><th class="c">Estado</th>
+      <th class="n" title="Resultado realizado de la operación cerrada, en su moneda">P&amp;L</th>
+      <th title="Tesis que escribió el trader al compartirla, si la hay">Tesis</th>
+      <th title="Trader, su fiabilidad (escalón del ranking) y las fechas de apertura y cierre">Trader</th></tr>
+    {% for t in views %}
+    <tr><td class="tk"><b title="{{ tk_title(company_names, t.ticker) }}">{{ t.ticker }}</b>{{ sec_flag(sec_alerts, t.ticker) }}{{ analyst_flag(analyst_alerts, t.ticker) }}</td>
+      <td>{{ t.strategy }}</td>
+      <td class="lg">{{ t.legs or '—' }}</td>
+      <td class="c"><span class="st st-{{ t.status }}">{{ 'Abierta' if t.status == 'open' else 'Cerrada' }}</span></td>
+      <td class="n"{% if t.pnl is not none %} data-sort="{{ t.pnl }}"{% endif %}>{% if t.pnl is not none %}<span class="{{ 'up' if t.pnl >= 0 else 'dn' }}">{{ '%+.0f'|format(t.pnl) }}</span>{% if t.currency %} <small class="muted">{{ t.currency }}</small>{% endif %}{% else %}—{% endif %}</td>
+      <td class="th">{{ t.note or '' }}{% if not t.note %}<span class="muted">—</span>{% endif %}</td>
+      <td data-sort="{{ (t.closed or t.opened).isoformat() }}">{{ t.trader }}{% if community %}{{ trader_badge(community.profile(t.trader)) }}{% endif %}<small>abrió {{ t.opened.strftime('%d/%m') }}{% if t.closed %} · cerró {{ t.closed.strftime('%d/%m') }}{% endif %}</small></td>
+      </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">Ninguna operación con esos filtros.</p>{% endif %}
+  {% endif %}
+</div>
+{% if auto_reload %}<script>
+(function () {
+  var started = Date.now(), EVERY = 300000;
+  setInterval(function () {
+    var a = document.activeElement;
+    if (document.hidden || Date.now() - started < EVERY || (a && a.tagName === 'SELECT')) return;
+    location.reload();
+  }, 15000);
+})();
+</script>{% endif %}
+{% endblock %}

@@ -813,6 +813,7 @@ class CommunitySettings(_Model):
     stale_hours: int = Field(72, ge=1)     # el Scanner avisa si el JSON es más viejo
     closed_marker_days: int = Field(45, ge=1)   # Comunidad: marca las de un ticker en el que cerraste una put vendida hace menos de N días
     openings_path: str = "data/community/aperturas.json"   # fechas exactas de apertura de TUS puts vendidas (`scripts/actualizar_aperturas.ps1`)
+    feed_path: str = "data/community/feed.json"             # Feed de la comunidad: operaciones compartidas (cualquier estrategia, abiertas y cerradas con P&L y tesis)
 
 
 class TortugaSettings(_Model):
@@ -834,7 +835,7 @@ class TortugaSettings(_Model):
     # nombres anteriores de las dos fuentes: se renombran al arrancar
     legacy_source_names: dict[str, str] = {"TortugaSpreads": "source_name", "TortugaPuts": "puts_source_name"}
     profile: str = "TastyPut"                 # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
-    times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "radar_spreads": "11:45", "radar_puts": "11:50", "super_investors": "11:30"}
+    times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "feed": "11:20", "radar_spreads": "11:45", "radar_puts": "11:50", "super_investors": "11:30"}
     # días mínimos entre dos lecturas buenas de una rutina diaria (los 13F cambian una vez al trimestre: una semana sobra)
     min_days: dict[str, int] = {"super_investors": 7}
     # rutinas que se repiten cada N minutos mientras la aplicación está abierta y el mercado abierto (más una pasada tras el cierre; en vez de una vez al día a su hora de `times`): el radar de

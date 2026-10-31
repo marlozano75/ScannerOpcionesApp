@@ -36,6 +36,7 @@ from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
 from scanner_opciones.community.data import CommunityData, TraderProfile
+from scanner_opciones.community.feed_data import FeedData, FeedError, load_feed
 from scanner_opciones.feeds.base import ContractFeed, ContractIdea, combined_stamp
 from scanner_opciones.feeds.community import CommunityFeed
 from scanner_opciones.feeds.marketradar import MarketRadarFeed
@@ -2201,6 +2202,14 @@ class AppService:
     def community(self) -> Optional[CommunityData]:
         """Datos de la comunidad de Tortuga (JSON de la rutina diaria), releídos solo si el fichero cambió (ver `CommunityFeed`). None si no existe."""
         return self.community_feed.data()
+
+    def community_feed_trades(self) -> Optional[FeedData]:
+        """Feed de la comunidad (operaciones compartidas: cualquier estrategia, abiertas y cerradas con P&L y tesis). None si no hay fichero o es inválido.
+        El fichero que deja la rutina siempre es válido (escritura atómica tras validar); se relee en cada carga de la pestaña (fichero pequeño)."""
+        try:
+            return load_feed(self.settings.community.feed_path)
+        except FeedError:
+            return None
 
     def feed_contracts(self) -> list[ContractIdea]:
         """Contratos de todas las fuentes de contratos juntos."""

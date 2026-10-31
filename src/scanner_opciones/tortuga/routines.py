@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
 from scanner_opciones.community.data import CommunityError, parse_community
+from scanner_opciones.community.feed_data import FeedError, parse_feed
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.portfolio.openings import OpeningsError, parse_openings
@@ -52,6 +53,8 @@ ROUTINES = (
     Routine("comunidad", "Comunidad de traders", "comunidad_prompt.md",
             ("get_context", "get_community_screener", "list_public_operations", "get_trader_profile"), 60,
             "pestaña Comunidad (ideas, consenso y fiabilidad de cada trader) y fuente TortugaTrades_Dia"),
+    Routine("feed", "Feed de la comunidad", "feed_prompt.md", ("get_context", "list_community_trades"), 40,
+            "pestaña Comunidad › Feed (operaciones compartidas con su resultado y su tesis)"),
     Routine("radar_spreads", "Radar de Bull Put Spreads", "radar_spreads_prompt.md", ("get_context", "get_market_radar"), 30,
             "pestaña MarketRadar (SPREAD) y fuente RadarSpreads (pasa a la watchlist)", via_calls=True),
     Routine("radar_puts", "Radar de venta de puts", "radar_puts_prompt.md", ("get_context", "get_market_radar"), 30,
@@ -83,7 +86,14 @@ def finish(settings: Settings, key: str, text: str) -> str:
             data = parse_openings(json.loads(text))
             _atomic_write(Path(settings.community.openings_path), text)
             return f"{len(data.opened)} contratos abiertos, {len(data.closes)} cierres"
-    except (CommunityError, OpeningsError, RadarError, ValueError) as exc:
+        if key == "feed":
+            feed = parse_feed(text)
+            if not feed.trades:
+                raise RoutineError("no hay ninguna operación")
+            _atomic_write(Path(settings.community.feed_path), text)
+            cerradas = sum(1 for t in feed.trades if t.status == "closed")
+            return f"{len(feed.trades)} operaciones ({cerradas} cerradas)"
+    except (CommunityError, FeedError, OpeningsError, RadarError, ValueError) as exc:
         raise RoutineError(str(exc)) from exc
     raise RoutineError(f"rutina desconocida: {key}")
 
