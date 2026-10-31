@@ -59,7 +59,7 @@
       <td class="n"{% if v.yield_now_pct is not none %} data-sort="{{ v.yield_now_pct }}"{% endif %}>{{ v.yield_now_pct|pct if v.yield_now_pct is not none else '—' }}<small>Δ {{ v.delta_now|num if v.delta_now is not none else '—' }}</small></td>
       <td class="c"><span class="st st-{{ v.status }}" title="{{ v.text }}">{{ {'valid': 'Vigente', 'lower': 'Prima menor', 'dropped': 'Ha caído', 'itm': 'En el dinero', 'no_data': 'Sin valorar', 'expired': 'Vencida'}[v.status] }}</span></td>
       {%- for idx, n in fit_cols %}{{ fit_cell(v.fits[idx] if v.fits and idx < v.fits|length else none, n) }}{% endfor %}
-      <td data-sort="{{ i.day.isoformat() }}">{{ i.trader or i.source or '—' }}{% if mine and i.trader and i.trader|lower == mine|lower %} <small>(tú)</small>{% endif %}<small>{{ i.day.strftime('%d/%m') }}</small></td>
+      <td data-sort="{{ i.day.isoformat() }}">{{ i.trader or i.source or '—' }}<small>{{ i.day.strftime('%d/%m') }}</small></td>
       </tr>
     {% endfor %}
   </table>
