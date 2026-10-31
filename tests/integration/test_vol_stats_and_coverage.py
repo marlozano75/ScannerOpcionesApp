@@ -141,7 +141,7 @@ def test_loading_a_profile_replaces_the_form_and_saving_stores_the_current_filte
         form.update({f"pf{i}_name": n, f"pf{i}_orig": n, f"pf{i}_inst": svc.stored_profiles()[0][i].mode})
     assert client.post("/scanner/profiles", data=form, follow_redirects=False).status_code == 303
     assert "profile=Mio" in str(client.get("/scanner").url)
-    assert "Perfiles del Scanner" in client.get("/scanner/config").text
+    assert "Perfiles de escaneo" in client.get("/scanner/config").text
 
 
 # ---- 3. velas: los símbolos sin respuesta se piden de nuevo con una conexión nueva -------------------------------
