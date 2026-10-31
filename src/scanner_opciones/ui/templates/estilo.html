@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+{% from "_fit_macros.html" import trader_badge %}
+{% include "_msgs.html" %}
+<style>
+  .feed-bar { display:flex; flex-wrap:wrap; gap:14px; align-items:center; margin:0 0 10px; }
+  .est { display:inline-block; padding:1px 8px; border-radius:9px; font-size:11.5px; font-weight:600; background:#eceff1; color:var(--mute); }
+  .est-pronto { background:#e6f4ea; color:#1e7a3c; } .est-vto { background:#fdecea; color:#b5371f; } .est-gest { background:#e8eaf3; color:#3b4a8a; }
+  td.strat small { color:var(--mute); }
+</style>
+<div class="card">
+  <h2>Comunidad: estilo de salida de cada trader</h2>
+  <div class="feed-bar">
+    <div class="seg" role="tablist">
+      <a href="/comunidad" role="tab">Ideas</a><a href="/comunidad/feed" role="tab">Feed</a><a href="/comunidad/estilo" class="on" role="tab">Estilo de salida</a>
+    </div>
+  </div>
+  <div class="help-scope" style="min-height:24px;padding-right:32px"><p class="note" style="margin-top:0">Cómo <b>sale</b> cada trader de sus ventas de prima, a partir del historial
+    apertura→cierre que se va acumulando del Feed (solo operaciones de <b>crédito ya cerradas</b>: Short Put, spreads de crédito, strangles…). El <b>DTE al cerrar</b> es la clave:
+    alto = cierra pronto (recoge beneficios); cerca de 0 = lleva a vencimiento. Medianas sobre lo visto; solo traders con 3+ cierres. Es informativo y parcial (solo lo que cada trader
+    comparte en Ranking › Trades), no una recomendación.</p></div>
+  {% if counts.closed == 0 %}
+  <p class="muted">Todavía no hay historial de cierres acumulado. Se va llenando a medida que la rutina <code>feed</code> (fichero <code>{{ file_path }}</code>) trae
+    operaciones cerradas y la app las guarda. Cuanto más tiempo abierta, más completo.</p>
+  {% else %}
+  <div class="feed-bar">
+    <form method="get" action="/comunidad/estilo" class="feed-bar" style="margin:0">
+      <label>Trader <select name="trader" onchange="this.form.submit()"><option value="">Todos</option>
+        {% for t in traders %}<option value="{{ t }}" {{ 'selected' if t == trader }}>{{ t }}</option>{% endfor %}</select></label>
+      <span class="muted">{{ counts.closed }} cierres · {{ counts.traders }} traders · {{ counts.trades }} operaciones guardadas</span>
+    </form>
+  </div>
+  {% if styles %}
+  <div class="tscroll">
+  <table class="sortable cmp">
+    <tr><th>Trader</th><th title="Estilo de salida según el DTE mediano al cerrar">Estilo</th>
+      <th class="n" title="Operaciones de crédito cerradas que hemos visto">Cerradas</th>
+      <th class="n" title="% de operaciones con P&amp;L positivo">Win rate</th>
+      <th class="n" title="Mediana del DTE restante al cerrar (alto = sale pronto; ~0 = a vencimiento)">DTE al cerrar</th>
+      <th class="n" title="Mediana de días entre apertura y cierre">Días</th>
+      <th class="n" title="Mediana del % de la prima de apertura que quedó como beneficio (sobre el P&amp;L realizado)">% prima</th>
+      <th>Estrategias</th></tr>
+    {% for s in styles %}
+    {% set cls = 'est-pronto' if s.style_label == 'Cierra pronto' else ('est-vto' if s.style_label == 'Lleva a vencimiento' else ('est-gest' if s.median_dte_close is not none else '')) %}
+    <tr><td><b>{{ s.trader }}</b>{% if community %}{{ trader_badge(community.profile(s.trader)) }}{% endif %}</td>
+      <td><span class="est {{ cls }}">{{ s.style_label }}</span></td>
+      <td class="n">{{ s.closed }}</td>
+      <td class="n"{% if s.win_rate is not none %} data-sort="{{ s.win_rate }}"{% endif %}>{% if s.win_rate is not none %}{{ '%.0f'|format(s.win_rate) }} %{% else %}—{% endif %}</td>
+      <td class="n"{% if s.median_dte_close is not none %} data-sort="{{ s.median_dte_close }}"{% endif %}>{% if s.median_dte_close is not none %}{{ '%g'|format(s.median_dte_close) }}{% else %}—{% endif %}</td>
+      <td class="n"{% if s.median_hold_days is not none %} data-sort="{{ s.median_hold_days }}"{% endif %}>{% if s.median_hold_days is not none %}{{ '%g'|format(s.median_hold_days) }}{% else %}—{% endif %}</td>
+      <td class="n"{% if s.median_pct_captured is not none %} data-sort="{{ s.median_pct_captured }}"{% endif %}>{% if s.median_pct_captured is not none %}{{ '%.0f'|format(s.median_pct_captured) }} %{% else %}<span class="muted" title="Sin precios estructurados (Feed versión 1)">—</span>{% endif %}</td>
+      <td class="strat"><small>{{ s.strategies|join(', ') }}</small></td>
+      </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted">Ningún trader con 3 o más cierres de crédito{% if trader %} con ese filtro{% endif %} todavía.</p>{% endif %}
+
+  {% if trader and rows %}
+  <h3 style="margin:18px 0 8px">Cierres de {{ trader }}</h3>
+  <div class="tscroll">
+  <table class="sortable cmp">
+    <tr><th>Ticker</th><th>Estrategia</th><th>Abrió</th><th>Cerró</th>
+      <th class="n" title="DTE restante al cerrar">DTE cierre</th><th class="n" title="Días en posición">Días</th>
+      <th class="n" title="% de la prima capturado">% prima</th><th class="n" title="P&amp;L realizado">P&amp;L</th></tr>
+    {% for r in rows %}
+    <tr><td class="tk"><b>{{ r.ticker }}</b></td><td>{{ r.strategy }}</td>
+      <td data-sort="{{ r.opened }}">{{ r.opened }}</td><td data-sort="{{ r.closed or '' }}">{{ r.closed or '—' }}</td>
+      <td class="n">{% if r.dte_close is not none %}{{ r.dte_close }}{% else %}—{% endif %}</td>
+      <td class="n">{% if r.hold_days is not none %}{{ r.hold_days }}{% else %}—{% endif %}</td>
+      <td class="n">{% if r.pct_captured is not none %}{{ '%.0f'|format(r.pct_captured) }} %{% else %}—{% endif %}</td>
+      <td class="n"{% if r.pnl is not none %} data-sort="{{ r.pnl }}"{% endif %}>{% if r.pnl is not none %}<span class="{{ 'up' if r.pnl >= 0 else 'dn' }}">{{ '%+.0f'|format(r.pnl) }}</span>{% if r.currency %} <small class="muted">{{ r.currency }}</small>{% endif %}{% else %}—{% endif %}</td>
+      </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+{% if auto_reload %}<script>
+(function () {
+  var started = Date.now(), EVERY = 300000;
+  setInterval(function () {
+    var a = document.activeElement;
+    if (document.hidden || Date.now() - started < EVERY || (a && a.tagName === 'SELECT')) return;
+    location.reload();
+  }, 15000);
+})();
+</script>{% endif %}
+{% endblock %}

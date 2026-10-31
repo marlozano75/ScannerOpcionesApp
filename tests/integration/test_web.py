@@ -44,6 +44,21 @@ def refresh(client):
     client.portal.call(client.svc.wait_idle)   # el refresco va en segundo plano
 
 
+def test_exit_style_tab_summarises_closed_trades(client_and_service):
+    client, svc, gw, _ = client_and_service
+    from scanner_opciones.community.feed_data import FeedLeg, FeedTrade
+    leg = lambda cp: FeedLeg("SELL", "P", 1, 1.5, 80.0, date(2026, 11, 20), cp)
+    trades = [FeedTrade(f"z{i}", "Zalo", "NFLX", "Short Put", "closed", date(2026, 10, 1), date(2026, 10, 16), 90.0, "USD", None, (leg(0.6),))
+              for i in range(3)]
+    svc.community_trades.upsert_many(trades, "2026-10-17T10:00:00")
+
+    empty = client.get("/comunidad/estilo")
+    assert empty.status_code == 200 and "Estilo de salida" in empty.text and "Zalo" in empty.text
+    assert "Cierra pronto" in empty.text and "100 %" in empty.text      # 3 cierres ganadores, DTE al cerrar 35
+    detail = client.get("/comunidad/estilo?trader=Zalo")
+    assert "Cierres de Zalo" in detail.text and "NFLX" in detail.text
+
+
 def test_dashboard_renders_risk_and_vix(client_and_service):
     client, svc, gw, _ = client_and_service
     r = client.get("/")

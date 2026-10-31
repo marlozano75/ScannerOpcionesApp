@@ -69,6 +69,18 @@ class ExitStyle:
     median_pct_captured: Optional[float]
     strategies: tuple[str, ...]         # estrategias de crédito que se le han visto cerrar, más frecuente primero
 
+    @property
+    def style_label(self) -> str:
+        """Etiqueta corta del estilo de salida según el DTE mediano al cerrar: alto = sale pronto; cerca de 0 = lleva a vencimiento."""
+        d = self.median_dte_close
+        if d is None:
+            return "Sin DTE de salida"
+        if d <= 5:
+            return "Lleva a vencimiento"
+        if d <= 20:
+            return f"Gestiona (~{d:g} DTE)"
+        return "Cierra pronto"
+
 
 def _row(r) -> TradeRow:
     return TradeRow(r["id"], r["trader"], r["ticker"], r["strategy"], r["currency"], r["status"], r["opened"], r["closed"],

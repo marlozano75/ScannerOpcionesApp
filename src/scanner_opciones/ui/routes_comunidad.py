@@ -69,6 +69,19 @@ def register(app, service, render, remembered) -> None:
                       traders=sorted({t.trader for t in everything}, key=str.casefold),
                       auto_reload=service.market.is_open(service.now()))
 
+    @app.get("/comunidad/estilo", response_class=HTMLResponse)
+    async def comunidad_estilo(request: Request, trader: str = ""):
+        """Estilo de salida de cada trader a partir del historial apertura->cierre que se ha ido acumulando del Feed (operaciones de crédito cerradas)."""
+        styles = service.trader_exit_styles()
+        community = service.community()        # para el chip de fiabilidad de cada trader
+        counts = service.community_trades.counts()
+        views = [s for s in styles if not trader or s.trader == trader]
+        rows = service.community_trades.all(trader=trader, status="closed") if trader else []
+        return render(request, "estilo.html", no_autorefresh=True, watch_data=True, community=community,
+                      styles=views, counts=counts, trader=trader, rows=rows,
+                      traders=[s.trader for s in styles], file_path=service.settings.community.feed_path,
+                      auto_reload=service.market.is_open(service.now()))
+
     @app.post("/comunidad/perm")
     async def comunidad_perm(request: Request):
         """Añade a la fuente permanente del Universo los tickers de las ideas marcadas (con su trader y su mejor estrategia)."""
