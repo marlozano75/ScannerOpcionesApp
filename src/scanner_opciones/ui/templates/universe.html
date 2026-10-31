@@ -129,22 +129,23 @@
   <style>
     .ad-sch { width:100%; border-collapse:collapse; }
     .ad-sch td, .ad-sch th { padding:3px 5px; font-size:11px; text-align:left; vertical-align:top; }
-    .ad-sch input[type=number] { width:42px; } .ad-sch input[type=text] { width:84px; }
-    .ad-chip { display:inline-block; padding:0 5px; border-radius:9px; font-size:10px; font-weight:700; margin:1px 2px 1px 0; white-space:nowrap; background:rgba(127,127,127,.16); color:var(--mute); }
+    .ad-sch th.c, .ad-sch td.c { text-align:center; }
+    .ad-sch input[type=number] { width:52px; text-align:center; } .ad-sch input[type=text] { width:84px; text-align:center; }
+    .ad-chip { display:block; padding:0 5px; border-radius:9px; font-size:10px; font-weight:700; margin:1px 0; white-space:nowrap; background:rgba(127,127,127,.16); color:var(--mute); }
   </style>
   <p class="muted" style="margin-top:0">Las fuentes que la aplicación consulta sola mientras está abierta. <b>En mercado</b>: cada N minutos con el mercado abierto. <b>Fuera de mercado</b>: cada N minutos en día hábil con el mercado cerrado.
     <b>Descargas especiales</b>: horas fijas (HH:MM, hora local, separadas por comas) en día hábil, una vez cada una. <b>Tras el cierre</b>: una lectura más con la foto del último cierre (también al abrir la app fuera de sesión).
     Vacío = esa modalidad no se usa; sin ninguna, solo se actualiza a mano. Fin de semana y festivo no hay lecturas automáticas. Se comprueba en cada ciclo de refresco y, tras un fallo, se espera unos minutos antes de reintentar.</p>
   <form method="post" action="/universe/schedule">
     <table class="ad-sch">
-      <tr><th>Consulta</th><th>Origen</th><th>Alimenta</th><th title="Cada N minutos con el mercado abierto">En merc.</th><th title="Cada N minutos en día hábil con el mercado cerrado">Fuera</th><th title="Descargas especiales: horas fijas HH:MM (hora local), separadas por comas">Horas fijas</th><th title="Tras el cierre: una lectura más con la foto del último cierre">Cierre</th><th>Última vez</th></tr>
+      <tr><th>Consulta</th><th>Origen</th><th>Alimenta</th><th class="c" title="Cada N minutos con el mercado abierto">En merc.</th><th class="c" title="Cada N minutos en día hábil con el mercado cerrado">Fuera</th><th class="c" title="Descargas especiales: horas fijas HH:MM (hora local), separadas por comas">Horas fijas</th><th class="c" title="Tras el cierre: una lectura más con la foto del último cierre">Cierre</th><th>Última vez</th></tr>
       {% for f in feeds %}{% set sc = f.schedule %}
       <tr><td><b>{{ f.title }}</b><br><span class="muted">{{ describe(sc) }}</span></td><td>{{ f.origin }}</td>
         <td>{% for n in f.sources %}<span class="ad-chip">{{ n }}</span>{% else %}—{% endfor %}</td>
-        <td><input type="number" min="{{ f.min }}" name="in_{{ f.key }}" value="{{ sc.in_market or '' }}"></td>
-        <td><input type="number" min="{{ f.min }}" name="out_{{ f.key }}" value="{{ sc.out_market or '' }}"></td>
-        <td><input type="text" name="times_{{ f.key }}" value="{{ sc.times|join(', ') }}" placeholder="11:15"></td>
-        <td><input type="checkbox" name="close_{{ f.key }}" value="1" {{ 'checked' if sc.after_close }}></td>
+        <td class="c"><input type="number" min="{{ f.min }}" name="in_{{ f.key }}" value="{{ sc.in_market or '' }}"></td>
+        <td class="c"><input type="number" min="{{ f.min }}" name="out_{{ f.key }}" value="{{ sc.out_market or '' }}"></td>
+        <td class="c"><input type="text" name="times_{{ f.key }}" value="{{ sc.times|join(', ') }}" placeholder="11:15"></td>
+        <td class="c"><input type="checkbox" name="close_{{ f.key }}" value="1" {{ 'checked' if sc.after_close }}></td>
         <td class="muted">{{ f.last_ok[:16].replace('T', ' ') if f.last_ok else 'nunca' }}{% if f.error %}<br><span class="tr-err" title="{{ f.error }}">Falló: {{ f.error[:60] }}</span>{% endif %}</td></tr>
       {% endfor %}
     </table>
