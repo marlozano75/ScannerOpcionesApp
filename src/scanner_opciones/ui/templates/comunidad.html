@@ -29,7 +29,7 @@
   <script>(function wait() { setTimeout(function () { if (document.querySelector('dialog[open]')) wait(); else location.reload(); }, 8000); })();</script>{% endif %}
   {% if stale %}<div class="banner err">Los datos tienen {{ (stale / 24)|round|int }} días: la rutina diaria no se ha ejecutado.</div>{% endif %}
   <div class="ideas-bar"><div class="seg" role="tablist">{% for t, lbl in (('put', 'PUT'), ('spread', 'SPREAD')) %}<a href="{{ tab_urls[t] }}" class="{{ 'on' if t == tipo }}" role="tab">{{ lbl }}<span>{{ counts[t] }}</span></a>{% endfor %}</div></div>
-  <form method="get" action="/ideas" class="ideas-bar">
+  <form method="get" action="/comunidad" class="ideas-bar">
     <input type="hidden" name="tipo" value="{{ tipo }}">
     <label class="check"><input type="checkbox" name="venc" value="1" {{ 'checked' if venc }} onchange="this.form.submit()"> Mostrar vencidas</label>
     <label>Trader <select name="trader" onchange="this.form.submit()"><option value="">Todos</option>
@@ -37,7 +37,7 @@
     <span class="muted">{{ views|length }} ideas · {{ valid }} vigentes</span>
   </form>
   {% if views %}
-  <form method="post" action="/ideas/perm">
+  <form method="post" action="/comunidad/perm">
   {% for k, v in (('venc', venc), ('trader', trader), ('tipo', tipo)) %}{% if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}{% endfor %}
   <p class="ideas-bar" style="margin-top:0"><button type="submit" id="perm-add" disabled>Añadir a {{ perm_name }}</button>
     <span class="muted" id="perm-count">Marca contratos: de cada uno se guarda el ticker, el trader y la estrategia del Scanner que más filtros cumple hoy.</span></p>
@@ -67,7 +67,7 @@
   </form>
   <script>
   (function () {
-    var form = document.querySelector('form[action="/ideas/perm"]'); if (!form) return;
+    var form = document.querySelector('form[action="/comunidad/perm"]'); if (!form) return;
     var btn = document.getElementById('perm-add'), out = document.getElementById('perm-count'), hint = out.textContent;
     form.addEventListener('change', function () {
       var n = form.querySelectorAll('input.pick:checked').length;

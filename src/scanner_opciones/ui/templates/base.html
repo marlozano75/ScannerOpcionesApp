@@ -231,7 +231,7 @@
 <header>
   <strong class="brand">Scanner de Opciones</strong>
   <nav>
-    {% for href, label in (('/', 'Panel'), ('/universe', 'Universo'), ('/watchlist', 'Watchlist'), ('/scanner', 'Scanner'), ('/exits', 'Salidas'), ('/ideas', 'Comunidad'), ('/tortuga', 'MarketRadar'), ('/historico', 'Histórico')) %}
+    {% for href, label in (('/', 'Panel'), ('/universe', 'Universo'), ('/watchlist', 'Watchlist'), ('/scanner', 'Scanner'), ('/exits', 'Salidas'), ('/comunidad', 'Comunidad'), ('/marketradar', 'MarketRadar'), ('/historico', 'Histórico')) %}
     <a href="{{ href }}" {{ 'class=active' if (path == '/' if href == '/' else path.startswith(href)) }}>{{ label }}</a>{% endfor %}
   </nav>
   <div class="right">

@@ -23,7 +23,7 @@
     Es información de otro motor, no una recomendación: compruébalo con los filtros del Scanner (modo Spread).
     El selector PUT / SPREAD elige la estrategia que propone Tortuga y los perfiles del Scanner con los que se compara la put de 30Δ (en SPREAD, con los strikes, el vencimiento y la prima del spread que propone la ficha de cada valor: descuento y DTE de la vendida y crédito/ancho = prima / ancho; la delta queda sin comprobar, y sin ficha también el crédito/ancho). Cada columna de perfil dice cuántos filtros cumple (n/total y un cuadrito por filtro: verde cumple, rojo no, gris sin comprobar). Los técnicos y la calidad de la empresa no se evalúan.</p></div>
   <div class="tr-bar"><div class="seg" role="tablist">{% for t, lbl in (('put', 'PUT'), ('spread', 'SPREAD')) %}<a href="{{ tab_urls[t] }}" class="{{ 'on' if t == tipo }}" role="tab" title="{{ 'Venta de put' if t == 'put' else 'Bull Put Spread' }} (estrategia que propone Tortuga)">{{ lbl }}<span>{{ counts[t] }}</span></a>{% endfor %}</div></div>
-  <form method="get" action="/tortuga" class="tr-bar">
+  <form method="get" action="/marketradar" class="tr-bar">
     <input type="hidden" name="tipo" value="{{ tipo }}">
     <label class="check"><input type="checkbox" name="cumple" value="1" {{ 'checked' if cumple }} onchange="this.form.submit()"> Solo los que cumplen (✓)</label>
     <span class="muted">{{ items|length }} valores · {{ passing }} cumplen en total{% if live_at %} · <span title="Precio, prima, delta y crédito del spread re-valorados con la cotización en directo de tastytrade o lo guardado en la watchlist; lo que no cotiza se queda con el dato de Tortuga">cotizado en directo {{ live_at.strftime('%H:%M') }}</span>{% endif %}</span>
@@ -86,16 +86,16 @@
       <td>{{ st.last_ok[:16].replace('T', ' ') if st.last_ok else 'nunca' }}</td>
       <td>{% if running == r.key %}<i>ejecutándose…</i>{% elif st.error %}<span class="tr-err" title="{{ st.error }}">Falló: {{ st.error[:90] }}</span>{% elif st.summary %}{{ st.summary }}{% else %}—{% endif %}</td>
       <td class="muted">{{ r.produces }}</td>
-      <td><form method="post" action="/tortuga/run" style="margin:0"><input type="hidden" name="key" value="{{ r.key }}"><button type="submit" {{ 'disabled' if not enabled or busy_routines }}>Actualizar ahora</button></form></td></tr>
+      <td><form method="post" action="/marketradar/run" style="margin:0"><input type="hidden" name="key" value="{{ r.key }}"><button type="submit" {{ 'disabled' if not enabled or busy_routines }}>Actualizar ahora</button></form></td></tr>
     {% endfor %}
   </table>
-  <form method="post" action="/tortuga/run" style="margin:10px 0 0"><input type="hidden" name="key" value="all"><button type="submit" {{ 'disabled' if not enabled or busy_routines }}>Actualizar todas</button></form>
+  <form method="post" action="/marketradar/run" style="margin:10px 0 0"><input type="hidden" name="key" value="all"><button type="submit" {{ 'disabled' if not enabled or busy_routines }}>Actualizar todas</button></form>
 </div>
 {% if busy_routines %}<script>
   // Hay una rutina en marcha: se consulta cada 3 s y, al terminar, la página se recarga sola con el resultado
   (function () {
     const timer = setInterval(function () {
-      fetch('/tortuga/status').then(function (r) { return r.json(); }).then(function (s) {
+      fetch('/marketradar/status').then(function (r) { return r.json(); }).then(function (s) {
         if (s.busy) return;
         clearInterval(timer);
         const url = new URL(location.href);

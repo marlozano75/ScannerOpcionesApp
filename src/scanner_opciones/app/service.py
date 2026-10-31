@@ -371,7 +371,7 @@ class AppService:
         return f"{feed}_Contratos"
 
     def feed_perm_source(self, feed: str) -> str:
-        """Nombre de la fuente permanente de una fuente de contratos: los tickers que el usuario marca en Ideas (la de la comunidad es la configurada)."""
+        """Nombre de la fuente permanente de una fuente de contratos: los tickers que el usuario marca en Comunidad (la de la comunidad es la configurada)."""
         return self.settings.community.perm_source_name if feed == self.community_feed.name else f"{feed}_Perm"
 
     def _feed_perm_key(self, feed: str) -> str:
@@ -408,7 +408,7 @@ class AppService:
             merged["checked"] = merged["checked"] and r["checked"]
         return merged
 
-    add_community_perm = add_feed_perm      # nombre antiguo (la ruta de Ideas y los tests lo usan)
+    add_community_perm = add_feed_perm      # nombre antiguo (la ruta de Comunidad y los tests lo usan)
 
     async def _add_perm(self, source: str, views: list) -> dict:
         """Añade a la fuente permanente de `source` los tickers de las ideas `views`. De cada ticker guarda el trader (si hay
@@ -2177,7 +2177,7 @@ class AppService:
 
     def profile_specs(self) -> list[tuple]:
         """Filtros GRABADOS ahora en cada perfil del Scanner: (nombre, criterios de put | None, criterios de spread | None). Son las columnas de
-        «filtros cumplidos» de Ideas y Tortuga. Los lee la interfaz web (`profile_criteria_provider`); sin ella, lista vacía."""
+        «filtros cumplidos» de Comunidad y MarketRadar. Los lee la interfaz web (`profile_criteria_provider`); sin ella, lista vacía."""
         return self.profile_criteria_provider() if self.profile_criteria_provider is not None else []
 
     def profile_exits_early(self, name: Optional[str]) -> bool:
@@ -2191,7 +2191,7 @@ class AppService:
         return False
 
     def fit_names(self) -> list[str]:
-        """Nombres de las columnas de «filtros cumplidos» de Ideas y Tortuga: los perfiles guardados."""
+        """Nombres de las columnas de «filtros cumplidos» de Comunidad y MarketRadar: los perfiles guardados."""
         return [s[0] for s in self.profile_specs()]
 
     def radar_fits(self, rows, spread: bool = False) -> dict[str, tuple]:
@@ -2256,7 +2256,7 @@ class AppService:
                     try:
                         return await provider.get_put_listing(ticker)
                     except Exception as exc:
-                        log.info("Ideas: sin cadena de %s (%s)", ticker, exc)
+                        log.info("Comunidad: sin cadena de %s (%s)", ticker, exc)
                         return {}
 
             listings = dict(zip(legs, await asyncio.gather(*(listing(t) for t in legs))))
@@ -2270,7 +2270,7 @@ class AppService:
             try:
                 quotes = await provider.get_option_quotes(list(symbols)) if symbols else {}
             except Exception as exc:
-                log.warning("Ideas: no se pudieron cotizar las patas: %s", exc)
+                log.warning("Comunidad: no se pudieron cotizar las patas: %s", exc)
                 quotes = {}
             for sym, q in quotes.items():
                 ticker, expiry, strike = symbols[sym]
@@ -2287,19 +2287,19 @@ class AppService:
                 try:
                     infos = {t: TickerInfo(t, underlying_price=p, price_at=now) for t, p in (await provider.get_prices(tickers)).items()}
                 except Exception as exc:
-                    log.warning("Ideas: no se pudieron obtener los precios: %s", exc)
+                    log.warning("Comunidad: no se pudieron obtener los precios: %s", exc)
                 try:
                     for t, m in (await provider.get_iv_metrics(tickers)).items():
                         infos[t] = replace(infos.get(t) or TickerInfo(t), iv_rank=m.iv_rank, iv_percentile=m.iv_percentile)
                 except Exception as exc:
-                    log.warning("Ideas: no se pudo obtener el IV Rank: %s", exc)
+                    log.warning("Comunidad: no se pudo obtener el IV Rank: %s", exc)
                 self._community_live = (now, stamp, snaps, infos, closes)      # ya se pueden valorar; los cierres (lo más lento) llegan después
                 self.state.data_version += 1
                 oldest = min((i.day for i in ideas if i.ticker in tickers), default=today)
                 try:
                     closes = await provider.get_daily_closes(tickers, (today - oldest).days + 7, timeout=COMMUNITY_CANDLE_WAIT)
                 except Exception as exc:
-                    log.warning("Ideas: no se pudieron obtener los cierres: %s", exc)
+                    log.warning("Comunidad: no se pudieron obtener los cierres: %s", exc)
                 self._community_live = (now, stamp, snaps, infos, closes)
                 self._save_community_live()
                 self.state.data_version += 1
@@ -2317,7 +2317,7 @@ class AppService:
             if isinstance(live, tuple) and len(live) == 5 and isinstance(live[0], datetime) and isinstance(live[1], str):
                 return live
         except Exception:
-            log.info("Ideas: se descarta la cotización guardada (no se pudo leer)")
+            log.info("Comunidad: se descarta la cotización guardada (no se pudo leer)")
         return None
 
     def _save_community_live(self) -> None:
@@ -2325,7 +2325,7 @@ class AppService:
         try:
             self.meta.set(COMMUNITY_LIVE, base64.b64encode(pickle.dumps(self._community_live)).decode("ascii"))
         except Exception:
-            log.warning("Ideas: no se pudo guardar la cotización en directo", exc_info=True)
+            log.warning("Comunidad: no se pudo guardar la cotización en directo", exc_info=True)
 
     def community_quotes_task(self) -> Optional[asyncio.Future]:
         """Lanza en segundo plano la cotización en directo de las ideas (si hace falta) y devuelve la tarea. Sigue aunque la página que la pidió
@@ -2341,7 +2341,7 @@ class AppService:
             try:
                 await self.refresh_community_quotes()
             except Exception:
-                log.warning("Ideas: no se pudieron cotizar en directo", exc_info=True)
+                log.warning("Comunidad: no se pudieron cotizar en directo", exc_info=True)
 
         self._community_live_task = self.launch(run())
         return self._community_live_task
@@ -2684,7 +2684,7 @@ class AppService:
 
     def history_scope(self) -> list[str]:
         """Tickers de los que se guarda el histórico de cierres: la watchlist y los subyacentes de las opciones de la cartera (para los
-        gráficos del Panel, aunque no estén en la watchlist) y los tickers cuyo gráfico se abrió desde Ideas u otra pestaña."""
+        gráficos del Panel, aunque no estén en la watchlist) y los tickers cuyo gráfico se abrió desde Comunidad u otra pestaña."""
         return sorted({*self.watchlist.list(), *self.position_tickers(), *self._chart_tickers()})
 
     def _chart_tickers(self) -> list[str]:
@@ -2694,7 +2694,7 @@ class AppService:
             return []
 
     async def ensure_history(self, ticker: str) -> bool:
-        """Garantiza que `ticker` tiene histórico de cierres para su gráfico: si no lo tiene (p. ej. un valor de las Ideas que no está en
+        """Garantiza que `ticker` tiene histórico de cierres para su gráfico: si no lo tiene (p. ej. un valor de Comunidad que no está en
         la watchlist ni en la cartera) lo descarga ahora y lo apunta para que no se purgue. False si no se pudo."""
         if self.bars.closes(ticker):
             return True

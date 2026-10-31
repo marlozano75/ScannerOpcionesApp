@@ -272,22 +272,22 @@ async def test_background_launch_runs_what_is_due_and_then_syncs_the_radar(tmp_p
 
 def test_tortuga_page_renders_rows_routines_and_manual_launch(client_and_service, tmp_path):
     client, svc, gw, _db = client_and_service
-    assert "Todavía no hay datos del radar" in client.get("/tortuga").text
+    assert "Todavía no hay datos del radar" in client.get("/marketradar").text
     path = tmp_path / "radar.json"
     path.write_text(json.dumps(doc([row("MPC"), row("XYZ", strike=100, mid=0.2)])), encoding="utf-8")
     object.__setattr__(svc.settings, "tortuga", svc.settings.tortuga.model_copy(update={"radar_path": str(path)}))
-    html = client.get("/tortuga").text
+    html = client.get("/marketradar").text
     assert "MPC" in html and "Put 30Δ" in html and "Prima ($)" in html and 'class="seg"' in html and "✓" in html and "Actualizar todas" in html
-    assert "XYZ" in html and "XYZ" not in client.get("/tortuga?cumple=1").text
-    r = client.post("/tortuga/run", data={"key": "nope"})
+    assert "XYZ" in html and "XYZ" not in client.get("/marketradar?cumple=1").text
+    r = client.post("/marketradar/run", data={"key": "nope"})
     assert r.status_code == 400
-    assert client.post("/tortuga/run", data={"key": "all"}, follow_redirects=False).status_code == 303
-    # mientras hay una rutina en marcha la página sondea /tortuga/status y se recarga sola al terminar (con ?done=1 dice cómo acabó)
+    assert client.post("/marketradar/run", data={"key": "all"}, follow_redirects=False).status_code == 303
+    # mientras hay una rutina en marcha la página sondea /marketradar/status y se recarga sola al terminar (con ?done=1 dice cómo acabó)
     svc._tortuga_busy = True
-    assert client.get("/tortuga/status").json() == {"busy": True} and "/tortuga/status" in client.get("/tortuga").text
+    assert client.get("/marketradar/status").json() == {"busy": True} and "/marketradar/status" in client.get("/marketradar").text
     svc._tortuga_busy = False
-    assert client.get("/tortuga/status").json() == {"busy": False} and "/tortuga/status" not in client.get("/tortuga").text
-    assert "Terminada" in client.get("/tortuga?done=1").text
+    assert client.get("/marketradar/status").json() == {"busy": False} and "/marketradar/status" not in client.get("/marketradar").text
+    assert "Terminada" in client.get("/marketradar?done=1").text
 
 
 def test_the_radar_reads_both_strategies_and_labels_each_row_with_its_kind():
@@ -508,3 +508,12 @@ async def test_radar_live_quotes_survive_a_restart(tmp_path):
     assert svc._load_radar_live() is not None and svc._load_radar_live()[1] == svc._radar_live[1]       # leída de la base de datos
     svc._radar_live = svc._load_radar_live()
     assert svc.radar_spreads().rows[0].live and svc.radar_live_at() is not None
+
+
+def test_old_tab_addresses_redirect_to_the_new_names(client_and_service):
+    client = client_and_service[0]
+    r = client.get("/ideas?trader=Ana&tipo=put", follow_redirects=False)
+    assert r.status_code == 307 and r.headers["location"] == "/comunidad?trader=Ana&tipo=put"
+    r = client.get("/tortuga?cumple=1", follow_redirects=False)
+    assert r.status_code == 307 and r.headers["location"] == "/marketradar?cumple=1"
+    assert client.get("/comunidad").status_code == 200 and client.get("/marketradar").status_code == 200

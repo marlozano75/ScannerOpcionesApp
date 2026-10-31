@@ -169,11 +169,11 @@ def test_ideas_page_shows_a_notice_while_the_live_quotes_are_still_running(clien
     provider.get_daily_closes = slow_closes
     svc.volatility = provider
     monkeypatch.setattr(web, "IDEAS_WAIT_SECONDS", 0.2)
-    page = client.get("/ideas").text
+    page = client.get("/comunidad").text
     assert 'id="quoting"' in page and "se recarga sola" in page
     client.portal.call(gate.set)
     client.portal.call(svc.wait_idle)
-    assert 'id="quoting"' not in client.get("/ideas").text
+    assert 'id="quoting"' not in client.get("/comunidad").text
 
 
 async def test_the_quotes_of_the_ideas_survive_a_restart_when_the_market_is_closed(tmp_path):

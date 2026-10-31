@@ -48,11 +48,11 @@ class Routine:
 
 ROUTINES = (
     Routine("aperturas", "Tus aperturas y cierres de puts", "aperturas_prompt.md", ("get_context", "list_trades"), 25,
-            "fechas de apertura (perfil de cada put en el Panel) y cierres recientes (insignia en Ideas)"),
+            "fechas de apertura (perfil de cada put en el Panel) y cierres recientes (insignia en Comunidad)"),
     Routine("comunidad", "Comunidad de traders", "comunidad_prompt.md", ("get_context", "get_community_screener", "list_public_operations"), 25,
-            "columna Comunidad del Scanner, pestaña Ideas y fuente TortugaTrades_Dia"),
+            "columna Comunidad del Scanner, pestaña Comunidad y fuente TortugaTrades_Dia"),
     Routine("radar_spreads", "Radar de Bull Put Spreads", "radar_spreads_prompt.md", ("get_context", "get_market_radar"), 30,
-            "pestaña Tortuga y fuente TortugaSpreads (pasa a la watchlist)", via_calls=True),
+            "pestaña MarketRadar y fuente TortugaSpreads (pasa a la watchlist)", via_calls=True),
     Routine("super_investors", "Super Investors (13F de gestores de calidad)", "super_investors_prompt.md", ("get_super_investors",), 30,
             "fuente SuperInvestors del Universo (empresas de calidad para puts)", via_calls=True),
 )

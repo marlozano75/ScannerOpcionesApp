@@ -9,7 +9,7 @@ IDEAS_WAIT_SECONDS = 10     # lo que espera la pestaña Comunidad a que terminen
 
 
 def source_initials(name: str) -> str:
-    """Iniciales de una fuente del Universo para las etiquetas de Ideas: «TortugaTrades_Dia» → TTD, «Quality Growth» → QG."""
+    """Iniciales de una fuente del Universo para las etiquetas de Comunidad: «TortugaTrades_Dia» → TTD, «Quality Growth» → QG."""
     words = re.findall(r"[A-Z][a-z0-9]*|[a-z0-9]+|[A-Z]+(?![a-z])", name.replace("_", " "))
     return "".join(w[0] for w in words).upper()[:4] or name[:2].upper()
 

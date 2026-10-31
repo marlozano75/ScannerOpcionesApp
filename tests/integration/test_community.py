@@ -108,19 +108,19 @@ def ideas_payload(contract):
 
 def test_the_ideas_page_values_each_idea_with_todays_quote_and_filters(client_and_service, tmp_path):
     client, svc, gw, _ = client_and_service
-    assert "Todavía no hay datos de la comunidad" in client.get("/ideas").text
+    assert "Todavía no hay datos de la comunidad" in client.get("/comunidad").text
     refresh(client)
     contract = svc.contracts.list("AAPL")[0]
     path = tmp_path / "tortuga.json"
     write(path, ideas_payload(contract))
     object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
-    page = client.get("/ideas").text
-    assert '<a href="/ideas" class=active>Comunidad</a>' in page.replace('class="active"', "class=active") and "Comunidad: ideas de otros traders" in page
+    page = client.get("/comunidad").text
+    assert '<a href="/comunidad" class=active>Comunidad</a>' in page.replace('class="active"', "class=active") and "Comunidad: ideas de otros traders" in page
     assert "Vigente" in page and "Sin valorar: sin cotización de esas patas (no está en tu watchlist)" in page and "2 ideas · 1 vigentes" in page
     assert 'class="chart-link" data-ticker="AAPL"' in page and 'id="strike-dialog"' in page   # el ticker abre el gráfico del strike
-    ana = client.get("/ideas?trader=Ana").text
+    ana = client.get("/comunidad?trader=Ana").text
     assert '>Ana<small>' in ana and '>Beto<small>' not in ana
-    assert "Ninguna idea cumple los filtros" in client.get("/ideas?tipo=spread").text
+    assert "Ninguna idea cumple los filtros" in client.get("/comunidad?tipo=spread").text
 
 
 class LiveProvider:
@@ -152,7 +152,7 @@ def test_ideas_outside_the_watchlist_are_valued_with_live_quotes(client_and_serv
     write(path, ideas_payload(svc.contracts.list("AAPL")[0]))
     object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
     svc.volatility = LiveProvider()
-    page = client.get("/ideas").text
+    page = client.get("/comunidad").text
     assert "Sin valorar: sin cotización de esas patas (no está en tu watchlist)" not in page
     ideas = {v.idea.ticker: v for v in svc.community_ideas()}
     assert ideas["ZZZ"].premium_now is not None and ideas["ZZZ"].delta_now == -0.12 and ideas["ZZZ"].price_now == 40.0
@@ -177,8 +177,8 @@ def test_ideas_marked_in_the_page_feed_the_permanent_source_with_trader_and_best
     object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
     views = {v.idea.ticker: v for v in svc.community_ideas()}
     key = idea_key(views["AAPL"].idea)
-    assert f'value="{key}"' in client.get("/ideas").text
-    page = client.post("/ideas/perm", data={"idea": [key]}, follow_redirects=True).text
+    assert f'value="{key}"' in client.get("/comunidad").text
+    page = client.post("/comunidad/perm", data={"idea": [key]}, follow_redirects=True).text
     assert "Añadidos a TortugaTrades_Perm" in page and ">TTP<" in page
     assert svc.manual_sources["TortugaTrades_Perm"] == ["AAPL"]
     best = max((f for f in views["AAPL"].fits if f is not None), key=lambda f: (f.passed, f.passed / f.total))
@@ -186,9 +186,9 @@ def test_ideas_marked_in_the_page_feed_the_permanent_source_with_trader_and_best
     assert perm["traders"] == ["Ana"] and perm["strategy"] == best.name and (perm["passed"], perm["total"]) == (best.passed, best.total)
     src = next(s for s in svc.universe_sources if s.name == "TortugaTrades_Perm")
     assert [c.name for c in src.table.columns][-3:] == ["Trader", "Estrategia", "Filtros"]
-    again = client.post("/ideas/perm", data={"idea": [key]}, follow_redirects=True).text      # repetir no duplica
+    again = client.post("/comunidad/perm", data={"idea": [key]}, follow_redirects=True).text      # repetir no duplica
     assert "Ya estaban" in again and svc.manual_sources["TortugaTrades_Perm"] == ["AAPL"]
-    assert "No hay ninguna idea marcada" in client.post("/ideas/perm", data={}, follow_redirects=True).text
+    assert "No hay ninguna idea marcada" in client.post("/comunidad/perm", data={}, follow_redirects=True).text
 
 
 def test_fits_compare_with_the_filters_saved_in_the_profiles(client_and_service, tmp_path):

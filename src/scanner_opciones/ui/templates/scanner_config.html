@@ -85,7 +85,7 @@
   <form method="post" action="/scanner/feeds">
     <details class="cfg-sec" open>
       <summary>Fuentes de contratos
-        <span class="cfg-hint" data-tip="Fuentes de contratos|Traen contratos ya concretos (ticker, strike, vencimiento, prima) en vez de tickers: no tienen filtros propios, se valoran con los datos de hoy y se comparan con los perfiles de escaneo (columnas de Ideas y Tortuga). Sus contratos se anotan en el Histórico con su trader y sirven para reconocer el perfil de tus puts abiertas. Además pueden publicar sus tickers como fuente del Universo para que un perfil de escaneo busque contratos propios sobre ellos." tabindex="0">Comparan con los perfiles</span></summary>
+        <span class="cfg-hint" data-tip="Fuentes de contratos|Traen contratos ya concretos (ticker, strike, vencimiento, prima) en vez de tickers: no tienen filtros propios, se valoran con los datos de hoy y se comparan con los perfiles de escaneo (columnas de Comunidad y MarketRadar). Sus contratos se anotan en el Histórico con su trader y sirven para reconocer el perfil de tus puts abiertas. Además pueden publicar sus tickers como fuente del Universo para que un perfil de escaneo busque contratos propios sobre ellos." tabindex="0">Comparan con los perfiles</span></summary>
       {% if feeds %}
       <div class="cfg-tbl-wrap">
       <table class="cfg-pre">
@@ -100,7 +100,7 @@
           <td class="c"><input type="checkbox" name="publish_{{ f.name }}" {{ 'checked' if f.publish }}></td>
           <td>{% if f.in_universe %}<a href="/universe?src={{ f.source|urlencode }}">{{ f.source }}</a> <span class="muted">({{ f.in_universe }})</span>{% else %}<span class="muted">{{ f.source }} (aún sin tickers)</span>{% endif %}</td>
           <td>{% if f.perm_count %}<a href="/universe?src={{ f.perm|urlencode }}">{{ f.perm }}</a> <span class="muted">({{ f.perm_count }})</span>{% else %}<span class="muted">{{ f.perm }}</span>{% endif %}</td>
-          <td><a href="/ideas">Ver contratos</a></td></tr>
+          <td><a href="/comunidad">Ver contratos</a></td></tr>
         {% endfor %}
         </tbody>
       </table>

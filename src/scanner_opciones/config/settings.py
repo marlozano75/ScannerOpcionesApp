@@ -802,7 +802,7 @@ class CommunitySettings(_Model):
     llegan con un día de retraso (IBKR Flex): sirven para ideas y consenso, no como señal de entrada."""
     path: str = "data/community/tortuga.json"
     source_name: str = "TortugaTrades_Dia"       # fuente del Universo con los tickers más vendidos por la comunidad (se sustituye con cada JSON)
-    perm_source_name: str = "TortugaTrades_Perm"  # fuente permanente: tickers que el usuario va añadiendo desde Ideas
+    perm_source_name: str = "TortugaTrades_Perm"  # fuente permanente: tickers que el usuario va añadiendo desde Comunidad
     my_trader: str = "marloz"                    # tu nombre de usuario en la comunidad: tus operaciones llegan también en el JSON (con un día de retraso) y no son ideas de otros
     feed_match_days: int = Field(3, ge=0)        # el Panel reconoce el perfil de una put por el histórico de una fuente si la abrió el trader hasta N días ANTES que tú (los trades se publican con un día de retraso)
     contracts_source: bool = True                # publicar los tickers de los contratos vigentes de la comunidad como fuente del Universo («Comunidad_Contratos»)
@@ -810,7 +810,7 @@ class CommunitySettings(_Model):
     universe_top: int = Field(40, ge=1)    # cuántos tickers entran en esa fuente (los de más traders en 30 días)
     min_traders: int = Field(3, ge=1)      # traders mínimos en 30 días para entrar en la fuente
     stale_hours: int = Field(72, ge=1)     # el Scanner avisa si el JSON es más viejo
-    closed_marker_days: int = Field(45, ge=1)   # Ideas: marca las de un ticker en el que cerraste una put vendida hace menos de N días
+    closed_marker_days: int = Field(45, ge=1)   # Comunidad: marca las de un ticker en el que cerraste una put vendida hace menos de N días
     openings_path: str = "data/community/aperturas.json"   # fechas exactas de apertura de TUS puts vendidas (`scripts/actualizar_aperturas.ps1`)
 
 

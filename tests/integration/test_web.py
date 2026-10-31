@@ -582,7 +582,7 @@ def test_simulation_page_does_not_autoreload_and_get_redirects(client_and_servic
     c = svc.contracts.list()[0]
     key = f"AAPL|{c.expiry}|{c.strike}"
     svc.state.activity = "Refrescando"                      # con un refresco en curso ninguna tabla se recarga sola...
-    for page in ("/", "/ideas", "/tortuga", "/watchlist"):                       # las tablas tampoco se mueven solas
+    for page in ("/", "/comunidad", "/marketradar", "/watchlist"):                       # las tablas tampoco se mueven solas
         assert 'http-equiv="refresh"' not in client.get(page).text
     assert 'http-equiv="refresh"' not in client.get("/scanner?reset=1").text     # el scanner tampoco: perdería los contratos marcados
     r = client.post("/simulate", data={"sel": key, f"qty_{key}": "1"})
@@ -596,9 +596,9 @@ def test_data_version_sube_al_refrescar_y_las_tablas_lo_vigilan(client_and_servi
     before = client.get("/data-version").json()["version"]
     assert f"var current = {before}" in client.get("/scanner?reset=1").text
     assert "/data-version" in client.get("/scanner?reset=1").text
-    for page in ("/", "/ideas", "/tortuga", "/watchlist"):     # todas las tablas vigilan los datos y se recargan solas
+    for page in ("/", "/comunidad", "/marketradar", "/watchlist"):     # todas las tablas vigilan los datos y se recargan solas
         assert "/data-version" in client.get(page).text
-    assert "watchAccount = true" in client.get("/").text and "watchAccount = false" in client.get("/ideas").text
+    assert "watchAccount = true" in client.get("/").text and "watchAccount = false" in client.get("/comunidad").text
     acc = client.get("/data-version").json()["account"]
     svc.state.account_version += 1
     assert client.get("/data-version").json()["account"] == acc + 1
