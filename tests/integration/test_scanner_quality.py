@@ -404,16 +404,17 @@ def test_put_profile_is_assigned_by_opening_dte_and_can_be_corrected(client_and_
     key = f"AAPL|{option.expiry.isoformat()}|90"
     page = client.get("/").text
     assert f'name="key" value="{key}"' in page
-    assert '<option value="Tortuga" selected>' in page and "Revisar: quedan" in page        # 20 DTE no encaja en ningún perfil: Tortuga (gestión Tastytrade)
+    assert '<option value="Sin perfil" selected>' in page and "Revisar: quedan" not in page   # 20 DTE no encaja en ningún perfil: «Sin perfil», que no tiene gestión (ni avisos)
+    assert svc.put_management() == {} and svc.put_exit_rules() == {}
     r = client.post("/management/profile", data={"key": key, "profile": "Mensual (TPC)"}, follow_redirects=False)
     assert r.status_code == 303 and svc.put_profiles() == {key: "Mensual (TPC)"}
     page = client.get("/").text
     assert "Revisar: quedan" not in page and '<option value="Mensual (TPC)" selected>' in page   # el perfil TPC mantiene hasta el vencimiento
     assert client.post("/management/profile", data={"key": key, "profile": "x"}).status_code == 400
-    assert client.post("/management/profile", data={"key": "mal", "profile": "Tortuga"}).status_code == 400
-    assert client.post("/management/profile", data={"key": "AAPL|no-fecha|90", "profile": "Tortuga"}).status_code == 400
+    assert client.post("/management/profile", data={"key": "mal", "profile": "Sin perfil"}).status_code == 400
+    assert client.post("/management/profile", data={"key": "AAPL|no-fecha|90", "profile": "Sin perfil"}).status_code == 400
     assert svc.put_profiles() == {key: "Mensual (TPC)"}
-    svc.set_put_profile(f"MSFT|{(svc.now().date() - timedelta(days=1)).isoformat()}|300", "Tortuga")   # ya vencida: se olvida
+    svc.set_put_profile(f"MSFT|{(svc.now().date() - timedelta(days=1)).isoformat()}|300", "Sin perfil")   # ya vencida: se olvida
     assert svc.put_profiles() == {key: "Mensual (TPC)"}
 
 

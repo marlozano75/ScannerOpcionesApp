@@ -9,7 +9,8 @@ from scanner_opciones.domain.models import ContractSnapshot, OptionContract, Pos
 from scanner_opciones.jobs.price_history import update_history
 from scanner_opciones.marketdata.candles import FakeCandles
 from scanner_opciones.metrics import technical as ta
-from scanner_opciones.portfolio.management import manage_puts, put_status, ticker_weights
+from scanner_opciones.portfolio.management import manage_puts, put_key, put_status, ticker_weights
+from scanner_opciones.scanner.profiles import UNASSIGNED
 from scanner_opciones.scanner.criteria import criteria_from_settings
 from scanner_opciones.scanner.filters import reject_reason
 from scanner_opciones.storage.db import Database
@@ -83,6 +84,15 @@ def short_put(ticker="AAPL", strike=90.0, days=30, qty=-2, market_value=-220.0, 
 
 def alerts(status):
     return {a.level: a.text for a in status.alerts}
+
+
+def test_a_put_without_profile_has_no_management_but_keeps_its_figures():
+    p = short_put(market_value=-100.0, days=10)                                    # 55 % ganado y a 10 DTE: con perfil avisaría
+    assert alerts(put_status(p, TODAY, 100.0, CFG))
+    s = put_status(p, TODAY, 100.0, CFG, managed=False)
+    assert s.alerts == () and s.defense is None and s.captured_pct == pytest.approx(54.5, abs=0.1)
+    report = manage_puts([p], 100_000.0, TODAY, {"AAPL": 100.0}, CFG, assigned={put_key(p): UNASSIGNED})
+    assert report.puts[0].alerts == () and report.puts[0].assigned == UNASSIGNED
 
 
 def test_take_profit_at_50_percent_of_the_premium():

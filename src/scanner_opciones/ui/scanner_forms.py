@@ -4,7 +4,6 @@ Funciones y constantes sin estado (reciben los ajustes por argumento); `web.py` 
 from __future__ import annotations
 
 from scanner_opciones.domain.models import TickerInfo
-from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE
 from scanner_opciones.scanner.profiles import Profile
 from scanner_opciones.scanner.quality import ticker_quality_reject
 from typing import Optional
@@ -316,7 +315,8 @@ def preset_link(settings, preset, form: dict, current=None) -> tuple[str, bool]:
     return urlencode({**kept, **params}), on
 
 
-SEED_COLORS = {"Mensual (TPC)": "#2e7d32", "Táctico (TPC)": "#e08a00", "TastyPut": "#1f6feb", "TastySpread": "#0b8a8f", FALLBACK_PROFILE: "#7b5ea7"}
+SEED_COLORS = {"Mensual (TPC)": "#2e7d32", "Táctico (TPC)": "#e08a00", "TastyPut": "#1f6feb", "TastySpread": "#0b8a8f"}
+UNASSIGNED_COLOR = "#7b5ea7"      # etiqueta «Sin perfil» del Panel
 
 
 def seed_profiles(settings) -> tuple[list[Profile], str]:
@@ -330,15 +330,7 @@ def seed_profiles(settings) -> tuple[list[Profile], str]:
     params = dict(parse_qsl(strategy_link(settings, {}, None)[0]))
     out.append(Profile("TastyPut", ("put",), management="tpc", color=SEED_COLORS["TastyPut"]).with_filters("put", params))
     out.append(Profile("TastySpread", ("spread",), color=SEED_COLORS["TastySpread"]).with_filters("spread", params))
-    out.append(seed_fallback(settings))
     return out, "TastyPut"
-
-
-def seed_fallback(settings) -> Profile:
-    """Perfil «Tortuga»: recoge las puts que no encajan por DTE en ningún otro; filtros básicos (los valores iniciales) y gestión Tastytrade."""
-    ini = settings.scanner.initial
-    params = {"discount": _fmt(ini.strike_below_pct_min), "dte_min": str(ini.dte_min), "dte_max": str(ini.dte_max), "min_yield": _fmt(ini.min_yield_pct)}
-    return Profile(FALLBACK_PROFILE, ("put",), color=SEED_COLORS[FALLBACK_PROFILE], fallback=True).with_filters("put", params)
 
 
 def profile_link(p: Profile) -> str:

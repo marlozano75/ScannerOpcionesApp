@@ -38,14 +38,14 @@ from scanner_opciones.community.data import CommunityData, CommunityError, load_
 from scanner_opciones.community.fit import STRATEGY_NAME, profile_fits, strategy_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
-from scanner_opciones.portfolio.classify import classify_dte, fallback_name
+from scanner_opciones.portfolio.classify import classify_dte
 from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry, recognize_shown
 from scanner_opciones.portfolio import defense as defense_mod
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
 from scanner_opciones.portfolio.spreads import split_combos, split_spreads, with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner import profiles as profiles_mod
-from scanner_opciones.scanner.profiles import Profile as ScannerProfile
+from scanner_opciones.scanner.profiles import UNASSIGNED, Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.metrics import technical as ta
 from scanner_opciones.metrics.yields import reference_price
@@ -91,6 +91,7 @@ log = logging.getLogger(__name__)
 
 LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco completo
 EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos): ya no se usa, se vacía al arrancar
+MIG_NO_FALLBACK = "mig_no_fallback_profile"   # clave de `meta`: el perfil de recambio ya se convirtió en la etiqueta «Sin perfil»
 MIG_TASTYPUT_TPC = "mig_tastyput_tpc"   # clave de `meta`: ya se pasó TastyPut a la gestión TPC
 VIX_CACHE = "vix_cache"   # clave de `meta`: último VIX leído (ver `app/vix_cache.py`)
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
@@ -824,6 +825,7 @@ class AppService:
     async def start(self) -> None:
         if self._starting:
             return
+        self.drop_fallback_profile()
         self.split_tastytrade_profile()
         self.split_dual_profiles()
         self.tastyput_to_tpc()
@@ -1371,6 +1373,26 @@ class AppService:
         """Guarda los perfiles del Scanner (sobreviven a reinicios). Lanza `ValueError` si no son válidos (no se guarda nada)."""
         valid, default_name = profiles_mod.validate_profiles(profiles, default)
         self.meta.set(SCANNER_PROFILES, profiles_mod.dump(valid, default_name))
+
+    def drop_fallback_profile(self) -> bool:
+        """Migración única: el antiguo perfil de recambio («Tortuga», `Profile.fallback`) ya no es un perfil sino la etiqueta «Sin perfil»: se quita de
+        los guardados y las puts del Panel que lo tenían (a mano o reconocidas) pasan a «Sin perfil». Devuelve True si cambió algo."""
+        if self.meta.get(MIG_NO_FALLBACK):
+            return False
+        self.meta.set(MIG_NO_FALLBACK, "1")
+        raw = self.meta.get(SCANNER_PROFILES) or ""
+        names = profiles_mod.legacy_fallbacks(raw)
+        if not names:
+            return False
+        parsed = profiles_mod.parse(raw)
+        rest = [p for p in parsed[0] if p.name not in names] if parsed is not None else []
+        if rest:
+            self.save_profiles(rest, parsed[1])
+        else:
+            self.meta.set(SCANNER_PROFILES, "")
+        self.rename_profile_refs({n: UNASSIGNED for n in names})
+        log.info("El perfil de recambio %s pasa a ser la etiqueta «%s»", names, UNASSIGNED)
+        return True
 
     def split_dual_profiles(self) -> bool:
         """Migración única: los perfiles guardados con put y spread activos pasan a ser dos («X (put)» y «X (spread)»); las puts del Panel
@@ -2289,10 +2311,10 @@ class AppService:
         names = {p.name for p in profiles}
         out: dict[str, str] = {}
         for k, v in data.items():
-            if v in names:
+            if v in names or v == UNASSIGNED:
                 out[str(k)] = str(v)
             elif v in PUT_PROFILE_NAMES:
-                legacy = next((p.name for p in profiles if p.management == v and not p.fallback), None)
+                legacy = next((p.name for p in profiles if p.management == v), None)
                 if legacy:
                     out[str(k)] = legacy
         return out
@@ -2300,7 +2322,7 @@ class AppService:
     def set_put_profile(self, key: str, profile: str) -> None:
         """Recuerda el perfil del Scanner de una put (`TICKER|AAAA-MM-DD|strike`). Olvida las ya vencidas. `ValueError` si no es válido."""
         parts = key.split("|")
-        if profile not in {p.name for p in self.scanner_profiles()} or len(parts) != 3 or not parts[0]:
+        if profile not in {p.name for p in self.scanner_profiles()} | {UNASSIGNED} or len(parts) != 3 or not parts[0]:
             raise ValueError("perfil no válido")
         date.fromisoformat(parts[1])
         today = self.now().date().isoformat()
@@ -2356,13 +2378,13 @@ class AppService:
 
     def put_assignments(self) -> dict[str, str]:
         """Perfil del Scanner de cada put vendida: el elegido a mano o, si no, el que corresponde al DTE con el que se abrió (fecha en que la
-        app la vio por primera vez); lo que no encaja en ningún perfil va a «Tortuga»."""
+        app la vio por primera vez); lo que no encaja en ningún perfil queda «Sin perfil»."""
         profiles = self.scanner_profiles()
         if not profiles:
             return {}
         manual = self.put_profiles()
         dates = self.put_open_dates()
-        names = {p.name for p in profiles}
+        names = {p.name for p in profiles} | {UNASSIGNED}
         positions = {put_key_of(p): p for p in with_spreads(self.state.positions)
                      if p.option is not None and p.option.right is OptionRight.PUT and p.quantity < 0}
         fits = self._entry_fits()
@@ -2383,7 +2405,7 @@ class AppService:
                 continue
             facts, opened = self._entry_facts(pos, dates[key][0]), dates[key][0]
             shown = self.scan_log_repo.profiles_showing(facts.kind, pos.ticker.replace(" ", "-"), pos.option.expiry, pos.option.strike, pos.hedge_strike, opened)
-            fit = (recognize_shown(facts, profiles, shown, opened) if shown else None) or recognize_entry(facts, profiles, fallback_name(profiles))
+            fit = (recognize_shown(facts, profiles, shown, opened) if shown else None) or recognize_entry(facts, profiles)
             fits[key] = fit
             out[key] = fit.profile
             changed = True
@@ -2437,9 +2459,9 @@ class AppService:
         return out
 
     def put_management(self) -> dict[str, str]:
-        """Estilo de gestión (tastytrade | tpc) de cada put vendida, según el perfil que tiene asignado."""
+        """Estilo de gestión (tastytrade | tpc) de cada put vendida, según el perfil que tiene asignado («Sin perfil» no tiene gestión: no sale aquí)."""
         style = {p.name: p.management for p in self.scanner_profiles()}
-        return {key: style.get(name, "tastytrade") for key, name in self.put_assignments().items()}
+        return {key: style.get(name, "tastytrade") for key, name in self.put_assignments().items() if name != UNASSIGNED}
 
     def put_exit_rules(self) -> dict:
         """Estrategia de salida (`portfolio.exits.ExitRules`) de cada put vendida, la de su perfil."""

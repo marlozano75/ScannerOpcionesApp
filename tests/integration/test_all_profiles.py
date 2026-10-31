@@ -23,11 +23,11 @@ def test_seed_profiles_split_the_tastytrade_strategy_into_put_and_spread(client_
 def test_the_saved_tastytrade_profile_is_split_once_and_its_puts_follow(client_and_service):
     client, svc, gw, _ = client_and_service
     old = Profile("Tastytrade", ("put", "spread"), {"dte_min": "30"}, {"dte_min": "30", "rr": "25"}, color="#1f6feb")
-    svc.meta.set("scanner_profiles", profiles_mod.dump([Profile("Mensual (TPC)", ("put",)), old, Profile("Tortuga", ("put",))], "Tastytrade"))   # guardado antes: con dos instrumentos
+    svc.meta.set("scanner_profiles", profiles_mod.dump([Profile("Mensual (TPC)", ("put",)), old, Profile("Otro", ("put",))], "Tastytrade"))   # guardado antes: con dos instrumentos
     svc.meta.set("put_profiles", json.dumps({"AAPL|2099-01-01|90": "Tastytrade", "MU|2099-01-01|50": "Mensual (TPC)"}))
     assert svc.split_tastytrade_profile() is True
     profiles, default = svc.stored_profiles()
-    assert [(p.name, p.instruments) for p in profiles] == [("Mensual (TPC)", ("put",)), ("TastyPut", ("put",)), ("TastySpread", ("spread",)), ("Tortuga", ("put",))]
+    assert [(p.name, p.instruments) for p in profiles] == [("Mensual (TPC)", ("put",)), ("TastyPut", ("put",)), ("TastySpread", ("spread",)), ("Otro", ("put",))]
     assert default == "TastyPut" and all(p.color == "#1f6feb" for p in profiles if p.name.startswith("Tasty")) and profiles[2].spread == old.spread
     assert json.loads(svc.meta.get("put_profiles")) == {"AAPL|2099-01-01|90": "TastyPut", "MU|2099-01-01|50": "Mensual (TPC)"}
     assert svc.split_tastytrade_profile() is False                                      # ya dividido: no repite
@@ -52,8 +52,7 @@ def test_seed_profiles_manage_puts_with_tpc_and_spreads_with_tastytrade(client_a
 
 def test_one_scan_lists_each_contract_once_with_every_profile_that_passes(client_and_service):
     client, svc, gw, _ = client_and_service
-    svc.save_profiles([Profile("Laxo", ("put",), LOOSE, {}, color="#112233"), Profile("Estricto", ("put",), STRICT, {}),
-                       Profile("Tortuga", ("put",), LOOSE, {})], "Laxo")
+    svc.save_profiles([Profile("Laxo", ("put",), LOOSE, {}, color="#112233"), Profile("Estricto", ("put",), STRICT, {})], "Laxo")
     refresh(client)
     page = client.get("/scanner/todos").text
     assert "Todos los perfiles en un solo escaneo" in page and "<th" in page and ">Estrategias</th>" in page
@@ -63,7 +62,7 @@ def test_one_scan_lists_each_contract_once_with_every_profile_that_passes(client
     assert len(keys) == len(set(keys))                                                  # cada contrato, una sola vez
     both = [r for r in rows if "Laxo</span>" in r and "Estricto</span>" in r]
     only_loose = [r for r in rows if "Laxo</span>" in r and "Estricto</span>" not in r]
-    assert both and only_loose and "Tortuga</span>" not in page.split("<table")[1]      # el perfil de las puts que no encajan no entra
+    assert both and only_loose
     assert "background:#112233" in page                                                 # color del perfil en su etiqueta
     only = client.get("/scanner/todos?pf=Estricto").text
     assert "Laxo</span>" not in only.split("<table")[1] and "Estricto</span>" in only
@@ -142,21 +141,21 @@ def test_europe_source_registers_tickers_resolved_by_tws_and_forgets_them(client
 def test_a_saved_profile_with_put_and_spread_is_split_in_two_and_its_puts_follow(client_and_service):
     client, svc, gw, _ = client_and_service
     both = Profile("Doble", ("put", "spread"), {"dte_min": "30"}, {"dte_min": "31", "rr": "25"}, color="#112233")
-    svc.meta.set("scanner_profiles", profiles_mod.dump([both, Profile("Tortuga", ("put", "spread"), {"dte_min": "1"}, {"dte_min": "2"}, fallback=True)], "Doble"))
+    svc.meta.set("scanner_profiles", profiles_mod.dump([both], "Doble"))
     svc.meta.set("put_profiles", json.dumps({"AAPL|2099-01-01|90": "Doble"}))
-    assert [(p.name, p.instruments) for p in svc.stored_profiles()[0]] == [("Doble (put)", ("put",)), ("Doble (spread)", ("spread",)), ("Tortuga", ("put",))]    # ya se lee dividido
+    assert [(p.name, p.instruments) for p in svc.stored_profiles()[0]] == [("Doble (put)", ("put",)), ("Doble (spread)", ("spread",))]    # ya se lee dividido
     assert svc.split_dual_profiles() is True
     profiles, default = svc.stored_profiles()
     by = {p.name: p for p in profiles}
     assert by["Doble (put)"].put == {"dte_min": "30"} and by["Doble (spread)"].spread["rr"] == "25" and by["Doble (spread)"].put == {}
-    assert by["Doble (put)"].color == by["Doble (spread)"].color == "#112233" and by["Tortuga"].fallback and by["Tortuga"].spread == {}
+    assert by["Doble (put)"].color == by["Doble (spread)"].color == "#112233"
     assert default == "Doble (put)" and json.loads(svc.meta.get("put_profiles")) == {"AAPL|2099-01-01|90": "Doble (put)"}
     assert svc.split_dual_profiles() is False                                           # ya dividido: no repite
 
 
 def test_saving_filters_into_a_profile_of_the_other_instrument_creates_a_new_one(client_and_service):
     client, svc, gw, _ = client_and_service
-    svc.save_profiles([Profile("Solo put", ("put",), LOOSE, {}), Profile("Tortuga", ("put",), LOOSE, {}, fallback=True)], "Solo put")
+    svc.save_profiles([Profile("Solo put", ("put",), LOOSE, {})], "Solo put")
     r = client.post("/scanner/profile/save", data={"name": "Solo put", "query": "submitted=1&mode=spread&discount=10&dte_min=25&dte_max=35&min_yield=1&use_rr=on&rr=20"},
                     follow_redirects=False)
     assert r.status_code == 303

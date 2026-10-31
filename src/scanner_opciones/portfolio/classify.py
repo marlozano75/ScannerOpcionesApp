@@ -1,20 +1,13 @@
 """Perfil del Scanner al que pertenece una put vendida del Panel, según el DTE con el que se abrió.
 
 Cada perfil tiene un rango de DTE (el mínimo y el máximo de sus filtros). Gana el perfil cuyo rango contiene el DTE de apertura y, si son
-varios, el más estrecho (el más específico); a igualdad, el primero de la lista. Si ninguno encaja, la put va al perfil «Tortuga»
-(`FALLBACK`), que no se clasifica por DTE. Funciones puras."""
+varios, el más estrecho (el más específico); a igualdad, el primero de la lista. Si ninguno encaja, la put queda «Sin perfil»
+(`UNASSIGNED`: una etiqueta, no un perfil; sin filtros ni gestión). Funciones puras."""
 from __future__ import annotations
 
 from typing import Optional, Sequence
 
-from scanner_opciones.scanner.profiles import FALLBACK_NAME, Profile
-
-FALLBACK = FALLBACK_NAME
-
-
-def fallback_name(profiles: Sequence[Profile]) -> str:
-    """Nombre actual del perfil de las puts que no encajan (el marcado como `fallback`; «Tortuga» si ninguno)."""
-    return next((p.name for p in profiles if p.fallback), FALLBACK)
+from scanner_opciones.scanner.profiles import UNASSIGNED, Profile
 
 
 def dte_range(p: Profile) -> Optional[tuple[int, int]]:
@@ -35,9 +28,9 @@ def classify_dte(dte_open: int, profiles: Sequence[Profile]) -> str:
     """Nombre del perfil al que corresponde un DTE de apertura."""
     best: Optional[tuple[int, int, str]] = None
     for i, p in enumerate(profiles):
-        rng = None if p.fallback else dte_range(p)
+        rng = dte_range(p)
         if rng is not None and rng[0] <= dte_open <= rng[1]:
             key = (rng[1] - rng[0], i, p.name)
             if best is None or key < best:
                 best = key
-    return best[2] if best else fallback_name(profiles)
+    return best[2] if best else UNASSIGNED

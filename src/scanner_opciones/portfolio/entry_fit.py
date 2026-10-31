@@ -6,7 +6,7 @@ sobre riesgo del periodo (spread). Lo que no se puede reconstruir (delta, IV Ran
 
 Elección: 1) los perfiles que cumplen TODO lo medible; entre ellos gana el más exigente (mayor descuento mínimo) y, a igualdad, el de rango de
 DTE más estrecho; 2) si ninguno lo cumple del todo, el que tiene el DTE de apertura en su rango y más criterios cumple (aproximado); 3) si ni
-el DTE encaja en ninguno, el perfil de recambio («Tortuga»).
+el DTE encaja en ninguno, «Sin perfil».
 
 `recognize_shown` es el paso previo cuando el registro de escaneos cubre el día de la apertura: solo compite entre los perfiles que mostraban el contrato."""
 from __future__ import annotations
@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional, Sequence
 
-from scanner_opciones.scanner.profiles import Profile
+from scanner_opciones.scanner.profiles import UNASSIGNED, Profile
 
 
 @dataclass(frozen=True)
@@ -74,10 +74,10 @@ def _criteria(facts: EntryFacts, params: dict) -> list[tuple[str, Optional[bool]
     return out
 
 
-def recognize(facts: EntryFacts, profiles: Sequence[Profile], fallback: str) -> EntryFit:
+def recognize(facts: EntryFacts, profiles: Sequence[Profile]) -> EntryFit:
     scored = []
     for order, p in enumerate(profiles):
-        if p.name == fallback or facts.kind not in p.instruments:
+        if facts.kind not in p.instruments:
             continue
         params = p.set_params(facts.kind)
         crit = _criteria(facts, params)
@@ -99,7 +99,7 @@ def recognize(facts: EntryFacts, profiles: Sequence[Profile], fallback: str) -> 
         best = min(near, key=lambda s: (-(s["passed"] / max(s["known"], 1)), s["width"], s["order"]))
         return EntryFit(best["p"].name, best["passed"], best["known"], False, _note(best, "aproximado: no cumple todo"))
     dte = f"{facts.dte} DTE al abrir"
-    return EntryFit(fallback, 0, 0, False, f"{dte}: no encaja en el rango de ningún perfil")
+    return EntryFit(UNASSIGNED, 0, 0, False, f"{dte}: no encaja en el rango de ningún perfil")
 
 
 def recognize_shown(facts: EntryFacts, profiles: Sequence[Profile], shown: Sequence[str], day: date) -> Optional[EntryFit]:
@@ -117,9 +117,7 @@ def recognize_shown(facts: EntryFacts, profiles: Sequence[Profile], shown: Seque
         width = (dmax - dmin) if dmin is not None and dmax is not None else 10_000
         passed = sum(1 for c in known if c[1])
         scored.append(dict(p=p, order=order, crit=crit, passed=passed, known=len(known), width=width, disc=_num(params, "discount") or 0.0,
-                           exact=bool(known) and passed == len(known), fallback=p.fallback))
-    if len(scored) > 1:
-        scored = [s for s in scored if not s["fallback"]] or scored      # el perfil de recambio acepta de todo: solo cuenta si es el único
+                           exact=bool(known) and passed == len(known)))
     if not scored:
         return None
     best = min(scored, key=lambda s: (not s["exact"], -(s["passed"] / max(s["known"], 1)), s["width"], -s["disc"], s["order"]))

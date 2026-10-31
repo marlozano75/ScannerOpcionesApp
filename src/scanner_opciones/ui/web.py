@@ -38,8 +38,8 @@ from scanner_opciones.tortuga.radar import passes as radar_passes
 from scanner_opciones.tortuga.routines import ROUTINES
 from scanner_opciones.tortuga.schedule import FeedSchedule, ScheduleError, describe as describe_schedule, parse_times
 from scanner_opciones.scanner.impact import explain_empty
-from scanner_opciones.portfolio.classify import FALLBACK as FALLBACK_PROFILE, dte_range
-from scanner_opciones.scanner.profiles import Profile, profile_diff
+from scanner_opciones.portfolio.classify import dte_range
+from scanner_opciones.scanner.profiles import UNASSIGNED, Profile, profile_diff
 from scanner_opciones.scanner.profile_marks import row_key, row_marks
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
@@ -177,10 +177,10 @@ def _days_label(days: int) -> str:
 
 from scanner_opciones.ui.common import IDEAS_WAIT_SECONDS, MAX_FORM_FIELDS, _grp, _load_groups, message_groups, source_initials  # noqa: F401  (los tests y las rutas que quedan)
 from scanner_opciones.ui.scanner_forms import (  # noqa: F401  (se vuelven a exportar: los tests importan desde web)
-    QUALITY_SELECTS, SEED_COLORS, SOLVENCY_CORE, SOLVENCY_UI, SPREAD_FIELDS, STRATEGY_FIELDS,
+    QUALITY_SELECTS, SEED_COLORS, UNASSIGNED_COLOR, SOLVENCY_CORE, SOLVENCY_UI, SPREAD_FIELDS, STRATEGY_FIELDS,
     STRATEGY_KEYS, STRUCT_KEYS, VIX_FIELDS, _count_text, _fmt, _opt_float,
     _read_num, _required, _sector_of, _threshold_text, parse_scanner_config, parse_spread_config,
-    preset_link, profile_link, quality_counts, quality_form, read_quality, seed_fallback,
+    preset_link, profile_link, quality_counts, quality_form, read_quality,
     seed_profiles, solvency_controls, split_sets, strategy_link,
 )
 
@@ -289,7 +289,7 @@ def create_app(
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks, today),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, others=others, wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=[p.name for p in get_profiles()[0]], profile_colors={p.name: p.color for p in get_profiles()[0]}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, others=others, wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=[p.name for p in get_profiles()[0]] + [UNASSIGNED], profile_colors={**{p.name: p.color for p in get_profiles()[0]}, UNASSIGNED: UNASSIGNED_COLOR}, sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds, today_date=today,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 
@@ -364,20 +364,15 @@ def create_app(
 
     def get_profiles() -> tuple[list[Profile], str]:
         """Perfiles guardados desde la aplicación o, mientras no haya, los que salen de los presets y la estrategia."""
-        profiles, default = service.stored_profiles() or seed_profiles(service.settings)
-        if not any(p.fallback for p in profiles):     # el perfil de las puts que no encajan por DTE siempre existe
-            profiles = [*profiles, seed_fallback(service.settings)]
-        return profiles, default
+        return service.stored_profiles() or seed_profiles(service.settings)
 
     service.profile_provider = get_profiles
 
     def get_profile_criteria() -> list[tuple]:
-        """Filtros grabados AHORA en cada perfil (sin el de las puts que no encajan), para comparar las ideas de la comunidad y el radar de
+        """Filtros grabados AHORA en cada perfil, para comparar las ideas de la comunidad y el radar de
         Tortuga: (nombre, criterios del juego de put | None, criterios del juego de spread | None)."""
         out = []
         for p in get_profiles()[0]:
-            if p.fallback:
-                continue
             crit = {inst: parse_scan({"submitted": "1", "mode": inst, "profile": p.name, **p.set_params(inst)}, inst)["criteria"] if inst in p.instruments else None
                     for inst in ("put", "spread")}
             out.append((p.name, crit["put"], crit["spread"]))
@@ -387,10 +382,10 @@ def create_app(
 
     @app.get("/scanner/todos", response_class=HTMLResponse)
     async def scanner_all(request: Request):
-        """Un solo escaneo con los filtros de varios perfiles (`pf` repetido; sin ninguno, todos menos el de las puts que no encajan): cada
+        """Un solo escaneo con los filtros de varios perfiles (`pf` repetido; sin ninguno, todos): cada
         put o spread que cumple los de alguno sale una vez, con la columna de los perfiles que cumple. Los filtros son los guardados en cada perfil."""
         profiles, _ = get_profiles()
-        candidates = [p for p in profiles if not p.fallback]
+        candidates = profiles
         asked = set(request.query_params.getlist("pf"))
         chosen = [p for p in candidates if not asked or p.name in asked]
         sets, errors = [], []
@@ -444,16 +439,14 @@ def create_app(
         renames: dict[str, str] = {}
         for i in range(int(form.get("n_profiles", 0) or 0)):
             orig = by_name.get(str(form.get(f"pf{i}_orig", "")))
-            if orig is None or (form.get(f"pf{i}_del") and not orig.fallback):
+            if orig is None or form.get(f"pf{i}_del"):
                 continue
             inst = "spread" if form.get(f"pf{i}_inst") == "spread" else "put" if form.get(f"pf{i}_inst") == "put" else orig.mode
-            name = str(form.get(f"pf{i}_name", ""))     # el perfil de las puts que no encajan se renombra pero no se borra
-            if orig.fallback and not name.strip():
-                name = orig.name
+            name = str(form.get(f"pf{i}_name", ""))
             if name != orig.name:
                 renames[orig.name] = name
             color = str(form.get(f"pf{i}_color", orig.color)) if form.get(f"pf{i}_usecolor") else ""
-            kept = Profile(name, (inst,), orig.put, orig.spread, orig.management, color, orig.exits, orig.fallback)
+            kept = Profile(name, (inst,), orig.put, orig.spread, orig.management, color, orig.exits)
             if inst != orig.mode:      # cambia de instrumento: parte de los filtros del anterior
                 kept = kept.with_filters(inst, orig.set_params(orig.mode))
             try:
@@ -468,7 +461,7 @@ def create_app(
                 copy_name, n = f"{kept.name} (copia)", 2
                 while copy_name.casefold() in taken:
                     copy_name, n = f"{kept.name} (copia {n})", n + 1
-                rows.append((order, 2 * i + 1, replace(kept, name=copy_name, fallback=False)))
+                rows.append((order, 2 * i + 1, replace(kept, name=copy_name)))
         out = [r[2] for r in sorted(rows, key=lambda r: (r[0], r[1]))]
         try:
             service.save_profiles(out, new_default)
@@ -556,7 +549,7 @@ def create_app(
             gap.append(f"el DTE máx. de la estrategia ({sc.strategy.dte_max}) supera el rango guardado ({cand.dte_max})")
         if sc.strategy.strike_below_pct_min < cand.strike_below_pct_min:
             gap.append(f"el descuento mín. de la estrategia ({_fmt(sc.strategy.strike_below_pct_min)} %) es menor que el del rango guardado ({_fmt(cand.strike_below_pct_min)} %)")
-        return render(request, "scanner_config.html", profiles=profiles, default_profile=default_profile, fallback=next((p.name for p in profiles if p.fallback), FALLBACK_PROFILE),
+        return render(request, "scanner_config.html", profiles=profiles, default_profile=default_profile, unassigned=UNASSIGNED,
                       profiles_saved=service.stored_profiles() is not None, vix=vix, ok=ok, error=error,
                       gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)),
                       ranges={p.name: dte_range(p) for p in profiles})

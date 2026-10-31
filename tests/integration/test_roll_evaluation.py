@@ -317,7 +317,7 @@ async def test_put_assignments_prefer_the_profiles_that_showed_the_contract_in_t
     svc.state.positions = [pos]
     a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})       # por filtros ganaría A (rango estrecho)
     b = Profile("B", ("put",), {"discount": "0", "dte_min": "1", "dte_max": "60", "min_yield": "0"}, {})
-    svc.save_profiles([a, b, Profile("Tortuga", ("put",), {"dte_min": "1", "dte_max": "90"}, {}, fallback=True)], "A")
+    svc.save_profiles([a, b], "A")
     svc._note_put_opened()
     with svc.scan_log_repo.db.conn as conn:
         conn.execute("INSERT INTO scan_log (profile, kind, ticker, expiry, strike, long_strike, first_seen, last_seen, active) "

@@ -611,7 +611,7 @@ def test_scanner_presets_y_botones_de_paso(client_and_service):
     html = client.get("/scanner?reset=1").text
     form = html.split('id="scan-form"')[1].split("</form>")[0]
     # dos perfiles TPC, como enlaces que sustituyen los filtros de Tastytrade (los de calidad llevan class="preset qpreset")
-    assert form.count('<a class="preset"') == 3 and 'type="button" class="preset"' not in form
+    assert form.count('<a class="preset"') == 2 and 'type="button" class="preset"' not in form
     links = {m.group(2): dict(parse_qsl(m.group(1).replace("&amp;", "&")))
              for m in re.finditer(r'<a class="preset" href="/scanner\?([^"]+)"[^>]*>([^<]+)</a>', form)}
     mensual, tactico = links["Mensual (TPC)"], links["Táctico (TPC)"]
@@ -834,7 +834,7 @@ def test_header_shows_the_account_id(client_and_service):
 def test_scanner_config_page_lists_profiles_and_edits_the_vix_warning(client_and_service):
     client, svc, _, _ = client_and_service
     r = client.get("/scanner/config")
-    assert r.status_code == 200 and "Mensual (TPC)" in r.text and "Tortuga" in r.text and 'name="min_vix"' in r.text
+    assert r.status_code == 200 and "Mensual (TPC)" in r.text and "Sin perfil" in r.text and 'name="min_vix"' in r.text
     assert "/scanner/config" in client.get("/scanner?reset=1").text          # enlace «Editar» junto a los botones
     post = client.post("/scanner/config", data={"min_vix": "15", "ideal_vix_min": "19", "max_vix": "28"}, follow_redirects=False)
     assert post.status_code == 303 and "ok=" in post.headers["location"]

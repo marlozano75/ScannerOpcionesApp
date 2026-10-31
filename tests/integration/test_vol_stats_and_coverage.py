@@ -1,5 +1,6 @@
 """Datos de los filtros de la estrategia: HV30/IV30/cambio de IV con el mercado cerrado, avisos de cobertura, botón que respeta los
 demás filtros y reintento de las velas sin respuesta."""
+import json
 import re
 from datetime import timedelta, timezone
 from urllib.parse import parse_qs
@@ -10,6 +11,7 @@ from scanner_opciones.app.service import AppService
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.errors import VolatilityError
 from scanner_opciones.portfolio.classify import classify_dte
+from scanner_opciones.scanner.profiles import Profile
 from scanner_opciones.marketdata import tastytrade as tt
 from scanner_opciones.marketdata.volatility import FakeVolatility, IVMetrics
 from scanner_opciones.storage.db import Database
@@ -205,8 +207,8 @@ def test_a_profile_has_one_instrument_and_old_links_with_two_filter_sets_still_o
 def test_profiles_can_be_reordered_coloured_and_duplicated(client_and_service):
     client, svc, gw, _ = client_and_service
     client.get("/scanner?reset=1")
-    names = ["Mensual (TPC)", "Táctico (TPC)", "TastyPut", "TastySpread", "Tortuga"]
-    form = {"n_profiles": "5", "default": "2"}
+    names = ["Mensual (TPC)", "Táctico (TPC)", "TastyPut", "TastySpread"]
+    form = {"n_profiles": "4", "default": "2"}
     for i, n in enumerate(names):
         form.update({f"pf{i}_name": n, f"pf{i}_orig": n, f"pf{i}_put": "on", f"pf{i}_order": str(10 - i)})     # orden inverso
     form.update({"pf2_usecolor": "on", "pf2_color": "#112233", "pf2_dup": "on", "pf2_spread": "on", "pf0_usecolor": "on", "pf0_color": "rojo"})
@@ -215,27 +217,33 @@ def test_profiles_can_be_reordered_coloured_and_duplicated(client_and_service):
     form["pf0_color"] = "#aa0000"
     assert "ok=" in client.post("/scanner/profiles", data=form, follow_redirects=False).headers["location"]
     saved, default = svc.stored_profiles()
-    assert [p.name for p in saved] == ["Tortuga", "TastySpread", "TastyPut", "TastyPut (copia)", "Táctico (TPC)", "Mensual (TPC)"]
+    assert [p.name for p in saved] == ["TastySpread", "TastyPut", "TastyPut (copia)", "Táctico (TPC)", "Mensual (TPC)"]
     by = {p.name: p for p in saved}
     assert by["TastyPut"].color == "#112233" and by["TastyPut (copia)"].color == "#112233" and by["Táctico (TPC)"].color == ""
     assert by["TastyPut (copia)"].put == by["TastyPut"].put and default == "TastyPut"
     page = client.get("/scanner?reset=1").text
-    assert page.index(">Tortuga</a>") < page.index(">TastyPut</a>") < page.index(">Mensual (TPC)</a>") and "--pc:#112233" in page
+    assert page.index(">TastySpread</a>") < page.index(">TastyPut</a>") < page.index(">Mensual (TPC)</a>") and "--pc:#112233" in page
 
 
-def test_the_fallback_profile_can_be_renamed_but_not_deleted(client_and_service):
+def test_the_old_fallback_profile_becomes_the_unassigned_label_once(client_and_service):
     client, svc, gw, _ = client_and_service
-    client.get("/scanner?reset=1")
-    names = ["Mensual (TPC)", "Táctico (TPC)", "TastyPut", "TastySpread", "Tortuga"]
-    form = {"n_profiles": "5", "default": "0"}
-    for i, n in enumerate(names):
-        form.update({f"pf{i}_name": n, f"pf{i}_orig": n, f"pf{i}_put": "on", f"pf{i}_order": str(i)})
-    form.update({"pf4_name": "Otras", "pf4_del": "on"})
-    svc.set_put_profile("AAA|2099-01-01|10", "Tortuga")
-    assert "ok=" in client.post("/scanner/profiles", data=form, follow_redirects=False).headers["location"]
-    saved, _ = svc.stored_profiles()
-    other = next(p for p in saved if p.fallback)
-    assert other.name == "Otras" and "Tortuga" not in [p.name for p in saved]                     # renombrado, y el borrado se ignora
-    assert svc.put_profiles()["AAA|2099-01-01|10"] == "Otras"                                       # lo asignado a mano la sigue
-    assert classify_dte(999, saved) == "Otras"
-    assert "Otras" in client.get("/scanner/config").text
+    raw = {"profiles": [{"name": n, "instruments": ["put"], "put": {"dte_min": "20", "dte_max": "40"}, "spread": {}, "management": "tpc", "color": "", "exits": {}}
+                        for n in ("Mensual (TPC)", "TastyPut")]
+           + [{"name": "Otras", "instruments": ["put"], "put": {"dte_min": "1", "dte_max": "60"}, "spread": {}, "management": "tastytrade", "color": "", "exits": {}, "fallback": True}],
+           "default": "Otras"}
+    svc.meta.set("mig_no_fallback_profile", "")
+    svc.meta.set("scanner_profiles", json.dumps(raw))
+    svc.meta.set("put_profiles", json.dumps({"AAA|2099-01-01|10": "Otras", "BBB|2099-01-01|10": "TastyPut"}))
+    assert svc.drop_fallback_profile() is True
+    saved, default = svc.stored_profiles()
+    assert [p.name for p in saved] == ["Mensual (TPC)", "TastyPut"] and default == "Mensual (TPC)"       # el perfil inicial era el de recambio
+    assert svc.put_profiles() == {"AAA|2099-01-01|10": "Sin perfil", "BBB|2099-01-01|10": "TastyPut"}     # lo asignado a mano pasa a «Sin perfil»
+    assert svc.drop_fallback_profile() is False                                                          # ya migrado: no repite
+    assert classify_dte(999, saved) == "Sin perfil"
+    assert "Sin perfil" in client.get("/scanner/config").text
+
+
+def test_a_profile_cannot_take_the_name_of_the_unassigned_label(client_and_service):
+    client, svc, gw, _ = client_and_service
+    with pytest.raises(ValueError):
+        svc.save_profiles([Profile("sin perfil", ("put",), {}, {})], None)

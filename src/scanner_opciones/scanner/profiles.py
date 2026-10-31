@@ -14,7 +14,8 @@ from typing import Optional
 from scanner_opciones.portfolio import exits as exits_mod
 
 INSTRUMENTS = ("put", "spread")
-FALLBACK_NAME = "Tortuga"      # nombre de origen del perfil de las puts que no encajan por DTE (se puede renombrar: lo identifica `Profile.fallback`)
+UNASSIGNED = "Sin perfil"      # etiqueta (no es un perfil: sin filtros ni gestión) de las puts del Panel que no encajan por DTE en ningún perfil
+LEGACY_FALLBACK = "Tortuga"    # nombre de origen del antiguo perfil de recambio, que ya no existe (se migra a `UNASSIGNED`)
 # claves de la URL que no son filtros de un perfil (navegación, estado de la página o identidad del perfil)
 NOT_FILTERS = frozenset(("profile", "reset", "debug", "message", "submitted", "mode", "set"))
 
@@ -28,7 +29,6 @@ class Profile:
     management: str = "tastytrade"                # reglas con las que se gestionan en el Panel las puts de este perfil: tastytrade | tpc
     color: str = ""                               # color del botón del perfil y de su etiqueta en el Panel (#rrggbb; vacío = sin color)
     exits: dict = field(default_factory=dict)     # estrategia de salida: solo lo que cambia respecto al estilo `management` (`portfolio.exits`)
-    fallback: bool = False                        # perfil de las puts que no encajan por DTE: no se borra ni se clasifica por DTE, pero sí se renombra
 
     def exit_rules(self, cfg) -> exits_mod.ExitRules:
         """Estrategia de salida efectiva: la del estilo de gestión con los cambios de este perfil."""
@@ -60,7 +60,7 @@ class Profile:
 
     def to_dict(self) -> dict:
         return {"name": self.name, "instruments": list(self.instruments), "put": self.put, "spread": self.spread, "management": self.management,
-                "color": self.color, "exits": self.exits, "fallback": self.fallback}
+                "color": self.color, "exits": self.exits}
 
 
 def validate_profile(p: Profile) -> Profile:
@@ -79,15 +79,13 @@ def validate_profile(p: Profile) -> Profile:
 
 def split_dual(profiles: list[Profile], default: Optional[str] = None) -> tuple[list[Profile], Optional[str], dict[str, str]]:
     """Un perfil es de UN instrumento: el que tiene put y spread activos se divide en «X (put)» y «X (spread)», cada uno con los filtros de su
-    instrumento (el perfil de las puts que no encajan se queda solo como put). Devuelve (perfiles, inicial, {nombre antiguo: nombre de su put})."""
+    instrumento. Devuelve (perfiles, inicial, {nombre antiguo: nombre de su put})."""
     out: list[Profile] = []
     renames: dict[str, str] = {}
     for p in profiles:
         ins = tuple(i for i in INSTRUMENTS if i in p.instruments)
         if len(ins) < 2:
             out.append(p)
-        elif p.fallback or p.name == FALLBACK_NAME:
-            out.append(replace(p, instruments=("put",), spread={}))
         else:
             renames[p.name] = f"{p.name} (put)"
             out.append(replace(p, name=f"{p.name} (put)", instruments=("put",), spread={}))
@@ -100,8 +98,8 @@ def validate_profiles(profiles: list[Profile], default: Optional[str]) -> tuple[
     out = [validate_profile(p) for p in profiles]
     if not out:
         raise ValueError("tiene que quedar al menos un perfil")
-    if not any(p.fallback for p in out):      # un perfil «Tortuga» sin marcar (guardado antes de poder renombrarlo) es el de las puts que no encajan
-        out = [replace(p, fallback=True) if p.name == FALLBACK_NAME else p for p in out]
+    if any(p.name.casefold() == UNASSIGNED.casefold() for p in out):
+        raise ValueError(f"«{UNASSIGNED}» es la etiqueta de las puts sin perfil: elige otro nombre")
     names = [p.name for p in out]
     if len(set(n.casefold() for n in names)) != len(names):
         raise ValueError("dos perfiles no pueden llamarse igual")
@@ -112,6 +110,19 @@ def dump(profiles: list[Profile], default: str) -> str:
     return json.dumps({"profiles": [p.to_dict() for p in profiles], "default": default})
 
 
+def _is_legacy_fallback(d: dict) -> bool:
+    return bool(d.get("fallback", d["name"] == LEGACY_FALLBACK))
+
+
+def legacy_fallbacks(raw: str) -> list[str]:
+    """Nombres de los antiguos perfiles de recambio (los de las puts que no encajaban) en un JSON guardado de antes de que dejaran de ser perfiles
+    (`drop_fallback_profile` los quita una vez; los JSON nuevos no llevan la marca `fallback`)."""
+    try:
+        return [d["name"] for d in json.loads(raw)["profiles"] if _is_legacy_fallback(d)]
+    except Exception:
+        return []
+
+
 def parse(raw: str) -> Optional[tuple[list[Profile], Optional[str]]]:
     """(perfiles, perfil inicial) de un JSON guardado tal cual, sin validar ni dividir; None si no hay o no se lee."""
     if not raw:
@@ -120,7 +131,7 @@ def parse(raw: str) -> Optional[tuple[list[Profile], Optional[str]]]:
         data = json.loads(raw)
         profiles = [Profile(d["name"], tuple(d["instruments"]), {str(k): str(v) for k, v in d["put"].items()},
                             {str(k): str(v) for k, v in d["spread"].items()}, d.get("management", "tastytrade"), d.get("color", ""),
-                            exits_mod.check_overrides(d.get("exits") or {}), bool(d.get("fallback", d["name"] == FALLBACK_NAME))) for d in data["profiles"]]
+                            exits_mod.check_overrides(d.get("exits") or {})) for d in data["profiles"]]
         return profiles, data.get("default")
     except Exception:
         return None

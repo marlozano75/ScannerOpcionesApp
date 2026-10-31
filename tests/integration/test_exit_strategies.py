@@ -40,8 +40,8 @@ def test_exits_page_describes_every_profile_and_saves_changes(client_and_service
     page = client.get("/exits").text
     assert "Uno" in page and "Dos" in page and "Recoger beneficios al ganar el 50 %" in page and "No se recoge antes del vencimiento" in page
 
-    form = {"n_profiles": "3", "pf0_style": "tastytrade", "pf0_take_profit_pct": "70", "pf0_take_profit_max_pct": "80", "pf0_review_dte": "",
-            "pf1_style": "tpc", "pf2_style": "tastytrade"}
+    form = {"n_profiles": "2", "pf0_style": "tastytrade", "pf0_take_profit_pct": "70", "pf0_take_profit_max_pct": "80", "pf0_review_dte": "",
+            "pf1_style": "tpc"}
     r = client.post("/exits/save", data=form, follow_redirects=False)
     assert r.status_code == 303 and "ok=" in r.headers["location"]
     saved = {p.name: p for p in svc.stored_profiles()[0]}

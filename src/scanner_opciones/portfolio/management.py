@@ -24,6 +24,7 @@ from scanner_opciones.portfolio.defense import Defense, DefenseInput
 from scanner_opciones.portfolio.diversification import nominal as nominal_of
 from scanner_opciones.portfolio.exits import ExitRules, defaults as style_rules
 from scanner_opciones.portfolio.spreads import with_spreads
+from scanner_opciones.scanner.profiles import UNASSIGNED
 
 
 TASTYTRADE, TPC = "tastytrade", "tpc"
@@ -178,10 +179,11 @@ def committed_margin(p: Position, entry: Optional[float], contracts: int, what_i
 
 def put_status(p: Position, today: date, underlying: Optional[float], cfg: ManagementSettings, profile: str = TASTYTRADE,
                what_if_margin: Optional[float] = None, rules: Optional[ExitRules] = None, defense_ctx: Optional[dict] = None,
-               live_delta: Optional[float] = None, commission: Optional[CommissionModel] = None) -> PutStatus:
+               live_delta: Optional[float] = None, commission: Optional[CommissionModel] = None, managed: bool = True) -> PutStatus:
     """`rules`: estrategia de salida del perfil de la put; sin ella, la del estilo `profile` (tastytrade | tpc) con los valores de `cfg`.
     `defense_ctx`: datos del subyacente para la defensa (`iv_rank`, `iv30` en fracción, `next_earnings`, `ex_dividend_in`).
     `live_delta`: |delta| real de la put (cotización de tastytrade); sin ella la defensa la estima con Black-Scholes.
+    `managed`: False = «Sin perfil»: sin estrategia de salida, así que ni avisos ni defensa (solo los datos de la posición).
     `commission`: tarifa de IBKR. Si la estrategia de salida cierra antes del vencimiento, lo capturado descuenta la comisión de recomprar (una orden;
     un spread, una sola orden combo): es lo que te quedaría de verdad al recoger. La de apertura ya está pagada y no se resta."""
     o = p.option
@@ -192,7 +194,7 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
     entry = abs(p.avg_cost) / o.multiplier if p.avg_cost else None
     r = rules or style_rules(profile, cfg)
     exit_ps = (replace(commission, contracts=contracts).per_share(o.multiplier, 2 if p.hedge_strike is not None else 1)
-               if commission is not None and not r.holds_to_expiry else 0.0)
+               if commission is not None and managed and not r.holds_to_expiry else 0.0)
     captured = (entry - current - exit_ps) / entry * 100 if entry and current is not None else None
     alerts: list[Alert] = []
     if r.take_profit_pct is not None and captured is not None and captured >= r.take_profit_pct:
@@ -210,7 +212,7 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         alerts.append(Alert("info", "En pérdida: recomprarla cuesta más que la prima cobrada."))
     spread = p.hedge_strike is not None
     defense = None
-    if r.defense:
+    if managed and r.defense:
         c = defense_ctx or {}
         if not spread:
             defense = defense_mod.assess(DefenseInput(o.expiry, o.strike, dte, underlying, entry, current, c.get("iv_rank"), c.get("iv30"),
@@ -241,7 +243,7 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
             alerts.append(Alert("info", f"El precio ({underlying:g}) está a menos de {cfg.near_strike_pct:g} % del strike."))
     premium = entry * per_share if entry else None
     amount = (entry - current - exit_ps) * per_share if entry and current is not None else None
-    return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts), p.hedge_strike,
+    return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts) if managed else (), p.hedge_strike,
                      profile, put_key(p), margin=committed_margin(p, entry, contracts, what_if_margin), margin_exact=spread, rules=r, defense=defense,
                      premium_amount=premium, captured_amount=amount, fx=p.fx)
 
@@ -288,13 +290,14 @@ def manage_puts(
     commission: Optional[CommissionModel] = None,
 ) -> ManagementReport:
     """`profiles`: perfil de gestión elegido por put (`put_key`); las que no están usan `cfg.default_profile`.
+    `assigned`: perfil del Scanner de cada put; las que están «Sin perfil» (`UNASSIGNED`) no tienen gestión (sin avisos ni defensa).
     `rules`: estrategia de salida de cada put (`put_key`, la de su perfil); las que no están usan la del estilo.
     `margins`: margen what-if guardado por contrato de cada put desnuda (`put_key`); en un spread el margen es su pérdida máxima.
     `defense_ctx`: por ticker, los datos para la defensa (ver `put_status`). `live_deltas`: |delta| real de cada put (`put_key`)."""
     positions = with_spreads(positions)     # cada spread es una sola fila: prima y valor netos, riesgo = ancho
     profiles = profiles or {}
     assigned, opened, margins, notes, rules = assigned or {}, opened or {}, margins or {}, notes or {}, rules or {}
-    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile), margins.get(put_key(p)), rules.get(put_key(p)), (defense_ctx or {}).get(p.ticker), (live_deltas or {}).get(put_key(p)), commission),
+    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile), margins.get(put_key(p)), rules.get(put_key(p)), (defense_ctx or {}).get(p.ticker), (live_deltas or {}).get(put_key(p)), commission, assigned.get(put_key(p)) != UNASSIGNED),
                            assigned=assigned.get(put_key(p), ""), assign_note=notes.get(put_key(p), ""), opened=opened.get(put_key(p), (None, False))[0],
                            opened_exact=opened.get(put_key(p), (None, False))[1])
                    for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))
