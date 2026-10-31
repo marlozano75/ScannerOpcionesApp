@@ -137,16 +137,19 @@ class ScanLogRepo:
         return [r["profile"] for r in rows]
 
     def feed_profiles(self, kind: str, ticker: str, expiry: date, strike: float, long_strike: Optional[float], opened: date,
-                      window_days: int = 0) -> list[tuple[str, Optional[str], str, str]]:
+                      window_days: int = 0, mine: str = "") -> list[tuple[str, Optional[str], str, str]]:
         """(perfil de escaneo, trader, fuente, fecha de apertura del contrato) de las filas de las fuentes de contratos sobre ese mismo contrato (o spread, con
         `long_strike`) abierto el día `opened` o, con `window_days`, hasta ese número de días ANTES (la fecha del propio contrato, no la de `first_seen`).
-        Si hay varios días, solo el más cercano a `opened`. Incluye los episodios ya cerrados."""
+        Si hay varios días, solo el más cercano a `opened`. Con `mine` (tu usuario en la fuente), tus propias filas van antes que las de los demás: son tu
+        misma operación publicada con retraso. Incluye los episodios ya cerrados."""
         rows = self.db.conn.execute(
             "SELECT DISTINCT profile, trader, origin, opened FROM scan_log WHERE origin != 'scan' AND kind = ? AND ticker = ? AND expiry = ? AND strike = ? "
             "AND long_strike IS ? AND opened BETWEEN ? AND ?",
             (kind, ticker, expiry.isoformat(), strike, long_strike, (opened - timedelta(days=window_days)).isoformat(), opened.isoformat())).fetchall()
         if not rows:
             return []
+        own = [r for r in rows if mine and (r["trader"] or "").casefold() == mine.casefold()]
+        rows = own or rows
         closest = max(r["opened"] for r in rows)
         return [(r["profile"], r["trader"], r["origin"], r["opened"]) for r in rows if r["opened"] == closest]
 

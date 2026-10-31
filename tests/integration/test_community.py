@@ -403,3 +403,15 @@ def test_the_config_page_separates_scan_profiles_from_contract_feeds_and_saves_w
     client.post("/scanner/feeds", data={"feed": ["Comunidad", "Otra"], "publish_Comunidad": "on"}, follow_redirects=False)
     assert svc.feed_publishes("Comunidad") is True and svc.manual_sources["Comunidad_Contratos"] == ["MCD", "PEP"]      # al activarla se publica al guardar
     assert "Comunidad_Contratos" in client.get("/scanner/config").text
+
+
+async def test_your_own_trades_are_not_published_as_tickers_of_other_traders(tmp_path):
+    svc = make(tmp_path)
+    write(tmp_path / "tortuga.json", ideas_json("2026-10-12T13:00:00", [one_idea("PEP", "Ana"), one_idea("MCD", "marloz"), one_idea("KO", "Marloz")]))
+    assert {c.trader for c in svc.feed_contracts()} == {"Ana", "marloz", "Marloz"}               # en el registro y en la comparación sí están
+    assert svc.community_feed.tickers() == ["PEP"]
+    await svc.sync_feed_sources()
+    assert svc.manual_sources["Comunidad_Contratos"] == ["PEP"]
+    info = svc.contract_feeds_info()[0]
+    assert (info["contracts"], info["traders"], info["tickers"]) == (1, 1, 1)
+    assert "1 contratos de 1 traders" in svc.feed_source_note("Comunidad_Contratos")

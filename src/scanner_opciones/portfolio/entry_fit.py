@@ -133,10 +133,11 @@ def recognize_shown(facts: EntryFacts, profiles: Sequence[Profile], shown: Seque
     return EntryFit(best["p"].name, best["passed"], best["known"], best["exact"], note, "scan_log")
 
 
-def recognize_feed(facts: EntryFacts, profiles: Sequence[Profile], logged: Sequence[tuple[str, Optional[str], str, str]], day: date) -> Optional[EntryFit]:
+def recognize_feed(facts: EntryFacts, profiles: Sequence[Profile], logged: Sequence[tuple[str, Optional[str], str, str]], day: date,
+                   me: str = "") -> Optional[EntryFit]:
     """Perfil según el histórico de las fuentes de contratos. `logged` = (perfil de escaneo al que encaja, trader, fuente, fecha ISO de apertura del contrato)
     de cada fila de ese mismo contrato, abierto el día `day` (el de tu posición) o unos días antes. Solo cuentan los perfiles de escaneo (no «Sin perfil»: una fuente que no lo encaja en ninguno no dice nada); entre varios, el
-    mismo desempate que `recognize_shown`. None si ninguno sirve para este instrumento (el llamante usa entonces los filtros)."""
+    mismo desempate que `recognize_shown`. `me`: tu usuario en la fuente (la nota dice que es tu propia operación). None si ninguno sirve para este instrumento (el llamante usa entonces los filtros)."""
     names = [p for p, _, _, _ in logged if p != UNASSIGNED]
     fit = recognize_shown(facts, profiles, names, day) if names else None
     if fit is None:
@@ -144,7 +145,9 @@ def recognize_feed(facts: EntryFacts, profiles: Sequence[Profile], logged: Seque
     who = ", ".join(sorted({t for _, t, _, _ in logged if t}, key=str.casefold))
     origins = ", ".join(sorted({o for _, _, o, _ in logged}))
     theirs = date.fromisoformat(max(d for _, _, _, d in logged))
-    opened = (f"la abrió {who} el {theirs:%d/%m}" if who else f"se abrió el {theirs:%d/%m}") + (f", tú el {day:%d/%m}" if theirs != day else "")
+    own = bool(me) and bool(who) and who.casefold() == me.casefold()
+    opened = (f"es tu propia operación ({me}), publicada con la fecha {theirs:%d/%m}" if own else f"la abrió {who} el {theirs:%d/%m}" if who
+              else f"se abrió el {theirs:%d/%m}") + (f", abierta aquí el {day:%d/%m}" if own and theirs != day else f", tú el {day:%d/%m}" if theirs != day else "")
     fitting = ", ".join(sorted(set(names)))
     note = (f"Reconocida por el histórico de {origins}: {opened} y encaja en {fitting}"
             + (f"; gana {fit.profile} por filtros y, a igualdad, el rango de DTE más estrecho" if len(set(names)) > 1 else "")

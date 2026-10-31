@@ -47,7 +47,7 @@ def register(app, service, render, remembered) -> None:
                       valid=sum(1 for v in views if v.status == "valid"), venc=venc, trader=trader, tipo=tipo,
                       traders=sorted({v.idea.trader for v in everything if v.idea.trader}, key=str.casefold), stale=service.community_stale(),
                       auto_reload=service.market.is_open(service.now()), quoting=quoting, message=message, groups=message_groups(message),
-                      keys=[idea_key(v.idea) for v in views], perm_name=service.settings.community.perm_source_name,
+                      keys=[idea_key(v.idea) for v in views], perm_name=service.settings.community.perm_source_name, mine=service.settings.community.my_trader,
                       lists={t: [(source_initials(n), n) for n in names] for t, names in service.ticker_lists().items()})
 
     # ---- Tortuga: radar de Bull Put Spreads y rutinas -------------------------------------------

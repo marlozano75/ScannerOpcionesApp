@@ -392,3 +392,20 @@ async def test_the_feed_history_matches_a_contract_the_trader_opened_a_few_days_
     object.__setattr__(svc.settings, "community", CommunitySettings(feed_match_days=3))
     assert svc.put_assignments()[key] == "B"                                       # con ventana de 3 días sí (reemplaza la de filtros)
     assert "la abrió Ana el" in svc.put_assignment_notes()[key] and ", tú el" in svc.put_assignment_notes()[key]
+
+
+async def test_your_own_trades_in_the_community_feed_go_before_those_of_other_traders():
+    from scanner_opciones.scanner.profiles import Profile
+    svc, gw = await started_service()
+    pos = put_position()
+    svc.state.positions = [pos]
+    a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})
+    b = Profile("B", ("put",), {"discount": "0", "dte_min": "1", "dte_max": "60", "min_yield": "0"}, {})
+    svc.save_profiles([a, b], "A")
+    svc._note_put_opened()
+    key = put_key(pos)
+    _feed_row(svc, "B", "Ana", TODAY.isoformat())                                  # otro trader, el mismo día
+    _feed_row(svc, "A", "Marloz", (TODAY - timedelta(days=1)).isoformat())         # tu operación (mayúsculas distintas), publicada con otra fecha
+    assert svc.put_assignments()[key] == "A"                                       # manda la tuya, aunque la de Ana esté más cerca
+    note = svc.put_assignment_notes()[key]
+    assert "tu propia operación (marloz)" in note and "Ana" not in note and "abierta aquí el" in note

@@ -248,7 +248,7 @@ class AppService:
         self.universe_info_asked: set[str] = set()      # tickers cuyo nombre ya se pidió a tastytrade en esta ejecución
         self.universe_info: dict[str, dict[str, str]] = self._load_info()   # nombre/sector que ninguna fuente trae
         self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
-        self.community_feed = CommunityFeed(lambda: self.settings.community.path)      # la comunidad de Tortuga (JSON de la rutina diaria)
+        self.community_feed = CommunityFeed(lambda: self.settings.community.path, me=lambda: self.settings.community.my_trader)      # la comunidad de Tortuga (JSON de la rutina diaria)
         self.feeds: dict[str, ContractFeed] = {self.community_feed.name: self.community_feed}      # fuentes de contratos, por nombre
         self._community_syncing = False
         self.tortuga = tortuga                    # rutinas que lanzan la CLI de Claude (None en los tests: nunca se ejecuta nada externo)
@@ -331,7 +331,7 @@ class AppService:
                                 f"{p['passed']}/{p['total']}" if "passed" in p else ""])
             elif name in published:      # los tickers de los contratos vigentes de una fuente de contratos, con cuántos son y de qué traders
                 kind = "contracts"
-                mine = [c for c in self.feeds[published[name]].contracts()]
+                mine = self._others(self.feeds[published[name]].contracts())
                 raw = [["Ticker", SOURCE_COLUMN, "Contratos", "Traders"]]
                 for t in tickers:
                     here = [c for c in mine if clean_ticker(c.ticker) == clean_ticker(t)]
@@ -2335,21 +2335,26 @@ class AppService:
         """Una fila por fuente de contratos para /scanner/config: cuántos contratos y traders trae, su versión y sus fuentes del Universo."""
         out = []
         for name, feed in self.feeds.items():
-            contracts = feed.contracts()
+            contracts = self._others(feed.contracts())
             source, perm = self.feed_source_name(name), self.feed_perm_source(name)
             out.append(dict(name=name, contracts=len(contracts), traders=len({c.trader for c in contracts if c.trader}), tickers=len(feed.tickers()),
                             stamp=feed.stamp(), publish=self.feed_publishes(name), source=source, in_universe=len(self.manual_sources.get(source, [])),
                             perm=perm, perm_count=len(self.manual_sources.get(perm, []))))
         return out
 
+    def _others(self, contracts) -> list:
+        """Los contratos de los demás traders: quita los tuyos (`community.my_trader`), que llegan en el mismo JSON y ya están en tu cartera."""
+        me = self.settings.community.my_trader.casefold()
+        return [c for c in contracts if not me or (c.trader or "").casefold() != me]
+
     def feed_source_note(self, name: str) -> Optional[str]:
         """Explicación de una fuente del Universo que sale de una fuente de contratos; None si `name` no lo es."""
         feed = next((f for n, f in self.feeds.items() if self.feed_source_name(n) == name), None)
         if feed is None:
             return None
-        contracts = feed.contracts()
+        contracts = self._others(feed.contracts())
         traders = len({c.trader for c in contracts if c.trader})
-        return (f"Fuente de contratos «{feed.name}»: los tickers de sus contratos vigentes ({len(contracts)} contratos"
+        return (f"Fuente de contratos «{feed.name}»: los tickers de los contratos vigentes de los demás ({len(contracts)} contratos"
                 + (f" de {traders} traders" if traders else "") + "). Se sustituye entera con cada actualización de la fuente; no la edites a mano.")
 
     async def sync_community_source(self) -> Optional[dict]:
@@ -2510,8 +2515,9 @@ class AppService:
         shown = self.scan_log_repo.profiles_showing(facts.kind, ticker, o.expiry, o.strike, pos.hedge_strike, opened)
         fit = recognize_shown(facts, profiles, shown, opened) if shown else None
         if fit is None:
-            feed = self.scan_log_repo.feed_profiles(facts.kind, ticker, o.expiry, o.strike, pos.hedge_strike, opened, self.settings.community.feed_match_days)
-            fit = recognize_feed(facts, profiles, feed, opened) if feed else None
+            me = self.settings.community.my_trader
+            feed = self.scan_log_repo.feed_profiles(facts.kind, ticker, o.expiry, o.strike, pos.hedge_strike, opened, self.settings.community.feed_match_days, me)
+            fit = recognize_feed(facts, profiles, feed, opened, me) if feed else None
         return fit
 
     def _entry_fits(self) -> dict[str, EntryFit]:

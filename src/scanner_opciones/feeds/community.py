@@ -15,9 +15,10 @@ log = logging.getLogger(__name__)
 class CommunityFeed:
     """Lee el JSON de la comunidad solo si el fichero cambió; si el nuevo es inválido conserva el último bueno (y avisa una vez en el log)."""
 
-    def __init__(self, path: Callable[[], str | Path], name: str = "Comunidad"):
+    def __init__(self, path: Callable[[], str | Path], name: str = "Comunidad", me: Callable[[], str] = lambda: ""):
         self.name = name
         self._path = path
+        self._me = me                       # tu nombre de usuario en la comunidad: tus operaciones no cuentan como ideas de otros
         self._cached: Optional[tuple[float, CommunityData]] = None      # (mtime del JSON, datos)
         self._error: Optional[str] = None
 
@@ -48,7 +49,9 @@ class CommunityFeed:
         return [replace(i, source=self.name) for i in data.ideas] if data is not None else []
 
     def tickers(self) -> list[str]:
-        return sorted({i.ticker for i in self.contracts()})
+        """Tickers de los contratos de los demás traders (los tuyos ya están en tu cartera)."""
+        me = self._me().casefold()
+        return sorted({i.ticker for i in self.contracts() if not me or (i.trader or "").casefold() != me})
 
     def stamp(self) -> Optional[str]:
         data = self.data()
