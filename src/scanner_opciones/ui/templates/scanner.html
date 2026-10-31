@@ -517,7 +517,7 @@
         {% for sp in out.spreads %}{% set c = sp.short.snapshot.contract %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ '|' ~ sp.long.contract.strike %}
           <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
-            {{ cols.spread_cells(sp, rmax, community, nlv_usd) }}
+            {{ cols.spread_cells(sp, rmax, nlv_usd) }}
             <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px"><input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}"></td></tr>
         {% else %}<tr><td colspan="60" class="muted empty">Ningún spread cumple los criterios{% if out.results %} ({{ out.results|length }} puts vendidas pasan los filtros, pero ninguna tiene pata comprada cotizada a ese ancho o cumple crédito/riesgo){% endif %}.</td></tr>{% endfor %}
       </table></div>
@@ -530,7 +530,7 @@
         {% for r in out.results %}{% set c = r.snapshot.contract %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
           <tr><td class="sel"><input type="checkbox" name="sel" value="{{ key }}"></td>
-            {{ cols.cells(r, yield_max, community, nlv_usd) }}
+            {{ cols.cells(r, yield_max, nlv_usd) }}
             <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px"></td></tr>
         {% else %}<tr><td colspan="40" class="muted empty">Ningún contrato cumple los criterios.</td></tr>{% endfor %}
       </table></div>

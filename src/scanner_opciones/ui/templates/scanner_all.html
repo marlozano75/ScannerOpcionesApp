@@ -76,7 +76,7 @@
           {{ cols.mkt_cells(r, sp.long if sp else none) }}
           <td title="{{ 'Pérdida máxima' if sp else 'Margen what-if' }}">{{ m.capital|num(0) if m.capital is not none else '—' }}</td><td>{{ m.weight_pct|pct }}</td>
           <td>{{ sp.max_loss|num(0) if sp else '—' }}{{ ccy(c.ticker) if sp else '' }}</td><td>{{ (sp.max_loss * fx(nlv_usd, c.ticker) / nlv_usd * 100)|pct if sp and nlv_usd else (((c.strike - m.credit) * c.multiplier * fx(nlv_usd, c.ticker) / nlv_usd * 100)|pct if nlv_usd else '—') }}</td><td>{{ be|num }}</td><td>{{ ((px - be) / px * 100)|pct if px else '—' }}</td>
-          {{ cols.extra_cells(r, community, false) }}
+          {{ cols.extra_cells(r, pas=false) }}
           <td><input name="qty_{{ key }}" type="number" min="1" max="9" value="1" style="width:34px">{% if sp %}<input type="hidden" name="ml_{{ key }}" value="{{ sp.max_loss }}">{% endif %}</td></tr>
       {% else %}<tr><td colspan="60" class="muted empty">Nada cumple los filtros de los perfiles elegidos.</td></tr>{% endfor %}
     </table></div>

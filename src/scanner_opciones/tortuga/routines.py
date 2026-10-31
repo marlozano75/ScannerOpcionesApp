@@ -50,7 +50,7 @@ ROUTINES = (
     Routine("aperturas", "Tus aperturas y cierres de puts", "aperturas_prompt.md", ("get_context", "list_trades"), 25,
             "fechas de apertura (perfil de cada put en el Panel) y cierres recientes (insignia en Comunidad)"),
     Routine("comunidad", "Comunidad de traders", "comunidad_prompt.md", ("get_context", "get_community_screener", "list_public_operations"), 25,
-            "columna Comunidad del Scanner, pestaña Comunidad y fuente TortugaTrades_Dia"),
+            "pestaña Comunidad y fuente TortugaTrades_Dia"),
     Routine("radar_spreads", "Radar de Bull Put Spreads", "radar_spreads_prompt.md", ("get_context", "get_market_radar"), 30,
             "pestaña MarketRadar (SPREAD) y fuente RadarSpreads (pasa a la watchlist)", via_calls=True),
     Routine("radar_puts", "Radar de venta de puts", "radar_puts_prompt.md", ("get_context", "get_market_radar"), 30,

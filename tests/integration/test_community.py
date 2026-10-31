@@ -39,9 +39,13 @@ def make(tmp_path, **community):
     return svc
 
 
+def counts(svc):
+    return {t.ticker: (t.month_traders, t.week_traders) for t in svc.community().tickers}
+
+
 async def test_without_a_file_there_is_no_community_and_nothing_breaks(tmp_path):
     svc = make(tmp_path)
-    assert svc.community() is None and svc.community_counts() == {} and svc.community_stale() is None
+    assert svc.community() is None and svc.community_stale() is None
     assert await svc.sync_community_source() is None and "TortugaTrades_Dia" not in svc.manual_sources
 
 
@@ -60,9 +64,9 @@ async def test_a_broken_file_keeps_the_last_good_data(tmp_path):
     svc = make(tmp_path)
     path = tmp_path / "tortuga.json"
     write(path, payload())
-    assert svc.community_counts()["PEP"] == (17, 6)
+    assert counts(svc)["PEP"] == (17, 6)
     write(path, "{ roto", bump=60)
-    assert svc.community_counts()["PEP"] == (17, 6)
+    assert counts(svc)["PEP"] == (17, 6)
 
 
 async def test_stale_data_is_reported_after_the_configured_hours(tmp_path):

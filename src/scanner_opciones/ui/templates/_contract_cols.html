@@ -38,14 +38,14 @@
 <td class="mini"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" data-expiry="{{ c.expiry }}"{% if long is not none %} data-long="{{ long }}"{% endif %}{% if prem is not none %} data-prem="{{ prem }}"{% endif %} title="Ver el gráfico grande"><img loading="lazy" width="80" height="24" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ c.strike }}{% if long is not none %}&amp;long={{ long }}{% endif %}"></a></td>
 {%- endmacro %}
 
-{% macro vol_cells(r, community={}) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
+{% macro vol_cells(r) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
 <td>{{ s.delta|num }}</td><td>{{ (s.iv * 100)|pct if s.iv is not none else '—' }}</td><td class="cb"{% if s.iv_rank is not none %} style="--p:{{ s.iv_rank|round(0)|int }}%"{% endif %}>{{ s.iv_rank|pct(0) }}</td><td class="cb"{% if s.iv_percentile is not none %} style="--p:{{ s.iv_percentile|round(0)|int }}%"{% endif %}>{{ s.iv_percentile|pct(0) }}</td>
 <td>{{ s.spread_pct|pct }}</td><td>{{ s.bid_size if s.bid_size is not none else '—' }}</td><td>{{ s.open_interest if s.open_interest is not none else '—' }}</td>
 <td>{{ i.option_liquidity if i and i.option_liquidity is not none else '—' }}</td>
-{{ extra_cells(r, community) }}
+{{ extra_cells(r) }}
 {%- endmacro %}
 
-{% macro extra_cells(r, community={}, pas=true) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
+{% macro extra_cells(r, pas=true) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
 {%- set tc = techs.get((c.ticker, c.strike)) if techs else none %}<td{% if tc and tc.total %} data-sort="{{ tc.passed / tc.total }}" title="{{ tc.detail }}"{% endif %}>{{ tc.passed ~ '/' ~ tc.total if tc and tc.total else '—' }}</td>
 <td{% if i and i.next_earnings and i.next_earnings >= s.updated_at.date() and i.next_earnings <= c.expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% elif i and i.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(i.eps_surprise_pct) }} %"{% endif %}{% if i and i.next_earnings %} data-sort="{{ i.next_earnings }}"{% endif %}>{{ i.next_earnings.strftime('%d/%m') if i and i.next_earnings else '—' }}</td>
 <td>{{ i.eps_ttm|num if i and i.eps_ttm is not none else '—' }}</td>
@@ -53,14 +53,14 @@
 {% if pas %}<td>{{ i.liabilities_to_equity|num if i and i.liabilities_to_equity is not none else '—' }}</td>{% endif %}
 {%- endmacro %}
 
-{% macro cells(r, ymax=0, community={}, nlv=none) -%}{% set s = r.snapshot %}{% set c = s.contract -%}
+{% macro cells(r, ymax=0, nlv=none) -%}{% set s = r.snapshot %}{% set c = s.contract -%}
 {{ lead_cells(r) }}
 <td data-sort="{{ c.strike }}">{{ c.strike|num }} <span class="muted">V</span></td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ mini_cell(r) }}<td>{{ r.strike_distance_pct|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
 <td class="hl cb"{% if ymax and r.yield_ref_annualized_pct is not none %} style="--p:{{ (100 * r.yield_ref_annualized_pct / ymax)|round(0)|int }}%"{% endif %}>{{ r.yield_ref_annualized_pct|pct }}</td><td>{{ r.yield_ref_pct|pct }}</td><td>{{ r.yield_bid_annualized_pct|pct }}</td>
 <td{% if r.commission %} title="Prima neta de comisiones: {{ (r.reference_price * c.multiplier)|num(0) }} − {{ (r.commission * c.multiplier)|num(2) }}"{% endif %}>{{ (r.net_price * c.multiplier)|num(0) if r.net_price is not none else '—' }}{{ ccy(c.ticker) }}</td><td>{{ ((c.strike - r.net_price) * c.multiplier * fx(nlv, c.ticker) / nlv * 100)|pct if nlv and r.net_price is not none else '—' }}</td>
 {%- set net = c.strike - r.net_price if r.net_price is not none else none %}{% set px = r.info.underlying_price if r.info else none %}
 <td>{{ net|num if net is not none else '—' }}</td><td>{{ ((px - net) / px * 100)|pct if net is not none and px else '—' }}</td>
-{{ vol_cells(r, community) }}
+{{ vol_cells(r) }}
 <td>{{ r.impact.sector_weight_increase_pct|pct }}</td><td>{{ r.impact.week_weight_pct|pct }}</td>
 <td>{{ r.impact.assignment_pct_of_portfolio|pct }}</td>
 {%- endmacro %}
@@ -82,11 +82,11 @@
 <td>{{ sp.max_loss|num(0) }}{{ ccy(sp.short.snapshot.contract.ticker) }}</td><td>{{ (sp.max_loss * fx(nlv, sp.short.snapshot.contract.ticker) / nlv * 100)|pct if nlv else '—' }}</td><td>{{ sp.breakeven|num }}</td><td>{{ sp.breakeven_distance_pct|pct }}</td>
 {%- endmacro %}
 
-{% macro spread_cells(sp, rmax=0, community={}, nlv=none) -%}{% set r = sp.short %}{% set c = r.snapshot.contract %}{% set l = sp.long -%}
+{% macro spread_cells(sp, rmax=0, nlv=none) -%}{% set r = sp.short %}{% set c = r.snapshot.contract %}{% set l = sp.long -%}
 {{ lead_cells(r, l.contract.strike, sp.credit) }}
 <td data-sort="{{ c.strike }}"><span class="k-sold">{{ c.strike|num }}</span> <span class="muted">/</span> <span class="k-long">{{ l.contract.strike|num }}</span></td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>{{ mini_cell(r, l.contract.strike, sp.credit) }}<td>{{ (sp.discount_pct if sp.discount_pct is not none else r.strike_distance_pct)|pct }}</td><td title="Vence el {{ c.expiry }}">{{ r.dte }}</td>
 {{ spread_core(sp, rmax, nlv) }}
-{{ extra_cells(r, community, false) }}
+{{ extra_cells(r, pas=false) }}
 <td>{{ sp.assignment_pct_of_portfolio|pct }}</td>
 {%- endmacro %}
 

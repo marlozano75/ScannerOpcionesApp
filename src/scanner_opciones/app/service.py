@@ -2210,11 +2210,6 @@ class AppService:
         """Marca de la versión de los contratos de todas las fuentes (con una sola, la suya)."""
         return combined_stamp(list(self.feeds.values()))
 
-    def community_counts(self) -> dict[str, tuple[int, int]]:
-        """{ticker: (traders en 30 días, traders en 7 días)} que han vendido puts o spreads de puts."""
-        data = self.community()
-        return {t.ticker: (t.month_traders, t.week_traders) for t in data.tickers} if data is not None else {}
-
     def community_ideas(self) -> list[IdeaView]:
         """Los contratos de las fuentes (hoy la comunidad) comparados con los datos de hoy (precio, cotización de las patas, cierre del día de la apertura)."""
         ideas, stamp = self.feed_contracts(), self.feed_stamp()
