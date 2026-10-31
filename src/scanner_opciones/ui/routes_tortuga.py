@@ -60,7 +60,7 @@ def register(app, service, render, remembered) -> None:
             failed = [r.title for r in ROUTINES if states.get(r.key, {}).get("error")]
             message = (_grp("err", "Terminó con errores", failed, "mira la columna Resultado") if failed
                        else _grp("ok", "Terminada", [], "resultado actualizado"))
-        service.radar_premiums_in_background()
+        service.radar_quotes_in_background()
         data = service.radar_spreads()
         minimum, min_cw = service.radar_min_yield(), service.radar_min_credit_width()
         held = service.held_details()
@@ -81,7 +81,7 @@ def register(app, service, render, remembered) -> None:
                       minimum=minimum, min_cw=min_cw, cumple=cumple, tipo=tipo, cfg=service.settings.tortuga, message=message, groups=message_groups(message),
                       routines=ROUTINES, rstate=runner.state() if runner else {}, running=runner.running if runner else None,
                       enabled=runner is not None and service.settings.tortuga.enabled, busy_routines=service._tortuga_busy,
-                      age_days=(service.now().date() - data.as_of).days if data and data.as_of else None)
+                      live_at=service.radar_live_at(), age_days=(service.now().date() - data.as_of).days if data and data.as_of else None)
 
     @app.get("/tortuga/status")
     async def tortuga_status():

@@ -116,6 +116,7 @@ INVESTORS_INFO = "super_investors_info"       # clave de `meta`: {ticker: {manag
 RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 SCAN_LOG_CFG = "scan_log_cfg"   # clave de `meta`: configuración del Histórico guardada desde la interfaz (JSON)
+RADAR_LIVE = "radar_live"   # clave de `meta`: última cotización en directo de los contratos del radar (pickle en base64)
 COMMUNITY_LIVE = "community_live"   # clave de `meta`: última cotización en directo de las ideas (pickle en base64)
 FEEDS_CFG = "feeds_cfg"   # clave de `meta`: ajustes de las fuentes de contratos editados en /scanner/config (JSON {fuente: {publish: bool}}); manda sobre config.yaml
 FEED_PERM_PREFIX = "feed_perm:"   # clave de `meta` de la fuente permanente de cada fuente de contratos que NO es la comunidad (la comunidad usa COMMUNITY_PERM)
@@ -256,8 +257,9 @@ class AppService:
         self._radar: Optional[tuple[float, RadarData]] = None
         self._radar_error: Optional[str] = None
         self._radar_syncing = False
-        self._radar_premiums: dict[tuple, float] = {}      # (ticker, vencimiento, vendida, comprada) -> crédito cotizado, para fichas de Tortuga sin prima
-        self._radar_quoted_stamp: Optional[str] = None
+        # cotización en directo de los contratos del radar (instante, marca del fichero, {clave de contrato: cotización}, {ticker: precio}); solo en memoria
+        self._radar_live: Optional[tuple[datetime, str, dict, dict]] = self._load_radar_live()      # sobrevive al reinicio
+        self._radar_live_running = False
         self.watchlists = watchlists
         self._tasty_lists_syncing = False
         self._position_delta_keys: set[str] = set()      # puts cuya delta real se pidió en la última cotización
@@ -1562,19 +1564,90 @@ class AppService:
         return True
 
     def radar_spreads(self) -> Optional[RadarData]:
-        """Radar de Bull Put Spreads con la prima de los spreads cuya ficha de Tortuga no la trae (`refresh_radar_premiums`) rellenada."""
+        """Radar con los contratos que propone (la put de 30Δ y las patas del spread de la ficha) re-valorados con la cotización de hoy
+        (`refresh_radar_quotes`; las filas así tocadas llevan `live`): precio del subyacente, prima, delta, rendimiento y crédito del spread."""
         data = self._radar_file()
         if data is None:
             return data
         com = commission_model(self.settings)
+        snaps, prices = self._radar_quotes(data)
+        ref = self.criteria()
         rows = []
         for r in data.rows:
-            if r.has_spread and r.spread_premium is None and (k := (r.ticker, r.spread_expiry, r.spread_short, r.spread_long)) in self._radar_premiums:
-                r = replace(r, spread_premium=self._radar_premiums[k])
+            r = self._radar_live_row(r, snaps, prices, ref)
             if com is not None:      # prima neta de la comisión de apertura (el spread, una sola orden combo)
                 r = self._radar_net(r, com)
             rows.append(r)
         return replace(data, rows=tuple(rows))
+
+    def _load_radar_live(self):
+        """Cotización en directo del radar guardada en la última ejecución (con el mercado cerrado no cambia: evita volver a pedir decenas de
+        cadenas en cada arranque). Cualquier fallo al leerla la descarta."""
+        try:
+            raw = self.meta.get(RADAR_LIVE)
+            if not raw:
+                return None
+            live = pickle.loads(base64.b64decode(raw))
+            if isinstance(live, tuple) and len(live) == 4 and isinstance(live[0], datetime) and isinstance(live[1], str):
+                return live
+        except Exception:
+            log.info("Radar: se descarta la cotización guardada (no se pudo leer)")
+        return None
+
+    def _save_radar_live(self) -> None:
+        try:
+            self.meta.set(RADAR_LIVE, base64.b64encode(pickle.dumps(self._radar_live)).decode("ascii"))
+        except Exception:
+            log.warning("Radar: no se pudo guardar la cotización en directo", exc_info=True)
+
+    def radar_live_at(self) -> Optional[datetime]:
+        """Instante de la última cotización en directo del radar vigente (None si el fichero es otro o aún no se cotizó)."""
+        data, live = self._radar_file(), self._radar_live
+        return live[0] if data is not None and live is not None and live[1] == data.generated_at.isoformat() else None
+
+    def _radar_quotes(self, data: RadarData) -> tuple[dict, dict]:
+        """Cotizaciones (guardadas de la watchlist y, por detrás, las pedidas en directo) y precios con los que valorar los contratos del radar."""
+        stamp = data.generated_at.isoformat()
+        live = self._radar_live if self._radar_live is not None and self._radar_live[1] == stamp else None
+        watchlist = set(self.watchlist.list())
+        watch = {r.ticker for r in data.rows} & watchlist
+        snaps = {snapshot_key(s.contract.ticker, s.contract.expiry, s.contract.strike): s
+                 for t in sorted(watch) for s in self.snapshots.all(t) if s.contract.right is OptionRight.PUT}
+        prices = {t: i.underlying_price for t, i in self.ticker_info.all().items() if t in watch and i.underlying_price}
+        if live is not None:
+            for key, snap in live[2].items():
+                snaps.setdefault(key, snap)
+            for t, price in live[3].items():
+                prices.setdefault(t, price)
+        return snaps, prices
+
+    @staticmethod
+    def _radar_live_row(r, snaps: dict, prices: dict, ref):
+        """Fila del radar con los datos de hoy que haya: sin cotización de un contrato (o con bid 0) se queda el de Tortuga."""
+        changes: dict = {}
+        if prices.get(r.ticker):
+            changes["price"] = prices[r.ticker]
+
+        def sell(strike, expiry):
+            s = snaps.get(snapshot_key(r.ticker, expiry, strike)) if strike is not None and expiry is not None else None
+            if s is None or not s.bid or s.bid <= 0:
+                return None, None
+            return s, reference_price(s.bid, s.ask, ref.price_reference, ref.price_spread_pct)
+        snap, mid = sell(r.put_strike, r.put_expiry)
+        if mid is not None:
+            changes["put_mid"] = mid
+            if snap.delta is not None:
+                changes["put_delta"] = snap.delta
+            if r.put_strike and r.put_dte and r.put_dte > 0:
+                changes["put_yield_annual_pct"] = mid / r.put_strike * 100 * 365 / r.put_dte
+        if r.has_spread and r.spread_expiry is not None:
+            _, sold = sell(r.spread_short, r.spread_expiry)
+            long_ = snaps.get(snapshot_key(r.ticker, r.spread_expiry, r.spread_long))
+            if sold is not None and long_ is not None and long_.ask and long_.ask > 0 and sold - long_.ask > 0:
+                changes["spread_premium"] = sold - long_.ask
+        if "put_mid" in changes or "spread_premium" in changes:
+            changes["live"] = True
+        return replace(r, **changes) if changes else r
 
     @staticmethod
     def _radar_net(r, com):
@@ -1589,57 +1662,74 @@ class AppService:
                 changes["spread_annual_pct"] = net / (width - net) * 100 * 365 / r.spread_dte
         return replace(r, **changes)
 
-    async def refresh_radar_premiums(self) -> None:
-        """Las fichas de Tortuga a veces llegan sin prima (PFE, ABNB, ADI…): se cotizan en directo (tastytrade) las dos patas del spread que
-        proponen y el crédito es lo que se vendería (precio de referencia del Scanner) menos el ask de la comprada. Solo en memoria; una sola
-        vez por fichero de radar. Un fallo del proveedor deja el crédito/ancho «sin dato»."""
+    async def refresh_radar_quotes(self, max_age_seconds: Optional[float] = 300) -> None:
+        """Cotiza en directo (tastytrade), como las ideas de la comunidad, los contratos que propone el radar (la put de 30Δ y las dos patas del
+        spread de cada ficha) que no están guardados (tickers fuera de la watchlist, strikes o vencimientos fuera del catálogo), más el precio
+        de los tickers; `radar_spreads` los usa para re-valorar cada fila. Se guarda en `meta` (sobrevive al reinicio). Repite cada `max_age_seconds`; con el mercado cerrado,
+        una sola vez tras el último cierre; con `None`, solo si el fichero es otro. Un fallo del proveedor deja los datos de Tortuga."""
         data, provider = self._radar_file(), self.volatility
-        if data is None or provider is None or not all(hasattr(provider, m) for m in ("get_put_listing", "get_option_quotes")):
+        if (data is None or provider is None or self._radar_live_running
+                or not all(hasattr(provider, m) for m in ("get_put_listing", "get_option_quotes"))):
             return
-        stamp = data.generated_at.isoformat()
-        if self._radar_quoted_stamp == stamp:
+        stamp, now = data.generated_at.isoformat(), self.now()
+        live = self._radar_live
+        if live is not None and live[1] == stamp and (
+                max_age_seconds is None or (now - live[0]).total_seconds() < max_age_seconds
+                or (self._paused() and live[0].astimezone() >= self.market.last_close(now))):
             return
-        today = self.now().date()
-        todo = [r for r in data.rows if r.has_spread and r.spread_premium is None and r.spread_expiry is not None and r.spread_expiry >= today]
-        self._radar_quoted_stamp = stamp
-        if not todo:
-            return
-        sem = asyncio.Semaphore(4)
-
-        async def listing(ticker: str) -> dict:
-            async with sem:
-                try:
-                    return await provider.get_put_listing(ticker)
-                except Exception as exc:
-                    log.info("Radar: sin cadena de %s (%s)", ticker, exc)
-                    return {}
-
-        tickers = sorted({r.ticker for r in todo})
-        listings = dict(zip(tickers, await asyncio.gather(*(listing(t) for t in tickers))))
-        symbols: dict[str, None] = {}
-        legs = []
-        for r in todo:
-            lst = listings[r.ticker]
-            short, long = lst.get((r.spread_expiry, round(r.spread_short, 2))), lst.get((r.spread_expiry, round(r.spread_long, 2)))
-            if short and long:
-                legs.append((r, short, long))
-                symbols[short] = symbols[long] = None
+        today = now.date()
+        legs: dict[str, set[tuple[date, float]]] = {}
+        for r in data.rows:
+            wanted = [(r.put_expiry, r.put_strike)]
+            if r.has_spread:
+                wanted += [(r.spread_expiry, r.spread_short), (r.spread_expiry, r.spread_long)]
+            for expiry, strike in wanted:
+                if expiry is not None and strike is not None and expiry >= today:
+                    legs.setdefault(r.ticker, set()).add((expiry, round(float(strike), 4)))
+        watchlist = set(self.watchlist.list())
+        stored = {snapshot_key(s.contract.ticker, s.contract.expiry, s.contract.strike)
+                  for t in sorted(set(legs) & watchlist) for s in self.snapshots.all(t) if s.contract.right is OptionRight.PUT}
+        legs = {t: {w for w in ws if snapshot_key(t, *w) not in stored} for t, ws in legs.items()}
+        legs = {t: ws for t, ws in legs.items() if ws}
+        self._radar_live_running = True
         try:
-            quotes = await provider.get_option_quotes(list(symbols)) if symbols else {}
-        except Exception as exc:
-            log.warning("Radar: no se pudieron cotizar las patas de los spreads: %s", exc)
-            self._radar_quoted_stamp = None
-            return
-        ref = self.criteria()
-        for r, short, long in legs:
-            qs, ql = quotes.get(short), quotes.get(long)
-            sell = reference_price(qs.bid, qs.ask, ref.price_reference, ref.price_spread_pct) if qs else None
-            if sell is None or ql is None or ql.ask is None or ql.ask <= 0:
-                continue
-            credit = sell - ql.ask
-            if credit > 0:
-                self._radar_premiums[(r.ticker, r.spread_expiry, r.spread_short, r.spread_long)] = credit
-        self.state.data_version += 1
+            sem = asyncio.Semaphore(4)
+
+            async def listing(ticker: str) -> dict:
+                async with sem:
+                    try:
+                        return await provider.get_put_listing(ticker)
+                    except Exception as exc:
+                        log.info("Radar: sin cadena de %s (%s)", ticker, exc)
+                        return {}
+
+            listings = dict(zip(legs, await asyncio.gather(*(listing(t) for t in legs))))
+            symbols: dict[str, tuple[str, date, float]] = {}
+            for ticker, wanted in legs.items():
+                for expiry, strike in wanted:
+                    if sym := listings[ticker].get((expiry, round(strike, 2))):
+                        symbols[sym] = (ticker, expiry, strike)
+            snaps: dict = {}
+            try:
+                quotes = await provider.get_option_quotes(list(symbols)) if symbols else {}
+            except Exception as exc:
+                log.warning("Radar: no se pudieron cotizar los contratos: %s", exc)
+                return
+            for sym, q in quotes.items():
+                ticker, expiry, strike = symbols[sym]
+                snaps[snapshot_key(ticker, expiry, strike)] = ContractSnapshot(
+                    OptionContract(ticker, expiry, strike), now, q.bid, q.ask, q.last, q.delta, q.iv, q.open_interest, bid_size=q.bid_size)
+            prices: dict[str, float] = {}
+            if hasattr(provider, "get_prices"):
+                try:
+                    prices = {t: p for t, p in (await provider.get_prices(sorted({r.ticker for r in data.rows}))).items() if p}
+                except Exception as exc:
+                    log.warning("Radar: no se pudieron obtener los precios: %s", exc)
+            self._radar_live = (now, stamp, snaps, prices)
+            self._save_radar_live()
+            self.state.data_version += 1
+        finally:
+            self._radar_live_running = False
 
     def _radar_file(self) -> Optional[RadarData]:
         """JSON del radar de Bull Put Spreads, releído solo si el fichero cambió; si el nuevo es inválido se conserva el último bueno."""
@@ -1694,10 +1784,9 @@ class AppService:
         minimum, min_cw = self.radar_min_yield(), self.radar_min_credit_width()
         return [r.ticker for r in data.rows if radar_passes(r, minimum, min_cw) and (kind is None or r.kind == kind)]
 
-    def radar_premiums_in_background(self) -> None:
-        """Lanza sin esperar la cotización de los spreads del radar sin prima (nada si ya se hizo con este fichero)."""
-        data = self._radar_file()
-        if data is None or self._radar_quoted_stamp == data.generated_at.isoformat():
+    def radar_quotes_in_background(self) -> None:
+        """Lanza sin esperar la cotización en directo de los contratos del radar (nada si ya hay una en curso o es reciente)."""
+        if self._radar_live_running or self._radar_file() is None:
             return
         try:
             asyncio.get_running_loop()
@@ -1706,9 +1795,9 @@ class AppService:
 
         async def run() -> None:
             try:
-                await self.refresh_radar_premiums()
+                await self.refresh_radar_quotes()
             except Exception:
-                log.warning("Radar: no se pudo cotizar los spreads sin prima", exc_info=True)
+                log.warning("Radar: no se pudieron cotizar los contratos en directo", exc_info=True)
 
         self.launch(run())
 
@@ -2107,7 +2196,7 @@ class AppService:
 
     def radar_fits(self, rows, spread: bool = False) -> dict[str, tuple]:
         """{ticker: filtros de cada perfil que cumple HOY la put de 30Δ de referencia del radar de Tortuga} (mismos criterios que las ideas:
-        descuento, DTE, yield del periodo, delta, IV Rank/Percentile y precio). Con `spread` se comparan con los perfiles de spread: el radar no
+        descuento, DTE, yield del periodo, delta, IV Rank/Percentile y precio). Con `spread` se comparan con los perfiles de spread: la lista del radar no
         trae el spread que propone, pero sí su ficha (`idea`): con ella el descuento, el DTE y el crédito/ancho son los del spread propuesto (la
         delta queda «sin dato»: la de 30Δ es de otro strike). Sin ficha se usa la put de 30Δ y el crédito/ancho queda «sin dato». Sin put de
         referencia (ni spread), el ticker no aparece."""

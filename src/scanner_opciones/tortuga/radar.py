@@ -89,6 +89,7 @@ class RadarRow:
     spread_dte: Optional[int] = None
     spread_premium: Optional[float] = None
     spread_annual_pct: Optional[float] = None   # rendimiento anualizado sobre el riesgo que calcula Tortuga para ese spread
+    live: bool = False                          # precio, prima o delta re-valorados con la cotización de hoy (no los de Tortuga)
     net_of_commissions: bool = False            # `put_mid` y `spread_premium` ya van sin las comisiones (las resta el servicio) y las distancias llegan al breakeven
 
     @property

@@ -434,10 +434,11 @@ async def test_a_card_without_premium_is_priced_with_the_live_quotes_of_its_legs
             return {(date(2026, 12, 4), 27.0): "S", (date(2026, 12, 4), 25.0): "L"}
 
         async def get_option_quotes(self, symbols):
-            return {"S": SimpleNamespace(bid=0.60, ask=0.70), "L": SimpleNamespace(bid=0.10, ask=0.20)}
+            from scanner_opciones.domain.models import OptionQuote
+            return {"S": OptionQuote(bid=0.60, ask=0.70), "L": OptionQuote(bid=0.10, ask=0.20)}
 
     svc.volatility = Provider()
-    await svc.refresh_radar_premiums()
+    await svc.refresh_radar_quotes()
     cw = svc.radar_spreads().rows[0].spread_credit_width_pct
     assert cw is not None and 20 < cw < 30            # vende ~0,6-0,7 y compra a 0,20 sobre un ancho de 2
 
@@ -452,3 +453,58 @@ async def test_radar_premiums_are_net_of_the_opening_commission(tmp_path):
     off = Settings.model_validate({"commissions": {"enabled": False}, "tortuga": {"radar_path": str(tmp_path / "radar.json")}})
     svc.settings = off
     assert svc.radar_spreads().rows[0].put_mid == 15.0 and not svc.radar_spreads().rows[0].net_of_commissions
+
+
+async def test_radar_contracts_are_revalued_with_live_quotes_and_keep_tortugas_data_without_them(tmp_path):
+    from types import SimpleNamespace
+    svc, _, _ = make(tmp_path)
+    idea = {"strategy": "Bull Put Spread", "expiry": "2026-12-04", "dte": 35, "strikes": [440, 430], "premium_per_share": 3.5}
+    (tmp_path / "radar.json").write_text(json.dumps(doc([row("MPC", idea=idea), row("PSX")])), encoding="utf-8")
+    before = {r.ticker: r for r in svc.radar_spreads().rows}
+    assert not before["MPC"].live
+
+    class Provider:
+        async def get_put_listing(self, ticker):
+            if ticker != "MPC":
+                return {}
+            return {(date(2026, 12, 4), 440.0): "S", (date(2026, 12, 4), 430.0): "L", (before["MPC"].put_expiry, before["MPC"].put_strike): "P"}
+
+        async def get_option_quotes(self, symbols):
+            q = {"S": SimpleNamespace(bid=5.0, ask=5.4, last=None, delta=-0.3, iv=None, open_interest=None, bid_size=None),
+                 "L": SimpleNamespace(bid=1.0, ask=1.2, last=None, delta=-0.1, iv=None, open_interest=None, bid_size=None),
+                 "P": SimpleNamespace(bid=9.0, ask=9.4, last=None, delta=-0.25, iv=None, open_interest=None, bid_size=None)}
+            return {s: q[s] for s in symbols}
+
+        async def get_prices(self, tickers):
+            return {t: 500.0 for t in tickers}
+
+    svc.volatility = Provider()
+    await svc.refresh_radar_quotes()
+    after = {r.ticker: r for r in svc.radar_spreads().rows}
+    mpc = after["MPC"]
+    assert mpc.live and mpc.price == 500.0 and abs(mpc.put_delta + 0.25) < 1e-9
+    assert mpc.put_mid < before["MPC"].put_mid and abs(mpc.spread_premium - (5.1 - 1.2 - 0.011)) < 1e-6      # precio de referencia de la vendida − ask de la comprada, neto de comisión
+    assert svc.radar_live_at() is not None
+    psx = after["PSX"]
+    assert psx.price == 500.0 and not psx.live and psx.put_mid == before["PSX"].put_mid                       # sin cotización: se queda la prima de Tortuga
+
+
+async def test_radar_live_quotes_survive_a_restart(tmp_path):
+    from types import SimpleNamespace
+    svc, _, _ = make(tmp_path)
+    (tmp_path / "radar.json").write_text(json.dumps(doc([row("MPC")])), encoding="utf-8")
+    r0 = svc.radar_spreads().rows[0]
+
+    class Provider:
+        async def get_put_listing(self, ticker):
+            return {(r0.put_expiry, r0.put_strike): "P"}
+
+        async def get_option_quotes(self, symbols):
+            from scanner_opciones.domain.models import OptionQuote
+            return {s: OptionQuote(bid=9.0, ask=9.4, delta=-0.25) for s in symbols}
+    svc.volatility = Provider()
+    await svc.refresh_radar_quotes()
+    assert svc.radar_spreads().rows[0].live
+    assert svc._load_radar_live() is not None and svc._load_radar_live()[1] == svc._radar_live[1]       # leída de la base de datos
+    svc._radar_live = svc._load_radar_live()
+    assert svc.radar_spreads().rows[0].live and svc.radar_live_at() is not None
