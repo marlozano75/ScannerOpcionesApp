@@ -738,6 +738,9 @@ class DefenseSettings(_Model):
     spread_roll_dte_max: int = Field(45, ge=1)
     spread_roll_dte_far: int = Field(60, ge=1)
     greeks_max_age_minutes: float = Field(10, ge=0)    # la delta real de las puts del Panel (cotizadas por DXLink) se reutiliza hasta esta edad con el mercado abierto
+    greeks_max_stale_minutes: float = Field(60, ge=0)  # si no se puede renovar, el Panel deja de usar la delta guardada pasada esta edad con el mercado abierto (cerrado: vale la de tras el último cierre) y estima
+    greeks_max_move_pct: float = Field(1.0, ge=0)      # ... o si el subyacente se ha movido más de este % desde que se midió (la delta de una put vendida cambia deprisa con el precio)
+    greeks_log_days: int = Field(90, ge=1)             # días que se conserva el histórico de deltas de las puts de la cartera (tabla position_delta_log)
 
     @model_validator(mode="after")
     def _check(self) -> "DefenseSettings":

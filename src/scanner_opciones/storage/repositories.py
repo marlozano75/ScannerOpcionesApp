@@ -4,7 +4,7 @@ from __future__ import annotations
 import bisect
 import json
 import zlib
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Iterable, Optional, Sequence
 
 from scanner_opciones.domain.enums import OptionRight
@@ -52,6 +52,38 @@ class MetaRepo:
             )
         if key in self.QUIET_KEYS:
             self.db.quiet_changes += self.db.conn.total_changes - before
+
+
+class PositionDeltaRepo:
+    """Histórico de la |delta| real de las puts vendidas de la cartera. Cada medida lleva el precio del subyacente de ese momento: sin él no se
+    puede saber si la delta guardada sigue valiendo. No altera lo que escanea el Scanner (sus escrituras no invalidan sus cachés)."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def add_many(self, at: datetime, rows: Iterable[tuple[str, str, float, Optional[float]]], keep_days: int) -> None:
+        """`rows`: (clave de la put, ticker de la app, |delta|, precio del subyacente). Poda de paso lo anterior a `keep_days` días."""
+        before = self.db.conn.total_changes
+        with self.db.conn:
+            self.db.conn.executemany("INSERT OR REPLACE INTO position_delta_log (at, key, ticker, delta, underlying) VALUES (?, ?, ?, ?, ?)",
+                                     [(at.isoformat(), k, t, d, u) for k, t, d, u in rows])
+            self.db.conn.execute("DELETE FROM position_delta_log WHERE at < ?", ((at - timedelta(days=keep_days)).isoformat(),))
+        self.db.quiet_changes += self.db.conn.total_changes - before
+
+    def latest(self, keys: Iterable[str]) -> dict[str, tuple[datetime, float, Optional[float]]]:
+        """Última medida de cada clave: (cuándo, |delta|, precio del subyacente)."""
+        keys = list(keys)
+        if not keys:
+            return {}
+        marks = ",".join("?" * len(keys))
+        rows = self.db.conn.execute(
+            f"SELECT l.key, l.at, l.delta, l.underlying FROM position_delta_log l "
+            f"JOIN (SELECT key, MAX(at) AS at FROM position_delta_log WHERE key IN ({marks}) GROUP BY key) m ON m.key = l.key AND m.at = l.at", keys).fetchall()
+        return {r["key"]: (datetime.fromisoformat(r["at"]), r["delta"], r["underlying"]) for r in rows}
+
+    def history(self, key: str, limit: int = 200) -> list[tuple[datetime, float, Optional[float]]]:
+        rows = self.db.conn.execute("SELECT at, delta, underlying FROM position_delta_log WHERE key = ? ORDER BY at DESC LIMIT ?", (key, limit)).fetchall()
+        return [(datetime.fromisoformat(r["at"]), r["delta"], r["underlying"]) for r in rows]
 
 
 class WatchlistRepo:

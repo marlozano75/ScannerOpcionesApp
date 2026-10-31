@@ -60,7 +60,7 @@ from scanner_opciones.scanner.impact import ImpactReport, impact_report
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     QualityRepo,
-    BarRepo, ContractRepo, MetaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
+    BarRepo, ContractRepo, MetaRepo, PositionDeltaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystProvider
@@ -154,6 +154,7 @@ class AppState:
     account_version: int = 0         # sube con cada refresco de cuenta, posiciones y VIX (el Panel lo vigila además de `data_version`)
     position_deltas: dict[str, float] = field(default_factory=dict)   # |delta| real (tastytrade) de cada put desnuda vendida de la cartera, por `put_key`
     position_deltas_at: Optional[datetime] = None                     # cuándo se cotizaron (aunque alguna no respondiera)
+    position_delta_meta: dict[str, tuple[datetime, Optional[float]]] = field(default_factory=dict)   # por `put_key`: cuándo se midió su delta y a qué precio del subyacente
 
 
 def _to_float(value) -> Optional[float]:
@@ -200,6 +201,7 @@ class AppService:
         self.snapshots = SnapshotRepo(db)
         self.meta = MetaRepo(db)
         self.bars = BarRepo(db)
+        self.position_delta_log = PositionDeltaRepo(db)
         sl = settings.scan_log
         scan_log_repo = ScanLogRepo(db)
         self.scan_log_repo = scan_log_repo
@@ -3033,23 +3035,74 @@ class AppService:
                 out[put_key_of(p)] = OptionContract(o.ticker.replace(" ", "-"), o.expiry, o.strike, OptionRight.PUT, o.multiplier)
         return out
 
-    def _position_deltas_fresh(self, keys: set[str]) -> bool:
+    def _spots(self) -> dict[str, Optional[float]]:
+        return {t: i.underlying_price for t, i in self.ticker_info.all().items()}
+
+    def _delta_moved(self, ticker: str, measured_spot: Optional[float], spots: dict[str, Optional[float]]) -> bool:
+        """True si el subyacente se ha movido más de `greeks_max_move_pct` desde que se midió la delta (sin uno de los dos precios no se puede decir)."""
+        now = spots.get(ticker)
+        if not measured_spot or not now:
+            return False
+        return abs(now / measured_spot - 1) * 100 > self.settings.management.defense.greeks_max_move_pct
+
+    def _delta_still_valid(self, ticker: str, at: datetime, measured_spot: Optional[float], spots: dict[str, Optional[float]]) -> bool:
+        """Una delta guardada vale si es de esta sesión (mercado cerrado: posterior al último cierre; abierto: de menos de `greeks_max_stale_minutes`)
+        y el subyacente no se ha movido de más. Si no, el Panel estima con el precio actual."""
+        if self._paused():
+            if at.astimezone() < self.market.last_close(self.now()):
+                return False
+        elif self.now() - at > timedelta(minutes=self.settings.management.defense.greeks_max_stale_minutes):
+            return False
+        return not self._delta_moved(ticker, measured_spot, spots)
+
+    def usable_position_deltas(self) -> dict[str, float]:
+        """`state.position_deltas` sin las deltas ya desfasadas (por edad o por movimiento del precio): el Panel estima esas con Black-Scholes y el
+        precio actual. Las que no tienen medida asociada (p. ej. puestas a mano) se aceptan."""
+        spots = self._spots()
+        tickers = {k: c.ticker for k, c in self._short_put_contracts().items()}
+        out = {}
+        for key, delta in self.state.position_deltas.items():
+            meta = self.state.position_delta_meta.get(key)
+            if meta is None or key not in tickers or self._delta_still_valid(tickers[key], meta[0], meta[1], spots):
+                out[key] = delta
+        return out
+
+    def _position_deltas_fresh(self, keys: set[str], tickers: dict[str, str]) -> bool:
         at = self.state.position_deltas_at
         if at is None or not keys <= self._position_delta_keys:
             return False
+        spots = self._spots()
+        if any((m := self.state.position_delta_meta.get(k)) is not None and self._delta_moved(tickers[k], m[1], spots) for k in keys):
+            return False      # el precio se ha movido: la delta guardada ya no vale aunque sea reciente
         if self._paused():      # mercado cerrado: vale lo cotizado tras el último cierre (no cambia hasta la apertura)
             return at.astimezone() >= self.market.last_close(self.now())
         return self.now() - at < timedelta(minutes=self.settings.management.defense.greeks_max_age_minutes)
 
+    def _restore_position_deltas(self, contracts: dict[str, OptionContract]) -> None:
+        """Tras un reinicio no hay deltas en memoria: recupera las guardadas que aún valen (ver `_delta_still_valid`)."""
+        spots = self._spots()
+        kept = {k: v for k, v in self.position_delta_log.latest(contracts).items() if self._delta_still_valid(contracts[k].ticker, v[0], v[2], spots)}
+        if not kept:
+            return
+        self.state.position_deltas = {k: v[1] for k, v in kept.items()}
+        self.state.position_delta_meta = {k: (v[0], v[2]) for k, v in kept.items()}
+        self.state.position_deltas_at = min(v[0] for v in kept.values())
+        self._position_delta_keys = set(kept)
+
     async def refresh_position_deltas(self, force: bool = False) -> bool:
         """Cotiza por DXLink (tastytrade) las puts vendidas de la cartera (desnudas y la pata vendida de los spreads) y guarda su |delta| real para el Panel: son pocas (una conexión) y
-        su contrato casi nunca está en la ventana de contratos guardados (strikes >= 5 % por debajo). Se reutiliza `greeks_max_age_minutes` con el
-        mercado abierto y, cerrado, una vez tras el cierre. Un fallo conserva lo anterior y el Panel estima la delta con Black-Scholes."""
+        su contrato casi nunca está en la ventana de contratos guardados (strikes >= 5 % por debajo). Cada medida se guarda también en
+        `position_delta_log` con el precio del subyacente: tras un reinicio se recupera si aún vale (misma sesión y precio casi igual). Se reutiliza `greeks_max_age_minutes` con el
+        mercado abierto y, cerrado, una vez tras el cierre; también se vuelve a pedir si el precio se ha movido más de `greeks_max_move_pct`. Un fallo conserva lo anterior
+        mientras no esté desfasado (`usable_position_deltas`) y si no el Panel estima la delta con Black-Scholes."""
         contracts = self._short_put_contracts()
         if not contracts:
-            self.state.position_deltas, self.state.position_deltas_at = {}, None
+            self.state.position_deltas, self.state.position_deltas_at, self.state.position_delta_meta = {}, None, {}
             return False
-        if not force and self._position_deltas_fresh(set(contracts)):
+        tickers = {k: c.ticker for k, c in contracts.items()}
+        if self.state.position_deltas_at is None and not force:
+            self._restore_position_deltas(contracts)
+        if not force and self._position_deltas_fresh(set(contracts), tickers):
             self.state.position_deltas = {k: v for k, v in self.state.position_deltas.items() if k in contracts}      # fuera las puts que ya no están
             return False
         if self._known_disconnected() and not self._offline_capable():
@@ -3059,9 +3112,13 @@ class AppService:
         except (BrokerError, asyncio.TimeoutError) as exc:
             log.info("Delta real de las puts de la cartera no disponible, el Panel la estima: %s", exc or "tiempo agotado")
             return False
+        now, spots = self.now(), self._spots()
         self.state.position_deltas = {k: abs(q.delta) for k, c in contracts.items() if (q := quotes.get(c)) is not None and q.delta is not None}
-        self.state.position_deltas_at = self.now()
+        self.state.position_delta_meta = {k: (now, spots.get(tickers[k])) for k in self.state.position_deltas}
+        self.state.position_deltas_at = now
         self._position_delta_keys = set(contracts)
+        self.position_delta_log.add_many(now, [(k, tickers[k], d, spots.get(tickers[k])) for k, d in self.state.position_deltas.items()],
+                                         self.settings.management.defense.greeks_log_days)
         return True
 
     async def _spread_evaluation(self, pos: Position, chain, info, underlying: float, contracts: int, mark: float, entry: Optional[float], cfg,

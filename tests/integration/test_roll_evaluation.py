@@ -246,3 +246,65 @@ def test_the_panel_offers_the_defense_of_a_spread_and_the_window_renders(client_
     frag = client.get("/management/roll", params={"key": put_key(short)}).text
     assert "spread 100.00/95.00" in frag and "Vendida/comprada" in frag and "97.50/92.50" in frag
     assert "Añadir un call spread (iron condor)" in frag and "Riesgo máx." in frag and "Vender la call (strangle)" not in frag
+
+
+# ---- histórico de deltas: se guarda con el precio y solo se reutiliza si sigue valiendo -----------------------------
+def _set_spot(svc, price):
+    from dataclasses import replace
+    info = svc.ticker_info.all()["AAPL"]
+    svc.ticker_info.upsert(replace(info, underlying_price=price))
+
+
+def _forget_memory(svc):
+    """Como tras un reinicio: nada de deltas en memoria."""
+    svc.state.position_deltas, svc.state.position_delta_meta, svc.state.position_deltas_at = {}, {}, None
+    svc._position_delta_keys = set()
+
+
+async def test_position_deltas_are_logged_with_the_underlying_price_and_restored_after_a_restart():
+    svc, gw = await started_service()
+    pos = put_position()
+    svc.state.positions = [pos]
+    stage(gw)
+    _set_spot(svc, 100.0)
+    assert await svc.refresh_position_deltas() is True
+    assert svc.position_delta_log.latest([put_key(pos)])[put_key(pos)][1:] == (pytest.approx(0.52), 100.0)
+    _forget_memory(svc)
+    asked = []
+    original = gw.get_quotes
+
+    async def spy(contracts):
+        asked.append(contracts)
+        return await original(contracts)
+    gw.get_quotes = spy
+    await svc.refresh_position_deltas()
+    assert svc.state.position_deltas == {put_key(pos): pytest.approx(0.52)} and not asked      # recuperada del disco: no se vuelve a pedir
+
+
+async def test_a_logged_delta_is_not_restored_when_the_price_has_moved():
+    svc, gw = await started_service()
+    pos = put_position()
+    svc.state.positions = [pos]
+    stage(gw)
+    _set_spot(svc, 100.0)
+    await svc.refresh_position_deltas()
+    _forget_memory(svc)
+    _set_spot(svc, 103.0)                                      # +3 % > greeks_max_move_pct
+    gw.quotes[OptionContract("AAPL", TODAY + timedelta(days=14), 100.0, OptionRight.PUT)] = OptionQuote(bid=2.0, ask=2.2, delta=-0.40)
+    assert await svc.refresh_position_deltas() is True
+    assert svc.state.position_deltas == {put_key(pos): pytest.approx(0.40)}                  # se pidió de nuevo en vez de usar la guardada
+
+
+async def test_a_moved_price_makes_the_panel_ignore_the_delta_and_ask_again():
+    svc, gw = await started_service()
+    pos = put_position()
+    svc.state.positions = [pos]
+    stage(gw)
+    _set_spot(svc, 100.0)
+    await svc.refresh_position_deltas()
+    assert svc.usable_position_deltas() == {put_key(pos): pytest.approx(0.52)}
+    _set_spot(svc, 102.0)
+    assert svc.usable_position_deltas() == {}                 # el Panel estimará con el precio actual
+    assert await svc.refresh_position_deltas() is True        # y aunque sea reciente se vuelve a cotizar
+    _set_spot(svc, 102.5)                                       # la nueva medida es de 102: un 0,5 % no la invalida
+    assert svc.usable_position_deltas() != {}

@@ -265,7 +265,7 @@ def create_app(
         mgmt = manage_puts(service.state.positions, nlv, service.now().date(),
                            {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
                            service.put_management(), service.put_assignments(), service.put_open_dates(), service.put_margins(),
-                           service.put_assignment_notes(), service.put_exit_rules(), service.defense_context(), service.state.position_deltas,
+                           service.put_assignment_notes(), service.put_exit_rules(), service.defense_context(), service.usable_position_deltas(),
                            commission_model(service.settings))
         today = service.now().date()
         others = other_positions(service.state.positions, today, nlv,

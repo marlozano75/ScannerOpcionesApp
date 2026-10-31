@@ -300,6 +300,17 @@ MIGRATIONS: list[str] = [
     ALTER TABLE scan_events ADD COLUMN spread_pct REAL;
     ALTER TABLE scan_events ADD COLUMN bid_size INTEGER;
     """,
+    # v32: histórico de la |delta| real de las puts vendidas de la cartera, con el precio del subyacente al medirla
+    """
+    CREATE TABLE position_delta_log (
+        at TEXT NOT NULL,
+        key TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        delta REAL NOT NULL,
+        underlying REAL,
+        PRIMARY KEY (key, at)
+    );
+    """,
 ]
 
 
