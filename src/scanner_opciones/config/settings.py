@@ -827,9 +827,11 @@ class TortugaSettings(_Model):
     prompts_dir: str = "scripts"              # carpeta de los *_prompt.md
     radar_path: str = "data/community/radar_spreads.json"       # radar de Bull Put Spreads (rutina `radar_spreads`)
     radar_puts_path: str = "data/community/radar_puts.json"     # radar de venta de puts (rutina `radar_puts`)
-    source_name: str = "TortugaSpreads"       # fuente del Universo con los tickers del radar (Bull Put Spread) que cumplen el yield del perfil
+    source_name: str = "RadarSpreads"         # fuente del Universo con los tickers del radar (Bull Put Spread) que cumplen el yield del perfil
     # fuente con los del radar cuya estrategia propuesta es la venta de put
-    puts_source_name: str = "TortugaPuts"
+    puts_source_name: str = "RadarPuts"
+    # nombres anteriores de las dos fuentes: se renombran al arrancar
+    legacy_source_names: dict[str, str] = {"TortugaSpreads": "source_name", "TortugaPuts": "puts_source_name"}
     profile: str = "TastyPut"                 # perfil del Scanner cuyo yield mínimo (periodo) se exige a la put de 30Δ del radar
     times: dict[str, str] = {"aperturas": "11:10", "comunidad": "11:15", "radar_spreads": "11:45", "radar_puts": "11:50", "super_investors": "11:30"}
     # días mínimos entre dos lecturas buenas de una rutina diaria (los 13F cambian una vez al trimestre: una semana sobra)

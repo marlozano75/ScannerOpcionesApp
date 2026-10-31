@@ -52,9 +52,9 @@ ROUTINES = (
     Routine("comunidad", "Comunidad de traders", "comunidad_prompt.md", ("get_context", "get_community_screener", "list_public_operations"), 25,
             "columna Comunidad del Scanner, pestaña Comunidad y fuente TortugaTrades_Dia"),
     Routine("radar_spreads", "Radar de Bull Put Spreads", "radar_spreads_prompt.md", ("get_context", "get_market_radar"), 30,
-            "pestaña MarketRadar (SPREAD) y fuente TortugaSpreads (pasa a la watchlist)", via_calls=True),
+            "pestaña MarketRadar (SPREAD) y fuente RadarSpreads (pasa a la watchlist)", via_calls=True),
     Routine("radar_puts", "Radar de venta de puts", "radar_puts_prompt.md", ("get_context", "get_market_radar"), 30,
-            "pestaña MarketRadar (PUT) y fuente TortugaPuts (pasa a la watchlist)", via_calls=True),
+            "pestaña MarketRadar (PUT) y fuente RadarPuts (pasa a la watchlist)", via_calls=True),
     Routine("super_investors", "Super Investors (13F de gestores de calidad)", "super_investors_prompt.md", ("get_super_investors",), 30,
             "fuente SuperInvestors del Universo (empresas de calidad para puts)", via_calls=True),
 )

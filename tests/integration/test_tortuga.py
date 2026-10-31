@@ -1,4 +1,4 @@
-"""Tortuga desde la aplicación: radar de Bull Put Spreads, rutinas que lanzan la CLI de Claude (simulada) y fuente TortugaSpreads."""
+"""Tortuga desde la aplicación: radar de Bull Put Spreads, rutinas que lanzan la CLI de Claude (simulada) y fuente RadarSpreads."""
 import json
 import os
 from datetime import date, datetime, timedelta
@@ -244,7 +244,7 @@ async def test_radar_source_takes_only_the_rows_that_meet_the_profile_yield_and_
     (tmp_path / "radar.json").write_text(json.dumps(doc(rows)), encoding="utf-8")
     assert svc.radar_min_yield() == 1.0 and svc.radar_passing() == ["MPC", "PSX"]
     res = await svc.sync_radar_source()
-    assert svc.manual_sources["TortugaSpreads"] == ["MPC", "PSX"] and res["added"] == ["MPC", "PSX"]
+    assert svc.manual_sources["RadarSpreads"] == ["MPC", "PSX"] and res["added"] == ["MPC", "PSX"]
     await svc.wait_idle()
     assert set(svc.watchlist.list()) >= {"MPC", "PSX"} and "XYZ" not in svc.watchlist.list()
     assert await svc.sync_radar_source() is None                                                     # mismo JSON y umbral: no se repite
@@ -266,7 +266,7 @@ async def test_background_launch_runs_what_is_due_and_then_syncs_the_radar(tmp_p
     state = runner.state()
     assert state["radar_spreads"]["summary"].startswith("1 valores") and state["comunidad"].get("error")        # una falla, otra no
     await svc.wait_idle()
-    assert "TortugaSpreads" in svc.manual_sources and svc.tortuga_in_background(force="radar_spreads") is True
+    assert "RadarSpreads" in svc.manual_sources and svc.tortuga_in_background(force="radar_spreads") is True
     await svc.wait_idle()
 
 
@@ -343,11 +343,18 @@ async def test_the_radar_fills_a_source_for_spreads_and_another_for_puts(tmp_pat
     (tmp_path / "radar.json").write_text(json.dumps(doc(rows)), encoding="utf-8")
     assert svc.radar_passing("spread") == ["MPC"] and svc.radar_passing("put") == ["PSX"] and svc.radar_passing() == ["MPC", "PSX"]
     res = await svc.sync_radar_source()
-    assert svc.manual_sources["TortugaSpreads"] == ["MPC"] and svc.manual_sources["TortugaPuts"] == ["PSX"]
+    assert svc.manual_sources["RadarSpreads"] == ["MPC"] and svc.manual_sources["RadarPuts"] == ["PSX"]
     assert res["added"] == ["MPC"] and res["puts"]["added"] == ["PSX"]
     await svc.wait_idle()
-    assert not svc.is_renamable_source("TortugaPuts")
+    assert not svc.is_renamable_source("RadarPuts")
     assert await svc.sync_radar_source() is None
+
+
+async def test_old_radar_source_names_are_renamed_on_startup(tmp_path):
+    svc, _, _ = make(tmp_path)
+    svc.manual_sources = {"TortugaSpreads": ["MPC"], "TortugaPuts": ["PSX"], "Mia": ["AAA"]}
+    svc._rename_legacy_radar_sources()
+    assert svc.manual_sources == {"RadarSpreads": ["MPC"], "RadarPuts": ["PSX"], "Mia": ["AAA"]}
 
 
 async def test_daily_tortuga_routines_only_run_on_business_days_at_their_time(tmp_path):

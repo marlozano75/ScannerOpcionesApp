@@ -113,7 +113,7 @@ WATCHLIST_ABSENT = "watchlist_sync_absent"       # clave de `meta`: {ticker: pri
 WATCHLIST_SYNC = "watchlist_sync"             # clave de `meta`: "" = sin decidir (solo se muestra el resumen), "on" = la Watchlist sigue al Universo, "off" = a mano
 INVESTORS_SYNCED = "super_investors_synced"   # clave de `meta`: huella de la fuente SuperInvestors ya volcada
 INVESTORS_INFO = "super_investors_info"       # clave de `meta`: {ticker: {managers, max_weight}} de esa fuente (columnas del Universo)
-RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente TortugaSpreads
+RADAR_SYNCED = "radar_spreads_synced"   # clave de `meta`: radar de Bull Put Spreads (y umbral) ya volcado en la fuente RadarSpreads
 COMMUNITY_SYNCED = "community_synced"   # clave de `meta`: `generated_at` del JSON de la comunidad ya volcado en la fuente del Universo
 SCAN_LOG_CFG = "scan_log_cfg"   # clave de `meta`: configuración del Histórico guardada desde la interfaz (JSON)
 RADAR_LIVE = "radar_live"   # clave de `meta`: última cotización en directo de los contratos del radar (pickle en base64)
@@ -277,6 +277,7 @@ class AppService:
         self.europe_added: set[str] = self._load_europe()      # valores europeos dados de alta desde el Universo (ya registrados en `settings.instruments`)
         self.manual_sources: dict[str, list[str]] = self._load_manual()   # fuentes con nombre: tickers escritos a mano
         self._rename_legacy_community_source()
+        self._rename_legacy_radar_sources()
         self.source_excluded: dict[str, set[str]] = self._load_excluded()  # tickers quitados a mano de una fuente de fichero
         # aviso de los tickers recién sacados de la watchlist por inservibles (ticker -> motivo); solo en memoria
         self.excluded_notice: dict[str, str] = {}
@@ -366,6 +367,19 @@ class AppService:
             self.manual_sources[cfg.source_name] = self.manual_sources.pop(old)
             self._save_manual()
             log.info("Fuente del Universo «%s» renombrada a «%s»", old, cfg.source_name)
+
+    def _rename_legacy_radar_sources(self) -> None:
+        """Las fuentes del radar se llamaban «TortugaSpreads» y «TortugaPuts»; ahora `tortuga.source_name` y `tortuga.puts_source_name`."""
+        cfg = self.settings.tortuga
+        changed = False
+        for old, attr in cfg.legacy_source_names.items():
+            new = getattr(cfg, attr)
+            if old != new and old in self.manual_sources and new not in self.manual_sources:
+                self.manual_sources = {(new if k == old else k): v for k, v in self.manual_sources.items()}
+                changed = True
+                log.info("Fuente del Universo «%s» renombrada a «%s»", old, new)
+        if changed:
+            self._save_manual()
 
     def feed_source_name(self, feed: str) -> str:
         """Nombre de la fuente del Universo con los tickers de los contratos vigentes de una fuente de contratos."""
@@ -2835,7 +2849,7 @@ class AppService:
         self.tortuga_in_background()             # lanza las rutinas de Tortuga que toquen hoy (CLI de Claude, solo lectura)
         self.sync_investors_in_background()      # ídem con los Super Investors: fuente SuperInvestors (empresas de calidad para puts)
         self.sync_tasty_lists_in_background()    # listas públicas de tastytrade (Dividend Champions, Hourly, Fast Movers...): fuentes del Universo
-        self.sync_radar_in_background()          # ídem con el radar de Bull Put Spreads: fuente TortugaSpreads y watchlist
+        self.sync_radar_in_background()          # ídem con el radar de Bull Put Spreads: fuente RadarSpreads y watchlist
         self.sync_watchlist_in_background()      # la Watchlist sigue a las fuentes del Universo (si el usuario lo activó)
         if not self._paused() or self._capture_needed():
             return await self.refresh_all()
