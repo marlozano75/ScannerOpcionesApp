@@ -13,12 +13,17 @@ Formato (versión 1). Lo escribe la rutina diaria a partir del conector de Tortu
       "ideas": [     # aperturas del último día hábil con datos (llegan un día tarde: IBKR Flex)
         {"date": "2026-10-09", "trader": "Juancm", "ticker": "VZ", "strategy": "Short Put", "expiry": "2026-11-20",
          "short_strike": 42, "long_strike": null, "contracts": 1, "credit": 0.96, "max_loss": 4104}
-      ]
+      ],
+      "profiles": {   # (versión 2, opcional) track record de cada trader que aparece en «ideas», de get_trader_profile
+        "yors37": {"rank": 66, "tier": "gold", "score": 49.9, "twr": 25.13, "win_rate": 73.8,
+                   "profit_factor": 1.24, "expectancy": 19.24, "total_pnl": 7271.9, "capital_return": 5.25, "trades": 378}
+      }
     }
 
 `credit` es la prima NETA por acción (en un spread, vendida − comprada); `max_loss` la pérdida máxima de toda la posición en dólares
-(opcional). Un elemento mal formado se descarta y se anota en `warnings`; un fichero que no es un JSON de este formato lanza
-`CommunityError`.
+(opcional). `profiles` es opcional (un JSON de versión 1 no lo lleva y sigue siendo válido): la fiabilidad del trader que la app muestra
+en Comunidad y en el Panel. Un elemento mal formado se descarta y se anota en `warnings`; un fichero que no es un JSON de este formato
+lanza `CommunityError`.
 """
 from __future__ import annotations
 
@@ -31,7 +36,8 @@ from typing import Any, Optional
 
 from scanner_opciones.feeds.base import ContractIdea
 
-VERSION = 1
+VERSION = 2                     # se escribe la 2 (con `profiles`); se lee también la 1 (sin ellos)
+SUPPORTED_VERSIONS = (1, 2)
 STRATEGIES = ("Short Put", "Bull Put Spread")
 _TICKER = re.compile(r"^[A-Z][A-Z0-9]{0,5}([.\-/][A-Z])?$")
 
@@ -54,14 +60,36 @@ CommunityIdea = ContractIdea      # una idea de la comunidad es un contrato de u
 
 
 @dataclass(frozen=True)
+class TraderProfile:
+    """Track record público de un trader (get_trader_profile): la fiabilidad que la app muestra junto a su nombre. Todo salvo
+    `username` y `tier` puede ser None cuando la herramienta no lo trae."""
+    username: str
+    tier: str = ""                          # id del escalón del ranking: «gold», «silver», «bronze»…
+    rank: Optional[int] = None
+    score: Optional[float] = None
+    twr: Optional[float] = None             # rentabilidad TWR del año, en %
+    win_rate: Optional[float] = None        # % de operaciones ganadoras
+    profit_factor: Optional[float] = None   # beneficio bruto / pérdida bruta (< 1 = pierde dinero)
+    expectancy: Optional[float] = None      # resultado esperado por operación, en la divisa base del trader
+    total_pnl: Optional[float] = None       # P&L total del periodo, en la divisa base del trader
+    capital_return: Optional[float] = None  # retorno sobre el capital medio, en %
+    trades: Optional[int] = None            # nº de operaciones del periodo
+
+
+@dataclass(frozen=True)
 class CommunityData:
     generated_at: datetime
     tickers: tuple[CommunityTicker, ...] = ()
     ideas: tuple[CommunityIdea, ...] = ()
+    profiles: dict[str, TraderProfile] = field(default_factory=dict)   # por username en minúsculas
     warnings: tuple[str, ...] = field(default=(), compare=False)
 
     def by_ticker(self) -> dict[str, CommunityTicker]:
         return {t.ticker: t for t in self.tickers}
+
+    def profile(self, trader: Optional[str]) -> Optional[TraderProfile]:
+        """Perfil del trader (sin distinguir mayúsculas); None si no lo hay."""
+        return self.profiles.get(trader.casefold()) if trader else None
 
 
 def _num(raw: Any, label: str, minimum: float = 0.0, integer: bool = False) -> float:
@@ -122,13 +150,41 @@ def _parse_idea(item: Any) -> CommunityIdea:
                          None if max_loss is None else _num(max_loss, "max_loss"))
 
 
+def _opt_num(raw: Any, label: str, warnings: list[str], integer: bool = False) -> Optional[float]:
+    """Número opcional de un perfil: None si falta o es inválido (se anota), sin tope mínimo (P&L y expectancy pueden ser negativos)."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        warnings.append(f"{label} no es un número")
+        return None
+    return int(raw) if integer else float(raw)
+
+
+def _parse_profile(username: str, item: Any, warnings: list[str]) -> Optional[TraderProfile]:
+    if not isinstance(item, dict):
+        warnings.append(f"profiles[{username}]: no es un objeto")
+        return None
+    w = username.casefold()
+    return TraderProfile(
+        username=str(username), tier=str(item.get("tier") or "").strip().casefold(),
+        rank=_opt_num(item.get("rank"), f"profiles[{w}].rank", warnings, integer=True),
+        score=_opt_num(item.get("score"), f"profiles[{w}].score", warnings),
+        twr=_opt_num(item.get("twr"), f"profiles[{w}].twr", warnings),
+        win_rate=_opt_num(item.get("win_rate"), f"profiles[{w}].win_rate", warnings),
+        profit_factor=_opt_num(item.get("profit_factor"), f"profiles[{w}].profit_factor", warnings),
+        expectancy=_opt_num(item.get("expectancy"), f"profiles[{w}].expectancy", warnings),
+        total_pnl=_opt_num(item.get("total_pnl"), f"profiles[{w}].total_pnl", warnings),
+        capital_return=_opt_num(item.get("capital_return"), f"profiles[{w}].capital_return", warnings),
+        trades=_opt_num(item.get("trades"), f"profiles[{w}].trades", warnings, integer=True))
+
+
 def parse_community(text: str) -> CommunityData:
     try:
         raw = json.loads(text)
     except ValueError as exc:
         raise CommunityError(f"no es un JSON válido: {exc}") from exc
-    if not isinstance(raw, dict) or raw.get("version") != VERSION:
-        raise CommunityError(f"se esperaba un objeto con version {VERSION}")
+    if not isinstance(raw, dict) or raw.get("version") not in SUPPORTED_VERSIONS:
+        raise CommunityError(f"se esperaba un objeto con version {' o '.join(map(str, SUPPORTED_VERSIONS))}")
     try:
         generated = datetime.fromisoformat(str(raw.get("generated_at")))
     except ValueError:
@@ -150,7 +206,16 @@ def parse_community(text: str) -> CommunityData:
             ideas.append(_parse_idea(item))
         except ValueError as exc:
             warnings.append(f"ideas[{i}]: {exc}")
-    return CommunityData(generated, tuple(tickers.values()), tuple(ideas), tuple(warnings))
+    profiles: dict[str, TraderProfile] = {}
+    raw_profiles = raw.get("profiles")
+    if raw_profiles is not None and not isinstance(raw_profiles, dict):
+        warnings.append("«profiles» no es un objeto")
+    elif raw_profiles:
+        for username, item in raw_profiles.items():
+            prof = _parse_profile(str(username), item, warnings)
+            if prof is not None:
+                profiles[str(username).casefold()] = prof
+    return CommunityData(generated, tuple(tickers.values()), tuple(ideas), profiles, tuple(warnings))
 
 
 def load_community(path: str | Path) -> CommunityData:

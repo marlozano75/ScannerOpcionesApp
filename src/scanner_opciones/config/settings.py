@@ -804,6 +804,7 @@ class CommunitySettings(_Model):
     source_name: str = "TortugaTrades_Dia"       # fuente del Universo con los tickers más vendidos por la comunidad (se sustituye con cada JSON)
     perm_source_name: str = "TortugaTrades_Perm"  # fuente permanente: tickers que el usuario va añadiendo desde Comunidad
     my_trader: str = "marloz"                    # tu nombre de usuario en la comunidad: tus operaciones llegan también en el JSON (con un día de retraso) y no son ideas de otros
+    max_profiles: int = Field(40, ge=1)          # cuántos traders (de los que aparecen en las ideas) trae la rutina con su track record (get_trader_profile)
     feed_match_days: int = Field(3, ge=0)        # el Panel reconoce el perfil de una put por el histórico de una fuente si la abrió el trader hasta N días ANTES que tú (los trades se publican con un día de retraso)
     contracts_source: bool = True                # publicar los tickers de los contratos vigentes de la comunidad como fuente del Universo («Comunidad_Contratos»)
     legacy_source_name: str = "Tortuga"          # nombre anterior de la fuente diaria: se renombra al arrancar

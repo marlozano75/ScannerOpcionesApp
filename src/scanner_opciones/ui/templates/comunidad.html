@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-{% from "_fit_macros.html" import fit_cell %}
+{% from "_fit_macros.html" import fit_cell, trader_badge %}
 {% include "_msgs.html" %}
 <style>
   .idea-valid { color:#1d6b3f; font-weight:600; } .idea-lower { color:#8a6d00; font-weight:600; }
@@ -24,7 +24,8 @@
     Son ideas de otros traders, no recomendaciones: muchas son valores especulativos que no pasarían tus filtros de calidad. Con el mercado abierto la página se recarga sola cada 5 minutos.
     El selector PUT / SPREAD elige qué ideas ves y con qué perfiles del Scanner se comparan (cada perfil es de un instrumento). Cada columna de perfil dice cuántos filtros cumple hoy la idea (n/total y un cuadrito por filtro: verde cumple, rojo no cumple, gris sin comprobar; pasa el ratón para ver el detalle). Los técnicos y la calidad de la empresa no se evalúan.
     Junto al ticker, las iniciales indican las fuentes del Universo en las que ya está (en ámbar, {{ perm_name }}).
-    Prima: la que cobró la idea por contrato y, debajo, la que cobrarías hoy. Descuento: distancia del strike al precio hoy y, debajo, al abrir (precio al abrir = cierre del día, aproximado). % NLV: capital en riesgo por contrato sobre tu NLV en USD.</p></div>
+    Prima: la que cobró la idea por contrato y, debajo, la que cobrarías hoy. Descuento: distancia del strike al precio hoy y, debajo, al abrir (precio al abrir = cierre del día, aproximado). % NLV: capital en riesgo por contrato sobre tu NLV en USD.
+    Junto al trader, una píldora con su fiabilidad (escalón del ranking de Tortuga); se tiñe de rojo con ⚠ si su track record pierde dinero (profit factor &lt; 1 o esperanza negativa) aunque su escalón sea alto. Es el historial del trader, no una garantía de esta operación.</p></div>
   {% if quoting %}<div class="banner info" id="quoting">Cotizando en directo las ideas fuera de tu watchlist (cadenas, precios y cierres). Algunas saldrán «sin valorar» hasta que termine: la página se recarga sola.</div>
   <script>(function wait() { setTimeout(function () { if (document.querySelector('dialog[open]')) wait(); else location.reload(); }, 8000); })();</script>{% endif %}
   {% if stale %}<div class="banner err">Los datos tienen {{ (stale / 24)|round|int }} días: la rutina diaria no se ha ejecutado.</div>{% endif %}
@@ -48,7 +49,7 @@
       <th class="n" title="Prima por contrato que cobró la idea y, debajo, la que cobrarías hoy con tu precio de venta de referencia (en un spread, vendida − ask de la comprada)">Prima ($)</th>
       <th class="n" title="Capital en riesgo por contrato como % del NLV en USD: (strike − prima) × 100 en una put, (ancho − prima) × 100 en un spread">% NLV</th>
       <th class="n" title="Prima / strike (put) o / ancho (spread) hoy, sin anualizar, y debajo la delta de la put vendida">Yield · Δ</th><th class="c">Estado</th>
-      {% for idx, n in fit_cols %}<th class="fitcol c" title="Filtros de «{{ n }}» (con sus valores por defecto) que cumple hoy la idea">{{ n }}</th>{% endfor %}<th title="Trader y fecha de apertura">Trader</th></tr>
+      {% for idx, n in fit_cols %}<th class="fitcol c" title="Filtros de «{{ n }}» (con sus valores por defecto) que cumple hoy la idea">{{ n }}</th>{% endfor %}<th title="Trader que la abrió, su fiabilidad (escalón del ranking; pasa el ratón para ver aciertos, profit factor, esperanza y rentabilidad) y la fecha de apertura">Trader</th></tr>
     {% for v in views %}{% set i = v.idea %}
     <tr><td class="tk"><input type="checkbox" class="pick" name="idea" value="{{ keys[loop.index0] }}" title="Marcar para añadir su ticker a {{ perm_name }}"><b title="{{ tk_title(company_names, i.ticker) }}"><a href="#" class="chart-link" data-ticker="{{ i.ticker }}" data-strike="{{ i.short_strike }}" data-expiry="{{ i.expiry }}"{% if i.long_strike is not none %} data-long="{{ i.long_strike }}"{% endif %} data-prem="{{ i.credit }}">{{ i.ticker }}</a></b>{{ sec_flag(sec_alerts, i.ticker) }}{{ analyst_flag(analyst_alerts, i.ticker) }}{% for ini, name in lists.get(i.ticker, []) %}<span class="tl{{ ' tl-p' if name == perm_name }}" title="Está en la fuente «{{ name }}»">{{ ini }}</span>{% endfor %}{% set q = own_qty(owned, i.ticker, i.expiry, i.short_strike) %}{% if q %}<span class="own{{ ' own-long' if q > 0 }}" title="Ya tienes {{ q|abs|int }} contrato(s) {{ 'vendido(s)' if q < 0 else 'comprado(s)' }} de esta put (strike {{ i.short_strike|num }}) en cartera">{{ 'EN CARTERA' if q < 0 else 'COMPRADA' }} ×{{ q|abs|int }}</span>{% endif %}{% if v.traded %}{% set t = v.traded %}<span class="own own-closed" title="{{ 'Mismo contrato' if t.same_contract else 'Mismo ticker' }}: cerraste una put vendida el {{ t.day.strftime('%d/%m') }} (hace {{ t.days_ago }} días){% if t.pct_captured is not none %} con el {{ t.pct_captured|round|int }} % de la prima capturada{% endif %}{% if t.pnl is not none %} · P&amp;L {{ '%+.0f'|format(t.pnl) }}{% endif %}">CERRADA hace {{ t.days_ago }} d{% if t.pct_captured is not none %} · {{ t.pct_captured|round|int }} %{% endif %}</span>{% endif %}</td>
       <td data-sort="{{ i.expiry.isoformat() }}"><b>{{ i.short_strike|num }}{% if i.long_strike is not none %}/{{ i.long_strike|num }}{% endif %}</b>{% if i.contracts > 1 %} <span class="muted">×{{ i.contracts }}</span>{% endif %}<small>{{ i.expiry.strftime('%d/%m') }} · {{ v.dte }} d</small></td>
@@ -59,7 +60,7 @@
       <td class="n"{% if v.yield_now_pct is not none %} data-sort="{{ v.yield_now_pct }}"{% endif %}>{{ v.yield_now_pct|pct if v.yield_now_pct is not none else '—' }}<small>Δ {{ v.delta_now|num if v.delta_now is not none else '—' }}</small></td>
       <td class="c"><span class="st st-{{ v.status }}" title="{{ v.text }}">{{ {'valid': 'Vigente', 'lower': 'Prima menor', 'dropped': 'Ha caído', 'itm': 'En el dinero', 'no_data': 'Sin valorar', 'expired': 'Vencida'}[v.status] }}</span></td>
       {%- for idx, n in fit_cols %}{{ fit_cell(v.fits[idx] if v.fits and idx < v.fits|length else none, n) }}{% endfor %}
-      <td data-sort="{{ i.day.isoformat() }}">{{ i.trader or i.source or '—' }}<small>{{ i.day.strftime('%d/%m') }}</small></td>
+      <td data-sort="{{ i.day.isoformat() }}">{{ i.trader or i.source or '—' }}{% if i.trader %}{{ trader_badge(data.profile(i.trader)) }}{% endif %}<small>{{ i.day.strftime('%d/%m') }}</small></td>
       </tr>
     {% endfor %}
   </table>

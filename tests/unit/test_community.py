@@ -37,11 +37,36 @@ def test_a_valid_file_is_read_and_tickers_are_normalised():
     assert (spread.short_strike, spread.long_strike, spread.day) == (120.0, 115.0, date(2026, 10, 9)) and spread.max_loss is None
 
 
-@pytest.mark.parametrize("bad", ["no json", "[]", json.dumps({**OK, "version": 2}), json.dumps({**OK, "generated_at": "ayer"}),
+@pytest.mark.parametrize("bad", ["no json", "[]", json.dumps({**OK, "version": 3}), json.dumps({**OK, "generated_at": "ayer"}),
                                  json.dumps({**OK, "tickers": "x"})])
 def test_a_file_that_is_not_this_format_is_rejected(bad):
     with pytest.raises(CommunityError):
         parse_community(bad)
+
+
+def test_version_2_with_trader_profiles_is_read():
+    profiles = {
+        "yors37": {"rank": 66, "tier": "Gold", "score": 49.9, "twr": 25.13, "win_rate": 73.8,
+                   "profit_factor": 1.24, "expectancy": 19.24, "total_pnl": 7271.9, "capital_return": 5.25, "trades": 378},
+        "Tradingopc": {"tier": "bronze", "profit_factor": 0.67, "expectancy": -35.2},   # pierde dinero aunque acierte mucho
+    }
+    d = parse_community(text(version=2, profiles=profiles))
+    assert d.warnings == ()
+    p = d.profile("YORS37")                                   # sin distinguir mayúsculas
+    assert (p.tier, p.rank, p.profit_factor, p.trades) == ("gold", 66, 1.24, 378)
+    assert d.profile("tradingopc").expectancy == -35.2 and d.profile("nadie") is None
+
+
+def test_version_1_file_has_no_profiles():
+    d = parse_community(text())                               # un JSON de versión 1 sigue siendo válido
+    assert d.profiles == {} and d.profile("yors37") is None
+
+
+def test_a_malformed_profile_is_skipped_and_reported():
+    profiles = {"ok": {"tier": "gold", "profit_factor": 1.1}, "mal": {"profit_factor": "alto"}, "feo": "x"}
+    d = parse_community(text(version=2, profiles=profiles))
+    assert set(d.profiles) == {"ok", "mal"} and d.profile("mal").profit_factor is None    # el campo malo se descarta, el perfil no
+    assert d.profile("feo") is None and any("feo" in w for w in d.warnings)
 
 
 def test_malformed_items_are_skipped_and_reported():

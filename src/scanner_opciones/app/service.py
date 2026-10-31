@@ -35,7 +35,7 @@ from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
-from scanner_opciones.community.data import CommunityData
+from scanner_opciones.community.data import CommunityData, TraderProfile
 from scanner_opciones.feeds.base import ContractFeed, ContractIdea, combined_stamp
 from scanner_opciones.feeds.community import CommunityFeed
 from scanner_opciones.feeds.marketradar import MarketRadarFeed
@@ -2686,6 +2686,22 @@ class AppService:
         fits = self._entry_fits()
         out = {k: "Perfil elegido a mano." for k in manual}
         out.update({k: f.note for k, f in fits.items() if k not in manual and f.note})
+        return out
+
+    def put_trader_profiles(self) -> dict[str, TraderProfile]:
+        """Track record del trader que abrió cada put/spread reconocida por una fuente (para el chip de fiabilidad del Panel), por clave de posición.
+        Solo las reconocidas por el histórico de una fuente con un único trader que además tiene perfil en el JSON de la comunidad."""
+        data = self.community()
+        if data is None or not data.profiles:
+            return {}
+        manual = self.put_profiles()
+        out: dict[str, TraderProfile] = {}
+        for key, fit in self._entry_fits().items():
+            if key in manual or not fit.trader:
+                continue
+            prof = data.profile(fit.trader)
+            if prof is not None:
+                out[key] = prof
         return out
 
     def _entry_facts(self, p: Position, opened: date) -> EntryFacts:

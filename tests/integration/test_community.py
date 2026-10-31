@@ -127,6 +127,23 @@ def test_the_ideas_page_values_each_idea_with_todays_quote_and_filters(client_an
     assert "Ninguna idea cumple los filtros" in client.get("/comunidad?tipo=spread").text
 
 
+def test_the_ideas_page_shows_each_traders_reliability_badge(client_and_service, tmp_path):
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    contract = svc.contracts.list("AAPL")[0]
+    payload = json.loads(ideas_payload(contract))
+    payload["version"] = 2
+    payload["profiles"] = {"Ana": {"tier": "gold", "profit_factor": 1.24, "win_rate": 73.8, "trades": 378},
+                           "Beto": {"tier": "silver", "profit_factor": 0.67, "expectancy": -35.2}}   # acierta pero pierde dinero
+    path = tmp_path / "tortuga.json"
+    write(path, json.dumps(payload))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(path)))
+    page = client.get("/comunidad").text
+    assert 'class="tbadge"' in page and ">Gold</span>" in page                  # el escalón del ranking
+    assert "Profit factor 1.24" in page and "Aciertos 73.8 %" in page           # el detalle va en el tooltip
+    assert ">⚠ Silver</span>" in page and "pierde dinero" in page               # Beto se tiñe de rojo con ⚠
+
+
 class LiveProvider:
     """Cadena, cotizaciones, precios y cierres en memoria para un ticker fuera de la watchlist."""
     async def get_put_listing(self, ticker):

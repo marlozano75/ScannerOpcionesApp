@@ -1,6 +1,7 @@
 You are a data-extraction job. Build ONE JSON document from the Tortuga Trades community tools and print it as your final
 answer. Print ONLY the JSON: no explanations, no markdown fences, nothing before or after it. You may NOT call any tool other
-than get_context, get_community_screener and list_public_operations. Do not invent numbers: copy them from the tool results.
+than get_context, get_community_screener, list_public_operations and get_trader_profile. Do not invent numbers: copy them from
+the tool results.
 
 STEPS
 1. Call get_context. Keep "today" (Europe/Madrid) for generated_at and the date ranges below.
@@ -22,10 +23,26 @@ STEPS
      (skip the structure if it is a debit).  max_loss = the structure "max_loss" (null if absent).
    - Skip the underlyings SPX, SPXW, NDX, XSP, RUT, VIX and VIXW.
    - Keep at most 150 ideas, the most recent first.
+5. Collect the distinct "trader" usernames of the ideas you kept (step 4), in the order they first appear, and take at most the
+   first 40. For each one call get_trader_profile with that username and read its "profile" object. Build "profiles" as a map from
+   the username to an object with these keys, copying the numbers from the tool result (use null when the tool omits a field, and
+   round every decimal to 2 places):
+     tier            = profile.tier.id        (a string like "gold"/"silver"/"bronze"; "" if absent)
+     rank            = profile.rank
+     score           = profile.score
+     twr             = profile.twr.twr
+     win_rate        = profile.stats.winRate
+     profit_factor   = profile.stats.profitFactor
+     expectancy      = profile.stats.expectancy
+     total_pnl       = profile.stats.totalPnl
+     capital_return  = profile.capital_return.pct
+     trades          = profile.stats.trades
+   If get_trader_profile fails for a username, skip that username (do not retry more than once) and leave it out of "profiles";
+   never let a profile failure abort the whole document.
 
-OUTPUT FORMAT (version 1) - exactly these keys:
+OUTPUT FORMAT (version 2) - exactly these keys:
 {
-  "version": 1,
+  "version": 2,
   "generated_at": "<today as YYYY-MM-DDT13:00:00+02:00 or +01:00, the Madrid offset of today>",
   "source": "tortuga",
   "tickers": [
@@ -34,8 +51,14 @@ OUTPUT FORMAT (version 1) - exactly these keys:
   "ideas": [
     {"date": "2026-10-09", "trader": "Juancm", "ticker": "VZ", "strategy": "Short Put", "expiry": "2026-11-20",
      "short_strike": 42, "long_strike": null, "contracts": 1, "credit": 0.96, "max_loss": 4104}
-  ]
+  ],
+  "profiles": {
+    "yors37": {"rank": 66, "tier": "gold", "score": 49.94, "twr": 25.13, "win_rate": 73.81,
+               "profit_factor": 1.24, "expectancy": 19.24, "total_pnl": 7271.9, "capital_return": 5.25, "trades": 378}
+  }
 }
 Rules: "tickers" has one entry per ticker of the month list (up to 100), ordered as the screener returns them. Numbers are JSON
-numbers, dates are YYYY-MM-DD, "traders" holds only usernames the tool returned (never invent or guess names). If a tool fails,
-retry it once; if it still fails, print the single word FAILED and nothing else.
+numbers, dates are YYYY-MM-DD, "traders" holds only usernames the tool returned (never invent or guess names). "profiles" holds
+only usernames you actually fetched; an empty object {} is valid. If get_context, get_community_screener or
+list_public_operations fails, retry it once; if it still fails, print the single word FAILED and nothing else (a
+get_trader_profile failure never triggers FAILED).

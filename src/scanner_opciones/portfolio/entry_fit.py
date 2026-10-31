@@ -37,13 +37,18 @@ class EntryFit:
     exact: bool                         # cumple todo lo medible
     note: str                           # texto para el Panel
     source: str = "filters"             # de dónde sale: filters (filtros al abrir) | scan_log (registro de escaneos) | feed (histórico de una fuente de contratos)
+    trader: Optional[str] = None        # quién la abrió, cuando lo sabe una sola fuente/trader (para enlazar su fiabilidad en el Panel)
 
     def to_json(self) -> dict:
-        return {"profile": self.profile, "passed": self.passed, "total": self.total, "exact": self.exact, "note": self.note, "source": self.source}
+        d = {"profile": self.profile, "passed": self.passed, "total": self.total, "exact": self.exact, "note": self.note, "source": self.source}
+        if self.trader:
+            d["trader"] = self.trader
+        return d
 
     @classmethod
     def from_json(cls, raw: dict) -> "EntryFit":
-        return cls(str(raw["profile"]), int(raw["passed"]), int(raw["total"]), bool(raw.get("exact")), str(raw.get("note", "")), str(raw.get("source", "filters")))
+        return cls(str(raw["profile"]), int(raw["passed"]), int(raw["total"]), bool(raw.get("exact")), str(raw.get("note", "")),
+                   str(raw.get("source", "filters")), (str(raw["trader"]) if raw.get("trader") else None))
 
 
 def _num(params: dict, key: str) -> Optional[float]:
@@ -142,7 +147,8 @@ def recognize_feed(facts: EntryFacts, profiles: Sequence[Profile], logged: Seque
     fit = recognize_shown(facts, profiles, names, day) if names else None
     if fit is None:
         return None
-    who = ", ".join(sorted({t for _, t, _, _ in logged if t}, key=str.casefold))
+    who_set = sorted({t for _, t, _, _ in logged if t}, key=str.casefold)
+    who = ", ".join(who_set)
     origins = ", ".join(sorted({o for _, _, o, _ in logged}))
     theirs = date.fromisoformat(max(d for _, _, _, d in logged))
     own = bool(me) and bool(who) and who.casefold() == me.casefold()
@@ -152,7 +158,9 @@ def recognize_feed(facts: EntryFacts, profiles: Sequence[Profile], logged: Seque
     note = (f"Reconocida por el histórico de {origins}: {opened} y encaja en {fitting}"
             + (f"; gana {fit.profile} por filtros y, a igualdad, el rango de DTE más estrecho" if len(set(names)) > 1 else "")
             + f" ({fit.passed}/{fit.total} filtros medibles al abrir).")
-    return replace(fit, note=note, source="feed")
+    # el trader solo si lo abrió uno (y no eres tú): es a quien se le enlaza la fiabilidad en el Panel
+    trader = who_set[0] if len(who_set) == 1 and not own else None
+    return replace(fit, note=note, source="feed", trader=trader)
 
 
 def _note(s: dict, verdict: str) -> str:

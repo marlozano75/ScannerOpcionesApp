@@ -97,12 +97,15 @@ def test_the_feed_history_decides_among_the_profiles_the_contract_fitted_and_nam
     fit = recognize_feed(put(38, 8.0), PROFILES, [("TastyPut", "Ana", "Comunidad", "2026-10-13"), ("Mensual (TPC)", "Ana", "Comunidad", "2026-10-13")], DAY)
     assert fit.profile == "TastyPut" and fit.source == "feed"                     # 8 % de descuento: Mensual (20 %) no lo cumple
     assert "la abrió Ana el 13/10" in fit.note and "Comunidad" in fit.note and "gana TastyPut" in fit.note
+    assert fit.trader == "Ana"                                                    # un solo trader: se guarda para enlazar su fiabilidad
     one = recognize_feed(put(38, 25.0), PROFILES, [("TastyPut", "Beto", "Comunidad", "2026-10-13")], DAY)
-    assert one.profile == "TastyPut" and "gana" not in one.note                   # uno solo: ese, aunque por filtros ganaría otro
+    assert one.profile == "TastyPut" and "gana" not in one.note and one.trader == "Beto"   # uno solo: ese, aunque por filtros ganaría otro
     assert recognize_feed(put(38, 8.0), PROFILES, [(UNASSIGNED, "Ana", "Comunidad", "2026-10-13")], DAY) is None      # «Sin perfil» no dice nada
     assert recognize_feed(put(38, 8.0), PROFILES, [("TastySpread", "Ana", "Comunidad", "2026-10-13")], DAY) is None    # perfil de otro instrumento
     anon = recognize_feed(put(38, 8.0), PROFILES, [("TastyPut", None, "Otra", "2026-10-13")], DAY)
-    assert "se abrió el 13/10" in anon.note and "la abrió" not in anon.note and "tú el" not in anon.note
+    assert "se abrió el 13/10" in anon.note and "la abrió" not in anon.note and "tú el" not in anon.note and anon.trader is None
+    two = recognize_feed(put(38, 8.0), PROFILES, [("TastyPut", "Ana", "Comunidad", "2026-10-13"), ("TastyPut", "Beto", "Comunidad", "2026-10-13")], DAY)
+    assert two.trader is None                                                     # dos traders: no se enlaza fiabilidad a ninguno
     earlier = recognize_feed(put(38, 8.0), PROFILES, [("TastyPut", "Ana", "Comunidad", "2026-10-11")], DAY)       # la abrió el trader dos días antes
     assert "la abrió Ana el 11/10, tú el 13/10" in earlier.note
     assert EntryFit.from_json(fit.to_json()) == fit and EntryFit.from_json({"profile": "A", "passed": 1, "total": 2}).source == "filters"

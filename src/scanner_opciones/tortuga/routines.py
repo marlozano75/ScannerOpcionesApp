@@ -49,8 +49,9 @@ class Routine:
 ROUTINES = (
     Routine("aperturas", "Tus aperturas y cierres de puts", "aperturas_prompt.md", ("get_context", "list_trades"), 25,
             "fechas de apertura (perfil de cada put en el Panel) y cierres recientes (insignia en Comunidad)"),
-    Routine("comunidad", "Comunidad de traders", "comunidad_prompt.md", ("get_context", "get_community_screener", "list_public_operations"), 25,
-            "pestaña Comunidad y fuente TortugaTrades_Dia"),
+    Routine("comunidad", "Comunidad de traders", "comunidad_prompt.md",
+            ("get_context", "get_community_screener", "list_public_operations", "get_trader_profile"), 60,
+            "pestaña Comunidad (ideas, consenso y fiabilidad de cada trader) y fuente TortugaTrades_Dia"),
     Routine("radar_spreads", "Radar de Bull Put Spreads", "radar_spreads_prompt.md", ("get_context", "get_market_radar"), 30,
             "pestaña MarketRadar (SPREAD) y fuente RadarSpreads (pasa a la watchlist)", via_calls=True),
     Routine("radar_puts", "Radar de venta de puts", "radar_puts_prompt.md", ("get_context", "get_market_radar"), 30,
@@ -76,7 +77,8 @@ def finish(settings: Settings, key: str, text: str) -> str:
             if not data.tickers:
                 raise RoutineError("no hay ningún ticker")
             _atomic_write(Path(settings.community.path), text)
-            return f"{len(data.tickers)} tickers, {len(data.ideas)} ideas"
+            perfiles = f", {len(data.profiles)} perfiles" if data.profiles else ""
+            return f"{len(data.tickers)} tickers, {len(data.ideas)} ideas{perfiles}"
         if key == "aperturas":
             data = parse_openings(json.loads(text))
             _atomic_write(Path(settings.community.openings_path), text)
