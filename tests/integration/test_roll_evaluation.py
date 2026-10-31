@@ -308,3 +308,19 @@ async def test_a_moved_price_makes_the_panel_ignore_the_delta_and_ask_again():
     assert await svc.refresh_position_deltas() is True        # y aunque sea reciente se vuelve a cotizar
     _set_spot(svc, 102.5)                                       # la nueva medida es de 102: un 0,5 % no la invalida
     assert svc.usable_position_deltas() != {}
+
+
+async def test_put_assignments_prefer_the_profiles_that_showed_the_contract_in_the_scan_log():
+    from scanner_opciones.scanner.profiles import Profile
+    svc, gw = await started_service()
+    pos = put_position()                                           # AAPL 100, 14 DTE, abierta "hoy" (primera vez vista)
+    svc.state.positions = [pos]
+    a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})       # por filtros ganaría A (rango estrecho)
+    b = Profile("B", ("put",), {"discount": "0", "dte_min": "1", "dte_max": "60", "min_yield": "0"}, {})
+    svc.save_profiles([a, b, Profile("Tortuga", ("put",), {"dte_min": "1", "dte_max": "90"}, {}, fallback=True)], "A")
+    svc._note_put_opened()
+    with svc.scan_log_repo.db.conn as conn:
+        conn.execute("INSERT INTO scan_log (profile, kind, ticker, expiry, strike, long_strike, first_seen, last_seen, active) "
+                     "VALUES ('B','put','AAPL',?,100.0,NULL,?,?,1)", ((TODAY + timedelta(days=14)).isoformat(), NOW.isoformat(), NOW.isoformat()))
+    assert svc.put_assignments()[put_key(pos)] == "B"
+    assert "registro de escaneos" in svc.put_assignment_notes()[put_key(pos)]

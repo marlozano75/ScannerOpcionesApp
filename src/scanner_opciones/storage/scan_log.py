@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Optional, Sequence
 
 from scanner_opciones.storage.db import Database
@@ -102,6 +103,16 @@ class ScanLogRepo:
     def active(self, profile: str, kind: str) -> list[LoggedRow]:
         rows = self.db.conn.execute("SELECT * FROM scan_log WHERE profile = ? AND kind = ? AND active = 1", (profile, kind)).fetchall()
         return [_row(r) for r in rows]
+
+    def profiles_showing(self, kind: str, ticker: str, expiry: date, strike: float, long_strike: Optional[float], day: date) -> list[str]:
+        """Perfiles cuyo escaneo mostraba ese contrato (o spread, con `long_strike`) en algún momento de `day`: episodios abiertos antes del fin del día
+        y no cerrados antes de su comienzo. Vacío si el registro no cubre ese día (empezó después)."""
+        d = day.isoformat()
+        rows = self.db.conn.execute(
+            "SELECT DISTINCT profile FROM scan_log WHERE kind = ? AND ticker = ? AND expiry = ? AND strike = ? AND long_strike IS ? "
+            "AND substr(first_seen, 1, 10) <= ? AND (ended_at IS NULL OR substr(ended_at, 1, 10) >= ?)",
+            (kind, ticker, expiry.isoformat(), strike, long_strike, d, d)).fetchall()
+        return [r["profile"] for r in rows]
 
     def all_active(self) -> list[LoggedRow]:
         rows = self.db.conn.execute("SELECT * FROM scan_log WHERE active = 1 ORDER BY profile, kind, ticker, expiry, strike").fetchall()

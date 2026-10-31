@@ -39,7 +39,7 @@ from scanner_opciones.community.fit import STRATEGY_NAME, profile_fits, strategy
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import classify_dte, fallback_name
-from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry
+from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry, recognize_shown
 from scanner_opciones.portfolio import defense as defense_mod
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
 from scanner_opciones.portfolio.spreads import split_combos, split_spreads, with_spreads
@@ -2381,7 +2381,9 @@ class AppService:
             if pos is None:
                 out[key] = classify_dte((expiry - dates[key][0]).days, profiles)
                 continue
-            fit = recognize_entry(self._entry_facts(pos, dates[key][0]), profiles, fallback_name(profiles))
+            facts, opened = self._entry_facts(pos, dates[key][0]), dates[key][0]
+            shown = self.scan_log_repo.profiles_showing(facts.kind, pos.ticker.replace(" ", "-"), pos.option.expiry, pos.option.strike, pos.hedge_strike, opened)
+            fit = (recognize_shown(facts, profiles, shown, opened) if shown else None) or recognize_entry(facts, profiles, fallback_name(profiles))
             fits[key] = fit
             out[key] = fit.profile
             changed = True

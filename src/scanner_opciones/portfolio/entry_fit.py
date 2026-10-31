@@ -6,10 +6,13 @@ sobre riesgo del periodo (spread). Lo que no se puede reconstruir (delta, IV Ran
 
 Elección: 1) los perfiles que cumplen TODO lo medible; entre ellos gana el más exigente (mayor descuento mínimo) y, a igualdad, el de rango de
 DTE más estrecho; 2) si ninguno lo cumple del todo, el que tiene el DTE de apertura en su rango y más criterios cumple (aproximado); 3) si ni
-el DTE encaja en ninguno, el perfil de recambio («Tortuga»)."""
+el DTE encaja en ninguno, el perfil de recambio («Tortuga»).
+
+`recognize_shown` es el paso previo cuando el registro de escaneos cubre el día de la apertura: solo compite entre los perfiles que mostraban el contrato."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Optional, Sequence
 
 from scanner_opciones.scanner.profiles import Profile
@@ -97,6 +100,36 @@ def recognize(facts: EntryFacts, profiles: Sequence[Profile], fallback: str) -> 
         return EntryFit(best["p"].name, best["passed"], best["known"], False, _note(best, "aproximado: no cumple todo"))
     dte = f"{facts.dte} DTE al abrir"
     return EntryFit(fallback, 0, 0, False, f"{dte}: no encaja en el rango de ningún perfil")
+
+
+def recognize_shown(facts: EntryFacts, profiles: Sequence[Profile], shown: Sequence[str], day: date) -> Optional[EntryFit]:
+    """Perfil entre `shown` (los que mostraban el contrato el día `day` en el registro de escaneos). Uno solo: ese. Varios: desempate por los filtros
+    actuales (cumplir todo lo medible, luego más criterios cumplidos) y, a igualdad, el de rango de DTE más estrecho (el más restrictivo), luego el de mayor
+    descuento mínimo y el primero de la lista. None si ninguno de `shown` sirve para este instrumento (el llamante usa entonces los filtros)."""
+    scored = []
+    for order, p in enumerate(profiles):
+        if p.name not in shown or facts.kind not in p.instruments:
+            continue
+        params = p.set_params(facts.kind)
+        crit = _criteria(facts, params)
+        known = [c for c in crit if c[1] is not None]
+        dmin, dmax = _num(params, "dte_min"), _num(params, "dte_max")
+        width = (dmax - dmin) if dmin is not None and dmax is not None else 10_000
+        passed = sum(1 for c in known if c[1])
+        scored.append(dict(p=p, order=order, crit=crit, passed=passed, known=len(known), width=width, disc=_num(params, "discount") or 0.0,
+                           exact=bool(known) and passed == len(known), fallback=p.fallback))
+    if len(scored) > 1:
+        scored = [s for s in scored if not s["fallback"]] or scored      # el perfil de recambio acepta de todo: solo cuenta si es el único
+    if not scored:
+        return None
+    best = min(scored, key=lambda s: (not s["exact"], -(s["passed"] / max(s["known"], 1)), s["width"], -s["disc"], s["order"]))
+    names = ", ".join(s["p"].name for s in scored)
+    if len(scored) == 1:
+        note = f"Reconocida por el registro de escaneos: aparecía en {names} el {day:%d/%m}."
+    else:
+        note = (f"Reconocida por el registro de escaneos: aparecía en {names} el {day:%d/%m}; desempate por filtros y, a igualdad, el rango de DTE más estrecho: "
+                + _note(best, "cumple lo medible" if best["exact"] else "aproximado").split(": ", 1)[1])
+    return EntryFit(best["p"].name, best["passed"], best["known"], best["exact"], note)
 
 
 def _note(s: dict, verdict: str) -> str:

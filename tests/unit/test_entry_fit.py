@@ -49,3 +49,50 @@ def test_unknown_values_are_not_counted_and_do_not_discard_a_profile():
 def test_entry_fit_roundtrips_through_json():
     fit = recognize(put(32, 25.0), PROFILES, FALLBACK)
     assert EntryFit.from_json(fit.to_json()) == fit
+
+
+# ---- registro de escaneos: solo compiten los perfiles que mostraban el contrato ------------------------------------
+from datetime import date
+
+from scanner_opciones.portfolio.entry_fit import recognize_shown
+from scanner_opciones.storage.db import Database
+from scanner_opciones.storage.scan_log import ScanLogRepo
+
+DAY = date(2026, 10, 13)
+
+
+def test_a_single_profile_in_the_log_decides_even_if_the_filters_would_say_otherwise():
+    fit = recognize_shown(put(38, 25.0), PROFILES, ["TastyPut"], DAY)           # por filtros ganaría otro; el registro dice que solo salía en TastyPut
+    assert fit.profile == "TastyPut" and "registro de escaneos" in fit.note and "13/10" in fit.note
+    assert recognize_shown(put(38, 25.0), PROFILES, ["TastySpread"], DAY) is None      # perfil de otro instrumento: sin respuesta
+
+
+def test_several_profiles_in_the_log_are_broken_by_filters_then_by_the_narrowest_dte():
+    wide = Profile("Ancho", ("put",), {"discount": "5", "dte_min": "20", "dte_max": "60", "min_yield": "1"}, {})
+    narrow = Profile("Estrecho", ("put",), {"discount": "5", "dte_min": "30", "dte_max": "45", "min_yield": "1"}, {})
+    profiles = [wide, narrow, MENSUAL]
+    both = recognize_shown(put(38, 8.0), profiles, ["Ancho", "Estrecho"], DAY)
+    assert both.profile == "Estrecho" and both.exact and "desempate" in both.note       # cumplen todo las dos: gana el rango de DTE más estrecho
+    mixed = recognize_shown(put(32, 8.0), profiles, ["Mensual (TPC)", "Ancho"], DAY)    # Mensual no cumple el descuento (20 %): los filtros mandan antes que el ancho
+    assert mixed.profile == "Ancho" and mixed.exact
+
+
+def test_the_fallback_profile_only_counts_when_it_is_the_only_one_shown():
+    profiles = PROFILES
+    assert recognize_shown(put(38, 8.0), profiles, [FALLBACK, "TastyPut"], DAY).profile == "TastyPut"
+    assert recognize_shown(put(38, 8.0), profiles, [FALLBACK], DAY).profile == FALLBACK
+
+
+def test_profiles_showing_covers_the_day_of_the_opening_only():
+    repo = ScanLogRepo(Database(":memory:"))
+    with repo.db.conn:
+        c = repo.db.conn
+        cols = "(profile, kind, ticker, expiry, strike, long_strike, first_seen, last_seen, ended_at, active)"
+        c.execute(f"INSERT INTO scan_log {cols} VALUES ('A','put','FRO','2026-11-20',49.2,NULL,'2026-10-12T10:00:00','2026-10-13T11:00:00','2026-10-13T11:15:00',0)")
+        c.execute(f"INSERT INTO scan_log {cols} VALUES ('B','put','FRO','2026-11-20',49.2,NULL,'2026-10-14T10:00:00','2026-10-14T10:00:00',NULL,1)")
+        c.execute(f"INSERT INTO scan_log {cols} VALUES ('S','spread','FRO','2026-11-20',49.2,45.0,'2026-10-13T10:00:00','2026-10-13T10:00:00',NULL,1)")
+    args = ("put", "FRO", date(2026, 11, 20), 49.2, None)
+    assert repo.profiles_showing(*args, DAY) == ["A"]
+    assert repo.profiles_showing(*args, date(2026, 10, 14)) == ["B"]
+    assert repo.profiles_showing(*args, date(2026, 10, 11)) == []              # el registro aún no existía
+    assert repo.profiles_showing("spread", "FRO", date(2026, 11, 20), 49.2, 45.0, DAY) == ["S"]
