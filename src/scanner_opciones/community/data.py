@@ -29,6 +29,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from scanner_opciones.feeds.base import ContractIdea
+
 VERSION = 1
 STRATEGIES = ("Short Put", "Bull Put Spread")
 _TICKER = re.compile(r"^[A-Z][A-Z0-9]{0,5}([.\-/][A-Z])?$")
@@ -48,18 +50,7 @@ class CommunityTicker:
     traders: tuple[str, ...] = ()           # los que comparten (los anónimos solo cuentan en `*_traders`)
 
 
-@dataclass(frozen=True)
-class CommunityIdea:
-    day: date                               # día en que se ejecutó (llega al día siguiente)
-    trader: str
-    ticker: str
-    strategy: str                           # «Short Put» | «Bull Put Spread»
-    expiry: date
-    short_strike: float
-    long_strike: Optional[float]
-    contracts: int
-    credit: float                           # prima neta por acción
-    max_loss: Optional[float] = None
+CommunityIdea = ContractIdea      # una idea de la comunidad es un contrato de una fuente (`feeds/base.py`); el JSON no lleva `source`
 
 
 @dataclass(frozen=True)

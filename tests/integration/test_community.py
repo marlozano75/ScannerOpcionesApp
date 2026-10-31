@@ -208,3 +208,52 @@ def test_fits_compare_with_the_filters_saved_in_the_profiles(client_and_service,
     spec = next(s for s in svc.profile_specs() if s[1] is not None)
     fit = next(f for f in view.fits if f and f.name == spec[0])
     assert f"mín. {spec[1].strike_below_pct_min:g} %" in next(c.text for c in fit.criteria if c.label == "Descuento")
+
+
+# ---- fuentes de contratos (`feeds/`) ------------------------------------------------------------------------------------
+class StaticFeed:
+    """Segunda fuente de contratos de prueba: cumple el puerto `ContractFeed` sin tocar el resto de la aplicación."""
+    name = "Otra"
+
+    def __init__(self, contracts, stamp="v1"):
+        self._contracts, self._stamp = contracts, stamp
+
+    def contracts(self):
+        return list(self._contracts)
+
+    def tickers(self):
+        return sorted({c.ticker for c in self._contracts})
+
+    def stamp(self):
+        return self._stamp
+
+
+async def test_the_community_is_a_contract_feed_that_marks_the_source_and_the_trader(tmp_path):
+    from scanner_opciones.feeds.base import ContractFeed
+    svc = make(tmp_path)
+    assert isinstance(svc.community_feed, ContractFeed) and list(svc.feeds) == ["Comunidad"]
+    assert svc.feed_contracts() == [] and svc.feed_stamp() is None                          # sin fichero: sin contratos
+    text = json.dumps({"version": 1, "generated_at": "2026-10-12T13:00:00", "tickers": [],
+                       "ideas": [{"date": "2026-10-09", "trader": "Ana", "ticker": "PEP", "strategy": "Short Put", "expiry": "2026-11-20",
+                                  "short_strike": 150, "long_strike": None, "contracts": 1, "credit": 1.5}]})
+    write(tmp_path / "tortuga.json", text)
+    [c] = svc.feed_contracts()
+    assert (c.source, c.trader, c.ticker) == ("Comunidad", "Ana", "PEP") and svc.community_feed.tickers() == ["PEP"]
+    assert svc.feed_stamp() == "2026-10-12T13:00:00"                                      # con una sola fuente, su marca tal cual (la caché en directo sigue valiendo)
+
+
+def test_another_feed_is_added_by_registering_it_and_its_contracts_are_valued_like_the_others(client_and_service, tmp_path):
+    from datetime import date
+    from scanner_opciones.feeds.base import ContractIdea
+    client, svc, gw, _ = client_and_service
+    refresh(client)
+    contract = svc.contracts.list("AAPL")[0]
+    write(tmp_path / "tortuga.json", ideas_payload(contract))
+    object.__setattr__(svc.settings, "community", CommunitySettings(path=str(tmp_path / "tortuga.json")))
+    mine = ContractIdea(date(2026, 10, 9), None, "AAPL", "Short Put", contract.expiry, contract.strike, None, 1, 1.0, None, source="Otra")
+    svc.feeds["Otra"] = StaticFeed([mine])
+    views = svc.community_ideas()
+    assert {v.idea.source for v in views} == {"Comunidad", "Otra"}
+    other = next(v for v in views if v.idea.source == "Otra")
+    assert other.idea.trader is None and other.fits                                           # también se compara con los perfiles de escaneo
+    assert svc.feed_stamp().endswith("|v1") and "|" in svc.feed_stamp()                       # la marca junta las de todas las fuentes

@@ -25,7 +25,7 @@ SNAPSHOT_KEY = tuple[str, date, float]
 def idea_key(idea: CommunityIdea) -> str:
     """Identificador estable de una idea (para marcarla en la tabla y volver a encontrarla al enviar el formulario)."""
     long = "" if idea.long_strike is None else f"{idea.long_strike:g}"
-    return f"{idea.ticker}|{idea.trader}|{idea.day.isoformat()}|{idea.expiry.isoformat()}|{idea.short_strike:g}|{long}"
+    return f"{idea.ticker}|{idea.trader or idea.source}|{idea.day.isoformat()}|{idea.expiry.isoformat()}|{idea.short_strike:g}|{long}"
 
 
 def snapshot_key(ticker: str, expiry: date, strike: float) -> SNAPSHOT_KEY:
@@ -132,7 +132,7 @@ def evaluate_ideas(ideas: Sequence[CommunityIdea], today: date, snapshots, infos
     """Más recientes primero; a igualdad de día, las vigentes antes."""
     views = [evaluate_idea(i, today, snapshots, infos, closes, watchlist, mode, spread_pct, **kw) for i in ideas]
     order = {VALID: 0, LOWER: 1, NO_DATA: 2, DROPPED: 3, ITM: 4, EXPIRED: 5}
-    return sorted(views, key=lambda v: (-v.idea.day.toordinal(), order[v.status], v.idea.ticker, v.idea.trader))
+    return sorted(views, key=lambda v: (-v.idea.day.toordinal(), order[v.status], v.idea.ticker, v.idea.trader or ""))
 
 
 def past_trade(idea: CommunityIdea, closes: Sequence[Close], today: date, max_days: int) -> Optional[PastTrade]:

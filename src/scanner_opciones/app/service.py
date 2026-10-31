@@ -34,7 +34,9 @@ from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.portfolio.cushion import build_risk_status
 from scanner_opciones.portfolio.leverage import AssignmentExposure, assignment_exposure
 from scanner_opciones.portfolio.diversification import WeekExposure, sector_exposure, weekly_sector_exposure
-from scanner_opciones.community.data import CommunityData, CommunityError, load_community
+from scanner_opciones.community.data import CommunityData
+from scanner_opciones.feeds.base import ContractFeed, ContractIdea, combined_stamp
+from scanner_opciones.feeds.community import CommunityFeed
 from scanner_opciones.community.fit import profile_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
@@ -240,8 +242,8 @@ class AppService:
         self.universe_info_asked: set[str] = set()      # tickers cuyo nombre ya se pidió a tastytrade en esta ejecución
         self.universe_info: dict[str, dict[str, str]] = self._load_info()   # nombre/sector que ninguna fuente trae
         self._has_options: dict[str, bool] = self._load_options_map()   # ticker -> ¿tiene opciones?
-        self._community: Optional[tuple[float, CommunityData]] = None    # (mtime del JSON, datos) de la comunidad de Tortuga
-        self._community_error: Optional[str] = None
+        self.community_feed = CommunityFeed(lambda: self.settings.community.path)      # la comunidad de Tortuga (JSON de la rutina diaria)
+        self.feeds: dict[str, ContractFeed] = {self.community_feed.name: self.community_feed}      # fuentes de contratos, por nombre
         self._community_syncing = False
         self.tortuga = tortuga                    # rutinas que lanzan la CLI de Claude (None en los tests: nunca se ejecuta nada externo)
         self._tortuga_busy = False
@@ -359,13 +361,13 @@ class AppService:
         varias ideas, todos) y la estrategia del Scanner que más filtros cumple hoy (a igualdad, la de mayor proporción; si el
         ticker ya estaba, se conserva la mejor de las dos). Devuelve el resultado de `add_manual_tickers` más `selected`."""
         wanted = set(keys)
-        views = [v for v in self.community_ideas() if idea_key(v.idea) in wanted]
+        views = [v for v in self.community_ideas() if v.idea.source == self.community_feed.name and idea_key(v.idea) in wanted]
         if not views:
             raise WatchlistError("No hay ninguna idea marcada (o ya no está en los datos de la comunidad)")
         perm = self.community_perm()
         for v in views:
             entry = perm.setdefault(v.idea.ticker, {"traders": []})
-            if v.idea.trader not in entry["traders"]:
+            if v.idea.trader and v.idea.trader not in entry["traders"]:
                 entry["traders"] = sorted([*entry["traders"], v.idea.trader], key=str.casefold)
             for f in v.fits:
                 if f is not None and f.total and (f.passed, f.passed / f.total) > (entry.get("passed", -1), entry["passed"] / entry["total"] if "passed" in entry else -1):
@@ -1991,27 +1993,16 @@ class AppService:
         return result
 
     def community(self) -> Optional[CommunityData]:
-        """Datos de la comunidad de Tortuga (JSON de la rutina diaria), releídos solo si el fichero cambió. None si no existe; si el nuevo
-        es inválido se conservan los últimos buenos (y se avisa una vez en el log)."""
-        path = Path(self.settings.community.path)
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            self._community = None
-            return None
-        if self._community is not None and self._community[0] == mtime:
-            return self._community[1]
-        try:
-            data = load_community(path)
-        except CommunityError as exc:
-            if self._community_error != str(exc):
-                log.warning("Comunidad: %s no es válido (%s); se conservan los últimos datos buenos", path, exc)
-                self._community_error = str(exc)
-            return self._community[1] if self._community is not None else None
-        self._community, self._community_error = (mtime, data), None
-        for w in data.warnings:
-            log.warning("Comunidad: %s", w)
-        return data
+        """Datos de la comunidad de Tortuga (JSON de la rutina diaria), releídos solo si el fichero cambió (ver `CommunityFeed`). None si no existe."""
+        return self.community_feed.data()
+
+    def feed_contracts(self) -> list[ContractIdea]:
+        """Contratos de todas las fuentes de contratos juntos."""
+        return [c for f in self.feeds.values() for c in f.contracts()]
+
+    def feed_stamp(self) -> Optional[str]:
+        """Marca de la versión de los contratos de todas las fuentes (con una sola, la suya)."""
+        return combined_stamp(list(self.feeds.values()))
 
     def community_counts(self) -> dict[str, tuple[int, int]]:
         """{ticker: (traders en 30 días, traders en 7 días)} que han vendido puts o spreads de puts."""
@@ -2019,17 +2010,17 @@ class AppService:
         return {t.ticker: (t.month_traders, t.week_traders) for t in data.tickers} if data is not None else {}
 
     def community_ideas(self) -> list[IdeaView]:
-        """Las ideas del JSON de la comunidad comparadas con los datos de hoy (precio, cotización de las patas, cierre del día de la apertura)."""
-        data = self.community()
-        if data is None or not data.ideas:
+        """Los contratos de las fuentes (hoy la comunidad) comparados con los datos de hoy (precio, cotización de las patas, cierre del día de la apertura)."""
+        ideas, stamp = self.feed_contracts(), self.feed_stamp()
+        if not ideas:
             return []
-        tickers = {i.ticker for i in data.ideas}
+        tickers = {i.ticker for i in ideas}
         watchlist = set(self.watchlist.list())
         snapshots = {snapshot_key(s.contract.ticker, s.contract.expiry, s.contract.strike): s
                      for t in sorted(tickers & watchlist) for s in self.snapshots.all(t) if s.contract.right is OptionRight.PUT}
         infos, closes = self.ticker_info.all(), self.bars.all_closes(tickers & watchlist)
         live = self._community_live
-        if live is not None and live[1] == data.generated_at.isoformat():
+        if live is not None and live[1] == stamp:
             for key, snap in live[2].items():
                 snapshots.setdefault(key, snap)
             for t, info in live[3].items():
@@ -2038,7 +2029,7 @@ class AppService:
             for t, bars in live[4].items():
                 closes.setdefault(t, bars)
         ref = self.criteria()
-        views = evaluate_ideas(data.ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct,
+        views = evaluate_ideas(ideas, self.now().date(), snapshots, infos, closes, watchlist, ref.price_reference, ref.price_spread_pct,
                                commission=ref.commission)
         sc = self.settings.scanner
         specs = self.profile_specs()
@@ -2092,12 +2083,12 @@ class AppService:
         """Cotiza en directo (tastytrade) las patas de las ideas que no están guardadas (tickers fuera de la watchlist, strikes o
         vencimientos fuera del catálogo), más el precio y los cierres recientes de esos tickers, para poder valorarlas. Se guarda solo
         en memoria. Con `max_age_seconds=None` solo repite si el JSON es otro. Un fallo del proveedor deja las ideas «sin valorar»."""
-        data = self.community()
+        ideas, stamp = self.feed_contracts(), self.feed_stamp()
         provider = self.volatility
-        if (data is None or self._community_live_running or provider is None
+        if (not ideas or stamp is None or self._community_live_running or provider is None
                 or not all(hasattr(provider, m) for m in ("get_put_listing", "get_option_quotes", "get_prices", "get_daily_closes", "get_iv_metrics"))):
             return
-        stamp, now = data.generated_at.isoformat(), self.now()
+        now = self.now()
         live = self._community_live
         if live is not None and live[1] == stamp and (
                 max_age_seconds is None or (now - live[0]).total_seconds() < max_age_seconds
@@ -2106,9 +2097,9 @@ class AppService:
         today = now.date()
         watchlist = set(self.watchlist.list())
         stored = {snapshot_key(s.contract.ticker, s.contract.expiry, s.contract.strike)
-                  for t in {i.ticker for i in data.ideas} & watchlist for s in self.snapshots.all(t) if s.contract.right is OptionRight.PUT}
+                  for t in {i.ticker for i in ideas} & watchlist for s in self.snapshots.all(t) if s.contract.right is OptionRight.PUT}
         legs: dict[str, set[tuple[date, float]]] = {}
-        for idea in data.ideas:
+        for idea in ideas:
             if idea.expiry < today:
                 continue
             for strike in (idea.short_strike, idea.long_strike):
@@ -2166,7 +2157,7 @@ class AppService:
                     log.warning("Ideas: no se pudo obtener el IV Rank: %s", exc)
                 self._community_live = (now, stamp, snaps, infos, closes)      # ya se pueden valorar; los cierres (lo más lento) llegan después
                 self.state.data_version += 1
-                oldest = min((i.day for i in data.ideas if i.ticker in tickers), default=today)
+                oldest = min((i.day for i in ideas if i.ticker in tickers), default=today)
                 try:
                     closes = await provider.get_daily_closes(tickers, (today - oldest).days + 7, timeout=COMMUNITY_CANDLE_WAIT)
                 except Exception as exc:

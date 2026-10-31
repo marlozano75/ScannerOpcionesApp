@@ -45,7 +45,7 @@ def register(app, service, render, remembered) -> None:
         return render(request, "ideas.html", no_autorefresh=True, watch_data=True, nlv_usd=service.nlv_usd(), data=data, owned=service.owned_options(), held=service.held_tickers(), file_path=service.settings.community.path, views=views, total=len(base),
                       fit_cols=cols, counts=counts, tab_urls=tab_urls,
                       valid=sum(1 for v in views if v.status == "valid"), venc=venc, trader=trader, tipo=tipo,
-                      traders=sorted({v.idea.trader for v in everything}, key=str.casefold), stale=service.community_stale(),
+                      traders=sorted({v.idea.trader for v in everything if v.idea.trader}, key=str.casefold), stale=service.community_stale(),
                       auto_reload=service.market.is_open(service.now()), quoting=quoting, message=message, groups=message_groups(message),
                       keys=[idea_key(v.idea) for v in views], perm_name=service.settings.community.perm_source_name,
                       lists={t: [(source_initials(n), n) for n in names] for t, names in service.ticker_lists().items()})
