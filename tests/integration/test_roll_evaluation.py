@@ -373,3 +373,22 @@ async def test_the_scan_log_goes_before_the_feed_and_a_filter_based_fit_is_upgra
         conn.execute("INSERT INTO scan_log (profile, kind, ticker, expiry, strike, long_strike, first_seen, last_seen, active) "
                      "VALUES ('A','put','AAPL',?,100.0,NULL,?,?,1)", ((TODAY + timedelta(days=14)).isoformat(), NOW.isoformat(), NOW.isoformat()))
     assert svc.put_assignments()[key] == "A" and "registro de escaneos" in svc.put_assignment_notes()[key]
+
+
+async def test_the_feed_history_matches_a_contract_the_trader_opened_a_few_days_before_you():
+    from scanner_opciones.config.settings import CommunitySettings
+    from scanner_opciones.scanner.profiles import Profile
+    svc, gw = await started_service()
+    pos = put_position()
+    svc.state.positions = [pos]
+    a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})
+    b = Profile("B", ("put",), {"discount": "0", "dte_min": "1", "dte_max": "60", "min_yield": "0"}, {})
+    svc.save_profiles([a, b], "A")
+    svc._note_put_opened()
+    key = put_key(pos)
+    _feed_row(svc, "B", "Ana", (TODAY - timedelta(days=2)).isoformat())          # el trader la abrió dos días antes que tú
+    object.__setattr__(svc.settings, "community", CommunitySettings(feed_match_days=0))
+    assert svc.put_assignments()[key] == "A"                                       # sin ventana no coincide: por filtros
+    object.__setattr__(svc.settings, "community", CommunitySettings(feed_match_days=3))
+    assert svc.put_assignments()[key] == "B"                                       # con ventana de 3 días sí (reemplaza la de filtros)
+    assert "la abrió Ana el" in svc.put_assignment_notes()[key] and ", tú el" in svc.put_assignment_notes()[key]

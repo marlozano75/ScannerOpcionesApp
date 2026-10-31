@@ -2510,7 +2510,7 @@ class AppService:
         shown = self.scan_log_repo.profiles_showing(facts.kind, ticker, o.expiry, o.strike, pos.hedge_strike, opened)
         fit = recognize_shown(facts, profiles, shown, opened) if shown else None
         if fit is None:
-            feed = self.scan_log_repo.feed_profiles(facts.kind, ticker, o.expiry, o.strike, pos.hedge_strike, opened)
+            feed = self.scan_log_repo.feed_profiles(facts.kind, ticker, o.expiry, o.strike, pos.hedge_strike, opened, self.settings.community.feed_match_days)
             fit = recognize_feed(facts, profiles, feed, opened) if feed else None
         return fit
 

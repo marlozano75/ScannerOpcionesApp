@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional, Sequence
 
 from scanner_opciones.storage.db import Database
@@ -136,13 +136,19 @@ class ScanLogRepo:
             (kind, ticker, expiry.isoformat(), strike, long_strike, d, d)).fetchall()
         return [r["profile"] for r in rows]
 
-    def feed_profiles(self, kind: str, ticker: str, expiry: date, strike: float, long_strike: Optional[float], opened: date) -> list[tuple[str, Optional[str], str]]:
-        """(perfil de escaneo, trader, fuente) de las filas de las fuentes de contratos sobre ese mismo contrato (o spread, con `long_strike`) abierto el día
-        `opened` (la fecha del propio contrato, no la de `first_seen`). Incluye los episodios ya cerrados."""
+    def feed_profiles(self, kind: str, ticker: str, expiry: date, strike: float, long_strike: Optional[float], opened: date,
+                      window_days: int = 0) -> list[tuple[str, Optional[str], str, str]]:
+        """(perfil de escaneo, trader, fuente, fecha de apertura del contrato) de las filas de las fuentes de contratos sobre ese mismo contrato (o spread, con
+        `long_strike`) abierto el día `opened` o, con `window_days`, hasta ese número de días ANTES (la fecha del propio contrato, no la de `first_seen`).
+        Si hay varios días, solo el más cercano a `opened`. Incluye los episodios ya cerrados."""
         rows = self.db.conn.execute(
-            "SELECT DISTINCT profile, trader, origin FROM scan_log WHERE origin != 'scan' AND kind = ? AND ticker = ? AND expiry = ? AND strike = ? "
-            "AND long_strike IS ? AND opened = ?", (kind, ticker, expiry.isoformat(), strike, long_strike, opened.isoformat())).fetchall()
-        return [(r["profile"], r["trader"], r["origin"]) for r in rows]
+            "SELECT DISTINCT profile, trader, origin, opened FROM scan_log WHERE origin != 'scan' AND kind = ? AND ticker = ? AND expiry = ? AND strike = ? "
+            "AND long_strike IS ? AND opened BETWEEN ? AND ?",
+            (kind, ticker, expiry.isoformat(), strike, long_strike, (opened - timedelta(days=window_days)).isoformat(), opened.isoformat())).fetchall()
+        if not rows:
+            return []
+        closest = max(r["opened"] for r in rows)
+        return [(r["profile"], r["trader"], r["origin"], r["opened"]) for r in rows if r["opened"] == closest]
 
     def all_active(self, origin: Optional[str] = None, trader: Optional[str] = None) -> list[LoggedRow]:
         where, args = _filters(origin, trader)
