@@ -106,7 +106,7 @@
   {% else %}<p class="muted">No hay posiciones abiertas.</p>{% endif %}
 </div>
 
-<div id="pos-overlay" hidden>
+<div id="pos-overlay" hidden data-soft-keep>
   <div class="pos-box" role="dialog" aria-modal="true" aria-labelledby="pos-title">
     <div class="pos-head"><h2 id="pos-title"></h2><button type="button" id="pos-close" aria-label="Cerrar">×</button></div>
     <div id="pos-body"></div>
@@ -155,10 +155,12 @@
 </style>
 <script>
 (function () {
-  var overlay = document.getElementById('pos-overlay'); if (!overlay) return;
-  var body = document.getElementById('pos-body'), title = document.getElementById('pos-title');
+  /* Los elementos se buscan en cada uso: la actualización en caliente (base.html) sustituye el contenido de `main`. */
+  var overlay, body, title;
   function close() { overlay.hidden = true; body.textContent = ''; }
   document.addEventListener('click', function (e) {
+    overlay = document.getElementById('pos-overlay'); if (!overlay) return;
+    body = document.getElementById('pos-body'); title = document.getElementById('pos-title');
     var a = e.target.closest && e.target.closest('a.pos-mini');
     if (a) {
       e.preventDefault();
@@ -183,7 +185,7 @@
     }
     if (e.target === overlay || (e.target.closest && e.target.closest('#pos-close'))) close();
   });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !overlay.hidden) close(); });
+  document.addEventListener('keydown', function (e) { overlay = document.getElementById('pos-overlay'); if (overlay && e.key === 'Escape' && !overlay.hidden) { body = document.getElementById('pos-body'); close(); } });
 })();
 </script>
 

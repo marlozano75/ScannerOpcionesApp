@@ -254,6 +254,7 @@
   </div>
 </header>
 <main>
+  <div id="banners" data-soft="banners">
   {% if delay_minutes %}<div class="banner info">🕒 Datos diferidos de IBKR (≈ {{ delay_minutes|round|int }} min de retraso): las cotizaciones y la IV reflejan ese momento, no el actual.</div>{% endif %}
   {% if market_closed %}<div class="banner info">🌙 Mercado cerrado: el refresco automático solo actualiza cartera y VIX (abre {{ next_open.strftime('%d/%m %H:%M') }} hora de Nueva York). «Refrescar ahora» cotiza igualmente.</div>{% endif %}
   {% if state.activity %}<div class="banner info">⏳ {{ state.activity }}{% if pacing_wait >= 1 %} — esperando el límite de peticiones históricas de IBKR (≈ {{ (pacing_wait / 60)|round(1) }} min; es normal al cargar muchos tickers nuevos){% endif %} — la página se actualiza sola.</div>{% endif %}
@@ -266,12 +267,14 @@
   {% for area, msg in state.errors.items() %}
     <div class="banner err"><strong>{{ area }}:</strong> {{ msg }}</div>
   {% endfor %}
+  </div>
   {% block content %}{% endblock %}
 </main>
 <script>
 /* Explicaciones bajo demanda: cada bloque con notas (`.note`) las oculta y añade un botón ⓘ para mostrarlas. */
-(function () {
+(window.uiSetupHelp = function () {
   document.querySelectorAll('.fx-body, .panel, .card.cfg, .help-scope').forEach(function (box) {
+    if (box.classList.contains('help-host')) return;
     var notes = Array.prototype.slice.call(box.querySelectorAll('.note'));
     if (!notes.length) return;
     box.classList.add('help-host');
@@ -288,7 +291,7 @@
 })();
 /* Lo que abres no se cierra solo: la página se recarga (refresco automático de la actividad, datos nuevos del Scanner)
    y los `<details>` sin su propio recuerdo y las explicaciones «i» abiertas se restauran desde sessionStorage. */
-(function () {
+(window.uiRestoreOpen = function () {
   var KEY = 'ui-open:' + location.pathname;
   var saved = {};
   try { saved = JSON.parse(sessionStorage.getItem(KEY) || '{}'); } catch (e) { /* sin almacenamiento */ }
@@ -453,11 +456,67 @@
    no recarga (perderías lo escrito): muestra un aviso con enlace para recargar. */
 (function () {
   var current = {{ state.data_version }}, account = {{ state.account_version }}, watchAccount = {{ 'true' if watch_account else 'false' }}, dirty = false, notified = false;
+  var lastMove = 0, softOk = true, softBusy = false;
+  /* Actualización «en caliente»: pide la página en segundo plano y sustituye solo lo que cambia, sin recargar. Si la página
+     declara regiones (`data-soft="nombre"`, p. ej. la columna de resultados del Scanner) se sustituye el contenido de cada
+     una; si no, el de `main`. Siempre se renuevan la cabecera y los avisos (`#banners`). Los elementos con `data-soft-keep`
+     e id (ventanas de diálogo) se conservan tal cual, con sus eventos. Se mantienen el desplazamiento, los globos, lo abierto
+     (`<details>`, «i») y la ordenación de las tablas, que se vuelven a montar; las páginas se enteran con los eventos
+     `soft:before` y `soft:after`. Si algo falla, recarga como antes. */
+  function soft(d) {
+    if (softBusy) return;
+    softBusy = true;
+    fetch(location.href, { cache: 'no-store' }).then(function (r) { if (!r.ok) throw 0; return r.text(); }).then(function (html) {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var m = document.querySelector('main'), nm = doc.querySelector('main');
+      if (!nm || !m) throw 0;
+      var x = window.scrollX, y = window.scrollY, SC = '[data-keep-scroll][id], main .scroll';
+      var boxes = {};
+      document.querySelectorAll(SC).forEach(function (el, i) { boxes[el.id || ('s' + i)] = [el.scrollTop, el.scrollLeft]; });
+      document.dispatchEvent(new CustomEvent('soft:before'));
+      var nh = doc.querySelector('header'), h = document.querySelector('header');
+      if (nh && h && nh.innerHTML !== h.innerHTML) h.innerHTML = nh.innerHTML;
+      var pageRegs = Array.prototype.filter.call(document.querySelectorAll('[data-soft]'), function (el) { return el.dataset.soft !== 'banners'; });
+      var targets = [];
+      if (pageRegs.length) {
+        var bn = document.querySelector('[data-soft="banners"]'), nbn = doc.querySelector('[data-soft="banners"]');
+        if (bn && nbn) targets.push([bn, nbn]);
+        pageRegs.forEach(function (el) {
+          var n = doc.querySelector('[data-soft="' + el.dataset.soft + '"]');
+          if (!n) throw 0;
+          targets.push([el, n]);
+        });
+      } else targets.push([m, nm]);
+      targets.forEach(function (t) {
+        var keep = {};
+        t[0].querySelectorAll('[data-soft-keep][id]').forEach(function (el) { keep[el.id] = el; });
+        t[0].innerHTML = t[1].innerHTML;
+        Object.keys(keep).forEach(function (id) {
+          var fresh = document.getElementById(id);
+          if (fresh && fresh !== keep[id]) fresh.replaceWith(keep[id]); else if (!fresh) t[0].appendChild(keep[id]);
+        });
+      });
+      document.querySelectorAll(SC).forEach(function (el, i) {
+        var p = boxes[el.id || ('s' + i)]; if (p) { el.scrollTop = p[0]; el.scrollLeft = p[1]; }
+      });
+      if (window.uiSetupHelp) window.uiSetupHelp();
+      if (window.uiRestoreOpen) window.uiRestoreOpen();
+      if (window.SortableTables) document.querySelectorAll('table.sortable').forEach(function (t, i) { SortableTables.init(t, i); });
+      window.scrollTo(x, y);
+      document.dispatchEvent(new CustomEvent('soft:after'));
+      current = d.version; account = d.account;
+    }).catch(function () { location.reload(); }).then(function () { softBusy = false; });
+  }
   document.addEventListener('input', function () { dirty = true; });
+  document.addEventListener('mousemove', function () { lastMove = Date.now(); }, { passive: true });
   function poll() {
     fetch('/data-version', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
       if ((d.version === current && !(watchAccount && d.account !== account)) || d.busy) return;
       if (document.querySelector('dialog[open], #pos-overlay:not([hidden])')) return;     // con un gráfico abierto no se recarga: lo cerraría; se reintenta en 10 s
+      if (!dirty && softOk) { soft(d); return; }                                           // el Panel se actualiza sin recargar: no se nota
+      var tipEl = document.getElementById('viz-tip');
+      if (tipEl && !tipEl.hidden) return;                                                  // con un globo abierto tampoco: se cerraría y la página se movería; se reintenta en 10 s
+      if (Date.now() - lastMove < 4000) return;                                            // el ratón se está moviendo sobre la página: espera a que se detenga
       if (!dirty) { location.reload(); return; }
       if (notified) return;
       notified = true;

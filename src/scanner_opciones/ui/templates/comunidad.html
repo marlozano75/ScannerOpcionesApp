@@ -69,12 +69,14 @@
   </div>
   </form>
   <script>
+  /* Delegado en el documento: la actualización en caliente sustituye el formulario. */
   (function () {
-    var form = document.querySelector('form[action="/comunidad/perm"]'); if (!form) return;
-    var btn = document.getElementById('perm-add'), out = document.getElementById('perm-count'), hint = out.textContent;
-    form.addEventListener('change', function () {
+    document.addEventListener('change', function (e) {
+      var form = e.target.closest && e.target.closest('form[action="/comunidad/perm"]'); if (!form) return;
+      var btn = document.getElementById('perm-add'), out = document.getElementById('perm-count');
+      if (!out.dataset.hint) out.dataset.hint = out.textContent;
       var n = form.querySelectorAll('input.pick:checked').length;
-      btn.disabled = !n; out.textContent = n ? n + ' contrato' + (n > 1 ? 's' : '') + ' marcado' + (n > 1 ? 's' : '') : hint;
+      btn.disabled = !n; out.textContent = n ? n + ' contrato' + (n > 1 ? 's' : '') + ' marcado' + (n > 1 ? 's' : '') : out.dataset.hint;
     });
   })();
   </script>

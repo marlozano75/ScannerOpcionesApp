@@ -994,7 +994,7 @@ def test_results_outside_saved_profile_limits_are_marked(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
     base = client.get("/scanner?reset=1")
-    assert "var marks = {}" in base.text.replace("var marks = {}, table", "var marks = {}") or "var marks = {}" in base.text
+    assert 'id="marks-data"' in base.text and "data-marks='{}'" in base.text
     out = svc.scan(svc.criteria().with_filters(min_yield_pct=0.0, strike_below_pct_min=0.0))
     assert out.results
     strict = replace(svc.criteria(), min_yield_pct=1000.0, strike_below_pct_min=90.0, min_oi=10**9, dte_max=0)
@@ -1002,7 +1002,7 @@ def test_results_outside_saved_profile_limits_are_marked(client_and_service):
     assert marks["yp"] == "bad" and marks["desc"] == "bad" and marks["oi"] == "bad" and marks["dte"] == "bad"
     assert row_key(out.results[0]).startswith(out.results[0].snapshot.contract.ticker + "|")
     page = client.get("/scanner?submitted=1&mode=put&profile=Tortuga&set=put&discount=0&dte_min=1&dte_max=60&min_yield=0")
-    assert page.status_code == 200 and "var marks = " in page.text
+    assert page.status_code == 200 and 'id="marks-data"' in page.text
 
 
 def test_historico_tab_configures_the_scan_log_and_shows_what_the_sheet_receives(client_and_service):

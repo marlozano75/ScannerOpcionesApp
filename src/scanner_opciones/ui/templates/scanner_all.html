@@ -84,7 +84,7 @@
   </form>
 </div>
 <div class="hscroll" id="hscroll"><button type="button" data-d="-1" title="Desplazar a la izquierda" aria-label="Desplazar a la izquierda">‹</button><button type="button" data-d="1" title="Desplazar a la derecha" aria-label="Desplazar a la derecha">›</button></div>
-<dialog id="strike-dialog" class="sh-dialog">
+<dialog id="strike-dialog" class="sh-dialog" data-soft-keep>
   <div class="sh-head"><h2 id="strike-title">Historial de cierres</h2><button type="button" id="strike-close" aria-label="Cerrar">×</button></div>
   <div id="strike-body"></div>
 </dialog>
@@ -125,14 +125,14 @@
     document.getElementById('strike-close').addEventListener('click', function () { dlg.close(); });
     dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });
   })();
-  (function () {
-    const box = document.querySelector('.scroll'), bar = document.getElementById('hscroll');
-    if (!box || !bar) return;
-    function sync() { bar.classList.toggle('on', box.scrollWidth > box.clientWidth + 4); }
-    bar.querySelectorAll('button').forEach(function (b) {
-      b.addEventListener('click', function () { box.scrollBy({ left: parseInt(b.dataset.d, 10) * box.clientWidth * 0.7, behavior: 'smooth' }); });
+  (function () {   // barra de desplazamiento horizontal: se busca en cada uso (la actualización en caliente sustituye la tabla)
+    function parts() { return [document.querySelector('.scroll'), document.getElementById('hscroll')]; }
+    function sync() { var p = parts(); if (p[0] && p[1]) p[1].classList.toggle('on', p[0].scrollWidth > p[0].clientWidth + 4); }
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest && e.target.closest('#hscroll button'), p = parts(); if (!b || !p[0]) return;
+      p[0].scrollBy({ left: parseInt(b.dataset.d, 10) * p[0].clientWidth * 0.7, behavior: 'smooth' });
     });
-    window.addEventListener('resize', sync); sync();
+    window.addEventListener('resize', sync); document.addEventListener('soft:after', sync); sync();
   })();
 </script>
 {% endblock %}

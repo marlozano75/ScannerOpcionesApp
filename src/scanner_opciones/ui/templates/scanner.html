@@ -480,7 +480,8 @@
     </div>
   </aside>
 
-  <section class="results" id="results-col" data-keep-scroll>
+  <section class="results" id="results-col" data-keep-scroll data-soft="results">
+    <div id="marks-data" hidden data-marks='{{ marks | tojson }}'></div>
     <div class="summary">
       {% if out %}
       <div class="headline"><span class="big">{{ out.spreads|length if criteria and criteria.spread_mode else out.results|length }}</span>
@@ -551,12 +552,16 @@
   </form>
 </dialog>
 
-<dialog id="strike-dialog" class="sh-dialog">
+<dialog id="strike-dialog" class="sh-dialog" data-soft-keep>
   <div class="sh-head"><h2 id="strike-title">Historial de cierres</h2><button type="button" id="strike-close" aria-label="Cerrar">×</button></div>
   <div id="strike-body"></div>
 </dialog>
 
 <script>
+  // La columna de resultados se actualiza «en caliente» (base.html): lo que depende de ella se vuelve a montar con `onResults`.
+  const reinit = [];
+  const onResults = function (fn) { reinit.push(fn); fn(); };
+  document.addEventListener('soft:after', function () { reinit.forEach(function (fn) { fn(); }); });
   // Avisos del Scanner: se quitan con la «×» o al tocar por primera vez un filtro; el texto quitado se recuerda en la sesión
   (function () {
     const KEY = 'scanner-warnings-dismissed';
@@ -567,10 +572,12 @@
       if (list.indexOf(text) < 0) { list.push(text); save(list); }
       box.remove();
     };
-    const dismissed = read();
-    document.querySelectorAll('[data-warning]').forEach(function (box) {
-      if (dismissed.indexOf(box.querySelector('span').textContent) >= 0) box.remove();
-      else box.querySelector('.close').addEventListener('click', function () { dismiss(box); });
+    onResults(function () {
+      const dismissed = read();
+      document.querySelectorAll('[data-warning]').forEach(function (box) {
+        if (dismissed.indexOf(box.querySelector('span').textContent) >= 0) box.remove();
+        else box.querySelector('.close').addEventListener('click', function () { dismiss(box); });
+      });
     });
     const form = document.getElementById('scan-form');
     if (form) {
@@ -673,8 +680,7 @@
   // «Quitar» del panel de impacto: desactiva los controles asociados a esa línea y vuelve a escanear
   (function () {
     const form = document.getElementById('scan-form');
-    const body = document.getElementById('impact-body');
-    if (!form || !body) return;
+    if (!form) return;
     const OFF = {   // clave del panel -> casillas a desmarcar, cajas a vaciar y selects a poner en su valor neutro
       yield: { set: { min_yield: '0' } }, price: { set: { price_min: '', price_max: '' } },
       floor_eps: { uncheck: ['fl_eps'] }, floor_quarters: { set: { fl_q: '0' } }, floor_fcf: { uncheck: ['fl_fcf'] },
@@ -687,7 +693,7 @@
       trend: { set: { trend_dir: 'off' } }, support: { uncheck: ['support'] }, touch: { set: { touch: '' } },
       averages: { sectionSelects: 'sec-ma' },
     };
-    body.addEventListener('click', function (e) {
+    document.addEventListener('click', function (e) {
       const btn = e.target.closest('button.rm-filter');
       const rule = btn && OFF[btn.dataset.key];
       if (!rule) return;
@@ -711,8 +717,8 @@
       });
     });
     // celdas que se salen de los límites del perfil guardado: naranja si se pasan poco, rojo si se pasan más (lo calcula el servidor por fila)
-    (function () {
-      var marks = {{ marks | tojson }}, table = document.getElementById('scan-results');
+    onResults(function () {
+      var md = document.getElementById('marks-data'), marks = md ? JSON.parse(md.dataset.marks || '{}') : {}, table = document.getElementById('scan-results');
       if (!table || !Object.keys(marks).length) return;
       var cols = {}, head = table.rows[0];
       Array.prototype.forEach.call(head.cells, function (th, i) { if (th.dataset.col) cols[th.dataset.col] = i; });
@@ -724,13 +730,15 @@
           if (td) { td.classList.add('vp-' + m[c]); td.title = (td.title ? td.title + ' · ' : '') + 'Fuera del límite del perfil guardado'; }
         });
       });
-    })();
+    });
     // un chip de filtro activo abre su sección en la columna de filtros
-    document.querySelectorAll('button.chip[data-open]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        const d = document.getElementById(b.dataset.open);
-        d.open = true;
-        d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    onResults(function () {
+      document.querySelectorAll('button.chip[data-open]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          const d = document.getElementById(b.dataset.open);
+          d.open = true;
+          d.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
       });
     });
   })();
@@ -762,7 +770,12 @@
     el.addEventListener('change', function () { form.submit(); });   // editar X o el precio escanea
   });
   // Panel «¿Cuánto descarta cada filtro?»: se calcula al abrirlo (cerrado por defecto, salvo que se haya abierto)
-  (function () {
+  let impactHtml = null;
+  document.addEventListener('soft:before', function () {      // se conserva lo ya calculado mientras llega lo nuevo (sin parpadeo)
+    const b = document.getElementById('impact-body');
+    impactHtml = b && b.dataset.done ? b.innerHTML : null;
+  });
+  onResults(function () {
     const box = document.getElementById('viz-box');
     if (!box) return;
     try { if (sessionStorage.getItem('viz-open') === '1') box.open = true; } catch (e) { /* sin almacenamiento */ }
@@ -772,15 +785,20 @@
       loaded = true;
       fetch(box.dataset.url + window.location.search, { headers: { 'X-Requested-With': 'fetch' } })
         .then(function (r) { return r.text(); })
-        .then(function (html) { document.getElementById('impact-body').innerHTML = html; if (window.stratCounts) window.stratCounts(); })
+        .then(function (html) { const b = document.getElementById('impact-body'); b.innerHTML = html; b.dataset.done = '1'; if (window.stratCounts) window.stratCounts(); })
         .catch(function () { document.getElementById('impact-body').textContent = 'No se pudo calcular.'; });
+    }
+    if (impactHtml !== null && box.open) {
+      const b = document.getElementById('impact-body'); b.innerHTML = impactHtml; b.dataset.done = '1';
+      if (window.stratCounts) window.stratCounts();
+      impactHtml = null;
     }
     box.addEventListener('toggle', function () {
       try { sessionStorage.setItem('viz-open', box.open ? '1' : '0'); } catch (e) { /* idem */ }
       load();
     });
     load();
-  })();
+  });
   // Botones − / + de cada caja: suman o restan 1 y escanean (varios clics seguidos se acumulan en un solo escaneo)
   let timer = null;
   document.querySelectorAll('button.step').forEach(function (b) {
@@ -867,7 +885,7 @@
     cb.addEventListener('change', sync); sync();
   });
   // Contador de contratos marcados para simular
-  (function () {
+  onResults(function () {
     const counter = document.getElementById('sel-count');
     if (!counter) return;
     const update = function () {
@@ -876,6 +894,6 @@
     };
     document.getElementById('scan-results').addEventListener('change', update);
     update();
-  })();
+  });
 </script>
 {% endblock %}
