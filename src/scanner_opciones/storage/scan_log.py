@@ -103,13 +103,15 @@ def _row(r) -> LoggedRow:
                      r["distance_pct"], *(r[f] for f in EXTRA_FIELDS), r["origin"], r["trader"], r["opened"])
 
 
-def _filters(origin: Optional[str], trader: Optional[str]) -> tuple[str, tuple]:
-    """Condiciones opcionales por origen y trader (vacío = sin filtro)."""
+def _filters(origin: Optional[str], trader: Optional[str], kind: Optional[str] = None) -> tuple[str, tuple]:
+    """Condiciones opcionales por origen, trader y tipo (put/spread); vacío = sin filtro."""
     where, args = "", []
     if origin:
         where, args = where + " AND origin = ?", [*args, origin]
     if trader:
         where, args = where + " AND trader = ?", [*args, trader]
+    if kind:
+        where, args = where + " AND kind = ?", [*args, kind]
     return where, tuple(args)
 
 
@@ -153,8 +155,8 @@ class ScanLogRepo:
         closest = max(r["opened"] for r in rows)
         return [(r["profile"], r["trader"], r["origin"], r["opened"]) for r in rows if r["opened"] == closest]
 
-    def all_active(self, origin: Optional[str] = None, trader: Optional[str] = None) -> list[LoggedRow]:
-        where, args = _filters(origin, trader)
+    def all_active(self, origin: Optional[str] = None, trader: Optional[str] = None, kind: Optional[str] = None) -> list[LoggedRow]:
+        where, args = _filters(origin, trader, kind)
         rows = self.db.conn.execute(f"SELECT * FROM scan_log WHERE active = 1{where} ORDER BY origin, profile, kind, ticker, expiry, strike", args).fetchall()
         return [_row(r) for r in rows]
 
@@ -202,8 +204,8 @@ class ScanLogRepo:
             self.db.conn.executemany("UPDATE scan_runs SET synced = 1 WHERE id = ?", [(i,) for i in runs])
 
     # ---- lo que muestra la pestaña Histórico (mismo contenido que el Google Sheet) ----------------
-    def recent_events(self, limit: int = 500, origin: Optional[str] = None, trader: Optional[str] = None) -> list:
-        where, args = _filters(origin, trader)
+    def recent_events(self, limit: int = 500, origin: Optional[str] = None, trader: Optional[str] = None, kind: Optional[str] = None) -> list:
+        where, args = _filters(origin, trader, kind)
         return self.db.conn.execute(f"SELECT * FROM scan_events WHERE 1 = 1{where} ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()
 
     def recent_runs(self, limit: int = 500, origin: Optional[str] = None) -> list:

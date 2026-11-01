@@ -1012,6 +1012,9 @@ def test_historico_tab_configures_the_scan_log_and_shows_what_the_sheet_receives
     assert page.status_code == 200 and 'href="/historico"' in page.text and "Histórico" in page.text
     assert "Fecha y hora" in page.text and "aparece" in page.text and "AAPL" in page.text          # Escaneos › Eventos, mismas columnas que el Sheet
     assert "Primera vez" in client.get("/historico?tab=escaneos&sub=activos").text                  # Escaneos › Activos
+    svc.scan_log_repo.apply("2026-10-30T12:00:00", "TPC", "spread", [Hit("MSFT", "2026-12-18", 300.0, 290.0, 1.0, 18.0, 35, 8.0)], [], [], 0)
+    assert "AAPL" in client.get("/historico?tab=escaneos&kind=put").text.split("<table")[1]          # filtro Tipo = put
+    assert "AAPL" not in client.get("/historico?tab=escaneos&kind=spread").text.split("<table")[1] and "MSFT" in client.get("/historico?tab=escaneos&kind=spread").text.split("<table")[1]
     assert "P&amp;L" in client.get("/historico?tab=comunidad").text                                 # libro de la comunidad
     assert "Market Radar" in client.get("/historico?tab=marketradar").text                          # pestaña MarketRadar
     r = client.post("/historico/config", data={"enabled": "on", "interval_minutes": "7", "profiles": ["TPC"], "spreadsheet_id": " abc ", "auth": "oauth"},

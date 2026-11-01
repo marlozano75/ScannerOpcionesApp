@@ -15,6 +15,7 @@ from scanner_opciones.ui.common import MAX_FORM_FIELDS, _grp, message_groups
 
 TABS = (("escaneos", "Escaneos"), ("comunidad", "Comunidad"), ("marketradar", "MarketRadar"))
 SUBS = (("eventos", "Eventos"), ("activos", "Activos"))      # sub-vistas de Escaneos y MarketRadar (el registro `scan_log`)
+KINDS = (("put", "Put"), ("spread", "Spread"))              # filtro Tipo de esas sub-vistas
 LIMIT = 500      # filas que muestra la página (el Google Sheet recibe todas)
 
 COMMUNITY_HEADER = ["Trader", "Ticker", "Estrategia", "Estado", "Apertura", "Cierre", "DTE abr.", "DTE cierre", "Días", "Crédito $",
@@ -38,9 +39,10 @@ def community_row(t) -> list:
 
 def register(app, service, render, remembered) -> None:
     @app.get("/historico", response_class=HTMLResponse)
-    async def historico(request: Request, tab: str = "escaneos", sub: str = "eventos", message: str = "", trader: str = ""):
+    async def historico(request: Request, tab: str = "escaneos", sub: str = "eventos", kind: str = "", message: str = "", trader: str = ""):
         tab = tab if tab in {t for t, _ in TABS} else "escaneos"
         sub = sub if sub in {s for s, _ in SUBS} else "eventos"
+        kind = kind if kind in {k for k, _ in KINDS} else ""
         repo, cfg = service.scan_log_repo, service.scan_log_cfg()
         job = service.scan_log
         writer = job.writer
@@ -51,18 +53,19 @@ def register(app, service, render, remembered) -> None:
             traders = service.community_trades.traders()
             cc = service.community_trades.counts()
             count_line = f"{cc['trades']} operaciones · {cc['closed']} cerradas · {cc['traders']} traders"
+            kind = ""
         else:
             origin = SCAN if tab == "escaneos" else service.radar_feed.name
             if sub == "activos":
-                header, rows = ACTIVE_HEADER, [active_row(r) for r in repo.all_active(origin)[:LIMIT]]
+                header, rows = ACTIVE_HEADER, [active_row(r) for r in repo.all_active(origin, kind=kind or None)[:LIMIT]]
             else:
-                header, rows = EVENTS_HEADER, [event_row(e) for e in repo.recent_events(LIMIT, origin)]
+                header, rows = EVENTS_HEADER, [event_row(e) for e in repo.recent_events(LIMIT, origin, kind=kind or None)]
             traders = []
             trader = ""
             count_line = f"{repo.counts()['active']} contratos activos en total (todas las fuentes)"
 
         return render(request, "historico.html", no_autorefresh=True, watch_data=True, cfg=cfg, tab=tab, tabs=TABS, sub=sub, subs=SUBS,
-                      header=header, rows=rows, limit=LIMIT, count_line=count_line, profiles=[p[0] for p in service.profile_specs()],
+                      kind=kind, kinds=KINDS, header=header, rows=rows, limit=LIMIT, count_line=count_line, profiles=[p[0] for p in service.profile_specs()],
                       last_run=job.last_run, last_summary=job.last_summary, trader=trader, traders=traders,
                       sheets_error=writer.last_error if writer is not None else None, pending=repo.counts()["pending"],
                       message=message, groups=message_groups(message))

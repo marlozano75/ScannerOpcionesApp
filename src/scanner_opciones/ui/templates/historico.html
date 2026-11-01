@@ -41,13 +41,16 @@
 </div>
 
 <div class="card">
-  <div class="seg" role="tablist" style="margin-bottom:8px">{% for key, label in tabs %}<a href="/historico?tab={{ key }}{% if key != 'comunidad' %}&sub={{ sub }}{% endif %}" class="{{ 'on' if key == tab }}" role="tab">{{ label }}</a>{% endfor %}</div>
+  <div class="seg" role="tablist" style="margin-bottom:8px">{% for key, label in tabs %}<a href="/historico?tab={{ key }}{% if key != 'comunidad' %}&sub={{ sub }}{% if kind %}&kind={{ kind }}{% endif %}{% endif %}" class="{{ 'on' if key == tab }}" role="tab">{{ label }}</a>{% endfor %}</div>
   <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
     {% if tab == 'comunidad' %}
       <form method="get" action="/historico" style="display:flex;gap:8px;align-items:center;margin:0"><input type="hidden" name="tab" value="comunidad">
         <label>Trader <select name="trader" onchange="this.form.submit()"><option value="">Todos</option>{% for t in traders %}<option value="{{ t }}" {{ 'selected' if t == trader }}>{{ t }}</option>{% endfor %}</select></label></form>
     {% else %}
-      <div class="seg" role="tablist">{% for key, label in subs %}<a href="/historico?tab={{ tab }}&sub={{ key }}" class="{{ 'on' if key == sub }}" role="tab">{{ label }}</a>{% endfor %}</div>
+      <div class="seg" role="tablist">{% for key, label in subs %}<a href="/historico?tab={{ tab }}&sub={{ key }}{% if kind %}&kind={{ kind }}{% endif %}" class="{{ 'on' if key == sub }}" role="tab">{{ label }}</a>{% endfor %}</div>
+      <div class="seg" role="tablist" title="Tipo de contrato · «Yield bid anual %» solo lo llevan las puts">
+        <a href="/historico?tab={{ tab }}&sub={{ sub }}" class="{{ 'on' if not kind }}" role="tab">Todos</a>
+        {% for key, label in kinds %}<a href="/historico?tab={{ tab }}&sub={{ sub }}&kind={{ key }}" class="{{ 'on' if key == kind }}" role="tab">{{ label }}</a>{% endfor %}</div>
     {% endif %}
     <span class="muted">{{ count_line }} · se muestran {{ rows|length }} filas{% if rows|length >= limit %} (hay más registradas){% endif %}</span>
   </div>
