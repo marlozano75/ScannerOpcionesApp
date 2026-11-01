@@ -115,6 +115,25 @@ def _fit(name: str, view, *, discount_min: float, dte_min: int, dte_max: Optiona
     return Fit(name, tuple(out), d is not None)
 
 
+def profile_nlv_limits(specs: Sequence[tuple], spread: bool = False) -> tuple[float, ...]:
+    """Límites de capital en riesgo (% del NLV en USD) de los perfiles comparados que fijan uno: `max_capital_risk_pct` del juego de
+    put (o `max_loss_nlv_pct` del de spread). Los perfiles sin ese instrumento o sin límite no aparecen."""
+    out: list[float] = []
+    for s in specs:
+        c = s[2] if spread else s[1]
+        if c is None:
+            continue
+        lim = getattr(c, "max_loss_nlv_pct" if spread else "max_capital_risk_pct", None)
+        if lim is not None:
+            out.append(lim)
+    return tuple(out)
+
+
+def meets_any_nlv(risk_pct: Optional[float], limits: Sequence[float]) -> bool:
+    """¿El capital en riesgo del contrato (% del NLV) cabe en el límite de %NLV de al menos un perfil comparado? Sin dato, no cumple."""
+    return risk_pct is not None and any(risk_pct <= lim + 1e-9 for lim in limits)
+
+
 def profile_fits(view, specs: Sequence[tuple], default_ror: Optional[float] = None) -> tuple[Optional[Fit], ...]:
     """Un `Fit` por perfil guardado, con los filtros ACTUALES de su juego de put (o de spread, si la idea es un spread). `specs` =
     (nombre, criterios de put | None, criterios de spread | None), en el orden de las columnas; un perfil sin ese instrumento da None.

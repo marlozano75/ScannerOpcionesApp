@@ -25,6 +25,7 @@
   <form method="get" action="/marketradar" class="tr-bar">
     <input type="hidden" name="tipo" value="{{ tipo }}">
     <label class="check"><input type="checkbox" name="cumple" value="1" {{ 'checked' if cumple }} onchange="this.form.submit()"> Solo los que cumplen (✓)</label>
+    {% if tipo == 'put' and nlv_available %}<label class="check" title="Solo las puts cuyo capital en riesgo (% del NLV en USD) cabe en el límite de %NLV de al menos uno de los perfiles de put con los que se comparan"><input type="checkbox" name="nlv" value="1" {{ 'checked' if nlv }} onchange="this.form.submit()"> Cumple %NLV</label>{% endif %}
     <span class="muted">{{ items|length }} valores · {{ passing }} cumplen en total{% if live_at %} · <span title="Precio, prima, delta y crédito del spread re-valorados con la cotización en directo de tastytrade o lo guardado en la watchlist; lo que no cotiza se queda con el dato de Tortuga">cotizado en directo {{ live_at.strftime('%H:%M') }}</span>{% endif %}</span>
   </form>
   {% if items %}

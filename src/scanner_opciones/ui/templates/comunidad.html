@@ -36,11 +36,12 @@
     <label class="check"><input type="checkbox" name="venc" value="1" {{ 'checked' if venc }} onchange="this.form.submit()"> Mostrar vencidas</label>
     <label>Trader <select name="trader" onchange="this.form.submit()"><option value="">Todos</option>
       {% for t in traders %}<option value="{{ t }}" {{ 'selected' if t == trader }}>{{ t }}</option>{% endfor %}</select></label>
+    {% if tipo == 'put' and nlv_available %}<label class="check" title="Solo las ideas cuyo capital en riesgo (% del NLV en USD) cabe en el límite de %NLV de al menos uno de los perfiles de put con los que se comparan"><input type="checkbox" name="nlv" value="1" {{ 'checked' if nlv }} onchange="this.form.submit()"> Cumple %NLV</label>{% endif %}
     <span class="muted">{{ views|length }} ideas · {{ valid }} vigentes</span>
   </form>
   {% if views %}
   <form method="post" action="/comunidad/perm">
-  {% for k, v in (('venc', venc), ('trader', trader), ('tipo', tipo)) %}{% if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}{% endfor %}
+  {% for k, v in (('venc', venc), ('trader', trader), ('tipo', tipo), ('nlv', nlv)) %}{% if v %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}{% endfor %}
   <p class="ideas-bar" style="margin-top:0"><button type="submit" id="perm-add" disabled>Añadir a {{ perm_name }}</button>
     <span class="muted" id="perm-count">Marca contratos: de cada uno se guarda el ticker, el trader y la estrategia del Scanner que más filtros cumple hoy.</span></p>
   <div class="tscroll">
