@@ -248,11 +248,11 @@ async def test_history_of_the_option_positions_outside_the_watchlist_is_download
     exp = TODAY + timedelta(days=30)
     svc.state.positions = [Position("MARA", -1, -50.0, "Tech", OptionContract("MARA", exp, 15.0, OptionRight.PUT)),
                            Position("BRK B", -1, -90.0, "Fin", OptionContract("BRK B", exp, 400.0, OptionRight.PUT)),
-                           Position("AAPL", 100, 10_000.0, "Tech")]                       # acciones (sin opción): no cuentan
-    assert svc.position_tickers() == ["BRK-B", "MARA"] and svc.history_scope() == ["AAPL", "BRK-B", "MARA"]
+                           Position("AAPL", 100, 10_000.0, "Tech")]                       # acciones (sin opción): ahora también cuentan
+    assert svc.position_tickers() == ["AAPL", "BRK-B", "MARA"] and svc.history_scope() == ["AAPL", "BRK-B", "MARA"]
     svc._history_for_positions()
     await svc.wait_idle()
-    assert set(svc.bars.last_days(["AAPL", "MARA", "BRK-B"])) == {"MARA", "BRK-B"}          # AAPL se descarga con la actualización diaria
+    assert set(svc.bars.last_days(["AAPL", "MARA", "BRK-B"])) == {"AAPL", "MARA", "BRK-B"}   # se baja el histórico de todas las posiciones, incluida la acción
     calls = len(candles.calls)
     svc._history_for_positions()                                                          # ya los tiene: no se vuelve a pedir
     await svc.wait_idle()

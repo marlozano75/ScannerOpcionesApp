@@ -2878,12 +2878,13 @@ class AppService:
         return saved
 
     def position_tickers(self) -> list[str]:
-        """Subyacentes de las opciones de la cartera con el símbolo de la app (IBKR escribe la clase con espacio: `BRK B` → `BRK-B`)."""
-        return sorted({p.ticker.replace(" ", "-") for p in self.state.positions if p.option is not None})
+        """Subyacentes de TODAS las posiciones de la cartera (opciones y acciones), con el símbolo de la app (IBKR escribe la clase con espacio: `BRK B` → `BRK-B`).
+        Se les descarga el histórico de cierres para el gráfico del Panel aunque no estén en la watchlist."""
+        return sorted({p.ticker.replace(" ", "-") for p in self.state.positions if p.ticker})
 
     def history_scope(self) -> list[str]:
-        """Tickers de los que se guarda el histórico de cierres: la watchlist y los subyacentes de las opciones de la cartera (para los
-        gráficos del Panel, aunque no estén en la watchlist) y los tickers cuyo gráfico se abrió desde Comunidad u otra pestaña."""
+        """Tickers de los que se guarda el histórico de cierres: la watchlist y los subyacentes de TODAS las posiciones de la cartera (opciones y
+        acciones, para los gráficos del Panel, aunque no estén en la watchlist) y los tickers cuyo gráfico se abrió desde Comunidad u otra pestaña."""
         return sorted({*self.watchlist.list(), *self.position_tickers(), *self._chart_tickers()})
 
     def _chart_tickers(self) -> list[str]:
