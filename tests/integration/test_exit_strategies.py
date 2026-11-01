@@ -60,11 +60,11 @@ def test_management_profiles_crud_and_assignment_of_other_positions(client_and_s
     from scanner_opciones.domain.enums import OptionRight
     from scanner_opciones.domain.models import OptionContract, Position
     client, svc, gw, _ = client_and_service
-    # una call comprada suelta: va a «Otras posiciones» y se clasifica en el catch-all MTO
+    # una call comprada suelta: aparece en la tabla única de gestión y se clasifica en el catch-all MTO
     opt = OptionContract("AAPL", svc.now().date() + timedelta(days=30), 200.0, OptionRight.CALL)
     svc.state.positions = [Position("AAPL", 1, 500.0, "Technology", opt, avg_cost=400.0)]
     page = client.get("/").text
-    assert "Otras posiciones" in page and '<option value="MTO" selected>' in page      # clasificada, no «Otros» fijo
+    assert "Gestión de posiciones" in page and '<option value="MTO" selected>' in page      # clasificada en la misma tabla
     key = f"AAPL|{opt.expiry.isoformat()}|200"
     assert client.post("/management/profile", data={"key": key, "profile": "Comunidad"}, follow_redirects=False).status_code == 303
     assert svc.put_profiles()[key] == "Comunidad"

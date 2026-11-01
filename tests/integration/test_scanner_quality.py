@@ -371,7 +371,7 @@ def test_the_atr_filter_does_not_discard_anything_without_highs_and_lows_and_the
 def test_the_panel_shows_the_put_management_card(client_and_service):
     client, svc, gw, _ = client_and_service
     page = client.get("/").text
-    assert "Gestión de puts vendidas" in page
+    assert "Gestión de posiciones" in page
 
 
 def test_the_scanner_form_has_the_signals_selector_and_the_sigma_column(client_and_service):

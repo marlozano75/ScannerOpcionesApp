@@ -27,5 +27,6 @@ def test_dashboard_shows_portfolio_status_others_and_captured_premium(client_and
     page = client.get("/").text
     assert "Estado de la cartera" in page and "Riesgo total abierto" in page and "Margen comprometido" in page
     assert "Cambio diario" not in page and "P&amp;L latente" not in page
-    assert 'id="otros"' in page and "Otras posiciones" in page and "MSFT" in page and "Acción" in page
-    assert "Prima capt." in page and "+500" in page           # cobró 2.000, recomprar cuesta 1.500: capturada +500
+    assert 'id="gestion"' in page and "Gestión de posiciones" in page and "Otras posiciones" not in page
+    assert "MSFT" in page and "Acción" in page                 # la acción convive con la put en la misma tabla
+    assert "P&amp;L ($)" in page and "+500" in page            # cobró 2.000, recomprar cuesta 1.500: P&L (capturada) +500
