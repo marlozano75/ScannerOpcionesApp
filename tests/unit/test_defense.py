@@ -211,59 +211,39 @@ def sp(dte, delta, ivr=20.0, underlying=96.0, entry=1.0, current=1.0, earnings=N
     return dfn.SpreadInput(TODAY + timedelta(days=dte), 100.0, 95.0, dte, underlying, entry, current, delta, ivr, None, earnings, TODAY)
 
 
-SPREAD_MATRIX = [
-    # (DTE, delta, IV Rank, zona, fragmento del consejo)
-    (45, 0.20, 20, dfn.CALM, None),
-    (45, 0.35, 20, dfn.TESTED, "espera."), (45, 0.35, 50, dfn.TESTED, "Δ 0.2–0.25"),
-    (45, 0.50, 20, dfn.ATM, "espera, o añade un call spread"), (45, 0.50, 50, dfn.ATM, "Δ 0.25–0.3"),
-    (45, 0.70, 20, dfn.BETWEEN, "si hay prima, añade un call spread"), (45, 0.70, 50, dfn.BETWEEN, "añade un call spread"),
-    (45, 0.85, 20, dfn.BEYOND, "cierra si la tesis está rota"), (45, 0.85, 50, dfn.BEYOND, "espera o cierra"),
-    (25, 0.35, 20, dfn.TESTED, "espera a 21 DTE"), (25, 0.35, 50, dfn.TESTED, "añade un call spread"),
-    (25, 0.50, 20, dfn.ATM, "rola fuera si da crédito"), (25, 0.50, 50, dfn.ATM, "rola abajo y fuera"),
-    (25, 0.70, 20, dfn.BETWEEN, "si no hay crédito, cierra"), (25, 0.70, 50, dfn.BETWEEN, "rola fuera con crédito"),
-    (25, 0.85, 20, dfn.BEYOND, "cierra o déjalo correr"), (25, 0.85, 50, dfn.BEYOND, "cierra o déjalo correr"),
-    (15, 0.20, 20, dfn.CALM, "ciérralo al 50 %"), (15, 0.40, 20, dfn.TESTED, "rola fuera YA con crédito"), (15, 0.55, 50, dfn.ATM, "rola fuera YA con crédito"),
-    (15, 0.70, 20, dfn.BETWEEN, "rola si queda extrínseco"), (15, 0.85, 20, dfn.BEYOND, "deja correr hasta la pérdida máxima"),
-]
+# Estrategia de salida de Tastytrade: sin tocar el strike vendido no se actúa (la zona solo informa); al tocarlo, un único consejo.
+@pytest.mark.parametrize("dte,delta,underlying,zone", [
+    (45, 0.20, 103.0, dfn.CALM), (45, 0.35, 101.0, dfn.TESTED), (25, 0.35, 101.0, dfn.TESTED), (15, 0.40, 101.0, dfn.TESTED), (15, 0.20, 103.0, dfn.CALM),
+])
+def test_spread_does_nothing_while_the_price_has_not_touched_the_short_strike(dte, delta, underlying, zone):
+    d = dfn.assess_spread(sp(dte, delta, 20, underlying=underlying), CFG)
+    assert d.zone == zone and d.delta == delta and d.delta_live and d.steps == ()
 
 
-@pytest.mark.parametrize("dte,delta,ivr,zone,advice", SPREAD_MATRIX)
-def test_spread_matrix_follows_the_delta_dte_and_ivr_table(dte, delta, ivr, zone, advice):
-    d = dfn.assess_spread(sp(dte, delta, ivr), CFG)
-    assert d.zone == zone and d.delta == delta and d.delta_live
-    if advice is None:
-        assert d.steps == ()                                            # cómodo con tiempo: nada que hacer
-    else:
-        assert advice in texts(d), texts(d)
+@pytest.mark.parametrize("dte,delta,zone", [(45, 0.50, dfn.ATM), (25, 0.50, dfn.ATM), (15, 0.55, dfn.ATM), (45, 0.70, dfn.BETWEEN), (25, 0.70, dfn.BETWEEN),
+                                            (15, 0.85, dfn.BEYOND)])
+def test_spread_touching_the_strike_gives_one_single_defense_advice(dte, delta, zone):
+    d = dfn.assess_spread(sp(dte, delta, 50, underlying=99.0), CFG)
+    assert d.zone == zone and len(d.steps) == 1 and d.steps[0][0] == "warn"
+    t = texts(d)
+    assert "Tocó el strike vendido (100" in t and "defiende YA" in t and "sin ampliar el ancho (5)" in t and "iron condor" in t and "cierra y asume la pérdida" in t
+    assert "30–45 DTE" in t and "≥ 25 %" in t
 
 
-def test_spread_with_plenty_of_time_says_rolling_rarely_pays_and_the_call_spread_keeps_the_width():
-    d = dfn.assess_spread(sp(45, 0.50, 50), CFG)
-    assert "rolar casi nunca compensa" in texts(d) and "mismo ancho (5)" in texts(d) and "al menos el 25 %" in texts(d) and "nunca en plena caída" in texts(d)
-    assert "momento de cualquier defensa que venda prima" in texts(d)
-    assert "rolar casi nunca compensa" not in texts(dfn.assess_spread(sp(25, 0.50, 50), CFG))
-
-
-def test_spread_under_7_dte_closes_depending_on_where_the_price_is():
-    between = dfn.assess_spread(sp(5, 0.55, underlying=97.0), CFG)
-    assert "cierra siempre" in texts(between) and "pin" in texts(between) and between.steps[0][0] == "warn"
+def test_spread_under_7_dte_closes_and_max_loss_is_announced():
+    touched = dfn.assess_spread(sp(5, 0.55, underlying=97.0), CFG)
+    assert len(touched.steps) == 1 and touched.steps[0][0] == "warn" and texts(touched).startswith("Cierra:") and "pin" in texts(touched)
     below = dfn.assess_spread(sp(5, 0.90, underlying=93.0), CFG)
-    assert "por debajo de ambos strikes" in texts(below) and "vigila tu margen" in texts(below)
-    above = dfn.assess_spread(sp(5, 0.10, underlying=103.0), CFG)
-    assert "deja expirar o cierra por céntimos" in texts(above) and above.steps[0][0] == "info"
+    assert texts(below).startswith("Pérdida máxima") and "vigila tu margen" in texts(below) and len(below.steps) == 1
+    assert dfn.assess_spread(sp(5, 0.10, underlying=103.0), CFG).steps == ()
 
 
-def test_spread_closing_rules_loss_earnings_and_thesis():
-    # crédito 1,00, ancho 5 → pérdida máxima 4,00: el 50 % son 2,00 de pérdida (valor 3,00); 2× el crédito también son 2,00
-    assert "Cierra: la pérdida" in texts(dfn.assess_spread(sp(45, 0.50, current=3.1), CFG))
-    assert "Cierra: la pérdida" not in texts(dfn.assess_spread(sp(45, 0.50, current=2.5), CFG))
-    # ancho 10, crédito 3 → pérdida máxima 7: con el spread a 6,60 la pérdida es 3,60 (51 % de la máxima) y aún no llega a 2× el crédito (6,00)
-    wide = lambda cur: dfn.SpreadInput(TODAY + timedelta(days=45), 100.0, 90.0, 45, 96.0, 3.0, cur, 0.5, 20.0, None, None, TODAY)      # noqa: E731
-    assert "el 51 % de la pérdida máxima" in texts(dfn.assess_spread(wide(6.6), CFG))
-    assert "Cierra: la pérdida" not in texts(dfn.assess_spread(wide(6.2), CFG))                                    # 3,2: 46 % y 1,07×
-    earn = dfn.assess_spread(sp(20, 0.40, earnings=TODAY + timedelta(days=9)), CFG)
+def test_spread_defense_mentions_earnings_and_waits_for_a_rebound_in_free_fall():
+    earn = dfn.assess_spread(sp(20, 0.50, underlying=99.0, earnings=TODAY + timedelta(days=9)), CFG)
     assert "resultados el" in texts(earn) and "antes del vencimiento" in texts(earn)
-    assert "Si la tesis está rota" in texts(dfn.assess_spread(sp(45, 0.85, 20), CFG)) and "Si la tesis está rota" not in texts(dfn.assess_spread(sp(45, 0.35, 20), CFG))
+    assert "Hay resultados" not in texts(dfn.assess_spread(sp(20, 0.50, underlying=99.0), CFG))
+    fall = dfn.SpreadInput(TODAY + timedelta(days=20), 100.0, 95.0, 20, 99.0, 1.0, 1.0, 0.5, 20.0, None, None, TODAY, (110, 108, 105, 102, 100, 99))
+    assert "no añadas el call spread hasta que rebote" in texts(dfn.assess_spread(fall, CFG))
 
 
 def test_spread_without_delta_falls_back_to_the_price_and_without_price_there_is_no_assessment():

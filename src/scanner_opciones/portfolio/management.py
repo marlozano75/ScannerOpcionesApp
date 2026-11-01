@@ -43,19 +43,13 @@ _SHORT_LABELS = (
     (r"En pérdida", "En pérdida"), (r"Put testeada", "Testeada: esperar"), (r"En el dinero \(", "Rolar abajo y fuera"),
     (r"Muy dentro", "Muy dentro: rolar fuera"), (r"Quedan \d+ días", "Gamma: gestionar ya"),
     (r"Extrínseco casi cero", "Asignación anticipada"), (r"Ex-dividendo", "Ex-dividendo cerca"), (r"Pérdida de", "Pérdida alta"),
-    (r"IV Rank", "IV Rank"), (r"Resultados", "Resultados antes del venc."), (r"Stop:", "Stop: valorar cerrar"),
+    (r"IV Rank", "IV Rank"), (r"Resultados", "Resultados antes del venc."), (r"Stop:", "Stop: cerrar o defender"),
     (r"Riesgo de pin", "Riesgo de pin"), (r"Pérdida máxima:", "Pérdida máxima"), (r"En el dinero:", "En el dinero"),
     (r"El precio", "Cerca del strike"), (r"Cierra:", "Cerrar"), (r"Valora cerrar", "Valorar cerrar"),
     (r"Con tanto tiempo", "Sin prisa: no rolar"), (r"Si la tesis", "Revisar la tesis"),
     (r"Cayó .*NO vendas", "Caída libre: no vender call"), (r"Cayó .*buen momento", "Rebote: vender call"),
     (r"Cayó ", "Frenado: esperar rebote"), (r"Roll ya:", "Roll ya: ↻"), (r"Roll no aún:", "Roll: aún no"), (r"Roll sin prisa:", "Roll: sin prisa"),
-)
-# Avisos de un spread (empiezan por «Δ 0,30: …»): se resumen por la acción que aconsejan.
-_SPREAD_ACTIONS = (
-    ("cierra siempre", "Cerrar (pin)"), ("cierra o deja que se ejerzan", "Cerrar o ejercer"), ("deja expirar", "Dejar expirar"),
-    ("añade un call spread", "Añadir call spread"), ("rola fuera YA", "Rolar ya con crédito"), ("rola abajo y fuera", "Rolar abajo y fuera"),
-    ("rola", "Rolar con crédito"), ("espera a", "Esperar a 21 DTE"), ("espera", "Esperar"), ("déjalo expirar", "Dejar expirar"),
-    ("cierra o déjalo", "Cerrar o dejar correr"), ("deja correr", "Dejar correr o cerrar"),
+    (r"Tocó el strike", "Defender: rolar con crédito"), (r"Nada que hacer", "Nada que hacer"),
 )
 _ICONS = {"warn": "⚠", "ok": "✔", "info": "ⓘ"}
 _URGENCY = {"warn": 3, "ok": 2, "info": 1}
@@ -73,12 +67,6 @@ class Alert:
     @property
     def short(self) -> str:
         """Resumen de pocas palabras para la tabla del Panel; el texto completo queda para el tooltip."""
-        if self.text.startswith("Δ ") or self.text.startswith("sin delta"):
-            tail = self.text.split(": ", 1)[-1]
-            for key, label in _SPREAD_ACTIONS:
-                if key in tail:
-                    return label
-            return "Gestionar"
         for pattern, label in _SHORT_LABELS:
             m = re.match(pattern, self.text)
             if m:
@@ -207,35 +195,46 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
                                     f"({got}). Cerrarla o rolarla a un vencimiento posterior cobrando crédito."))
     spread = p.hedge_strike is not None
     defense = None
+    stop: list[Alert] = []
+    if spread and r.stop_multiple is not None and entry and current is not None and current >= r.stop_multiple * entry:
+        stop.append(Alert("warn", f"Stop: recomprar el spread cuesta {current / entry:.1f} veces el crédito cobrado (límite {r.stop_multiple:g}×). "
+                                  "Defiende ya (rola con crédito neto sin ampliar el ancho) o cierra y asume la pérdida."))
     if managed and r.defense:
         c = defense_ctx or {}
         if not spread:
             defense = defense_mod.assess(DefenseInput(o.expiry, o.strike, dte, underlying, entry, current, c.get("iv_rank"), c.get("iv30"),
                                                       c.get("next_earnings"), c.get("ex_dividend_in"), today, live_delta, c.get("closes")), cfg.defense)
-        else:      # matriz del spread: delta de la put VENDIDA x DTE x IV Rank
+        else:      # zona por delta de la vendida; la defensa solo habla al tocar el strike (estrategia de salida de Tastytrade)
             defense = defense_mod.assess_spread(defense_mod.SpreadInput(
                 o.expiry, o.strike, p.hedge_strike, dte, underlying, entry, current, live_delta, c.get("iv_rank"), c.get("iv30"),
                 c.get("next_earnings"), today, c.get("closes")), cfg.defense)
-        if defense is not None:
+        if defense is not None and not spread:
             alerts.extend(Alert(level, text) for level, text in defense.steps)
-    if spread and r.stop_multiple is not None and entry and current is not None and current >= r.stop_multiple * entry:
-        alerts.append(Alert("warn", f"Stop: el spread vale {current / entry:.1f} veces el crédito cobrado (límite {r.stop_multiple:g}×): "
-                                    "la pérdida ya iguala o supera el crédito. Valora cerrarlo."))
-    if spread and underlying is not None and 0 <= dte <= r.pin_dte and underlying <= o.strike * (1 + r.pin_buffer_pct / 100):
-        alerts.append(Alert("warn", f"Riesgo de pin: quedan {dte} días y el precio ({underlying:.2f}) está a ≤ {r.pin_buffer_pct:g} % del strike vendido "
-                                    f"({o.strike:g}). Cerrarlo antes del vencimiento evita una asignación parcial."))
+    if spread:      # orden de urgencia: stop, defensa (strike tocado / pérdida máxima / cerrar), y después recoger o revisar por tiempo
+        alerts = stop + [Alert(level, text) for level, text in (defense.steps if defense is not None else ())] + alerts
+        if not (defense and defense.steps) and underlying is not None and 0 <= dte <= r.pin_dte and underlying <= o.strike * (1 + r.pin_buffer_pct / 100):
+            alerts.append(Alert("warn", f"Riesgo de pin: quedan {dte} días y el precio ({underlying:.2f}) está a ≤ {r.pin_buffer_pct:g} % del strike vendido "
+                                        f"({o.strike:g}). Cerrarlo antes del vencimiento evita una asignación parcial."))
     if underlying is not None:
-        if p.hedge_strike is not None and underlying <= p.hedge_strike:
+        if spread and defense is not None:
+            pass     # la defensa del spread ya dice qué hacer (strike tocado, pérdida máxima o cierre por tiempo)
+        elif p.hedge_strike is not None and underlying <= p.hedge_strike:
             alerts.append(Alert("warn", f"Pérdida máxima: el precio ({underlying:.2f}) está por debajo de la put comprada ({p.hedge_strike:g}); "
                                         f"el spread ya vale su ancho ({o.strike - p.hedge_strike:g})."))
         elif underlying <= o.strike and defense is not None and (spread or defense.zone in (defense_mod.ATM, defense_mod.DEEP)):
-            pass     # la defensa ya dice qué hacer con una put (o un spread) en el dinero
+            pass     # la defensa ya dice qué hacer con una put en el dinero
         elif underlying <= o.strike:
             todo = ("Mantener sin rolar: no se rola; si te asignan, reevalúa la tesis y valora vender calls." if r.itm_action == "hold"
                     else "Valora cerrar antes que esperar la asignación.")
             alerts.append(Alert("warn", f"En el dinero: el precio ({underlying:.2f}) está por debajo del strike. {todo}"))
-        elif (underlying - o.strike) / underlying * 100 < cfg.near_strike_pct:
+        elif (underlying - o.strike) / underlying * 100 < cfg.near_strike_pct and not (spread and defense is not None):
             alerts.append(Alert("info", f"El precio ({underlying:g}) está a menos de {cfg.near_strike_pct:g} % del strike."))
+        if spread and defense is not None and not alerts:     # nada que hacer: lo dice con los números que lo justifican
+            goal = f"; objetivo {r.take_profit_pct:g} %" if r.take_profit_pct is not None else ""
+            got = f"{captured:.0f} % de la prima ganada{goal}" if captured is not None else "sin dato de la prima"
+            review = f" Revisión a {r.review_dte} DTE." if r.review_dte is not None else ""
+            alerts.append(Alert("info", f"Nada que hacer: el precio ({underlying:.2f}) está un {(underlying - o.strike) / underlying * 100:.1f} % por encima del strike "
+                                        f"vendido ({o.strike:g}), quedan {dte} días y lleva {got}.{review}"))
     premium = entry * per_share if entry else None
     amount = (entry - current - exit_ps) * per_share if entry and current is not None else None
     return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts) if managed else (), p.hedge_strike,

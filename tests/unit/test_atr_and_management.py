@@ -192,6 +192,25 @@ def test_spread_pin_risk_only_in_the_last_days_and_near_the_short_strike():
     assert not any("pin" in t for t in texts(put_status(_spread_position(100.0, days=10), TODAY, 91.0, CFG)))  # aún quedan días
 
 
+def test_spread_panel_shows_one_clear_message_per_situation():
+    """Estrategia de salida: tranquilo = «nada que hacer»; stop = cerrar o defender; strike tocado = defender; sin avisos repetidos."""
+    live = lambda s, price, delta, **k: put_status(s, TODAY, price, CFG, "tastytrade", live_delta=delta, **k)      # noqa: E731
+    calm = live(_spread_position(130.0, days=40), 100.0, 0.20)           # crédito 1,40, vale 1,30: 7 % capturado
+    assert [a.level for a in calm.alerts] == ["info"] and calm.alerts[0].short == "Nada que hacer" and "40 días" in calm.alerts[0].text
+    assert calm.urgency == 1 and calm.defense.zone == "calm"
+    tested = live(_spread_position(200.0, days=40), 91.5, 0.35)          # testeada pero sin tocar el strike (90): no se actúa
+    assert [a.short for a in tested.alerts] == ["Nada que hacer"]
+    touched = live(_spread_position(200.0, days=40), 89.5, 0.55)         # toca el strike vendido: un único consejo
+    assert [a.short for a in touched.alerts] == ["Defender: rolar con crédito"] and touched.urgency == 3
+    stopped = live(_spread_position(290.0, days=40), 89.5, 0.60)         # además salta el stop del 200 %: primero el stop
+    assert [a.short for a in stopped.alerts] == ["Stop: cerrar o defender", "Defender: rolar con crédito"]
+    assert stopped.main_alert.text.startswith("Stop:")
+    maxloss = live(_spread_position(480.0, days=40), 84.0, 0.90)         # bajo la put comprada (85)
+    assert [a.short for a in maxloss.alerts] == ["Stop: cerrar o defender", "Pérdida máxima"]       # el stop manda; sin «En el dinero» repetido
+    time = live(_spread_position(130.0, days=20), 100.0, 0.20)           # 21 DTE sin llegar al objetivo: revisar por tiempo, nada más
+    assert [a.short for a in time.alerts] == ["Revisar / rolar"]
+
+
 def test_total_open_risk_adds_spread_max_loss_and_naked_put_capital():
     spread = _spread_position(100.0)                                        # ancho 5 × 100 − crédito 140 = 360 $
     c = OptionContract("MSFT", TODAY + timedelta(days=30), 50.0, OptionRight.PUT)

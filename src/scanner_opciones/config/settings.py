@@ -730,9 +730,7 @@ class DefenseSettings(_Model):
     spread_atm_delta: float = Field(0.45, gt=0, lt=1)       # |delta| de la vendida desde la que el precio está en el strike vendido (antes: testeado, desde `tested_delta`)...
     spread_between_delta: float = Field(0.60, gt=0, lt=1)   # ... entre los dos strikes...
     spread_beyond_delta: float = Field(0.80, gt=0, lt=1)    # ... y por debajo de ambos, cerca de la pérdida máxima
-    spread_manage_dte: int = Field(30, ge=1)                # con más de N DTE hay tiempo (rolar casi nunca compensa); de `gamma_dte` a N es la zona de gestión
     spread_close_dte: int = Field(7, ge=0)                  # con menos de N DTE se cierra según dónde esté el precio respecto a los strikes
-    spread_close_loss_pct: float = Field(50, gt=0, le=100)  # cerrar con una pérdida de este % de la pérdida máxima (o de `loss_multiple` veces el crédito)
     spread_call_min_credit_pct: float = Field(25, ge=0)     # call spread de la defensa: crédito de al menos este % del crédito original (25-30 %)
     spread_roll_dte_min: int = Field(30, ge=1)              # roll del spread: nuevo vencimiento de N a N DTE; si no hay crédito se alarga hasta `far`
     spread_roll_dte_max: int = Field(45, ge=1)
@@ -760,8 +758,8 @@ class DefenseSettings(_Model):
             raise ValueError("tested_delta < spread_atm_delta < spread_between_delta < spread_beyond_delta")
         if not self.spread_roll_dte_min <= self.spread_roll_dte_max <= self.spread_roll_dte_far:
             raise ValueError("spread_roll_dte_min <= spread_roll_dte_max <= spread_roll_dte_far")
-        if not self.spread_close_dte < self.gamma_dte < self.spread_manage_dte:
-            raise ValueError("spread_close_dte < gamma_dte < spread_manage_dte")
+        if not self.spread_close_dte < self.gamma_dte:
+            raise ValueError("spread_close_dte < gamma_dte")
         return self
 
 

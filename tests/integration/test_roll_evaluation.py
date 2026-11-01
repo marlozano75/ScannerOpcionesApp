@@ -242,7 +242,7 @@ def test_the_panel_offers_the_defense_of_a_spread_and_the_window_renders(client_
     svc.set_put_profile(put_key(short), "Tasty")
     svc.state.position_deltas = {put_key(short): 0.55}              # delta real de la vendida (sin ella el precio igual al strike sale «cómodo»)
     page = client.get("/").text
-    assert 'class="roll-btn"' in page and "↻</a>" in page and "rola fuera YA con crédito" in page
+    assert 'class="roll-btn"' in page and "↻</a>" in page and "defiende YA" in page
     frag = client.get("/management/roll", params={"key": put_key(short)}).text
     assert "spread 100.00/95.00" in frag and "Vendida/comprada" in frag and "97.50/92.50" in frag
     assert "Añadir un call spread (iron condor)" in frag and "Riesgo máx." in frag and "Vender la call (strangle)" not in frag

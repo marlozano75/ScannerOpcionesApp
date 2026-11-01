@@ -278,7 +278,7 @@ def rank_rolls(strike: float, entry: Optional[float], close_cost: float, quotes:
                                                      "(si te gusta el valor a ese precio y la posición cabe en la cartera).")
 
 
-# ---- spreads de puts: matriz delta de la vendida x DTE x IV Rank -------------------------------------------------------------
+# ---- spreads de puts: zona por delta de la vendida y defensa al tocar el strike -------------------------------------------------------------
 @dataclass(frozen=True)
 class SpreadInput:
     expiry: date
@@ -318,93 +318,34 @@ def spread_zone(delta: Optional[float], underlying: Optional[float], short_strik
     return CALM
 
 
-def _add_call_text(i: SpreadInput, cfg: DefenseSettings, lo: float, hi: float) -> str:
-    return (f"añade un call spread: mismo vencimiento y mismo ancho ({i.width:g}) que el put spread, para no aumentar el riesgo máximo; call vendida de Δ {lo:g}–{hi:g} "
-            f"y un crédito de al menos el {cfg.spread_call_min_credit_pct:g} % del original (si es menor, no merece la pena). Mejor tras un rebote, nunca en plena caída")
-
-
 def assess_spread(i: SpreadInput, cfg: DefenseSettings) -> Optional[Defense]:
-    """Defensa aconsejada para un put spread. Referencias de estilo tastylive, no reglas fijas: con más de 30 DTE hay tiempo (esperar o añadir un call spread
-    si el IV Rank paga; rolar casi nunca compensa); de 21 a 30 DTE es la zona de gestión (rolar con crédito); por debajo de 21 manda el gamma
-    (rolar ya con crédito o cerrar); por debajo de 7 se cierra según dónde esté el precio. None sin precio del subyacente."""
+    """Defensa aconsejada para un put spread, según la estrategia de salida de Tastytrade (`estrategia/estrategia_salida_tastyspreads.txt`):
+    mientras el precio no toque el strike vendido NO se actúa (la zona solo informa; el objetivo de beneficio y los 21 DTE los avisa `put_status`);
+    al tocarlo se defiende en ese mismo instante, con UN solo consejo: rolar con crédito neto sin ampliar el ancho, convertir en iron condor con un
+    call spread, o cerrar y asumir la pérdida. Con menos de `spread_close_dte` días se cierra; con el precio bajo la put comprada, ya es la pérdida máxima.
+    El stop del 200 % del crédito lo avisa `put_status` (`ExitRules.stop_multiple`). None sin precio del subyacente."""
     if i.underlying is None or i.underlying <= 0:
         return None
     delta = i.delta if i.delta is not None else estimate_abs_delta(i.underlying, i.short_strike, i.dte, None, i.iv30, cfg.risk_free_rate)
     zone = spread_zone(delta, i.underlying, i.short_strike, i.long_strike, cfg)
-    d = f"Δ {delta:.2f}" if delta is not None else "sin delta"
-    high = i.iv_rank is not None and i.iv_rank >= cfg.ivr_good
-    iv = "IV Rank alto" if high else "IV Rank bajo" if i.iv_rank is not None else "sin IV Rank (se trata como bajo)"
+    touched = zone in (ATM, BETWEEN, BEYOND) or i.underlying <= i.short_strike
     steps: list[tuple[str, str]] = []
-
-    def step(level: str, text: str) -> None:
-        steps.append((level, text))
-
-    lo, hi = cfg.call_delta_min, cfg.call_delta_max
-    where = {CALM: "cómodo, fuera del dinero", TESTED: "testeado, acercándose al strike vendido", ATM: "en el strike vendido",
-             BETWEEN: "entre los dos strikes", BEYOND: "por debajo de ambos strikes, cerca de la pérdida máxima"}[zone]
-    head = f"{d}: {where} ({i.dte} DTE, {iv})"
-    if 0 <= i.dte < cfg.spread_close_dte:                                       # < 7 DTE: se cierra según dónde esté el precio
-        if i.long_strike < i.underlying <= i.short_strike:
-            step("warn", f"{head}. Precio entre los strikes con menos de {cfg.spread_close_dte} días: cierra siempre; el riesgo de pin y de asignación no compensan.")
-        elif i.underlying <= i.long_strike:
-            step("warn", f"{head}. Precio por debajo de ambos strikes: cierra o deja que se ejerzan las dos patas, pero vigila tu margen.")
+    if touched:
+        d = f"Δ {delta:.2f}" if delta is not None else "sin delta"
+        if i.underlying <= i.long_strike:
+            steps.append(("warn", f"Pérdida máxima: el precio ({i.underlying:.2f}) está por debajo de la put comprada ({i.long_strike:g}) y el spread ya vale su ancho "
+                                  f"({i.width:g}). Ciérralo o deja que se ejerzan las dos patas (vigila tu margen); rolar ya no da crédito."))
+        elif 0 <= i.dte < cfg.spread_close_dte:
+            steps.append(("warn", f"Cierra: el precio ({i.underlying:.2f}) está en o bajo el strike vendido ({i.short_strike:g}) y quedan {i.dte} días "
+                                  f"(< {cfg.spread_close_dte}); el riesgo de pin y de asignación no compensa."))
         else:
-            step("info", f"{head}. Precio por encima del strike vendido: deja expirar o cierra por céntimos.")
-    elif zone == CALM:
-        if i.dte < cfg.gamma_dte:
-            step("info", f"{head}: déjalo expirar o ciérralo al 50 % de beneficio.")
-    elif i.dte > cfg.spread_manage_dte:                                          # hay tiempo
-        if zone == TESTED:
-            if high:
-                step("warn", f"{head}: " + _add_call_text(i, cfg, lo, 0.25) + ".")
-            else:
-                step("info", f"{head}: espera.")
-        elif zone == ATM:
-            if high:
-                step("warn", f"{head}: " + _add_call_text(i, cfg, 0.25, hi) + ".")
-            else:
-                step("info", f"{head}: espera, o " + _add_call_text(i, cfg, lo, hi) + ".")
-        elif zone == BETWEEN:
-            step("warn" if high else "info", f"{head}: " + ("" if high else "si hay prima, ") + _add_call_text(i, cfg, lo, hi) + ("" if high else "; si no, espera") + ".")
-        else:
-            step("info", f"{head}: " + ("espera o cierra" if high else "espera; cierra si la tesis está rota") + ".")
-        step("info", "Con tanto tiempo por delante rolar casi nunca compensa: el tiempo aún juega a tu favor.")
-    elif i.dte >= cfg.gamma_dte:                                                 # 21-30 DTE: zona de gestión
-        if zone == TESTED:
-            if high:
-                step("warn", f"{head}: " + _add_call_text(i, cfg, lo, hi) + ".")
-            else:
-                step("info", f"{head}: espera a {cfg.gamma_dte} DTE.")
-        elif zone == ATM:
-            step("warn", f"{head}: " + ("rola abajo y fuera" if high else "rola fuera si da crédito") + " (crédito neto, nuevo vencimiento a "
-                 f"{cfg.spread_roll_dte_min}–{cfg.spread_roll_dte_max} DTE).")
-        elif zone == BETWEEN:
-            step("warn", f"{head}: rola fuera con crédito" + ("" if high else "; si no hay crédito, cierra") + ".")
-        else:
-            step("warn", f"{head}: cierra o déjalo correr.")
-    else:                                                                        # 7-21 DTE: manda el gamma
-        if zone in (TESTED, ATM):
-            step("warn", f"{head}: rola fuera YA con crédito; si no hay crédito, cierra.")
-        elif zone == BETWEEN:
-            step("warn", f"{head}: rola si queda extrínseco; si no, cierra.")
-        else:
-            step("warn", f"{head}: deja correr hasta la pérdida máxima o cierra; rolar ya no da crédito.")
-    if zone in (TESTED, ATM, BETWEEN) and i.dte >= cfg.spread_close_dte and (m := momentum_step(momentum(i.closes, cfg), cfg)) is not None:
-        step(*m)         # vale para el call spread de la defensa: mismo criterio que la call del strangle
-    # cierres por pérdida, por eventos y por la tesis
-    if i.entry and i.current is not None and i.entry > 0:
-        loss = i.current - i.entry
-        max_loss = i.width - i.entry
-        if loss >= cfg.loss_multiple * i.entry or (max_loss > 0 and loss >= cfg.spread_close_loss_pct / 100 * max_loss):
-            step("warn", f"Cierra: la pérdida ({loss:.2f} $/acción) ya es {loss / i.entry:.1f} veces el crédito cobrado"
-                         + (f" y el {loss / max_loss * 100:.0f} % de la pérdida máxima" if max_loss > 0 else "")
-                         + f" (límites: {cfg.loss_multiple:g}× el crédito o el {cfg.spread_close_loss_pct:g} % de la máxima).")
-    if zone != CALM and i.next_earnings is not None and i.today is not None and i.today <= i.next_earnings <= i.expiry:
-        step("warn", f"Valora cerrar: hay resultados el {i.next_earnings:%d/%m} antes del vencimiento y el spread está testeado.")
-    if zone in (ATM, BETWEEN, BEYOND):
-        step("info", "Si la tesis está rota (noticias fundamentales o ruptura de soportes clave), cierra sin esperar.")
-    if zone != CALM and high and i.dte >= cfg.spread_close_dte:
-        step("info", f"IV Rank {i.iv_rank:.0f} %: es el momento de cualquier defensa que venda prima.")
+            ev = (f" Hay resultados el {i.next_earnings:%d/%m} antes del vencimiento."
+                  if i.next_earnings is not None and i.today is not None and i.today <= i.next_earnings <= i.expiry else "")
+            fall = momentum(i.closes, cfg)
+            wait = " Si sigue en caída libre, no añadas el call spread hasta que rebote." if fall is not None and fall.state == FREEFALL else ""
+            steps.append(("warn", f"Tocó el strike vendido ({i.short_strike:g}; {d}, {i.dte} DTE): defiende YA. 1) Rola a {cfg.spread_roll_dte_min}–{cfg.spread_roll_dte_max} DTE "
+                                  f"cobrando crédito neto y sin ampliar el ancho ({i.width:g}); 2) o añade un call spread del mismo ancho (iron condor, crédito ≥ "
+                                  f"{cfg.spread_call_min_credit_pct:g} % del original); 3) si no hay crédito o la tesis está rota, cierra y asume la pérdida.{wait}{ev}"))
     return Defense(zone, delta, None, tuple(steps), i.delta is not None)
 
 

@@ -92,11 +92,10 @@ DELTA_INFO = {
         ("gamma_dte", "Gamma: gestionar a ≤", "DTE", "A ≤ N DTE el gamma se acelera: gestionar aunque la pérdida no sea extrema."),
     ),
     "credit": (
-        ("spread_atm_delta", "Δ vendida: en el strike desde", "Δ", "El precio está en el strike vendido: la zona del spread sube y cambia el aviso (esperar, call spread, rolar o cerrar)."),
+        ("spread_atm_delta", "Δ vendida: en el strike desde", "Δ", "El precio está en el strike vendido: se avisa de defender (rolar con crédito, call spread o cerrar)."),
         ("spread_between_delta", "Δ vendida: entre strikes desde", "Δ", "El precio está entre los dos strikes."),
         ("spread_beyond_delta", "Δ vendida: más allá de ambos desde", "Δ", "Cerca de la pérdida máxima."),
-        ("spread_manage_dte", "Zona de gestión: de gamma a", "DTE", "Con más DTE hay tiempo (rolar casi nunca compensa); por debajo se gestiona según la zona."),
-        ("spread_close_dte", "Cerrar según los strikes a <", "DTE", "Con menos DTE se cierra según dónde esté el precio respecto a los strikes."),
+        ("spread_close_dte", "Cerrar si toca el strike a <", "DTE", "Con menos DTE y el precio en o bajo el strike vendido, se cierra en vez de defender."),
     ),
     "buy": (
         ("tested_delta", "Δ cerca del dinero desde", "Δ", "Zonas invertidas: más delta = más dentro del dinero = a favor (lejos < cerca < en el dinero < muy dentro)."),
@@ -287,8 +286,8 @@ def describe(r: ExitRules) -> list[str]:
     if r.defense:
         out.append("Defensa de las puts desnudas según su delta, los días y el IV Rank: testeada (Δ 0,30+) esperar o vender la call; en el dinero (Δ 0,50+) rolar "
                    "abajo y fuera con crédito neto; muy dentro (Δ 0,70+) rolar solo hacia fuera o asignación; a ≤ 21 DTE o sin extrínseco, gestionar ya. "
-                   "Spreads: matriz de la delta de la vendida × DTE (> 30, 21–30, < 21, < 7) × IV Rank (esperar, añadir un call spread del mismo ancho, rolar con "
-                   "crédito o cerrar). Evaluación de rolls y de las defensas con cotizaciones en vivo desde el Panel.")
+                   "Spreads: un único aviso: stop al 200 % del crédito; al tocar el strike vendido, defender (rolar a 30–45 DTE con crédito sin ampliar el ancho, "
+                   "call spread del mismo ancho o cerrar); la zona por delta solo informa. Evaluación de rolls y de las defensas con cotizaciones en vivo desde el Panel.")
     else:
         out.append("Sin avisos de defensa: no se rola ni se defiende la put.")
     return out
