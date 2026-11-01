@@ -302,3 +302,19 @@ def style_summary(r: ExitRules) -> dict:
         long_on=any(v is not None for v in (r.long_take_profit_pct, r.long_stop_pct, r.long_review_dte, r.debit_take_profit_pct)),
         long_tp=r.long_take_profit_pct, long_stop=r.long_stop_pct, long_review=r.long_review_dte, debit_tp=r.debit_take_profit_pct,
         close_capture=r.close_capture_pct)
+
+
+def _show(key: str, v) -> str:
+    if v is None:
+        return "apagado"
+    if key == "itm_action":
+        return "valorar cerrar" if v == "close" else "mantener, no rolar"
+    if key == "defense":
+        return "activada" if v else "desactivada"
+    return f"{v:g}"
+
+
+def diff_rules(base: ExitRules, rules: ExitRules) -> list[tuple[str, str, str]]:
+    """Qué cambia `rules` respecto a `base`: [(regla, valor del estilo, valor del perfil)]; vacío = sin modificaciones."""
+    labels = {k: lab for k, lab, *_ in FIELDS} | {k: lab for k, (lab, _) in EXTRA_FIELDS.items()}
+    return [(labels[k], _show(k, getattr(base, k)), _show(k, getattr(rules, k))) for k in KEYS if getattr(base, k) != getattr(rules, k)]

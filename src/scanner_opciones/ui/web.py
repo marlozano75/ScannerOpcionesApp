@@ -493,7 +493,9 @@ def create_app(
             open_puts[name] = open_puts.get(name, 0) + 1
         def card(p, prefix: str, tag: str, active: set) -> dict:
             rules = p.exit_rules(cfg)
-            return dict(profile=p, prefix=prefix, tag=tag, rules=rules, sections=exits_mod.sections(active), base=exits_mod.defaults(p.management, cfg), changed=set(p.exits),
+            base = exits_mod.defaults(p.management, cfg)
+            return dict(profile=p, prefix=prefix, tag=tag, rules=rules, sections=exits_mod.sections(active), base=base, changed=set(p.exits),
+                        diff=exits_mod.diff_rules(base, rules), style_label=exits_mod.style_label(p.management),
                         text=exits_mod.describe(rules), open_puts=open_puts.get(p.name, 0))
         # un perfil de escaneo gestiona las estrategias de sus instrumentos; uno de gestión, todas
         cards = [card(p, f"pf{i}", p.mode, set(p.instruments) & {"put", "spread"}) for i, p in enumerate(profiles)]

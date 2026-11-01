@@ -45,6 +45,10 @@
   .sty-chips .y { border-color:var(--green, #2a9d5c); } .sty-chips .n { color:var(--mute); }
   .sty-foot { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin-top:8px; font-size:12px; }
   .sty-foot button { width:auto; padding:2px 10px; }
+  .ex-diff { display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; font-size:12px; margin:2px 0 8px; }
+  .ex-mod { border:1px solid var(--amber); border-radius:9px; padding:1px 8px; }
+  .ex-same { color:var(--green, #2a9d5c); }
+  .ex-rules > summary { cursor:pointer; font-size:13px; margin:4px 0; }
   .ex-save-style { font-size:12px; }
   .ex-save-style input { width:200px; padding:3px 8px; height:28px; box-sizing:border-box; margin-left:6px; }
 </style>
@@ -108,7 +112,11 @@
         <h3>{{ p.name }}</h3>
         <span class="tag">{{ c.tag }}</span>
         <span class="muted" style="font-size:12px">{{ c.open_puts }} {{ 'posición abierta' if c.open_puts == 1 else 'posiciones abiertas' }} en el Panel</span>
-        <span class="muted" style="font-size:12px">{% if c.changed %}personalizada ({{ c.changed|length }} {{ 'cambio' if c.changed|length == 1 else 'cambios' }} sobre el estilo){% else %}valores del estilo{% endif %}</span>
+      </div>
+      <div class="ex-diff">
+        <span class="ex-base">Estilo base: <b>{{ c.style_label }}</b></span>
+        {% if c.diff %}{% for lab, b, v in c.diff %}<span class="ex-mod" title="Estilo base: {{ b }}"><span class="muted">{{ lab }}</span> {{ b }} → <b>{{ v }}</b></span>{% endfor %}
+        {% else %}<span class="ex-same">✓ Sin modificaciones</span>{% endif %}
       </div>
       <div class="ex-top">
         <label title="Punto de partida de las reglas. Cambiarlo y guardar descarta los cambios de este perfil y carga los valores del estilo.">Estilo base
@@ -119,6 +127,7 @@
         <label class="ex-save-style" title="Guarda las reglas que ves en esta tarjeta como un estilo base y el perfil pasa a usarlo. Si el nombre ya es de un estilo propio, lo actualiza para todos los perfiles que lo usan.">Guardar como estilo base
           <input type="text" name="{{ c.prefix }}_newstyle" maxlength="40" placeholder="nombre (opcional)"></label>
       </div>
+      <details class="ex-rules"><summary>Editar reglas</summary>
       {% for g in c.sections if g.on %}
       <div class="ex-group">
         <div class="ex-gh"><b>{{ g.title }}</b>
@@ -160,6 +169,7 @@
         </table>
       </div>
       {% endfor %}
+      </details>
       <details class="ex-desc"><summary style="cursor:pointer;font-size:13px"><b>Resumen en palabras</b></summary>
         <ul class="ex-text">{% for t in c.text %}<li>{{ t }}</li>{% endfor %}</ul>
       </details>
