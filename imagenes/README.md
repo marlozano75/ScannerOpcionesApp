@@ -27,7 +27,7 @@ Inspiran los filtros técnicos y los gráficos del Scanner (RF-44 en `ESPECIFICA
 | Archivo | Qué muestra |
 | :--- | :--- |
 | `HighestSeverity.png` | Indicador de riesgo `HighestSeverity` de IBKR |
-| `Errores_tickets desconocidos o sin cadena de opciones.png` | Aviso de la Watchlist con tickers inservibles («Ticker no reconocido por IBKR», «Sin cadena de opciones»). Motivó el aviso que se cierra con «×» (commit 35c1bbb) |
+| `error_Comunidad_Feed.png` | Captura de un error en la pestaña Comunidad › Feed. |
 | `Beneficios_Ultimos años.png` | Referencia visual (gráfico de TradingView) de los resultados anuales: barras de ingresos e ingresos netos y línea del margen neto. Base del gráfico «Resultados anuales» de la ficha (`marketdata/history_html.py::annual_svg`) |
 | `Beneficios_Ultimos_Quarters.png` | Referencia visual de los beneficios por acción de los últimos trimestres: punto relleno = real, hueco = estimación. Base del gráfico de la ficha (`history_html.py::earnings_svg`) |
 
