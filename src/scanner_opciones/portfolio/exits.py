@@ -41,7 +41,6 @@ FIELDS = (
     ("take_profit_pct", "Recoger beneficios al", "pct", True, "% de la prima cobrada ya ganado a partir del cual se avisa de recoger. Vacío = no se recoge antes del vencimiento."),
     ("take_profit_max_pct", "Techo del rango", "pct", True, "Por encima de este % no esperar más. Vacío = sin techo."),
     ("review_dte", "Revisar / rolar a ≤", "int", True, "DTE a partir del cual, sin haber llegado al objetivo, se avisa de cerrar o rolar. Vacío = no se revisa."),
-    ("close_capture_pct", "Aviso de prima casi ganada", "pct", True, "Aviso informativo cuando queda poca prima por ganar: cerrar y liberar la obligación o seguir hasta el vencimiento. Vacío = sin aviso."),
     ("stop_multiple", "Stop del spread", "mult", True, "El spread vale N veces el crédito cobrado (2 = la pérdida iguala el crédito). Vacío = sin stop."),
     ("pin_dte", "Riesgo de pin: últimos", "int", False, "Días antes del vencimiento en los que se vigila el pin de un spread."),
     ("pin_buffer_pct", "Pin: distancia al strike", "pct", False, "% por encima del strike vendido por debajo del cual hay riesgo de pin."),
@@ -71,7 +70,6 @@ ALERTS = {
     "take_profit_pct": ("ok", "Recoger beneficios: la prima ganada llega a este %."),
     "take_profit_max_pct": ("ok", "Recoger beneficios: «ya supera el rango, no esperes más»."),
     "review_dte": ("warn", "Revisar: quedan ≤ N días sin haber llegado al objetivo; cerrar o rolar cobrando crédito."),
-    "close_capture_pct": ("info", "Casi toda la prima ganada: cerrar y liberar la obligación o mantener hasta el vencimiento."),
     "itm_action": ("warn", "En el dinero: el precio pasó el strike vendido (valorar cerrar, o mantener sin rolar)."),
     "defense": ("warn", "Testeada / en el dinero / muy dentro, poco extrínseco, dividendo y resultados; evaluación de rolls."),
     "stop_multiple": ("warn", "Stop: el spread vale N veces el crédito cobrado."),
@@ -108,7 +106,7 @@ DELTA_INFO = {
 
 # Grupos en el orden en que se muestran: (id, título, estrategias a las que aplica, claves editables)..
 GROUPS = (
-    ("sell", "Venta de opciones · reglas comunes", SELL, ("take_profit_pct", "take_profit_max_pct", "review_dte", "close_capture_pct", "itm_action")),
+    ("sell", "Venta de opciones · reglas comunes", SELL, ("take_profit_pct", "take_profit_max_pct", "review_dte", "itm_action")),
     ("put", "Solo put vendida", ("put",), ("defense",)),
     ("credit", "Spreads y combos de crédito", ("spread", "call"), ("stop_multiple", "pin_dte", "pin_buffer_pct")),
     ("buy", "Compra de opciones · reglas comunes", ("long", "debit"), ("long_stop_pct", "long_review_dte")),
@@ -207,8 +205,6 @@ def describe(r: ExitRules) -> list[str]:
         out.append(f"A ≤ {r.review_dte} DTE{goal}: cerrar o rolar a un vencimiento posterior cobrando crédito.")
     else:
         out.append("No se revisa ni se rola por tiempo.")
-    if r.close_capture_pct is not None:
-        out.append(f"Con el {r.close_capture_pct:g} % de la prima ganada: aviso informativo (cerrar y liberar la obligación o seguir hasta el vencimiento).")
     if r.stop_multiple is not None:
         out.append(f"Spreads: stop cuando el spread vale {r.stop_multiple:g} veces el crédito cobrado.")
     else:

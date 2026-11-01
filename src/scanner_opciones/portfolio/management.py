@@ -200,15 +200,11 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         rango = f"{r.take_profit_pct:g}–{r.take_profit_max_pct:g} %" if r.take_profit_max_pct else f"{r.take_profit_pct:g} %"
         extra = " Ya supera el rango: no esperes más." if r.take_profit_max_pct and captured > r.take_profit_max_pct else ""
         alerts.append(Alert("ok", f"Recoger beneficios: {captured:.0f} % de la prima ganada (objetivo {rango}).{extra}"))
-    elif r.close_capture_pct is not None and captured is not None and captured >= r.close_capture_pct:
-        alerts.append(Alert("info", f"Casi toda la prima ganada ({captured:.0f} %): puedes cerrarla y liberar la obligación o mantenerla hasta el vencimiento."))
     elif r.review_dte is not None and 0 <= dte <= r.review_dte:
         got = "sin dato de la prima" if captured is None else f"{captured:.0f} % de la prima ganada"
         goal = f" y no se ha llegado al {r.take_profit_pct:g} %" if r.take_profit_pct is not None else ""
         alerts.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {r.review_dte}){goal} "
                                     f"({got}). Cerrarla o rolarla a un vencimiento posterior cobrando crédito."))
-    if captured is not None and captured < 0:
-        alerts.append(Alert("info", "En pérdida: recomprarla cuesta más que la prima cobrada."))
     spread = p.hedge_strike is not None
     defense = None
     if managed and r.defense:

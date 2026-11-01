@@ -127,14 +127,10 @@ def _credit_alerts(op: OtherPosition, r: ExitRules, cfg: ManagementSettings, tod
     if r.take_profit_pct is not None and cap is not None and cap >= r.take_profit_pct:
         rango = f"{r.take_profit_pct:g}–{r.take_profit_max_pct:g} %" if r.take_profit_max_pct else f"{r.take_profit_pct:g} %"
         out.append(Alert("ok", f"Recoger beneficios: {cap:.0f} % de la prima ganada (objetivo {rango})."))
-    elif r.close_capture_pct is not None and cap is not None and cap >= r.close_capture_pct:
-        out.append(Alert("info", f"Casi toda la prima ganada ({cap:.0f} %): puedes cerrarla o mantenerla hasta el vencimiento."))
     elif r.review_dte is not None and 0 <= dte <= r.review_dte:
         goal = f" y no se ha llegado al {r.take_profit_pct:g} %" if r.take_profit_pct is not None else ""
         got = "sin dato de la prima" if cap is None else f"{cap:.0f} % de la prima ganada"
         out.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {r.review_dte}){goal} ({got}). Cerrarla o rolarla a un vencimiento posterior cobrando crédito."))
-    if cap is not None and cap < 0:
-        out.append(Alert("info", "En pérdida: recomprarla cuesta más que la prima cobrada."))
     shorts = [l for l in op.legs if l[1]]
     longs = [l for l in op.legs if not l[1]]
     if r.stop_multiple is not None and op.entry and op.current is not None and op.current >= r.stop_multiple * op.entry:
@@ -166,6 +162,4 @@ def _long_alerts(op: OtherPosition, r: ExitRules, today: date, gain: Optional[fl
         out.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {r.long_review_dte}) y no se ha llegado al objetivo: el valor temporal se evapora. Cerrarla o rolarla."))
     if r.long_stop_pct is not None and pnl_pct is not None and pnl_pct <= -r.long_stop_pct:
         out.append(Alert("warn", f"Stop: pierde un {-pnl_pct:.0f} % de lo pagado (límite {r.long_stop_pct:g} %). Valora cerrar."))
-    elif pnl_pct is not None and pnl_pct < 0:
-        out.append(Alert("info", f"En pérdida: vale un {-pnl_pct:.0f} % menos de lo pagado."))
     return out

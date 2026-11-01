@@ -164,7 +164,7 @@ def test_short_call_in_the_money_warns_and_estimates_delta_without_quotes():
     row = _row(_assess([p], price=100.0), "Call vendida")
     assert not row.delta_live and row.delta is not None and row.delta > 0.5          # call 95 con el precio en 100: dentro del dinero
     assert row.zone in ("atm", "deep") and any(a.level == "warn" and a.text.startswith("En el dinero") for a in row.alerts)
-    assert any(a.text.startswith("En pérdida") for a in row.alerts) and row.urgency == 3
+    assert not any(a.text.startswith("En pérdida") for a in row.alerts) and row.urgency == 3
 
 
 def test_long_call_zone_is_inverted_and_applies_target_stop_and_review():

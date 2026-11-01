@@ -38,5 +38,5 @@ def test_dashboard_gives_non_put_positions_zone_alert_and_row_urgency(client_and
     gw.positions = [Position("AAPL", 1, 80.0, "Technology", OptionContract("AAPL", exp, 100.0, OptionRight.CALL), avg_cost=200.0)]    # call comprada: −60 %
     refresh(client)
     page = client.get("/").text
-    assert 'class="u1"' in page and "En pérdida" in page    # MTO es TPC aquí (mantiene hasta el vencimiento): solo informa de la pérdida, sin stop
+    assert 'class="u1"' not in page and "En pérdida" not in page    # MTO es TPC aquí (mantiene hasta el vencimiento): sin stop ni aviso de pérdida
     assert 'class="chip z-' in page and "Δ" in page         # chip de zona con la delta (estimada o real)
