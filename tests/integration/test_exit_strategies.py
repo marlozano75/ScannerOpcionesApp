@@ -20,7 +20,7 @@ def test_styles_give_the_documented_defaults_and_overrides_win():
 
 def test_validation_rejects_nonsense():
     base = exits.defaults("tastytrade", CFG)
-    for bad in ({"take_profit_pct": 120.0}, {"take_profit_max_pct": 40.0}, {"stop_multiple": 1.0}, {"warn_position_pct": 20.0},
+    for bad in ({"take_profit_pct": 120.0}, {"take_profit_max_pct": 40.0}, {"stop_multiple": 1.0},
                 {"take_profit_pct": None, "take_profit_max_pct": 60.0}):
         with pytest.raises(ValueError):
             exits.validate(exits.resolve("tastytrade", bad, CFG))

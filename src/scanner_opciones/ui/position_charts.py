@@ -201,6 +201,14 @@ def position_mini(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatus
     return Markup("".join(out))
 
 
+def _other_legs(op: OtherPosition) -> list[tuple[float, bool, str]]:
+    """Patas (strike, vendida, tipo) de la posición; si no hay detalle, se deduce de `levels` como antes."""
+    if op.legs:
+        return [(k, short, right) for k, short, right, _ in op.legs]
+    short = op.premium is not None and len(op.levels) == 1
+    return [(k, short, "") for k in op.levels]
+
+
 def _other_end(op: OtherPosition, today: date) -> date:
     return max(min(op.expiry, today + timedelta(days=FUTURE_DAYS)), today + timedelta(days=7)) if op.expiry else today + timedelta(days=7)
 
@@ -220,11 +228,9 @@ def other_mini(closes: Sequence[tuple[date, float]], op: OtherPosition, today: d
     lo, hi = min(values), max(values)
     margin = (hi - lo) * 0.08 or hi * 0.05 or 1.0
     py = lambda v: _scale(v, lo - margin, hi + margin, h - pad, pad)              # noqa: E731
-    short = op.premium is not None and len(op.levels) == 1          # opción vendida suelta: strike en rojo; lo demás en azul
-    color = SOLD if short else BOUGHT
     out = [f'<svg class="pos-mini-svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" aria-hidden="true">']
-    for k in sorted(set(op.levels)):
-        out.append(f'<line x1="{pad}" x2="{w - pad}" y1="{py(k):.1f}" y2="{py(k):.1f}" stroke="{color}" stroke-width="1"/>')
+    for k, is_short, _ in sorted(set(_other_legs(op))):          # patas vendidas en rojo, compradas en azul (como en las puts)
+        out.append(f'<line x1="{pad}" x2="{w - pad}" y1="{py(k):.1f}" y2="{py(k):.1f}" stroke="{SOLD if is_short else BOUGHT}" stroke-width="1"/>')
     out.append('<path d="M' + " L".join(f"{px(d):.1f},{py(p):.1f}" for d, p in bars) + '" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linejoin="round"/>')
     if op.expiry:
         x = px(min(op.expiry, end))
@@ -248,8 +254,6 @@ def other_chart(closes: Sequence[tuple[date, float]], op: OtherPosition, today: 
     pad = (hi - lo) * 0.10 or hi * 0.05 or 1.0
     lo, hi = lo - pad, hi + pad
     py = lambda v: _scale(v, lo, hi, H - BOTTOM, TOP)                             # noqa: E731
-    short = op.premium is not None and len(op.levels) == 1
-    color = SOLD if short else BOUGHT
 
     out = [f'<svg class="lc" viewBox="0 0 {W} {H}" role="img" aria-label="Evolución diaria, strikes y vencimiento">']
     for v in nice_ticks(lo, hi, 4):
@@ -262,11 +266,15 @@ def other_chart(closes: Sequence[tuple[date, float]], op: OtherPosition, today: 
         out.append(f'<text class="ax" x="{px(d):.1f}" y="{H - 8}" text-anchor="middle">{d:%d/%m}</text>')
         d += timedelta(days=step)
 
-    for k in sorted(set(op.levels)):
+    for k, is_short, right in sorted(set(_other_legs(op))):
         y = py(k)
-        out.append(f'<g tabindex="0" data-tip="{_e(f"{k:g}|Strike|{op.kind}")}"><line x1="{LEFT}" x2="{W - RIGHT}" y1="{y:.1f}" y2="{y:.1f}" stroke="{color}" stroke-width="1.6"/>'
+        color = SOLD if is_short else BOUGHT
+        side = "vendido" if is_short else "comprado"
+        kind = f"{side} · {right}" if right else op.kind
+        out.append(f'<g tabindex="0" data-tip="{_e(f"{k:g}|Strike {side}|{kind}")}"><line x1="{LEFT}" x2="{W - RIGHT}" y1="{y:.1f}" y2="{y:.1f}" stroke="{color}" stroke-width="1.6"/>'
                    f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{y:.1f}" y2="{y:.1f}" stroke="transparent" stroke-width="10"/>'
-                   f'<text x="{LEFT + 4}" y="{y - 4:.1f}" font-size="11" font-weight="700" fill="{color}" stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(f"strike {k:g}")}</text></g>')
+                   f'<text x="{LEFT + 4}" y="{y - 4:.1f}" font-size="11" font-weight="700" fill="{color}" stroke="var(--panel)" stroke-width="3" paint-order="stroke">'
+                   f'{_e(f"strike {side} {k:g}" + (f" {right}" if right else ""))}</text></g>')
 
     pts = [(px(d), py(p)) for d, p in bars]
     path = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)

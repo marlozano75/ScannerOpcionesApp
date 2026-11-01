@@ -44,6 +44,7 @@ from scanner_opciones.scanner.profiles import UNASSIGNED, Profile, profile_diff
 from scanner_opciones.scanner.profile_marks import row_key, row_marks
 from scanner_opciones.scanner.market import vix_advice
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
+from scanner_opciones.portfolio import defense as defense_mod, other_mgmt
 from scanner_opciones.portfolio.overview import other_positions, portfolio_status
 from scanner_opciones.scanner.criteria import commission_model
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, routes_comunidad, routes_historico, routes_marketradar, routes_universe, scanner_parse, viz
@@ -272,6 +273,9 @@ def create_app(
         others = other_positions(service.state.positions, today, nlv,
                                  {t: i.underlying_price for t, i in service.ticker_info.all().items()},
                                  service.put_profiles(), service._mgmt_catchall())
+        rules_by_name, leg_deltas, dctx = service.other_exit_rules(), service.usable_leg_deltas(), service.defense_context()
+        others = [other_mgmt.assess(x, rules_by_name.get(x.profile), service.settings.management, today, leg_deltas, (dctx.get(x.ticker) or {}).get("iv30"))
+                  for x in others]
         status = portfolio_status(service.state.account, others, mgmt.puts)
         by_ticker: dict[str, list] = {}
         for s in mgmt.puts:
@@ -295,7 +299,7 @@ def create_app(
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks, today),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, others=others, wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=service.all_profile_names(), profile_colors={**{p.name: p.color for p in get_profiles()[0]}, **{p.name: (p.color or (UNASSIGNED_COLOR if p.catchall else "")) for p in service.management_profiles()}}, trader_profiles=service.put_trader_profiles(), sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, others=others, zone_short={**defense_mod.ZONE_SHORT, **other_mgmt.LONG_SHORT}, attention=mgmt.attention + sum(1 for x in others for a in x.alerts if a.level == "warn"), wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=service.all_profile_names(), profile_colors={**{p.name: p.color for p in get_profiles()[0]}, **{p.name: (p.color or (UNASSIGNED_COLOR if p.catchall else "")) for p in service.management_profiles()}}, trader_profiles=service.put_trader_profiles(), sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds, today_date=today,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 
@@ -487,14 +491,16 @@ def create_app(
         open_puts: dict[str, int] = {}
         for name in service.put_assignments().values():
             open_puts[name] = open_puts.get(name, 0) + 1
-        def card(p, prefix: str, tag: str) -> dict:
+        def card(p, prefix: str, tag: str, active: set) -> dict:
             rules = p.exit_rules(cfg)
-            return dict(profile=p, prefix=prefix, tag=tag, rules=rules, base=exits_mod.defaults(p.management, cfg), changed=set(p.exits),
+            return dict(profile=p, prefix=prefix, tag=tag, rules=rules, sections=exits_mod.sections(active), base=exits_mod.defaults(p.management, cfg), changed=set(p.exits),
                         text=exits_mod.describe(rules), open_puts=open_puts.get(p.name, 0))
-        cards = [card(p, f"pf{i}", p.mode) for i, p in enumerate(profiles)]
-        mgmt_cards = [card(p, f"mf{i}", "gestión") for i, p in enumerate(mgmt_profiles)]
+        # un perfil de escaneo gestiona las estrategias de sus instrumentos; uno de gestión, todas
+        cards = [card(p, f"pf{i}", p.mode, set(p.instruments) & {"put", "spread"}) for i, p in enumerate(profiles)]
+        all_strategies = {k for k, _ in exits_mod.STRATEGIES}
+        mgmt_cards = [card(p, f"mf{i}", "gestión", all_strategies) for i, p in enumerate(mgmt_profiles)]
         style_defaults = {st: {k: getattr(exits_mod.defaults(st, cfg), k) for k in exits_mod.KEYS} for st in exits_mod.STYLES}
-        return render(request, "exits.html", cards=cards, mgmt_cards=mgmt_cards, fields=exits_mod.FIELDS, ok=ok, error=error, style_defaults=style_defaults,
+        return render(request, "exits.html", cards=cards, mgmt_cards=mgmt_cards, fields={k: (lab, kind, nul, hlp) for k, lab, kind, nul, hlp in exits_mod.FIELDS}, extra=exits_mod.EXTRA_FIELDS, dcfg=cfg.defense, alerts=exits_mod.ALERTS, ok=ok, error=error, style_defaults=style_defaults,
                       style_text={st: exits_mod.describe(exits_mod.defaults(st, cfg)) for st in exits_mod.STYLES})
 
     @app.post("/exits/save")

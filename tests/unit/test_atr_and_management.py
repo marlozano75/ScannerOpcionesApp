@@ -122,29 +122,21 @@ def test_in_the_money_near_the_strike_and_losses():
 def test_weights_add_the_shares_you_own_and_what_you_would_buy_if_assigned():
     positions = [short_put("AAPL", 90.0, qty=-2), short_put("MSFT", 300.0, qty=-1), Position("AAPL", 100, 9_500.0, "Technology"),
                  Position("KO", 100, 6_000.0, "Staples")]
-    weights = {w.ticker: w for w in ticker_weights(positions, 100_000.0, CFG)}
+    weights = {w.ticker: w for w in ticker_weights(positions, 100_000.0)}
     assert set(weights) == {"AAPL", "MSFT"}                                      # solo acciones con puts vendidas
     aapl = weights["AAPL"]
     assert (aapl.stock_value, aapl.put_nominal, aapl.total, aapl.contracts) == (9_500.0, 18_000.0, 27_500.0, 2)
-    assert aapl.pct_nlv == pytest.approx(27.5) and aapl.level == "warn"          # > 10 %
+    assert aapl.pct_nlv == pytest.approx(27.5)
     assert weights["MSFT"].pct_nlv == pytest.approx(30.0)
-    mid = ticker_weights([short_put("AAPL", 60.0, qty=-1)], 100_000.0, CFG)[0]   # 6 000 / 100 000 = 6 %
-    assert mid.level == "info"
-    assert ticker_weights([short_put("AAPL", 40.0, qty=-1)], 100_000.0, CFG)[0].level is None
-    assert ticker_weights([short_put()], None, CFG)[0].pct_nlv is None
+    assert ticker_weights([short_put()], None)[0].pct_nlv is None
 
 
 def test_the_report_orders_by_expiry_ignores_long_puts_and_counts_important_warnings():
     long_put = Position("AAPL", 1, 50.0, "Technology", OptionContract("AAPL", TODAY + timedelta(days=5), 80.0, OptionRight.PUT), 40.0)
     report = manage_puts([short_put("MSFT", 300.0, days=40), short_put("AAPL", days=10), long_put], 50_000.0, TODAY, {"AAPL": 100.0}, CFG)
     assert [(s.ticker, s.dte) for s in report.puts] == [("AAPL", 10), ("MSFT", 40)]
-    assert report.attention >= 2                                                  # AAPL a 10 DTE y el peso de MSFT (60 %)
+    assert report.attention >= 1                                                  # AAPL a 10 DTE
     assert manage_puts([], 50_000.0, TODAY, {}, CFG).puts == ()
-
-
-def test_management_settings_are_validated():
-    with pytest.raises(ValueError, match="warn_position_pct"):
-        ManagementSettings(warn_position_pct=12, max_position_pct=10)
 
 
 # ---- perfil de gestión por put: Tastytrade (50 % / 21 DTE) o TPC (mantener hasta el vencimiento) -------------------
@@ -166,18 +158,6 @@ def test_tpc_does_not_suggest_rolling_when_in_the_money():
     assert "rolar abajo y fuera" in tasty and "no se rola" not in tasty             # Tastytrade sí defiende (la defensa sustituye al «Valora cerrar»)
 
 
-def test_tpc_weights_use_the_looser_ceiling_only_when_every_put_of_the_stock_is_tpc():
-    from scanner_opciones.portfolio.management import put_key
-    p = short_put("AAPL", 120.0, qty=-1)                                           # 12 000 / 100 000 = 12 %
-    assert ticker_weights([p], 100_000.0, CFG)[0].level == "warn"                  # Tastytrade: > 10 %
-    assert ticker_weights([p], 100_000.0, CFG, {put_key(p): "tpc"})[0].level == "info"      # TPC: 10–15 %
-    q = short_put("AAPL", 120.0, qty=-1, days=40)
-    mixed = ticker_weights([p, q], 100_000.0, CFG, {put_key(p): "tpc"})[0]         # 24 % con una put Tastytrade: umbrales estrictos
-    assert mixed.level == "warn"
-    assert ticker_weights([short_put("AAPL", 140.0, qty=-1)], 100_000.0, CFG, {put_key(short_put("AAPL", 140.0)): "tpc"})[0].level == "info"
-    assert ticker_weights([short_put("AAPL", 160.0, qty=-1)], 100_000.0, CFG, {put_key(short_put("AAPL", 160.0)): "tpc"})[0].level == "warn"
-
-
 def test_manage_puts_applies_the_chosen_profile_and_the_configured_default():
     from scanner_opciones.portfolio.management import put_key
     p = short_put(days=10)
@@ -188,11 +168,6 @@ def test_manage_puts_applies_the_chosen_profile_and_the_configured_default():
     assert manage_puts([p], 1_000_000.0, TODAY, {"AAPL": 100.0}, default_tpc).puts[0].profile == "tpc"
     assert manage_puts([p], 1_000_000.0, TODAY, {"AAPL": 100.0}, default_tpc, {put_key(p): "tastytrade"}).puts[0].profile == "tastytrade"
     assert manage_puts([p], 1_000_000.0, TODAY, {"AAPL": 100.0}, CFG).puts[0].profile == "tastytrade"
-
-
-def test_tpc_position_ceilings_are_validated():
-    with pytest.raises(ValueError, match="tpc_warn_position_pct"):
-        ManagementSettings(tpc_warn_position_pct=20, tpc_max_position_pct=15)
 
 
 # ---- spreads: stop a N × el crédito y riesgo de pin -------------------------------------------------------------

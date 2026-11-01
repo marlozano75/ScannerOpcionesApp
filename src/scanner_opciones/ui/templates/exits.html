@@ -6,15 +6,24 @@
   .ex-card { border:1px solid var(--line); border-left-width:5px; border-radius:10px; margin:12px 0; padding:12px 16px; }
   .ex-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 16px; margin-bottom:6px; }
   .ex-head h3 { margin:0; }
-  .ex-cols { display:flex; flex-wrap:wrap; gap:16px 40px; }
-  .ex-desc { flex:1 1 440px; max-width:720px; }
+  .ex-top { display:flex; flex-wrap:wrap; gap:8px 20px; align-items:center; font-size:13px; margin-bottom:6px; }
+  .ex-top select { margin-left:6px; }
+  .ex-group { border:1px solid var(--line); border-radius:8px; margin:8px 0; padding:8px 12px; }
+  .ex-gh { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; font-size:13px; margin-bottom:4px; }
+  .ex-gh .chip { font-size:11px; padding:0 7px; border-radius:9px; border:1px solid var(--line); color:var(--mute); }
+  .ex-gh .chip.on { color:inherit; border-color:currentColor; }
+  .ex-t { border-collapse:collapse; font-size:13px; width:100%; }
+  .ex-t td { padding:2px 10px 2px 0; vertical-align:middle; }
+  .ex-t td:nth-child(2) { width:160px; }
+  .ex-t input, .ex-t select { padding:3px 8px; min-height:0; height:28px; box-sizing:border-box; width:100%; }
+  .ex-t label { white-space:nowrap; cursor:help; }
+  .ex-t .chg { color:var(--amber); font-weight:700; }
+  .ex-ro td { opacity:.8; }
+  .ex-ro .ro { font-weight:600; }
+  .ex-al { color:var(--mute); font-size:12px; }
+  .ex-al .lv.ok { color:var(--green, #2a9d5c); } .ex-al .lv.warn { color:var(--amber); }
+  .ex-desc { margin-top:8px; max-width:900px; }
   .ex-desc ul { margin:6px 0 0; padding-left:18px; font-size:13px; line-height:1.5; }
-  .ex-form { flex:0 1 auto; }
-  .ex-grid { display:grid; grid-template-columns:auto 150px; gap:6px 12px; align-items:center; font-size:13px; }
-  .ex-grid label { white-space:nowrap; cursor:help; }
-  .ex-grid input, .ex-grid select { padding:3px 8px; min-height:0; height:28px; box-sizing:border-box; width:100%; }
-  .ex-grid .chg { color:var(--amber); font-weight:700; }
-  .ex-grid .unit { color:var(--mute); font-size:12px; }
   .ex-actions { display:flex; gap:10px; align-items:center; margin-top:12px; }
   .ex-actions button { width:auto; }
   .ex-card .tag { font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); }
@@ -38,38 +47,58 @@
         <span class="muted" style="font-size:12px">{{ c.open_puts }} {{ 'posición abierta' if c.open_puts == 1 else 'posiciones abiertas' }} en el Panel</span>
         <span class="muted" style="font-size:12px">{% if c.changed %}personalizada ({{ c.changed|length }} {{ 'cambio' if c.changed|length == 1 else 'cambios' }} sobre el estilo){% else %}valores del estilo{% endif %}</span>
       </div>
-      <div class="ex-cols">
-        <div class="ex-desc">
-          <b style="font-size:13px">Qué hace</b>
-          <ul class="ex-text">{% for t in c.text %}<li>{{ t }}</li>{% endfor %}</ul>
-        </div>
-        <div class="ex-form">
-          <div class="ex-grid">
-            <label title="Punto de partida de las reglas. Cambiarlo y guardar descarta los cambios de este perfil y carga los valores del estilo.">Estilo base</label>
-            <select name="{{ c.prefix }}_style" class="ex-style" data-card="{{ c.prefix }}">
-              <option value="tastytrade" {{ 'selected' if p.management == 'tastytrade' }}>Tastytrade</option>
-              <option value="tpc" {{ 'selected' if p.management == 'tpc' }}>TPC</option>
-            </select>
-            {% for key, label, kind, nullable, help in fields %}
-            {% set v = c.rules|attr(key) %}{% set b = c.base|attr(key) %}
-            <label title="{{ help }}" class="{{ 'chg' if key in c.changed }}">{{ label }}</label>
-            <input type="text" inputmode="decimal" name="{{ c.prefix }}_{{ key }}" value="{{ '' if v is none else ('%g' % v) }}" placeholder="{{ 'apagado' if nullable else '' }}"
-                   title="{{ help }} Estilo base: {{ 'apagado' if b is none else ('%g' % b) }}">
-            {% endfor %}
-            <label title="Qué se aconseja cuando el precio queda por debajo del strike vendido." class="{{ 'chg' if 'itm_action' in c.changed }}">En el dinero</label>
-            <select name="{{ c.prefix }}_itm_action">
-              <option value="close" {{ 'selected' if c.rules.itm_action == 'close' }}>Valorar cerrar</option>
-              <option value="hold" {{ 'selected' if c.rules.itm_action == 'hold' }}>Mantener, no rolar</option>
-            </select>
-            <label title="Avisos de defensa de las puts desnudas (testeada, en el dinero, muy dentro, extrínseco, dividendo, resultados) y evaluación de rolls con cotizaciones en vivo desde el Panel. Un perfil que mantiene hasta el vencimiento (TPC) no rola." class="{{ 'chg' if 'defense' in c.changed }}">Defensa de la put</label>
-            <select name="{{ c.prefix }}_defense">
-              <option value="on" {{ 'selected' if c.rules.defense }}>Activada</option>
-              <option value="off" {{ 'selected' if not c.rules.defense }}>Desactivada</option>
-            </select>
-          </div>
-          {% if c.changed %}<label style="font-size:12px;display:block;margin-top:8px"><input type="checkbox" name="{{ c.prefix }}_reset"> Restaurar los valores del estilo</label>{% endif %}
-        </div>
+      <div class="ex-top">
+        <label title="Punto de partida de las reglas. Cambiarlo y guardar descarta los cambios de este perfil y carga los valores del estilo.">Estilo base
+          <select name="{{ c.prefix }}_style" class="ex-style" data-card="{{ c.prefix }}">
+            <option value="tastytrade" {{ 'selected' if p.management == 'tastytrade' }}>Tastytrade</option>
+            <option value="tpc" {{ 'selected' if p.management == 'tpc' }}>TPC</option>
+          </select></label>
+        {% if c.changed %}<label style="font-size:12px"><input type="checkbox" name="{{ c.prefix }}_reset"> Restaurar los valores del estilo</label>{% endif %}
       </div>
+      {% for g in c.sections if g.on %}
+      <div class="ex-group">
+        <div class="ex-gh"><b>{{ g.title }}</b>
+          {% for k, name, on in g.strategies %}<span class="chip {{ 'on' if on }}">{{ name }}</span>{% endfor %}
+</div>
+        <table class="ex-t">
+          {% for key in g.rows %}
+          {% set lvl, atext = alerts[key] %}
+          {% if key in extra %}{% set label, help = extra[key] %}{% else %}{% set label, kind, nullable, help = fields[key] %}{% endif %}
+          <tr>
+            <td><label title="{{ help }}" class="{{ 'chg' if key in c.changed }}">{{ label }}</label></td>
+            <td>
+              {% if key == 'itm_action' %}
+              <select name="{{ c.prefix }}_itm_action" data-key="itm_action">
+                <option value="close" {{ 'selected' if c.rules.itm_action == 'close' }}>Valorar cerrar</option>
+                <option value="hold" {{ 'selected' if c.rules.itm_action == 'hold' }}>Mantener, no rolar</option>
+              </select>
+              {% elif key == 'defense' %}
+              <select name="{{ c.prefix }}_defense" data-key="defense">
+                <option value="on" {{ 'selected' if c.rules.defense }}>Activada</option>
+                <option value="off" {{ 'selected' if not c.rules.defense }}>Desactivada</option>
+              </select>
+              {% else %}
+              {% set v = c.rules|attr(key) %}{% set b = c.base|attr(key) %}
+              <input type="text" inputmode="decimal" name="{{ c.prefix }}_{{ key }}" data-key="{{ key }}" value="{{ '' if v is none else ('%g' % v) }}" placeholder="{{ 'apagado' if nullable else '' }}"
+                     title="{{ help }} Estilo base: {{ 'apagado' if b is none else ('%g' % b) }}">
+              {% endif %}
+            </td>
+            <td class="ex-al"><span class="lv {{ lvl }}">{{ {'ok': '✓', 'info': 'ⓘ', 'warn': '⚠'}[lvl] }}</span> {{ atext }}</td>
+          </tr>
+          {% endfor %}
+          {% for attr, label, unit, atext in g.info %}
+          <tr class="ex-ro" title="Umbral común a todos los perfiles: se cambia en config.yaml › management.defense.{{ attr }}">
+            <td><label>{{ label }}</label></td>
+            <td><span class="ro">{{ '%g' % (dcfg|attr(attr)) }} {{ unit if unit != 'Δ' }}</span> <span class="muted" style="font-size:11px">config</span></td>
+            <td class="ex-al"><span class="lv warn">⚠</span> {{ atext }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+      {% endfor %}
+      <details class="ex-desc"><summary style="cursor:pointer;font-size:13px"><b>Resumen en palabras</b></summary>
+        <ul class="ex-text">{% for t in c.text %}<li>{{ t }}</li>{% endfor %}</ul>
+      </details>
     </section>
     {% endmacro %}
     <h3 style="margin:18px 0 0">Perfiles de escaneo</h3>
@@ -78,7 +107,7 @@
     <p class="muted" style="font-size:12px;margin:2px 0 0">Comunidad, Radar y MTO no parten de un escaneo: solo tienen estrategia de salida. Una posición se asigna a Comunidad/Radar si su contrato salió de esa fuente; el resto va a <b>MTO</b> (el catch-all que sustituye a «Sin perfil»). Los nombres y colores se editan en <a href="/scanner/config">Perfiles</a>.</p>
     {% for c in mgmt_cards %}{{ ex_card(c) }}{% endfor %}
     <div class="ex-actions"><button type="submit">Guardar estrategias de salida</button>
-      <span class="muted" style="font-size:12px">Los campos en ámbar difieren del estilo base.</span></div>
+      <span class="muted" style="font-size:12px">Los campos en ámbar difieren del estilo base. Los grupos de reglas de estrategias que el perfil no admite (según sus instrumentos) no se muestran.</span></div>
   </form>
 </div>
 <script id="ex-defaults" type="application/json">{{ {"values": style_defaults, "text": style_text}|tojson }}</script>
@@ -90,7 +119,7 @@
       sel.addEventListener("change", function () {
         var card = document.getElementById(sel.dataset.card), vals = defs[sel.value];
         Object.keys(vals).forEach(function (key) {
-          var el = card.querySelector('[name$="_' + key + '"]');
+          var el = card.querySelector('[data-key="' + key + '"]');
           if (el) el.value = vals[key] === null ? "" : typeof vals[key] === "boolean" ? (vals[key] ? "on" : "off") : String(vals[key]);
         });
         var list = card.querySelector(".ex-text");       // «Qué hace» pasa a describir el estilo elegido

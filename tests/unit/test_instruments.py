@@ -279,7 +279,7 @@ def test_spread_width_weight_and_open_risk_use_the_exchange_rate():
     spread = short_estx(hedge=5350.0, avg_cost=-40.0)
     assert nominal(spread) == pytest.approx(100.0 * 10 * 1.1)                # el ancho, en dólares
     assert open_risk([spread]) == pytest.approx(100.0 * 10 * 1.1 - 40.0 * 1.1)   # ancho − crédito, en dólares
-    w = ticker_weights([short_estx()], 44000.0, ManagementSettings())[0]
+    w = ticker_weights([short_estx()], 44000.0)[0]
     assert abs(w.pct_nlv - 5450.0 * 10 * 1.1 / 44000.0 * 100) < 1e-9
 
 

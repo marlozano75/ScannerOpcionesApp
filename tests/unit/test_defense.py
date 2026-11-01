@@ -308,3 +308,10 @@ def test_the_call_advice_depends_on_the_momentum():
     assert "caída libre, NO vendas la call" in texts([100, 98, 96, 94, 92, 90])
     assert "buen momento para la call" in texts([100, 96, 92, 90, 91, 93, 94])
     assert "NO vendas la call" not in texts(None)
+
+
+def test_exit_sections_grey_out_strategies_the_profile_lacks():
+    on = {s["id"]: s["on"] for s in exits.sections({"put"})}
+    assert on == {"sell": True, "put": True, "credit": False, "buy": False, "long": False, "debit": False}
+    assert all(s["on"] for s in exits.sections({k for k, _ in exits.STRATEGIES}))
+    assert {k for g in exits.GROUPS for k in g[3]} == set(exits.KEYS) == set(exits.ALERTS)

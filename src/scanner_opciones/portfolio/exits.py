@@ -1,4 +1,4 @@
-"""Estrategia de salida de cada perfil: cuándo recoger beneficios, cuándo revisar, stop de spreads, pin, qué hacer en el dinero y el peso por acción.
+"""Estrategia de salida de cada perfil: cuándo recoger beneficios, cuándo revisar, stop de spreads, pin y qué hacer en el dinero.
 
 Un perfil parte de un estilo base (`tastytrade` o `tpc`, sus valores salen de `ManagementSettings`) y guarda solo lo que cambia
 (`Profile.exits`), así que un valor de config.yaml que el usuario no tocó sigue valiendo. `None` en un umbral lo apaga (p. ej. TPC no recoge
@@ -23,10 +23,13 @@ class ExitRules:
     stop_multiple: Optional[float]        # spreads: stop cuando valen N veces el crédito cobrado (None = sin stop)
     pin_dte: int                          # spreads: riesgo de pin en los últimos N días...
     pin_buffer_pct: float                 # ...si el precio está a menos de este % del strike vendido
-    warn_position_pct: float              # peso por acción tras asignación sobre el NLV: aviso
-    max_position_pct: float               # ... y alerta
     itm_action: str                       # `close` | `hold`
     defense: bool = False                 # puts desnudas: avisos de defensa (testeada / en el dinero / muy dentro) y evaluación de rolls (`portfolio/defense.py`)
+    # --- posiciones que no son puts vendidas (opciones compradas y debit spreads); las vendidas y los combos de crédito reutilizan los campos de arriba ---
+    long_take_profit_pct: Optional[float] = None   # opción comprada: recoger al ganar este % de lo pagado (None = no se recoge antes)
+    long_stop_pct: Optional[float] = None          # opción comprada o debit spread: stop al perder este % de lo pagado (None = sin stop)
+    long_review_dte: Optional[int] = None          # opción comprada o debit spread: a ≤ N DTE sin haber llegado al objetivo, cerrar o rolar (None = no se revisa)
+    debit_take_profit_pct: Optional[float] = None  # debit spread: recoger al capturar este % del beneficio máximo (None = no se recoge antes)
 
     @property
     def holds_to_expiry(self) -> bool:
@@ -42,19 +45,96 @@ FIELDS = (
     ("stop_multiple", "Stop del spread", "mult", True, "El spread vale N veces el crédito cobrado (2 = la pérdida iguala el crédito). Vacío = sin stop."),
     ("pin_dte", "Riesgo de pin: últimos", "int", False, "Días antes del vencimiento en los que se vigila el pin de un spread."),
     ("pin_buffer_pct", "Pin: distancia al strike", "pct", False, "% por encima del strike vendido por debajo del cual hay riesgo de pin."),
-    ("warn_position_pct", "Peso por acción: aviso", "pct", False, "% del NLV que supondría la acción si te asignan todas sus puts."),
-    ("max_position_pct", "Peso por acción: alerta", "pct", False, "% del NLV a partir del cual se da alerta."),
+    ("long_take_profit_pct", "Opción comprada: recoger al", "pct", True, "% de lo pagado ya ganado a partir del cual se avisa de recoger (100 = duplicado). Vacío = no se recoge antes."),
+    ("long_stop_pct", "Opción comprada / debit spread: stop al", "pct", True, "% de lo pagado perdido a partir del cual se avisa de cerrar. Vacío = sin stop."),
+    ("long_review_dte", "Opción comprada / debit spread: revisar a ≤", "int", True, "DTE a partir del cual se avisa de cerrar o rolar (el valor temporal se evapora). Vacío = no se revisa."),
+    ("debit_take_profit_pct", "Debit spread: recoger al", "pct", True, "% del beneficio máximo ya capturado a partir del cual se avisa de recoger. Vacío = no se recoge antes."),
 )
 KEYS = tuple(k for k, *_ in FIELDS) + ("itm_action", "defense")
+
+# --- Estructura de la pantalla Salidas: reglas agrupadas por estrategia y el aviso que activa cada una ---
+# Estrategias de las posiciones del Panel: (clave, nombre).
+STRATEGIES = (("put", "Put vendida"), ("spread", "Spread de crédito"), ("call", "Call vendida / combo de crédito"),
+              ("long", "Opción comprada"), ("debit", "Debit spread"), ("stock", "Acciones"))
+STRATEGY_NAMES = dict(STRATEGIES)
+SELL = ("put", "spread", "call")
+
+# Reglas que no son un campo numérico de FIELDS: (clave, etiqueta, ayuda).
+EXTRA_FIELDS = {
+    "itm_action": ("En el dinero", "Qué se aconseja cuando el precio queda por debajo del strike vendido."),
+    "defense": ("Defensa de la put", "Avisos de defensa de las puts desnudas (testeada, en el dinero, muy dentro, extrínseco, dividendo, resultados) y evaluación de "
+                                     "rolls con cotizaciones en vivo desde el Panel. Un perfil que mantiene hasta el vencimiento (TPC) no rola."),
+}
+
+# Aviso que dispara cada regla: (nivel, texto corto). El nivel es el del aviso en el Panel (ok / info / warn).
+ALERTS = {
+    "take_profit_pct": ("ok", "Recoger beneficios: la prima ganada llega a este %."),
+    "take_profit_max_pct": ("ok", "Recoger beneficios: «ya supera el rango, no esperes más»."),
+    "review_dte": ("warn", "Revisar: quedan ≤ N días sin haber llegado al objetivo; cerrar o rolar cobrando crédito."),
+    "close_capture_pct": ("info", "Casi toda la prima ganada: cerrar y liberar la obligación o mantener hasta el vencimiento."),
+    "itm_action": ("warn", "En el dinero: el precio pasó el strike vendido (valorar cerrar, o mantener sin rolar)."),
+    "defense": ("warn", "Testeada / en el dinero / muy dentro, poco extrínseco, dividendo y resultados; evaluación de rolls."),
+    "stop_multiple": ("warn", "Stop: el spread vale N veces el crédito cobrado."),
+    "pin_dte": ("warn", "Riesgo de pin: quedan ≤ N días y el precio está cerca del strike vendido."),
+    "pin_buffer_pct": ("warn", "Riesgo de pin: el precio está a ≤ este % por encima del strike vendido."),
+    "long_take_profit_pct": ("ok", "Recoger beneficios: ganado este % de lo pagado."),
+    "long_stop_pct": ("warn", "Stop: pierde este % de lo pagado; valorar cerrar."),
+    "long_review_dte": ("warn", "Revisar: quedan ≤ N días sin llegar al objetivo; el valor temporal se evapora."),
+    "debit_take_profit_pct": ("ok", "Recoger beneficios: capturado este % del beneficio máximo."),
+}
+
+# Umbrales de delta/DTE que acompañan a las reglas de un grupo: son de solo lectura aquí (salen de `management.defense` de config.yaml, comunes a
+# todos los perfiles): (atributo de DefenseSettings, etiqueta, unidad, aviso que dispara).
+DELTA_INFO = {
+    "put": (
+        ("tested_delta", "Δ testeada desde", "Δ", "Testeada: aún fuera del dinero; esperar o vender la call, rolar rinde poco."),
+        ("atm_delta", "Δ en el dinero desde", "Δ", "En el dinero: rolar abajo y fuera con crédito neto."),
+        ("deep_delta", "Δ muy dentro desde", "Δ", "Muy dentro: rolar solo hacia fuera o valorar la asignación."),
+        ("gamma_dte", "Gamma: gestionar a ≤", "DTE", "A ≤ N DTE el gamma se acelera: gestionar aunque la pérdida no sea extrema."),
+    ),
+    "credit": (
+        ("spread_atm_delta", "Δ vendida: en el strike desde", "Δ", "El precio está en el strike vendido: la zona del spread sube y cambia el aviso (esperar, call spread, rolar o cerrar)."),
+        ("spread_between_delta", "Δ vendida: entre strikes desde", "Δ", "El precio está entre los dos strikes."),
+        ("spread_beyond_delta", "Δ vendida: más allá de ambos desde", "Δ", "Cerca de la pérdida máxima."),
+        ("spread_manage_dte", "Zona de gestión: de gamma a", "DTE", "Con más DTE hay tiempo (rolar casi nunca compensa); por debajo se gestiona según la zona."),
+        ("spread_close_dte", "Cerrar según los strikes a <", "DTE", "Con menos DTE se cierra según dónde esté el precio respecto a los strikes."),
+    ),
+    "buy": (
+        ("tested_delta", "Δ cerca del dinero desde", "Δ", "Zonas invertidas: más delta = más dentro del dinero = a favor (lejos < cerca < en el dinero < muy dentro)."),
+        ("atm_delta", "Δ en el dinero desde", "Δ", "En el dinero (a favor)."),
+        ("deep_delta", "Δ muy dentro desde", "Δ", "Muy dentro del dinero (a favor)."),
+    ),
+}
+
+# Grupos en el orden en que se muestran: (id, título, estrategias a las que aplica, claves editables)..
+GROUPS = (
+    ("sell", "Venta de opciones · reglas comunes", SELL, ("take_profit_pct", "take_profit_max_pct", "review_dte", "close_capture_pct", "itm_action")),
+    ("put", "Solo put vendida", ("put",), ("defense",)),
+    ("credit", "Spreads y combos de crédito", ("spread", "call"), ("stop_multiple", "pin_dte", "pin_buffer_pct")),
+    ("buy", "Compra de opciones · reglas comunes", ("long", "debit"), ("long_stop_pct", "long_review_dte")),
+    ("long", "Solo opción comprada", ("long",), ("long_take_profit_pct",)),
+    ("debit", "Solo debit spread", ("debit",), ("debit_take_profit_pct",)),
+)
+
+
+def sections(active: set[str]) -> list[dict]:
+    """Grupos de reglas para una tarjeta: `on` = el perfil admite alguna de las estrategias del grupo (si no, se muestra en gris).
+    `active` son las estrategias del perfil."""
+    out = []
+    for gid, title, strategies, keys in GROUPS:
+        out.append(dict(id=gid, title=title, rows=keys, info=DELTA_INFO.get(gid, ()), on=bool(active & set(strategies)),
+                        strategies=[(k, STRATEGY_NAMES[k], k in active) for k in strategies]))
+    return out
 
 
 def defaults(style: str, cfg: ManagementSettings) -> ExitRules:
     """Reglas de un estilo base con los valores de `management` de la configuración."""
     if style == "tpc":
         return ExitRules(None, None, None, cfg.tpc_close_capture_pct, None, cfg.pin_dte, cfg.pin_buffer_pct,
-                         cfg.tpc_warn_position_pct, cfg.tpc_max_position_pct, "hold", False)
+                         "hold", False)
     return ExitRules(cfg.take_profit_pct, cfg.take_profit_max_pct, cfg.review_dte, None, cfg.spread_stop_value_multiple, cfg.pin_dte,
-                     cfg.pin_buffer_pct, cfg.warn_position_pct, cfg.max_position_pct, "close", True)
+                     cfg.pin_buffer_pct, "close", True,
+                     cfg.long_take_profit_pct, cfg.long_stop_pct, cfg.long_review_dte, cfg.debit_take_profit_pct)
 
 
 def resolve(style: str, overrides: dict, cfg: ManagementSettings) -> ExitRules:
@@ -80,8 +160,14 @@ def validate(rules: ExitRules) -> ExitRules:
         raise ValueError("el stop del spread tiene que ser mayor que 1× el crédito")
     if rules.pin_dte < 0 or rules.pin_buffer_pct < 0:
         raise ValueError("los valores del pin no pueden ser negativos")
-    if not 0 < rules.warn_position_pct <= rules.max_position_pct:
-        raise ValueError("el aviso de peso por acción tiene que ser positivo y no superar la alerta")
+    if rules.long_take_profit_pct is not None and rules.long_take_profit_pct <= 0:
+        raise ValueError("«Opción comprada: recoger al» tiene que ser positivo")
+    if rules.long_stop_pct is not None and not 0 < rules.long_stop_pct <= 100:
+        raise ValueError("el stop de la opción comprada tiene que estar entre 0 y 100 %")
+    if rules.long_review_dte is not None and rules.long_review_dte < 0:
+        raise ValueError("«Opción comprada: revisar a ≤» no puede ser negativo")
+    if rules.debit_take_profit_pct is not None and not 0 < rules.debit_take_profit_pct <= 100:
+        raise ValueError("«Debit spread: recoger al» tiene que estar entre 0 y 100 %")
     if rules.itm_action not in ITM_ACTIONS:
         raise ValueError("acción en el dinero no válida")
     return rules
@@ -130,6 +216,16 @@ def describe(r: ExitRules) -> list[str]:
     out.append(f"Spreads: riesgo de pin en los últimos {r.pin_dte} días si el precio está a ≤ {r.pin_buffer_pct:g} % del strike vendido.")
     out.append("En el dinero: " + ("valorar cerrar antes que esperar la asignación." if r.itm_action == "close"
                                   else "no se rola; si te asignan, reevaluar la tesis y valorar vender calls."))
+    if r.long_take_profit_pct is not None:
+        out.append(f"Opción comprada: recoger al ganar el {r.long_take_profit_pct:g} % de lo pagado.")
+    if r.long_stop_pct is not None:
+        out.append(f"Opción comprada y debit spread: stop al perder el {r.long_stop_pct:g} % de lo pagado.")
+    if r.long_review_dte is not None:
+        out.append(f"Opción comprada y debit spread: a ≤ {r.long_review_dte} DTE, cerrar o rolar (el valor temporal se evapora).")
+    if r.debit_take_profit_pct is not None:
+        out.append(f"Debit spread: recoger al capturar el {r.debit_take_profit_pct:g} % del beneficio máximo.")
+    if r.long_take_profit_pct is None and r.long_stop_pct is None and r.long_review_dte is None and r.debit_take_profit_pct is None:
+        out.append("Opciones compradas y debit spreads: se mantienen hasta el vencimiento (sin objetivo, stop ni revisión).")
     if r.defense:
         out.append("Defensa de las puts desnudas según su delta, los días y el IV Rank: testeada (Δ 0,30+) esperar o vender la call; en el dinero (Δ 0,50+) rolar "
                    "abajo y fuera con crédito neto; muy dentro (Δ 0,70+) rolar solo hacia fuera o asignación; a ≤ 21 DTE o sin extrínseco, gestionar ya. "
@@ -137,5 +233,4 @@ def describe(r: ExitRules) -> list[str]:
                    "crédito o cerrar). Evaluación de rolls y de las defensas con cotizaciones en vivo desde el Panel.")
     else:
         out.append("Sin avisos de defensa: no se rola ni se defiende la put.")
-    out.append(f"Peso por acción tras asignación: aviso por encima del {r.warn_position_pct:g} % del NLV y alerta por encima del {r.max_position_pct:g} %.")
     return out

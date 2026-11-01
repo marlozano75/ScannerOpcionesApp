@@ -17,6 +17,11 @@ from scanner_opciones.portfolio.spreads import Combo, split_combos, split_spread
 OTHERS = "Otros"
 
 
+def leg_key(o) -> str:
+    """Identifica una pata de opción para buscar su delta: `TICKER|vencimiento|strike|C/P` (ticker con el símbolo de IBKR)."""
+    return f"{o.ticker}|{o.expiry.isoformat()}|{o.strike:g}|{'C' if o.right is OptionRight.CALL else 'P'}"
+
+
 def other_key(op: "OtherPosition") -> str:
     """Clave estable de una «otra posición» o combo para recordar su perfil de gestión (mismo formato `TICKER|venc|strike` que `put_key`)."""
     exp = op.expiry.isoformat() if op.expiry else ""
@@ -46,10 +51,33 @@ class OtherPosition:
     strikes: Optional[str] = None       # combos: strikes de las patas ("100/105"); si los vencimientos difieren, también ellos
     key: str = ""                       # `other_key`, para cambiar el perfil desde el Panel
     levels: tuple[float, ...] = ()      # strikes numéricos de las patas (para el gráfico; vacío en una acción)
+    legs: tuple[tuple[float, bool, str, date], ...] = ()   # (strike, vendida, "Call"/"Put", vencimiento) de cada pata: colorea el gráfico y busca su delta
+    max_risk: Optional[float] = None    # USD que se pueden perder como mucho: lo pagado (compras, debit) o ancho − crédito (credit spread vertical); None si no está acotado
+    width: Optional[float] = None       # combo vertical: ancho entre strikes
+    # --- gestión (`portfolio/other_mgmt.py`) ---
+    alerts: tuple = ()                  # `management.Alert`
+    zone: str = ""                      # clave de zona (ver `other_mgmt`); "" = sin zona
+    zone_label: str = ""
+    delta: Optional[float] = None       # |delta| de la pata de referencia
+    delta_live: bool = False            # True = real de tastytrade, False = estimada
+    rules: object = None                # `exits.ExitRules` aplicadas
+    take_profit_pct: Optional[float] = None   # objetivo de recogida (en % de `captured_pct`) para pintar el capturado en verde
+    captured_note: str = ""
 
     @property
     def is_short_option(self) -> bool:
         return self.premium is not None
+
+    @property
+    def main_alert(self):
+        """El aviso más urgente (warn > ok > info; a igualdad, el primero), como en las puts."""
+        order = {"warn": 3, "ok": 2, "info": 1}
+        return min(self.alerts, key=lambda a: -order.get(a.level, 0), default=None)
+
+    @property
+    def urgency(self) -> int:
+        a = self.main_alert
+        return {"warn": 3, "ok": 2, "info": 1}.get(a.level, 0) if a else 0
 
 
 @dataclass(frozen=True)
@@ -92,11 +120,21 @@ def _combo_position(c: Combo, today: date, nlv_usd: Optional[float], underlying:
     strikes = "/".join(f"{p.option.strike:g}" for p in sorted(legs, key=lambda p: p.option.strike))
     if len({p.option.expiry for p in legs}) > 1:
         strikes += " · " + " / ".join(p.option.expiry.strftime("%d/%m") for p in sorted(legs, key=lambda p: p.option.strike))
+    vertical = len(legs) == 2 and legs[0].option.right is legs[1].option.right and legs[0].option.expiry == legs[1].option.expiry
+    width = abs(legs[0].option.strike - legs[1].option.strike) if vertical else None
+    if cost is None:
+        max_risk = None
+    elif not credit:
+        max_risk = cost                                      # débito pagado
+    else:
+        max_risk = width * mult * n * fx + cost if width is not None else None    # cost < 0: ancho − crédito
     return OtherPosition(
         legs[0].ticker, c.name, n, expiry, None, (expiry - today).days, entry, current, value, pnl, pct,
         -cost if credit else None, pnl if credit else None, pct if credit else None,
         abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=underlying, strikes=strikes,
-        levels=tuple(sorted(p.option.strike for p in legs)))
+        levels=tuple(sorted(p.option.strike for p in legs)),
+        legs=tuple(sorted((p.option.strike, p.quantity < 0, "Call" if p.option.right is OptionRight.CALL else "Put", p.option.expiry) for p in legs)),
+        max_risk=max_risk, width=width)
 
 
 def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optional[float],
@@ -132,7 +170,9 @@ def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optiona
             p.ticker, _other_kind(p), p.quantity, o.expiry if o else None, o.strike if o else None,
             (o.expiry - today).days if o else None, entry, current, value, pnl, pct, premium, captured, cpct,
             abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=(prices or {}).get(p.ticker),
-            levels=(o.strike,) if o else ()))
+            levels=(o.strike,) if o else (),
+            legs=((o.strike, p.quantity < 0, "Call" if o.right is OptionRight.CALL else "Put", o.expiry),) if o else (),
+            max_risk=cost if o is not None and not short_option else None))
     out = [replace(op, key=other_key(op), profile=assigned.get(other_key(op), default_profile)) for op in out]
     return sorted(out, key=lambda x: -abs(x.value))
 

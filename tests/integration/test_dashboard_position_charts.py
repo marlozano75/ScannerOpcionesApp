@@ -30,3 +30,13 @@ def test_dashboard_shows_portfolio_status_others_and_captured_premium(client_and
     assert 'id="gestion"' in page and "Gestión de posiciones" in page and "Otras posiciones" not in page
     assert "MSFT" in page and "Acción" in page                 # la acción convive con la put en la misma tabla
     assert "P&amp;L ($)" in page and "+500" in page            # cobró 2.000, recomprar cuesta 1.500: P&L (capturada) +500
+
+
+def test_dashboard_gives_non_put_positions_zone_alert_and_row_urgency(client_and_service):
+    client, svc, gw, _ = client_and_service
+    exp = TODAY + timedelta(days=35)
+    gw.positions = [Position("AAPL", 1, 80.0, "Technology", OptionContract("AAPL", exp, 100.0, OptionRight.CALL), avg_cost=200.0)]    # call comprada: −60 %
+    refresh(client)
+    page = client.get("/").text
+    assert 'class="u1"' in page and "En pérdida" in page    # MTO es TPC aquí (mantiene hasta el vencimiento): solo informa de la pérdida, sin stop
+    assert 'class="chip z-' in page and "Δ" in page         # chip de zona con la delta (estimada o real)

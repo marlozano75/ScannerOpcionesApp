@@ -775,25 +775,21 @@ class ManagementSettings(_Model):
     pin_dte: int = Field(5, ge=0)                       # spreads: riesgo de pin / asignación en los últimos N días...
     pin_buffer_pct: float = Field(2.0, ge=0)            # ...si el precio está a menos de este % por encima del strike vendido (o por debajo)
     max_total_risk_pct: float = Field(50, gt=0)         # riesgo total abierto (pérdida máxima de spreads + capital de asignación de puts desnudas) sobre el NLV: aviso por encima
+    long_take_profit_pct: float = Field(100, gt=0)      # opciones compradas (perfil Tastytrade): recoger al ganar este % de lo pagado
+    long_stop_pct: float = Field(50, gt=0, le=100)      # ... stop al perder este % de lo pagado (también en debit spreads)
+    long_review_dte: int = Field(21, ge=0)              # ... a ≤ N DTE sin haber llegado al objetivo: cerrar o rolar
+    debit_take_profit_pct: float = Field(90, gt=0, le=100)   # debit spreads: recoger al capturar este % del beneficio máximo
     near_strike_pct: float = Field(2.0, ge=0)           # aviso cuando el precio está a menos de este % por encima del strike
-    warn_position_pct: float = Field(5, gt=0)           # peso de una acción (acciones + puts vendidas asignadas) sobre el NLV: aviso
-    max_position_pct: float = Field(10, gt=0)           # y por encima de este: alerta
     # Perfil de gestión de cada put: «tastytrade» (lo de arriba: recoger al 50 %, revisar a 21 DTE) o «tpc» (mantener hasta el vencimiento, no
     # rolar). Se elige por posición en el Panel; este es el que se usa mientras no se elija otro.
     default_profile: Literal["tastytrade", "tpc"] = "tpc"
     tpc_close_capture_pct: float = Field(90, gt=0, le=100)   # TPC: aviso (info) de que casi toda la prima está ganada: cerrar o seguir hasta el vencimiento
-    tpc_warn_position_pct: float = Field(10, gt=0)      # TPC: peso por acción tras asignación, aviso (techo del método: 15 %)
-    tpc_max_position_pct: float = Field(15, gt=0)       # y alerta
     defense: DefenseSettings = DefenseSettings()        # defensa de las puts testeadas / dentro del dinero (perfiles con la defensa activada)
 
     @model_validator(mode="after")
     def _check(self) -> "ManagementSettings":
         if self.take_profit_max_pct < self.take_profit_pct:
             raise ValueError("take_profit_max_pct no puede ser menor que take_profit_pct")
-        if self.warn_position_pct > self.max_position_pct:
-            raise ValueError("warn_position_pct no puede superar max_position_pct")
-        if self.tpc_warn_position_pct > self.tpc_max_position_pct:
-            raise ValueError("tpc_warn_position_pct no puede superar tpc_max_position_pct")
         return self
 
 

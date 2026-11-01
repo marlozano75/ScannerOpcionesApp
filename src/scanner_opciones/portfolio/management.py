@@ -143,7 +143,6 @@ class TickerWeight:
     put_nominal: float
     total: float
     pct_nlv: Optional[float]
-    level: Optional[str]                # None | info | warn
     contracts: int
 
 
@@ -248,13 +247,10 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
                      premium_amount=premium, captured_amount=amount, fx=p.fx)
 
 
-def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[float], cfg: ManagementSettings,
-                   profiles: Optional[dict[str, str]] = None, rules: Optional[dict[str, ExitRules]] = None) -> list[TickerWeight]:
-    """Peso sobre el NLV de cada acción con puts vendidas: acciones que ya tienes + lo que comprarías si te asignan todo.
-    Los umbrales son los de la estrategia de salida de cada put; si la acción tiene varias, los más estrictos (los holgados de TPC solo
-    valen si TODAS las puts de la acción se gestionan con ellos)."""
+def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[float]) -> list[TickerWeight]:
+    """Peso sobre el NLV de cada acción con puts vendidas: acciones que ya tienes + lo que comprarías si te asignan todo. Solo informa:
+    no hay umbrales de aviso."""
     puts = _short_puts(positions)
-    profiles, rules = profiles or {}, rules or {}
     out = []
     for ticker in sorted({p.ticker for p in puts}):
         stock = sum(p.market_value * p.fx for p in positions if p.ticker == ticker and p.option is None and p.quantity > 0)
@@ -262,10 +258,7 @@ def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[floa
         nominal = sum(nominal_of(p) for p in mine)       # en un spread, su ancho: la put comprada limita lo que compras
         total = stock + nominal
         pct = total / net_liquidation * 100 if net_liquidation and net_liquidation > 0 else None
-        mine_rules = [rules.get(put_key(p)) or style_rules(profiles.get(put_key(p), cfg.default_profile), cfg) for p in mine]
-        warn, top = min(r.warn_position_pct for r in mine_rules), min(r.max_position_pct for r in mine_rules)
-        level = None if pct is None else ("warn" if pct > top else "info" if pct > warn else None)
-        out.append(TickerWeight(ticker, stock, nominal, total, pct, level, int(sum(abs(p.quantity) for p in mine))))
+        out.append(TickerWeight(ticker, stock, nominal, total, pct, int(sum(abs(p.quantity) for p in mine))))
     return sorted(out, key=lambda w: -(w.pct_nlv if w.pct_nlv is not None else -1))
 
 
@@ -301,12 +294,11 @@ def manage_puts(
                            assigned=assigned.get(put_key(p), ""), assign_note=notes.get(put_key(p), ""), opened=opened.get(put_key(p), (None, False))[0],
                            opened_exact=opened.get(put_key(p), (None, False))[1])
                    for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))
-    weights = ticker_weights(positions, net_liquidation, cfg, profiles, rules)
+    weights = ticker_weights(positions, net_liquidation)
     total = open_risk(positions)
     risk_pct = total / net_liquidation * 100 if net_liquidation and net_liquidation > 0 and total > 0 else None
     risk_level = "warn" if risk_pct is not None and risk_pct > cfg.max_total_risk_pct else None
-    attention = (sum(1 for s in puts for a in s.alerts if a.level == "warn") + sum(1 for w in weights if w.level == "warn")
-                 + (1 if risk_level else 0))
+    attention = sum(1 for s in puts for a in s.alerts if a.level == "warn") + (1 if risk_level else 0)
     margin_total = sum(s.margin for s in puts if s.margin is not None)
     margin_pct = margin_total / net_liquidation * 100 if net_liquidation and net_liquidation > 0 and margin_total > 0 else None
     premium = sum(s.premium_usd for s in puts if s.premium_usd is not None)

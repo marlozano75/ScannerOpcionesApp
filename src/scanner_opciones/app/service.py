@@ -51,6 +51,7 @@ from scanner_opciones.portfolio import mgmt_profiles as mgmt_mod
 from scanner_opciones.portfolio.mgmt_profiles import MgmtProfile
 from scanner_opciones.portfolio import defense as defense_mod
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
+from scanner_opciones.portfolio.overview import leg_key
 from scanner_opciones.portfolio.spreads import split_combos, split_spreads, with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner import profiles as profiles_mod
@@ -182,6 +183,9 @@ class AppState:
     data_version: int = 0            # sube al terminar un refresco: las páginas abiertas lo consultan para recargarse
     account_version: int = 0         # sube con cada refresco de cuenta, posiciones y VIX (el Panel lo vigila además de `data_version`)
     position_deltas: dict[str, float] = field(default_factory=dict)   # |delta| real (tastytrade) de cada put desnuda vendida de la cartera, por `put_key`
+    leg_deltas: dict[str, float] = field(default_factory=dict)        # delta real (con signo) de las patas de las posiciones que no son puts vendidas, por `overview.leg_key`
+    leg_delta_meta: dict[str, tuple] = field(default_factory=dict)    # por pata: (cuándo se cotizó, precio del subyacente entonces)
+    leg_deltas_at: Optional[datetime] = None
     position_deltas_at: Optional[datetime] = None                     # cuándo se cotizaron (aunque alguna no respondiera)
     position_delta_meta: dict[str, tuple[datetime, Optional[float]]] = field(default_factory=dict)   # por `put_key`: cuándo se midió su delta y a qué precio del subyacente
 
@@ -3123,6 +3127,7 @@ class AppService:
             ok = await self.refresh_account(skip_closed_vix=True)
             if ok:   # mercado cerrado: el refresco solo de cuenta es el refresco del ciclo
                 await self.refresh_position_deltas()
+                await self.refresh_leg_deltas()
                 self.state.last_refresh = self.now()
                 self.state.data_version += 1
             return ok
@@ -3145,6 +3150,7 @@ class AppService:
                 self.state.activity = None
                 await asyncio.gather(account, return_exceptions=True)
             await self.refresh_position_deltas()
+            await self.refresh_leg_deltas()
             self.state.last_refresh = self.now()
             self.state.data_version += 1
             return True
@@ -3428,7 +3434,7 @@ class AppService:
         out: dict[str, dict] = {}
         keep = self.settings.management.defense.freefall_lookback + 1
         for p in self.state.positions:
-            if p.option is None or p.option.right is not OptionRight.PUT or p.quantity >= 0 or p.ticker in out:
+            if p.option is None or p.ticker in out:
                 continue
             info = self.ticker_info.get(p.ticker.replace(" ", "-"))
             if info is None:
@@ -3454,6 +3460,55 @@ class AppService:
             if o is not None and o.right is OptionRight.PUT and p.quantity < 0:
                 out[put_key_of(p)] = OptionContract(o.ticker.replace(" ", "-"), o.expiry, o.strike, OptionRight.PUT, o.multiplier)
         return out
+
+    def _other_leg_contracts(self) -> dict[str, OptionContract]:
+        """Patas de opciones de las posiciones que NO son puts vendidas (calls, compradas y patas de combos) como contratos con el símbolo de la app, por `leg_key`."""
+        rest, _ = split_spreads(self.state.positions)
+        rest, combos = split_combos(rest)
+        legs = [leg for c in combos for leg in c.legs] + [p for p in rest if p.option is not None and not (p.option.right is OptionRight.PUT and p.quantity < 0)]
+        return {leg_key(p.option): OptionContract(p.option.ticker.replace(" ", "-"), p.option.expiry, p.option.strike, p.option.right, p.option.multiplier)
+                for p in legs if p.option is not None}
+
+    def usable_leg_deltas(self) -> dict[str, float]:
+        """`state.leg_deltas` sin las ya desfasadas (por edad o por movimiento del precio): el Panel estima esas con Black-Scholes."""
+        spots = self._spots()
+        out = {}
+        for key, delta in self.state.leg_deltas.items():
+            meta = self.state.leg_delta_meta.get(key)
+            if meta is not None and self._delta_still_valid(key.split("|")[0].replace(" ", "-"), meta[0], meta[1], spots):
+                out[key] = delta
+        return out
+
+    async def refresh_leg_deltas(self, force: bool = False) -> bool:
+        """Cotiza por DXLink las patas de las posiciones que no son puts vendidas (como `refresh_position_deltas` hace con las puts) y guarda su delta real para
+        la zona del Panel. Misma caducidad (`greeks_max_age_minutes`, cierre de mercado, movimiento del precio); sin cotización el Panel estima con Black-Scholes."""
+        contracts = self._other_leg_contracts()
+        if not contracts:
+            self.state.leg_deltas, self.state.leg_delta_meta, self.state.leg_deltas_at = {}, {}, None
+            return False
+        if not force and self.state.leg_deltas_at is not None and set(contracts) <= set(self.state.leg_delta_meta) | set(self.state.leg_deltas):
+            spots = self._spots()
+            if all(self._delta_still_valid(k.split("|")[0].replace(" ", "-"), m[0], m[1], spots) for k, m in self.state.leg_delta_meta.items()):
+                at = self.state.leg_deltas_at
+                if (at.astimezone() >= self.market.last_close(self.now())) if self._paused() else (
+                        self.now() - at < timedelta(minutes=self.settings.management.defense.greeks_max_age_minutes)):
+                    return False
+        if self._known_disconnected() and not self._offline_capable():
+            return False
+        try:
+            quotes = await asyncio.wait_for(self.gateway.get_quotes(list(contracts.values())), 45)
+        except (BrokerError, asyncio.TimeoutError) as exc:
+            log.info("Delta real de las patas de la cartera no disponible, el Panel la estima: %s", exc or "tiempo agotado")
+            return False
+        now, spots = self.now(), self._spots()
+        self.state.leg_deltas = {k: q.delta for k, c in contracts.items() if (q := quotes.get(c)) is not None and q.delta is not None}
+        self.state.leg_delta_meta = {k: (now, spots.get(contracts[k].ticker)) for k in self.state.leg_deltas}
+        self.state.leg_deltas_at = now
+        return True
+
+    def other_exit_rules(self) -> dict:
+        """Estrategia de salida de cada perfil (de escaneo y de gestión), por nombre: para las posiciones que no son puts vendidas."""
+        return self._rules_by_name()
 
     def _spots(self) -> dict[str, Optional[float]]:
         return {t: i.underlying_price for t, i in self.ticker_info.all().items()}
