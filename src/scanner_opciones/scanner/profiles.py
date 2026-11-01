@@ -72,7 +72,7 @@ def validate_profile(p: Profile) -> Profile:
         raise ValueError(f"«{name}»: elige un instrumento (put o spread)")
     if p.color and not re.fullmatch(r"#[0-9a-fA-F]{6}", p.color):
         raise ValueError(f"«{name}»: color no válido")
-    if p.management not in ("tastytrade", "tpc"):
+    if not exits_mod.is_style(p.management):
         raise ValueError(f"«{name}»: gestión no válida")
     return replace(p, name=name, instruments=instruments)
 

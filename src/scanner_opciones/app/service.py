@@ -47,6 +47,7 @@ from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key,
 from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import classify_dte
 from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry, recognize_shown, source_note
+from scanner_opciones.portfolio import exits as exits_mod
 from scanner_opciones.portfolio import mgmt_profiles as mgmt_mod
 from scanner_opciones.portfolio.mgmt_profiles import MgmtProfile
 from scanner_opciones.portfolio import defense as defense_mod
@@ -136,6 +137,7 @@ NO_CANDLES = "no_candles"   # clave de `meta`: símbolos que tastytrade no respo
 PUT_OPENED = "put_opened"   # clave de `meta`: día en que la app vio por primera vez cada put vendida (JSON {put_key: AAAA-MM-DD})
 PUT_ENTRY_FIT = "put_entry_fit"   # clave de `meta`: estrategia reconocida al abrir cada put/spread (JSON {put_key: EntryFit})
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
+EXIT_STYLES = "exit_styles"   # clave de `meta`: estilos base de salida propios (JSON, `portfolio/exits.py::dump_custom`)
 MGMT_PROFILES = "mgmt_profiles"   # clave de `meta`: perfiles de GESTIÓN (JSON, `portfolio/mgmt_profiles.py`); vacío = los sembrados (Comunidad/Radar/MTO)
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
 SCAN_MEMO_SECONDS = 1800.0                          # vida de las lecturas reutilizadas entre cálculos del Scanner (`_memo`)
@@ -233,6 +235,7 @@ class AppService:
         self.contracts = ContractRepo(db)
         self.snapshots = SnapshotRepo(db)
         self.meta = MetaRepo(db)
+        exits_mod.set_custom_styles(exits_mod.load_custom(self.meta.get(EXIT_STYLES) or ""))
         self.bars = BarRepo(db)
         self.position_delta_log = PositionDeltaRepo(db)
         sl = settings.scan_log
@@ -1514,6 +1517,32 @@ class AppService:
         if gone:        # un perfil de gestión borrado: sus posiciones pasan al catch-all (MTO)
             catchall = next((p.name for p in valid if p.catchall), mgmt_mod.CATCHALL)
             self.rename_profile_refs({n: catchall for n in gone})
+
+    def save_exit_style(self, name: str, parent: str, overrides: dict) -> str:
+        """Guarda (o actualiza) un estilo base propio: `parent` (incorporado) + `overrides`. Devuelve el nombre limpio; `ValueError` si no es válido."""
+        name = exits_mod.validate_style_name(name)
+        if parent not in exits_mod.STYLES:
+            raise ValueError("estilo de partida no válido")
+        styles = exits_mod.custom_styles()
+        existing = next((n for n in styles if n.casefold() == name.casefold()), None)
+        if existing:
+            name = existing      # mismo nombre salvo mayúsculas: se actualiza ese
+        styles[name] = (parent, exits_mod.check_overrides(overrides))
+        self.meta.set(EXIT_STYLES, exits_mod.dump_custom(styles))
+        exits_mod.set_custom_styles(styles)
+        return name
+
+    def delete_exit_style(self, name: str) -> None:
+        """Borra un estilo base propio; `ValueError` si algún perfil lo usa."""
+        styles = exits_mod.custom_styles()
+        if name not in styles:
+            raise ValueError("ese estilo base no existe")
+        users = [p.name for p in self.scanner_profiles() if p.management == name] + [p.name for p in self.management_profiles() if p.management == name]
+        if users:
+            raise ValueError(f"el estilo «{name}» lo usan {', '.join(users)}: cámbialo antes en esos perfiles")
+        styles.pop(name)
+        self.meta.set(EXIT_STYLES, exits_mod.dump_custom(styles))
+        exits_mod.set_custom_styles(styles)
 
     def _mgmt_catchall(self) -> str:
         """Nombre del perfil de gestión catch-all (MTO), al que va lo que no sale de ninguna fuente ni encaja en un perfil de escaneo."""

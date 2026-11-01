@@ -55,7 +55,7 @@ def validate_profile(p: MgmtProfile) -> MgmtProfile:
         raise ValueError("el perfil de gestión necesita un nombre")
     if p.color and not re.fullmatch(r"#[0-9a-fA-F]{6}", p.color):
         raise ValueError(f"«{name}»: color no válido")
-    if p.management not in exits_mod.STYLES:
+    if not exits_mod.is_style(p.management):
         raise ValueError(f"«{name}»: gestión no válida")
     return replace(p, name=name)
 

@@ -26,7 +26,27 @@
   .ex-desc ul { margin:6px 0 0; padding-left:18px; font-size:13px; line-height:1.5; }
   .ex-actions { display:flex; gap:10px; align-items:center; margin-top:12px; }
   .ex-actions button { width:auto; }
-  .ex-card .tag { font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); }
+  .ex-card .tag, .sty .tag { font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line); font-weight:400; }
+  .sty-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:12px; margin:8px 0 14px; }
+  .sty { border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+  .sty h4 { margin:0 0 2px; display:flex; flex-wrap:wrap; gap:4px 8px; align-items:baseline; }
+  .sty .sub { font-size:12px; color:var(--mute); margin-bottom:8px; }
+  .sty .lbl { font-size:11px; color:var(--mute); margin:8px 0 2px; }
+  .tl { position:relative; height:20px; border-radius:10px; background:var(--line); }
+  .tl .seg { position:absolute; top:0; bottom:0; border-radius:10px; }
+  .tl .mk { position:absolute; top:-3px; bottom:-3px; width:3px; margin-left:-1px; border-radius:2px; }
+  .tl .mk.ok { background:var(--green, #2a9d5c); } .tl .mk.warn { background:var(--amber); } .tl .mk.info { background:var(--mute); }
+  .tl .seg.ok { background:color-mix(in srgb, var(--green, #2a9d5c) 35%, transparent); }
+  .tl .seg.warn { background:color-mix(in srgb, var(--amber) 35%, transparent); }
+  .tl-ax { display:flex; justify-content:space-between; font-size:10px; color:var(--mute); margin-top:2px; }
+  .tl-note { font-size:12px; margin-top:3px; }
+  .sty-chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+  .sty-chips span { font-size:11px; padding:1px 8px; border-radius:9px; border:1px solid var(--line); }
+  .sty-chips .y { border-color:var(--green, #2a9d5c); } .sty-chips .n { color:var(--mute); }
+  .sty-foot { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin-top:8px; font-size:12px; }
+  .sty-foot button { width:auto; padding:2px 10px; }
+  .ex-save-style { font-size:12px; }
+  .ex-save-style input { width:200px; padding:3px 8px; height:28px; box-sizing:border-box; margin-left:6px; }
 </style>
 <div class="card">
   <h2>Estrategias de salida por perfil</h2>
@@ -36,6 +56,49 @@
     Los filtros de entrada se editan en el <a href="/scanner">Scanner</a>; los nombres, colores e instrumentos, en <a href="/scanner/config">Perfiles</a>.</p>
   {% if ok %}<div class="banner ok">{{ ok }}</div>{% endif %}
   {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
+  <details class="ex-desc" open style="max-width:none"><summary style="cursor:pointer;font-size:14px"><b>Estilos base: qué son y en qué se diferencian</b></summary>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">Un estilo base es el punto de partida de las reglas de un perfil. Cada estilo se dibuja sobre una put vendida de ~45 DTE:
+      la barra de arriba es el tiempo hasta el vencimiento (de izquierda a derecha) y la de abajo, la prima ya ganada. Para crear uno propio, ajusta las reglas de un perfil
+      y escribe un nombre en «Guardar como estilo base».</p>
+    <div class="sty-grid">
+    {% for st in style_cards %}{% set m = st.sm %}
+      <div class="sty">
+        <h4>{{ st.label }}{% if st.custom %}<span class="tag">propio · parte de {{ st.parent }}</span>{% else %}<span class="tag">incorporado</span>{% endif %}</h4>
+        <div class="sub">{% if m.hold %}Mantener hasta el vencimiento{% else %}Recoger beneficios y revisar a tiempo{% endif %}{% if st.used %} · lo usan {{ st.used|join(', ') }}{% else %} · sin perfiles{% endif %}</div>
+        <div class="lbl">Tiempo hasta el vencimiento (45 → 0 DTE)</div>
+        <div class="tl">
+          {% if m.review_dte is not none %}{% set rp = 100 - ([m.review_dte, 45]|min / 45 * 100) %}
+          <div class="seg warn" style="left:{{ rp|round(1) }}%;right:0"></div>
+          <div class="mk warn" style="left:{{ rp|round(1) }}%" title="Revisar / rolar a ≤ {{ m.review_dte }} DTE"></div>{% endif %}
+          <div class="mk info" style="left:{{ (100 - ([m.pin_dte, 45]|min / 45 * 100))|round(1) }}%" title="Spreads: vigilar el pin los últimos {{ m.pin_dte }} DTE"></div>
+        </div>
+        <div class="tl-ax"><span>45</span><span>30</span><span>15</span><span>0</span></div>
+        <div class="tl-note">{% if m.review_dte is not none %}<span style="color:var(--amber)">⚠</span> Revisar o rolar a ≤ {{ m.review_dte }} DTE{% else %}Sin revisión por tiempo{% endif %} · <span class="muted">marca gris: pin de spreads a ≤ {{ m.pin_dte }} DTE</span></div>
+        <div class="lbl">Prima ya ganada (0 → 100 %)</div>
+        <div class="tl">
+          {% if m.take_profit is not none %}
+            {% if m.take_profit_max %}<div class="seg ok" style="left:{{ m.take_profit }}%;width:{{ m.take_profit_max - m.take_profit }}%"></div>{% endif %}
+            <div class="mk ok" style="left:{{ m.take_profit }}%" title="Recoger al {{ '%g' % m.take_profit }} %"></div>
+          {% endif %}
+          {% if m.close_capture is not none %}<div class="mk info" style="left:{{ m.close_capture }}%" title="Aviso informativo al {{ '%g' % m.close_capture }} %"></div>{% endif %}
+        </div>
+        <div class="tl-ax"><span>0 %</span><span>50 %</span><span>100 %</span></div>
+        <div class="tl-note">{% if m.take_profit is not none %}<span style="color:var(--green,#2a9d5c)">✓</span> Recoger al {{ '%g' % m.take_profit }} %{% if m.take_profit_max %} (rango hasta {{ '%g' % m.take_profit_max }} %){% endif %}
+          {% elif m.close_capture is not none %}ⓘ Sin objetivo: solo aviso informativo al {{ '%g' % m.close_capture }} %{% else %}Sin objetivo: se aguanta hasta el final{% endif %}</div>
+        <div class="sty-chips">
+          <span class="{{ 'y' if m.itm == 'close' else 'n' }}">En el dinero: {{ 'valorar cerrar' if m.itm == 'close' else 'mantener, no rolar' }}</span>
+          <span class="{{ 'y' if m.defense else 'n' }}">Defensa de la put: {{ 'sí' if m.defense else 'no' }}</span>
+          <span class="{{ 'y' if m.stop is not none else 'n' }}">Stop de spread: {{ ('%g×' % m.stop) if m.stop is not none else 'no' }}</span>
+          <span class="{{ 'y' if m.long_on else 'n' }}">Compradas y debit spreads: {{ 'gestionadas' if m.long_on else 'sin reglas' }}</span>
+        </div>
+        {% if st.custom %}<div class="sty-foot"><span class="muted">Cambios sobre {{ st.parent }}: {{ st.changed|length }}</span>
+          <form method="post" action="/exits/styles/delete" style="margin:0" onsubmit="return confirm('¿Borrar este estilo base?')">
+            <input type="hidden" name="name" value="{{ st.name }}"><button type="submit" {% if st.used %}disabled title="Lo usan perfiles: cámbialo antes en ellos"{% endif %}>Borrar estilo</button></form></div>{% endif %}
+        <details class="ex-desc" style="margin-top:6px"><summary style="cursor:pointer;font-size:12px">En palabras</summary><ul>{% for t in st.text %}<li>{{ t }}</li>{% endfor %}</ul></details>
+      </div>
+    {% endfor %}
+    </div>
+  </details>
   <form method="post" action="/exits/save">
     <input type="hidden" name="n_profiles" value="{{ cards|length }}">
     <input type="hidden" name="n_mgmt" value="{{ mgmt_cards|length }}">
@@ -50,10 +113,11 @@
       <div class="ex-top">
         <label title="Punto de partida de las reglas. Cambiarlo y guardar descarta los cambios de este perfil y carga los valores del estilo.">Estilo base
           <select name="{{ c.prefix }}_style" class="ex-style" data-card="{{ c.prefix }}">
-            <option value="tastytrade" {{ 'selected' if p.management == 'tastytrade' }}>Tastytrade</option>
-            <option value="tpc" {{ 'selected' if p.management == 'tpc' }}>TPC</option>
+            {% for st in styles %}<option value="{{ st }}" {{ 'selected' if p.management == st }}>{{ style_labels[st] }}</option>{% endfor %}
           </select></label>
         {% if c.changed %}<label style="font-size:12px"><input type="checkbox" name="{{ c.prefix }}_reset"> Restaurar los valores del estilo</label>{% endif %}
+        <label class="ex-save-style" title="Guarda las reglas que ves en esta tarjeta como un estilo base y el perfil pasa a usarlo. Si el nombre ya es de un estilo propio, lo actualiza para todos los perfiles que lo usan.">Guardar como estilo base
+          <input type="text" name="{{ c.prefix }}_newstyle" maxlength="40" placeholder="nombre (opcional)"></label>
       </div>
       {% for g in c.sections if g.on %}
       <div class="ex-group">

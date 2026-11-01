@@ -5,6 +5,7 @@ Un perfil parte de un estilo base (`tastytrade` o `tpc`, sus valores salen de `M
 al 50 % ni revisa). Avisos orientativos, nunca órdenes. Funciones puras."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, fields, replace
 from typing import Optional
 
@@ -125,8 +126,69 @@ def sections(active: set[str]) -> list[dict]:
     return out
 
 
+# Estilos base propios del usuario: {nombre: (estilo incorporado del que parten, cambios sobre él)}. Los carga `AppService` desde `meta` al
+# arrancar y al guardar (estado de proceso, como la configuración); las funciones de abajo los tratan igual que a los incorporados.
+_CUSTOM: dict[str, tuple[str, dict]] = {}
+STYLE_LABELS = {"tastytrade": "Tastytrade", "tpc": "TPC"}
+
+
+def set_custom_styles(styles: dict[str, tuple[str, dict]]) -> None:
+    """Sustituye los estilos base propios (lo hace el servicio al leer o guardar `meta.exit_styles`)."""
+    _CUSTOM.clear()
+    _CUSTOM.update(styles)
+
+
+def custom_styles() -> dict[str, tuple[str, dict]]:
+    return dict(_CUSTOM)
+
+
+def is_style(name: str) -> bool:
+    return name in STYLES or name in _CUSTOM
+
+
+def all_styles() -> tuple[str, ...]:
+    """Los estilos incorporados y los propios, en ese orden."""
+    return STYLES + tuple(_CUSTOM)
+
+
+def style_label(name: str) -> str:
+    return STYLE_LABELS.get(name, name)
+
+
+def root_style(name: str) -> str:
+    """Estilo incorporado del que parte `name` (él mismo si ya lo es)."""
+    return name if name in STYLES else _CUSTOM[name][0] if name in _CUSTOM else "tastytrade"
+
+
+def validate_style_name(name: str) -> str:
+    name = name.strip()
+    if not name:
+        raise ValueError("el estilo base necesita un nombre")
+    if len(name) > 40:
+        raise ValueError("el nombre del estilo base es demasiado largo (máx. 40)")
+    if name.casefold() in {s.casefold() for s in STYLES}:
+        raise ValueError(f"«{name}» es un estilo incorporado: elige otro nombre")
+    return name
+
+
+def dump_custom(styles: dict[str, tuple[str, dict]]) -> str:
+    return json.dumps({n: {"parent": parent, "exits": ov} for n, (parent, ov) in styles.items()})
+
+
+def load_custom(raw: str) -> dict[str, tuple[str, dict]]:
+    """Estilos propios de un JSON guardado (ignora lo que no se lee o parte de un estilo desconocido)."""
+    try:
+        data = json.loads(raw) if raw else {}
+        return {str(n): (str(d["parent"]), check_overrides(d.get("exits") or {})) for n, d in data.items() if d.get("parent") in STYLES}
+    except Exception:
+        return {}
+
+
 def defaults(style: str, cfg: ManagementSettings) -> ExitRules:
-    """Reglas de un estilo base con los valores de `management` de la configuración."""
+    """Reglas de un estilo base (incorporado o propio) con los valores de `management` de la configuración."""
+    if style in _CUSTOM:
+        parent, ov = _CUSTOM[style]
+        return replace(defaults(parent, cfg), **{k: v for k, v in ov.items() if k in KEYS})
     if style == "tpc":
         return ExitRules(None, None, None, cfg.tpc_close_capture_pct, None, cfg.pin_dte, cfg.pin_buffer_pct,
                          "hold", False)
@@ -230,3 +292,13 @@ def describe(r: ExitRules) -> list[str]:
     else:
         out.append("Sin avisos de defensa: no se rola ni se defiende la put.")
     return out
+
+
+def style_summary(r: ExitRules) -> dict:
+    """Datos para dibujar un estilo base en la pantalla Salidas (comparación visual): hitos de una put vendida de ~45 DTE y reglas en pocas palabras."""
+    return dict(
+        take_profit=r.take_profit_pct, take_profit_max=r.take_profit_max_pct, review_dte=r.review_dte, stop=r.stop_multiple,
+        hold=r.holds_to_expiry, itm=r.itm_action, defense=r.defense, pin_dte=r.pin_dte, pin_buffer=r.pin_buffer_pct,
+        long_on=any(v is not None for v in (r.long_take_profit_pct, r.long_stop_pct, r.long_review_dte, r.debit_take_profit_pct)),
+        long_tp=r.long_take_profit_pct, long_stop=r.long_stop_pct, long_review=r.long_review_dte, debit_tp=r.debit_take_profit_pct,
+        close_capture=r.close_capture_pct)

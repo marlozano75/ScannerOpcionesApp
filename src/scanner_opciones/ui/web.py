@@ -499,9 +499,17 @@ def create_app(
         cards = [card(p, f"pf{i}", p.mode, set(p.instruments) & {"put", "spread"}) for i, p in enumerate(profiles)]
         all_strategies = {k for k, _ in exits_mod.STRATEGIES}
         mgmt_cards = [card(p, f"mf{i}", "gestión", all_strategies) for i, p in enumerate(mgmt_profiles)]
-        style_defaults = {st: {k: getattr(exits_mod.defaults(st, cfg), k) for k in exits_mod.KEYS} for st in exits_mod.STYLES}
-        return render(request, "exits.html", cards=cards, mgmt_cards=mgmt_cards, fields={k: (lab, kind, nul, hlp) for k, lab, kind, nul, hlp in exits_mod.FIELDS}, extra=exits_mod.EXTRA_FIELDS, dcfg=cfg.defense, alerts=exits_mod.ALERTS, ok=ok, error=error, style_defaults=style_defaults,
-                      style_text={st: exits_mod.describe(exits_mod.defaults(st, cfg)) for st in exits_mod.STYLES})
+        styles = exits_mod.all_styles()
+        style_defaults = {st: {k: getattr(exits_mod.defaults(st, cfg), k) for k in exits_mod.KEYS} for st in styles}
+        used: dict[str, list[str]] = {}
+        for p in [*profiles, *mgmt_profiles]:
+            used.setdefault(p.management, []).append(p.name)
+        style_cards = [dict(name=st, label=exits_mod.style_label(st), custom=st in exits_mod.custom_styles(), parent=exits_mod.style_label(exits_mod.root_style(st)),
+                            sm=exits_mod.style_summary(exits_mod.defaults(st, cfg)), text=exits_mod.describe(exits_mod.defaults(st, cfg)),
+                            changed=sorted(exits_mod.custom_styles().get(st, ("", {}))[1]), used=used.get(st, []))
+                       for st in styles]
+        return render(request, "exits.html", cards=cards, styles=styles, style_labels={st: exits_mod.style_label(st) for st in styles}, style_cards=style_cards, mgmt_cards=mgmt_cards, fields={k: (lab, kind, nul, hlp) for k, lab, kind, nul, hlp in exits_mod.FIELDS}, extra=exits_mod.EXTRA_FIELDS, dcfg=cfg.defense, alerts=exits_mod.ALERTS, ok=ok, error=error, style_defaults=style_defaults,
+                      style_text={st: exits_mod.describe(exits_mod.defaults(st, cfg)) for st in styles})
 
     @app.post("/exits/save")
     async def exits_save(request: Request):
@@ -512,14 +520,17 @@ def create_app(
         profiles, default = get_profiles()
         mgmt_profiles = service.management_profiles()
 
+        pending: dict[str, tuple[str, dict]] = {}     # estilos base nuevos de este envío: se guardan solo si todos los perfiles son válidos
+
         def apply_card(orig, prefix: str):
             """Devuelve una copia de `orig` (perfil de escaneo o de gestión) con las salidas del formulario; lanza ValueError con el nombre del perfil."""
             style = str(form.get(f"{prefix}_style", orig.management))
-            if style not in exits_mod.STYLES:
+            if not exits_mod.is_style(style):
                 raise ValueError(f"«{orig.name}»: estilo no válido")
-            if form.get(f"{prefix}_reset") or style != orig.management:
+            new_style = str(form.get(f"{prefix}_newstyle", "")).strip()
+            if not new_style and (form.get(f"{prefix}_reset") or style != orig.management):
                 return replace(orig, management=style, exits={})
-            current, vals = orig.exit_rules(cfg), {}
+            current, vals = (orig.exit_rules(cfg) if style == orig.management else exits_mod.defaults(style, cfg)), {}
             for key, label, kind, nullable, _ in exits_mod.FIELDS:
                 if f"{prefix}_{key}" not in form:
                     continue
@@ -536,6 +547,11 @@ def create_app(
                 vals["defense"] = str(form.get(f"{prefix}_defense")) == "on"
             try:
                 rules = exits_mod.validate(replace(current, **vals))
+                if new_style:      # «Guardar como estilo base»: lo que hay en la tarjeta pasa a ser un estilo y el perfil lo usa sin cambios propios
+                    root = exits_mod.root_style(style)
+                    name = exits_mod.validate_style_name(new_style)
+                    pending[name] = (root, exits_mod.overrides_of(root, rules, cfg))
+                    return replace(orig, management=name, exits={})
             except ValueError as exc:
                 raise ValueError(f"«{orig.name}»: {exc}") from None
             return replace(orig, exits=exits_mod.overrides_of(style, rules, cfg))
@@ -543,11 +559,26 @@ def create_app(
         try:
             if int(form.get("n_profiles", -1) or -1) != len(profiles) or int(form.get("n_mgmt", -1) or -1) != len(mgmt_profiles):
                 raise ValueError("Los perfiles han cambiado: recarga la página antes de guardar.")
-            service.save_profiles([apply_card(p, f"pf{i}") for i, p in enumerate(profiles)], default)
-            service.save_management_profiles([apply_card(p, f"mf{i}") for i, p in enumerate(mgmt_profiles)])
+            new_scan = [apply_card(p, f"pf{i}") for i, p in enumerate(profiles)]
+            new_mgmt = [apply_card(p, f"mf{i}") for i, p in enumerate(mgmt_profiles)]
+            for name, (root, ov) in pending.items():       # los estilos antes que los perfiles que los usan
+                service.save_exit_style(name, root, ov)
+            service.save_profiles(new_scan, default)
+            service.save_management_profiles(new_mgmt)
         except ValueError as exc:
             return RedirectResponse("/exits?" + urlencode({"error": str(exc)}), status_code=303)
-        return RedirectResponse("/exits?" + urlencode({"ok": "Estrategias de salida guardadas."}), status_code=303)
+        msg = "Estrategias de salida guardadas." + (f" Estilo base guardado: {', '.join(pending)}." if pending else "")
+        return RedirectResponse("/exits?" + urlencode({"ok": msg}), status_code=303)
+
+    @app.post("/exits/styles/delete")
+    async def exits_style_delete(request: Request):
+        """Borra un estilo base propio (solo si ningún perfil lo usa)."""
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
+        try:
+            service.delete_exit_style(str(form.get("name", "")))
+        except ValueError as exc:
+            return RedirectResponse("/exits?" + urlencode({"error": str(exc)}), status_code=303)
+        return RedirectResponse("/exits?" + urlencode({"ok": "Estilo base borrado."}), status_code=303)
 
     @app.post("/scanner/profiles/reset")
     async def scanner_profiles_reset():
@@ -571,7 +602,8 @@ def create_app(
                       profiles_saved=service.stored_profiles() is not None, vix=vix, ok=ok, error=error,
                       gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)), feeds=service.contract_feeds_info(),
                       ranges={p.name: dte_range(p) for p in profiles},
-                      mgmt_profiles=service.management_profiles(), catchall=service._mgmt_catchall())
+                      mgmt_profiles=service.management_profiles(), catchall=service._mgmt_catchall(),
+                      styles=exits_mod.all_styles(), style_labels={st: exits_mod.style_label(st) for st in exits_mod.all_styles()})
 
     @app.post("/scanner/profiles/mgmt")
     async def scanner_mgmt_profiles_save(request: Request):
@@ -594,7 +626,7 @@ def create_app(
             if new_name:
                 color = str(form.get("new_color", "")) if form.get("new_usecolor") else ""
                 style = str(form.get("new_style", "tpc"))
-                out.append(MgmtProfile(new_name, style if style in exits_mod.STYLES else "tpc", color, {}, "", False))
+                out.append(MgmtProfile(new_name, style if exits_mod.is_style(style) else "tpc", color, {}, "", False))
             service.save_management_profiles(out, renames)
         except ValueError as exc:
             return RedirectResponse("/scanner/config?" + urlencode({"error": str(exc)}), status_code=303)

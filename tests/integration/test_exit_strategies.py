@@ -99,3 +99,27 @@ def test_the_style_script_is_in_the_page_body_not_in_the_title(client_and_servic
     page = client_and_service[0].get("/exits").text
     assert "<title>Estrategias de salida" in page and "<script id=\"ex-defaults\"" not in page.split("</title>")[0]
     assert page.index('id="ex-defaults"') > page.index("</title>")
+
+
+def test_custom_base_style_save_use_and_delete(client_and_service):
+    client, svc, gw, _ = client_and_service
+    svc.save_profiles([Profile("Uno", ("put",), management="tastytrade"), Profile("Dos", ("put",), management="tpc")], "Uno")
+    form = {"n_profiles": "2", "n_mgmt": str(len(svc.management_profiles())), "pf0_style": "tastytrade", "pf0_take_profit_pct": "70",
+            "pf0_take_profit_max_pct": "", "pf0_review_dte": "14", "pf0_newstyle": "Mi estilo", "pf1_style": "tpc"}
+    r = client.post("/exits/save", data=form, follow_redirects=False)
+    assert "ok=" in r.headers["location"]
+    uno = {p.name: p for p in svc.stored_profiles()[0]}["Uno"]
+    assert uno.management == "Mi estilo" and uno.exits == {}
+    rules = uno.exit_rules(svc.settings.management)
+    assert (rules.take_profit_pct, rules.review_dte, rules.defense) == (70, 14, True)      # hereda de Tastytrade lo que no cambió
+    assert exits.custom_styles()["Mi estilo"][0] == "tastytrade"
+    page = client.get("/exits").text
+    assert "Mi estilo" in page and "Estilos base" in page
+    # el estilo propio sobrevive a un reinicio y no se borra mientras un perfil lo usa
+    assert exits.load_custom(exits.dump_custom(exits.custom_styles())) == exits.custom_styles()
+    assert "error=" in client.post("/exits/styles/delete", data={"name": "Mi estilo"}, follow_redirects=False).headers["location"]
+    client.post("/exits/save", data={**form, "pf0_style": "tpc", "pf0_newstyle": ""}, follow_redirects=False)
+    assert "ok=" in client.post("/exits/styles/delete", data={"name": "Mi estilo"}, follow_redirects=False).headers["location"]
+    assert "Mi estilo" not in exits.custom_styles()
+    with pytest.raises(ValueError):
+        exits.validate_style_name("TPC")

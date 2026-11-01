@@ -65,7 +65,7 @@
           <td><input class="nm" type="text" name="pf{{ i }}_name" value="{{ p.name }}" ><input type="hidden" name="pf{{ i }}_orig" value="{{ p.name }}"></td>
           <td class="c col"><input type="checkbox" name="pf{{ i }}_usecolor" {{ 'checked' if p.color }} title="Con color"> <input type="color" name="pf{{ i }}_color" value="{{ p.color or '#1f6feb' }}"></td>
           <td class="c"><select name="pf{{ i }}_inst"><option value="put" {{ 'selected' if p.mode == 'put' }}>Put</option><option value="spread" {{ 'selected' if p.mode == 'spread' }}>Spread</option></select></td>
-          <td><a href="/exits#pf{{ i }}" title="Editar la estrategia de salida de este perfil">{{ 'TPC' if p.management == 'tpc' else 'Tastytrade' }} ✎</a></td>
+          <td><a href="/exits#pf{{ i }}" title="Editar la estrategia de salida de este perfil">{{ style_labels.get(p.management, p.management) }} ✎</a></td>
           <td class="muted">{% if ranges[p.name] %}{{ ranges[p.name][0] }}–{{ ranges[p.name][1] }}{% else %}—{% endif %}</td>
           <td class="c"><input type="radio" name="default" value="{{ i }}" {{ 'checked' if p.name == default_profile }}></td>
           <td class="c"><input type="checkbox" name="pf{{ i }}_dup"></td>
@@ -122,13 +122,13 @@
         {% for p in mgmt_profiles %}{% set i = loop.index0 %}
         <tr><td><input class="nm" type="text" name="mf{{ i }}_name" value="{{ p.name }}" {{ 'readonly title=El catch-all no se renombra' if p.catchall }}></td>
           <td class="c col"><input type="checkbox" name="mf{{ i }}_usecolor" {{ 'checked' if p.color }} title="Con color"> <input type="color" name="mf{{ i }}_color" value="{{ p.color or '#7b5ea7' }}"></td>
-          <td><a href="/exits#mf{{ i }}" title="Editar la estrategia de salida de este perfil">{{ 'TPC' if p.management == 'tpc' else 'Tastytrade' }} ✎</a></td>
+          <td><a href="/exits#mf{{ i }}" title="Editar la estrategia de salida de este perfil">{{ style_labels.get(p.management, p.management) }} ✎</a></td>
           <td class="muted">{{ p.source if p.source else ('catch-all' if p.catchall else 'manual') }}</td>
           <td class="c">{% if not p.catchall %}<input type="checkbox" name="mf{{ i }}_del">{% else %}—{% endif %}</td></tr>
         {% endfor %}
         <tr><td><input class="nm" type="text" name="new_name" placeholder="Nuevo perfil…"></td>
           <td class="c col"><input type="checkbox" name="new_usecolor"> <input type="color" name="new_color" value="#7b5ea7"></td>
-          <td><select name="new_style"><option value="tpc">TPC</option><option value="tastytrade">Tastytrade</option></select></td>
+          <td><select name="new_style">{% for st in styles %}<option value="{{ st }}" {{ 'selected' if st == 'tpc' }}>{{ style_labels[st] }}</option>{% endfor %}</select></td>
           <td class="muted">manual</td><td class="c">—</td></tr>
         </tbody>
       </table>
