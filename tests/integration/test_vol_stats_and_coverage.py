@@ -237,10 +237,10 @@ def test_the_old_fallback_profile_becomes_the_unassigned_label_once(client_and_s
     assert svc.drop_fallback_profile() is True
     saved, default = svc.stored_profiles()
     assert [p.name for p in saved] == ["Mensual (TPC)", "TastyPut"] and default == "Mensual (TPC)"       # el perfil inicial era el de recambio
-    assert svc.put_profiles() == {"AAA|2099-01-01|10": "Sin perfil", "BBB|2099-01-01|10": "TastyPut"}     # lo asignado a mano pasa a «Sin perfil»
+    assert svc.put_profiles() == {"AAA|2099-01-01|10": "MTO", "BBB|2099-01-01|10": "TastyPut"}     # lo asignado a mano pasa a «Sin perfil», que se lee como el catch-all MTO
     assert svc.drop_fallback_profile() is False                                                          # ya migrado: no repite
-    assert classify_dte(999, saved) == "Sin perfil"
-    assert "Sin perfil" in client.get("/scanner/config").text
+    assert classify_dte(999, saved) == "Sin perfil"                                                       # función pura antigua: sigue devolviendo la etiqueta
+    assert "Perfiles de gestión" in client.get("/scanner/config").text and "MTO" in client.get("/scanner/config").text
 
 
 def test_a_profile_cannot_take_the_name_of_the_unassigned_label(client_and_service):

@@ -29,11 +29,12 @@
   {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
   <form method="post" action="/exits/save">
     <input type="hidden" name="n_profiles" value="{{ cards|length }}">
-    {% for c in cards %}{% set i = loop.index0 %}{% set p = c.profile %}
-    <section class="ex-card" id="pf{{ i }}" style="{{ 'border-left-color:' ~ p.color if p.color }}">
+    <input type="hidden" name="n_mgmt" value="{{ mgmt_cards|length }}">
+    {% macro ex_card(c) %}{% set p = c.profile %}
+    <section class="ex-card" id="{{ c.prefix }}" style="{{ 'border-left-color:' ~ p.color if p.color }}">
       <div class="ex-head">
         <h3>{{ p.name }}</h3>
-        <span class="tag">{{ p.mode }}</span>
+        <span class="tag">{{ c.tag }}</span>
         <span class="muted" style="font-size:12px">{{ c.open_puts }} {{ 'posición abierta' if c.open_puts == 1 else 'posiciones abiertas' }} en el Panel</span>
         <span class="muted" style="font-size:12px">{% if c.changed %}personalizada ({{ c.changed|length }} {{ 'cambio' if c.changed|length == 1 else 'cambios' }} sobre el estilo){% else %}valores del estilo{% endif %}</span>
       </div>
@@ -45,34 +46,39 @@
         <div class="ex-form">
           <div class="ex-grid">
             <label title="Punto de partida de las reglas. Cambiarlo y guardar descarta los cambios de este perfil y carga los valores del estilo.">Estilo base</label>
-            <select name="pf{{ i }}_style" class="ex-style" data-card="pf{{ i }}">
+            <select name="{{ c.prefix }}_style" class="ex-style" data-card="{{ c.prefix }}">
               <option value="tastytrade" {{ 'selected' if p.management == 'tastytrade' }}>Tastytrade</option>
               <option value="tpc" {{ 'selected' if p.management == 'tpc' }}>TPC</option>
             </select>
             {% for key, label, kind, nullable, help in fields %}
             {% set v = c.rules|attr(key) %}{% set b = c.base|attr(key) %}
             <label title="{{ help }}" class="{{ 'chg' if key in c.changed }}">{{ label }}</label>
-            <input type="text" inputmode="decimal" name="pf{{ i }}_{{ key }}" value="{{ '' if v is none else ('%g' % v) }}" placeholder="{{ 'apagado' if nullable else '' }}"
+            <input type="text" inputmode="decimal" name="{{ c.prefix }}_{{ key }}" value="{{ '' if v is none else ('%g' % v) }}" placeholder="{{ 'apagado' if nullable else '' }}"
                    title="{{ help }} Estilo base: {{ 'apagado' if b is none else ('%g' % b) }}">
             {% endfor %}
             <label title="Qué se aconseja cuando el precio queda por debajo del strike vendido." class="{{ 'chg' if 'itm_action' in c.changed }}">En el dinero</label>
-            <select name="pf{{ i }}_itm_action">
+            <select name="{{ c.prefix }}_itm_action">
               <option value="close" {{ 'selected' if c.rules.itm_action == 'close' }}>Valorar cerrar</option>
               <option value="hold" {{ 'selected' if c.rules.itm_action == 'hold' }}>Mantener, no rolar</option>
             </select>
             <label title="Avisos de defensa de las puts desnudas (testeada, en el dinero, muy dentro, extrínseco, dividendo, resultados) y evaluación de rolls con cotizaciones en vivo desde el Panel. Un perfil que mantiene hasta el vencimiento (TPC) no rola." class="{{ 'chg' if 'defense' in c.changed }}">Defensa de la put</label>
-            <select name="pf{{ i }}_defense">
+            <select name="{{ c.prefix }}_defense">
               <option value="on" {{ 'selected' if c.rules.defense }}>Activada</option>
               <option value="off" {{ 'selected' if not c.rules.defense }}>Desactivada</option>
             </select>
           </div>
-          {% if c.changed %}<label style="font-size:12px;display:block;margin-top:8px"><input type="checkbox" name="pf{{ i }}_reset"> Restaurar los valores del estilo</label>{% endif %}
+          {% if c.changed %}<label style="font-size:12px;display:block;margin-top:8px"><input type="checkbox" name="{{ c.prefix }}_reset"> Restaurar los valores del estilo</label>{% endif %}
         </div>
       </div>
     </section>
-    {% endfor %}
+    {% endmacro %}
+    <h3 style="margin:18px 0 0">Perfiles de escaneo</h3>
+    {% for c in cards %}{{ ex_card(c) }}{% endfor %}
+    <h3 style="margin:22px 0 0">Perfiles de gestión</h3>
+    <p class="muted" style="font-size:12px;margin:2px 0 0">Comunidad, Radar y MTO no parten de un escaneo: solo tienen estrategia de salida. Una posición se asigna a Comunidad/Radar si su contrato salió de esa fuente; el resto va a <b>MTO</b> (el catch-all que sustituye a «Sin perfil»). Los nombres y colores se editan en <a href="/scanner/config">Perfiles</a>.</p>
+    {% for c in mgmt_cards %}{{ ex_card(c) }}{% endfor %}
     <div class="ex-actions"><button type="submit">Guardar estrategias de salida</button>
-      <span class="muted" style="font-size:12px">Los campos en ámbar difieren del estilo base. El perfil «Tortuga» agrupa las puts que no encajan por DTE.</span></div>
+      <span class="muted" style="font-size:12px">Los campos en ámbar difieren del estilo base.</span></div>
   </form>
 </div>
 <script id="ex-defaults" type="application/json">{{ {"values": style_defaults, "text": style_text}|tojson }}</script>

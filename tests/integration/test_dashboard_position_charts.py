@@ -27,5 +27,5 @@ def test_dashboard_shows_portfolio_status_others_and_captured_premium(client_and
     page = client.get("/").text
     assert "Estado de la cartera" in page and "Riesgo total abierto" in page and "Margen comprometido" in page
     assert "Cambio diario" not in page and "P&amp;L latente" not in page
-    assert 'id="otros"' in page and "perfil «Otros»" in page and "MSFT" in page and "Acción" in page
+    assert 'id="otros"' in page and "Otras posiciones" in page and "MSFT" in page and "Acción" in page
     assert "Prima capt." in page and "+500" in page           # cobró 2.000, recomprar cuesta 1.500: capturada +500

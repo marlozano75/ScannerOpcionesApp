@@ -163,6 +163,22 @@ def recognize_feed(facts: EntryFacts, profiles: Sequence[Profile], logged: Seque
     return replace(fit, note=note, source="feed", trader=trader)
 
 
+def source_note(logged: Sequence[tuple[str, Optional[str], str, str]], day: date, me: str, assigned: str) -> tuple[str, Optional[str]]:
+    """Nota para el Panel y trader de una posición asignada a un perfil de GESTIÓN por la fuente de la que salió el contrato. `logged` = filas de ese contrato
+    en el histórico de feeds (perfil de escaneo al que encajaba —se ignora aquí—, trader, fuente, fecha de apertura del contrato). `assigned`: perfil de gestión
+    elegido (Comunidad/Radar/MTO). Devuelve (nota, trader) con el trader solo si lo abrió uno (y no eres tú)."""
+    who_set = sorted({t for _, t, _, _ in logged if t}, key=str.casefold)
+    who = ", ".join(who_set)
+    origins = ", ".join(sorted({o for _, _, o, _ in logged}))
+    theirs = date.fromisoformat(max(d for _, _, _, d in logged))
+    own = bool(me) and bool(who) and who.casefold() == me.casefold()
+    opened = (f"es tu propia operación ({me}), publicada con la fecha {theirs:%d/%m}" if own else f"la abrió {who} el {theirs:%d/%m}" if who
+              else f"se abrió el {theirs:%d/%m}") + (f", abierta aquí el {day:%d/%m}" if own and theirs != day else f", tú el {day:%d/%m}" if theirs != day else "")
+    note = f"Asignada a «{assigned}» porque el contrato salió de {origins}: {opened}."
+    trader = who_set[0] if len(who_set) == 1 and not own else None
+    return note, trader
+
+
 def _note(s: dict, verdict: str) -> str:
     marks = " · ".join(f"{'✓' if ok else '✗' if ok is False else '?'} {text}" for _, ok, text in s["crit"])
     return f"Reconocida por los filtros al abrir ({verdict}): {marks}"

@@ -87,11 +87,11 @@
 </div>
 
 <div class="card" id="otros">
-  <h2>Otras posiciones <span class="muted" style="font-weight:400">· perfil «Otros»{% if others %} · {{ others|length }}{% endif %}</span></h2>
+  <h2>Otras posiciones{% if others %} <span class="muted" style="font-weight:400">· {{ others|length }}</span>{% endif %}</h2>
   {% if others %}
   <div class="tscroll">
   <table class="sortable">
-    <tr><th>Ticker</th><th title="Acciones y opciones que no son puts vendidas ni parte de un spread. No tienen perfil del Scanner: se les asigna «Otros»">Tipo</th><th title="Acciones o contratos (negativo = vendidos)">Cant.</th><th title="Vencimiento y días que quedan (DTE)">Venc. · DTE</th><th>Strike</th><th title="Precio actual del subyacente">Subyacente</th><th title="Precio medio de entrada por acción (opción: prima por acción) → precio actual">Entrada → actual</th><th title="Valor de mercado en USD (con signo)">Valor ($)</th><th title="Ganancia o pérdida latente en USD; en una opción vendida es la prima ya ganada">P&amp;L ($)</th><th title="P&amp;L sobre la prima cobrada (opciones vendidas y combos de crédito: prima capturada) o sobre lo invertido (acciones, opciones compradas y combos de débito)">% prima capturada</th><th title="Peso de la posición sobre el NLV">% NLV</th><th>Perfil</th></tr>
+    <tr><th>Ticker</th><th title="Acciones y opciones que no son puts vendidas ni parte de un spread (calls, call/put debit spreads, puts compradas…)">Tipo</th><th title="Acciones o contratos (negativo = vendidos)">Cant.</th><th title="Vencimiento y días que quedan (DTE)">Venc. · DTE</th><th>Strike</th><th title="Precio actual del subyacente">Subyacente</th><th title="Precio medio de entrada por acción (opción: prima por acción) → precio actual">Entrada → actual</th><th title="Valor de mercado en USD (con signo)">Valor ($)</th><th title="Ganancia o pérdida latente en USD; en una opción vendida es la prima ya ganada">P&amp;L ($)</th><th title="P&amp;L sobre la prima cobrada (opciones vendidas y combos de crédito: prima capturada) o sobre lo invertido (acciones, opciones compradas y combos de débito)">% prima capturada</th><th title="Peso de la posición sobre el NLV">% NLV</th><th>Perfil</th></tr>
     {% for x in others %}
     <tr><td><b title="{{ tk_title(company_names, x.ticker) }}">{{ x.ticker }}</b>{{ sec_flag(sec_alerts, x.ticker) }}{{ analyst_flag(analyst_alerts, x.ticker) }}</td>
       <td>{{ x.kind }}</td>
@@ -104,11 +104,12 @@
       <td{% if x.pnl is not none %} data-sort="{{ x.pnl }}"{% endif %}>{% if x.pnl is not none %}<span class="pnl {{ 'neg' if x.pnl < 0 else 'pos' }}">{{ x.pnl|signed }}</span>{% else %}—{% endif %}</td>
       <td{% if x.pnl_pct is not none %} data-sort="{{ x.pnl_pct }}" title="Sobre {{ 'lo cobrado' if x.is_short_option or (x.premium is not none) else 'lo invertido' }}"{% endif %}>{% if x.pnl_pct is not none %}<span class="pnl {{ 'neg' if x.pnl_pct < 0 else 'pos' }}">{{ x.pnl_pct|signed(1) }} %</span>{% else %}—{% endif %}</td>
       <td{% if x.pct_nlv is not none %} data-sort="{{ x.pct_nlv }}"{% endif %}>{{ x.pct_nlv|pct(1) if x.pct_nlv is not none else '—' }}</td>
-      <td><span class="chip">{{ x.profile }}</span></td></tr>
+      <td><form method="post" action="/management/profile" style="margin:0">{% if profile_colors.get(x.profile) %}<span class="pdot" style="background:{{ profile_colors[x.profile] }}"></span>{% endif %}<input type="hidden" name="key" value="{{ x.key }}">
+        <select name="profile" onchange="this.form.submit()" style="font-size:12px;max-width:104px">{% for n in profile_names %}<option value="{{ n }}" {{ 'selected' if x.profile == n }}>{{ n }}</option>{% endfor %}</select></form></td></tr>
     {% endfor %}
   </table>
   </div>
-  <p class="muted" style="margin:8px 0 0;font-size:12px">Acciones, calls y puts compradas sueltas, y los combos de opciones detectados automáticamente (Call Debit/Credit Spread, Bear Put Spread, Straddle, Strangle, Calendar, Diagonal; en un combo, entrada y actual son el débito o crédito neto por acción): no tienen estrategia de salida, solo se muestran. El P&amp;L de una opción vendida es la prima ya capturada; en los combos se muestra también su % sobre el débito o crédito. Necesita el coste medio que da TWS (sin él aparece «—»).</p>
+  <p class="muted" style="margin:8px 0 0;font-size:12px">Acciones, calls y puts compradas sueltas, y los combos de opciones detectados automáticamente (Call Debit/Credit Spread, Bear Put Spread, Straddle, Strangle, Calendar, Diagonal; en un combo, entrada y actual son el débito o crédito neto por acción). Cada una se clasifica en un perfil de gestión (normalmente <b>MTO</b>, el catch-all; las call debit spreads suelen ser de MTO) que puedes cambiar en la columna Perfil; su estrategia de salida se edita en <a href="/exits">Salidas</a>. El P&amp;L de una opción vendida es la prima ya capturada; en los combos se muestra también su % sobre el débito o crédito. Necesita el coste medio que da TWS (sin él aparece «—»).</p>
   {% else %}<p class="muted">No hay otras posiciones abiertas.</p>{% endif %}
 </div>
 
