@@ -333,79 +333,77 @@ def _feed_row(svc, profile, trader, opened, origin="Comunidad"):
                      (profile, (TODAY + timedelta(days=14)).isoformat(), NOW.isoformat(), NOW.isoformat(), origin, trader, opened))
 
 
-async def test_put_assignments_use_the_feed_history_with_the_trader_when_the_scan_log_says_nothing():
+async def test_the_source_assigns_the_management_profile_when_the_filters_dont_fit():
+    # Filtros primero; si el DTE de apertura no encaja en ningún perfil de escaneo, la FUENTE (Comunidad) asigna su perfil de gestión, con el trader.
     from scanner_opciones.scanner.profiles import Profile
     svc, gw = await started_service()
-    pos = put_position()
+    pos = put_position()                                                           # AAPL 100, 14 DTE
     svc.state.positions = [pos]
-    a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})       # por filtros ganaría A (rango estrecho)
-    b = Profile("B", ("put",), {"discount": "0", "dte_min": "1", "dte_max": "60", "min_yield": "0"}, {})
+    a = Profile("A", ("put",), {"discount": "0", "dte_min": "30", "dte_max": "45", "min_yield": "0"}, {})   # 14 DTE no encaja en ninguno
+    b = Profile("B", ("put",), {"discount": "0", "dte_min": "60", "dte_max": "90", "min_yield": "0"}, {})
     svc.save_profiles([a, b], "A")
     svc._note_put_opened()
     key = put_key(pos)
-    _feed_row(svc, "B", "Ana", TODAY.isoformat())
-    _feed_row(svc, "Sin perfil", "Ana", TODAY.isoformat())                         # «Sin perfil» de la fuente no cuenta
+    _feed_row(svc, "B", "Ana", TODAY.isoformat())                                  # la columna «profile» de la fila ya no se usa: manda el origen (Comunidad)
     _feed_row(svc, "A", "Beto", (TODAY - timedelta(days=3)).isoformat())          # otro día de apertura: otro contrato
-    assert svc.put_assignments()[key] == "B"
+    assert svc.put_assignments()[key] == "Comunidad"
     note = svc.put_assignment_notes()[key]
-    assert "histórico de Comunidad" in note and "la abrió Ana" in note and "encaja en B" in note
-    assert svc.put_assignments()[key] == "B"                                      # definitiva: no cambia aunque cambien los registros
-    _feed_row(svc, "A", "Ana", TODAY.isoformat())
-    assert svc.put_assignments()[key] == "B"
+    assert "Comunidad" in note and "la abrió Ana" in note
+    assert svc.put_assignments()[key] == "Comunidad"                              # definitiva: no cambia aunque cambien los registros
 
 
-async def test_the_scan_log_goes_before_the_feed_and_a_filter_based_fit_is_upgraded_when_the_history_arrives():
+async def test_filters_go_before_the_source_and_the_scan_log_wins():
     from scanner_opciones.scanner.profiles import Profile
     svc, gw = await started_service()
-    pos = put_position()
+    pos = put_position()                                                           # 14 DTE
     svc.state.positions = [pos]
-    a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})
+    a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})   # encaja 14 DTE (rango estrecho)
     b = Profile("B", ("put",), {"discount": "0", "dte_min": "1", "dte_max": "60", "min_yield": "0"}, {})
     svc.save_profiles([a, b], "A")
     svc._note_put_opened()
     key = put_key(pos)
     assert svc.put_assignments()[key] == "A" and "filtros al abrir" in svc.put_assignment_notes()[key]      # sin registros: filtros
+    _feed_row(svc, "B", "Ana", TODAY.isoformat())                                  # hay fuente, pero los filtros ya encajan: manda el perfil de escaneo
     assert svc.put_assignments()[key] == "A"
-    _feed_row(svc, "B", "Ana", TODAY.isoformat())                                  # la comunidad publica al día siguiente: llega la prueba
-    assert svc.put_assignments()[key] == "B" and "la abrió Ana" in svc.put_assignment_notes()[key]
     svc.meta.set("put_entry_fit", "{}")
-    with svc.scan_log_repo.db.conn as conn:                                        # el registro de escaneos manda sobre la fuente
+    with svc.scan_log_repo.db.conn as conn:                                        # el registro de escaneos manda sobre los filtros
         conn.execute("INSERT INTO scan_log (profile, kind, ticker, expiry, strike, long_strike, first_seen, last_seen, active) "
-                     "VALUES ('A','put','AAPL',?,100.0,NULL,?,?,1)", ((TODAY + timedelta(days=14)).isoformat(), NOW.isoformat(), NOW.isoformat()))
-    assert svc.put_assignments()[key] == "A" and "registro de escaneos" in svc.put_assignment_notes()[key]
+                     "VALUES ('B','put','AAPL',?,100.0,NULL,?,?,1)", ((TODAY + timedelta(days=14)).isoformat(), NOW.isoformat(), NOW.isoformat()))
+    assert svc.put_assignments()[key] == "B" and "registro de escaneos" in svc.put_assignment_notes()[key]
 
 
-async def test_the_feed_history_matches_a_contract_the_trader_opened_a_few_days_before_you():
+async def test_the_source_matches_a_contract_opened_a_few_days_before_you_else_the_catchall():
     from scanner_opciones.config.settings import CommunitySettings
     from scanner_opciones.scanner.profiles import Profile
     svc, gw = await started_service()
-    pos = put_position()
+    pos = put_position()                                                           # 14 DTE
     svc.state.positions = [pos]
-    a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})
-    b = Profile("B", ("put",), {"discount": "0", "dte_min": "1", "dte_max": "60", "min_yield": "0"}, {})
+    a = Profile("A", ("put",), {"discount": "0", "dte_min": "30", "dte_max": "45", "min_yield": "0"}, {})   # no encaja 14 DTE
+    b = Profile("B", ("put",), {"discount": "0", "dte_min": "60", "dte_max": "90", "min_yield": "0"}, {})
     svc.save_profiles([a, b], "A")
     svc._note_put_opened()
     key = put_key(pos)
     _feed_row(svc, "B", "Ana", (TODAY - timedelta(days=2)).isoformat())          # el trader la abrió dos días antes que tú
     object.__setattr__(svc.settings, "community", CommunitySettings(feed_match_days=0))
-    assert svc.put_assignments()[key] == "A"                                       # sin ventana no coincide: por filtros
+    assert svc.put_assignments()[key] == "MTO"                                     # sin ventana no coincide: catch-all
+    svc.meta.set("put_entry_fit", "{}")
     object.__setattr__(svc.settings, "community", CommunitySettings(feed_match_days=3))
-    assert svc.put_assignments()[key] == "B"                                       # con ventana de 3 días sí (reemplaza la de filtros)
+    assert svc.put_assignments()[key] == "Comunidad"                              # con ventana de 3 días sí
     assert "la abrió Ana el" in svc.put_assignment_notes()[key] and ", tú el" in svc.put_assignment_notes()[key]
 
 
 async def test_your_own_trades_in_the_community_feed_go_before_those_of_other_traders():
     from scanner_opciones.scanner.profiles import Profile
     svc, gw = await started_service()
-    pos = put_position()
+    pos = put_position()                                                           # 14 DTE
     svc.state.positions = [pos]
-    a = Profile("A", ("put",), {"discount": "0", "dte_min": "10", "dte_max": "20", "min_yield": "0"}, {})
-    b = Profile("B", ("put",), {"discount": "0", "dte_min": "1", "dte_max": "60", "min_yield": "0"}, {})
+    a = Profile("A", ("put",), {"discount": "0", "dte_min": "30", "dte_max": "45", "min_yield": "0"}, {})   # no encaja 14 DTE: manda la fuente
+    b = Profile("B", ("put",), {"discount": "0", "dte_min": "60", "dte_max": "90", "min_yield": "0"}, {})
     svc.save_profiles([a, b], "A")
     svc._note_put_opened()
     key = put_key(pos)
     _feed_row(svc, "B", "Ana", TODAY.isoformat())                                  # otro trader, el mismo día
     _feed_row(svc, "A", "Marloz", (TODAY - timedelta(days=1)).isoformat())         # tu operación (mayúsculas distintas), publicada con otra fecha
-    assert svc.put_assignments()[key] == "A"                                       # manda la tuya, aunque la de Ana esté más cerca
+    assert svc.put_assignments()[key] == "Comunidad"                              # la fuente es Comunidad; la nota usa tu operación
     note = svc.put_assignment_notes()[key]
     assert "tu propia operación (marloz)" in note and "Ana" not in note and "abierta aquí el" in note

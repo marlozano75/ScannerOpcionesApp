@@ -31,6 +31,7 @@ from scanner_opciones.metrics.technical import strike_history
 from scanner_opciones.scanner.currency import usd_rate
 from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.portfolio import exits as exits_mod
+from scanner_opciones.portfolio.mgmt_profiles import MgmtProfile
 from scanner_opciones.portfolio.management import manage_puts
 from scanner_opciones.ui.position_charts import exit_plan, position_chart, position_mini
 from scanner_opciones.scanner.engine import ScanOutput
@@ -269,7 +270,8 @@ def create_app(
                            commission_model(service.settings))
         today = service.now().date()
         others = other_positions(service.state.positions, today, nlv,
-                                 {t: i.underlying_price for t, i in service.ticker_info.all().items()})
+                                 {t: i.underlying_price for t, i in service.ticker_info.all().items()},
+                                 service.put_profiles(), service._mgmt_catchall())
         status = portfolio_status(service.state.account, others, mgmt.puts)
         by_ticker: dict[str, list] = {}
         for s in mgmt.puts:
@@ -289,7 +291,7 @@ def create_app(
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks, today),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, others=others, wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=[p.name for p in get_profiles()[0]] + [UNASSIGNED], profile_colors={**{p.name: p.color for p in get_profiles()[0]}, UNASSIGNED: UNASSIGNED_COLOR}, trader_profiles=service.put_trader_profiles(), sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, others=others, wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=service.all_profile_names(), profile_colors={**{p.name: p.color for p in get_profiles()[0]}, **{p.name: (p.color or (UNASSIGNED_COLOR if p.catchall else "")) for p in service.management_profiles()}}, trader_profiles=service.put_trader_profiles(), sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds, today_date=today,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 
@@ -477,16 +479,18 @@ def create_app(
     async def exits_page(request: Request, ok: str = "", error: str = ""):
         cfg = service.settings.management
         profiles, _ = get_profiles()
+        mgmt_profiles = service.management_profiles()
         open_puts: dict[str, int] = {}
         for name in service.put_assignments().values():
             open_puts[name] = open_puts.get(name, 0) + 1
-        cards = []
-        for p in profiles:
+        def card(p, prefix: str, tag: str) -> dict:
             rules = p.exit_rules(cfg)
-            cards.append(dict(profile=p, rules=rules, base=exits_mod.defaults(p.management, cfg), changed=set(p.exits),
-                              text=exits_mod.describe(rules), open_puts=open_puts.get(p.name, 0)))
+            return dict(profile=p, prefix=prefix, tag=tag, rules=rules, base=exits_mod.defaults(p.management, cfg), changed=set(p.exits),
+                        text=exits_mod.describe(rules), open_puts=open_puts.get(p.name, 0))
+        cards = [card(p, f"pf{i}", p.mode) for i, p in enumerate(profiles)]
+        mgmt_cards = [card(p, f"mf{i}", "gestión") for i, p in enumerate(mgmt_profiles)]
         style_defaults = {st: {k: getattr(exits_mod.defaults(st, cfg), k) for k in exits_mod.KEYS} for st in exits_mod.STYLES}
-        return render(request, "exits.html", cards=cards, fields=exits_mod.FIELDS, ok=ok, error=error, style_defaults=style_defaults,
+        return render(request, "exits.html", cards=cards, mgmt_cards=mgmt_cards, fields=exits_mod.FIELDS, ok=ok, error=error, style_defaults=style_defaults,
                       style_text={st: exits_mod.describe(exits_mod.defaults(st, cfg)) for st in exits_mod.STYLES})
 
     @app.post("/exits/save")
@@ -496,38 +500,41 @@ def create_app(
         form = await request.form(max_fields=MAX_FORM_FIELDS)
         cfg = service.settings.management
         profiles, default = get_profiles()
-        try:
-            if int(form.get("n_profiles", -1) or -1) != len(profiles):
-                raise ValueError("Los perfiles han cambiado: recarga la página antes de guardar.")
-            out = []
-            for i, orig in enumerate(profiles):
-                style = str(form.get(f"pf{i}_style", orig.management))
-                if style not in exits_mod.STYLES:
-                    raise ValueError(f"«{orig.name}»: estilo no válido")
-                if form.get(f"pf{i}_reset") or style != orig.management:
-                    out.append(replace(orig, management=style, exits={}))
+        mgmt_profiles = service.management_profiles()
+
+        def apply_card(orig, prefix: str):
+            """Devuelve una copia de `orig` (perfil de escaneo o de gestión) con las salidas del formulario; lanza ValueError con el nombre del perfil."""
+            style = str(form.get(f"{prefix}_style", orig.management))
+            if style not in exits_mod.STYLES:
+                raise ValueError(f"«{orig.name}»: estilo no válido")
+            if form.get(f"{prefix}_reset") or style != orig.management:
+                return replace(orig, management=style, exits={})
+            current, vals = orig.exit_rules(cfg), {}
+            for key, label, kind, nullable, _ in exits_mod.FIELDS:
+                if f"{prefix}_{key}" not in form:
                     continue
-                current, vals = orig.exit_rules(cfg), {}
-                for key, label, kind, nullable, _ in exits_mod.FIELDS:
-                    if f"pf{i}_{key}" not in form:
-                        continue
-                    raw = str(form.get(f"pf{i}_{key}", "")).strip()
-                    if not raw:
-                        if not nullable:
-                            raise ValueError(f"«{orig.name}» · {label}: es obligatorio")
-                        vals[key] = None
-                    else:
-                        vals[key] = _read_num(raw, int if kind == "int" else float, f"«{orig.name}» · {label}")
-                if f"pf{i}_itm_action" in form:
-                    vals["itm_action"] = str(form.get(f"pf{i}_itm_action"))
-                if f"pf{i}_defense" in form:
-                    vals["defense"] = str(form.get(f"pf{i}_defense")) == "on"
-                try:
-                    rules = exits_mod.validate(replace(current, **vals))
-                except ValueError as exc:
-                    raise ValueError(f"«{orig.name}»: {exc}") from None
-                out.append(replace(orig, exits=exits_mod.overrides_of(style, rules, cfg)))
-            service.save_profiles(out, default)
+                raw = str(form.get(f"{prefix}_{key}", "")).strip()
+                if not raw:
+                    if not nullable:
+                        raise ValueError(f"«{orig.name}» · {label}: es obligatorio")
+                    vals[key] = None
+                else:
+                    vals[key] = _read_num(raw, int if kind == "int" else float, f"«{orig.name}» · {label}")
+            if f"{prefix}_itm_action" in form:
+                vals["itm_action"] = str(form.get(f"{prefix}_itm_action"))
+            if f"{prefix}_defense" in form:
+                vals["defense"] = str(form.get(f"{prefix}_defense")) == "on"
+            try:
+                rules = exits_mod.validate(replace(current, **vals))
+            except ValueError as exc:
+                raise ValueError(f"«{orig.name}»: {exc}") from None
+            return replace(orig, exits=exits_mod.overrides_of(style, rules, cfg))
+
+        try:
+            if int(form.get("n_profiles", -1) or -1) != len(profiles) or int(form.get("n_mgmt", -1) or -1) != len(mgmt_profiles):
+                raise ValueError("Los perfiles han cambiado: recarga la página antes de guardar.")
+            service.save_profiles([apply_card(p, f"pf{i}") for i, p in enumerate(profiles)], default)
+            service.save_management_profiles([apply_card(p, f"mf{i}") for i, p in enumerate(mgmt_profiles)])
         except ValueError as exc:
             return RedirectResponse("/exits?" + urlencode({"error": str(exc)}), status_code=303)
         return RedirectResponse("/exits?" + urlencode({"ok": "Estrategias de salida guardadas."}), status_code=303)
@@ -553,7 +560,35 @@ def create_app(
         return render(request, "scanner_config.html", profiles=profiles, default_profile=default_profile, unassigned=UNASSIGNED,
                       profiles_saved=service.stored_profiles() is not None, vix=vix, ok=ok, error=error,
                       gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)), feeds=service.contract_feeds_info(),
-                      ranges={p.name: dte_range(p) for p in profiles})
+                      ranges={p.name: dte_range(p) for p in profiles},
+                      mgmt_profiles=service.management_profiles(), catchall=service._mgmt_catchall())
+
+    @app.post("/scanner/profiles/mgmt")
+    async def scanner_mgmt_profiles_save(request: Request):
+        """Perfiles de gestión: nombre, color y borrado (el catch-all no se renombra ni se borra), más una fila para crear uno nuevo. Las salidas se editan en /exits."""
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
+        orig = service.management_profiles()
+        try:
+            if int(form.get("n_mgmt", -1) or -1) != len(orig):
+                raise ValueError("Los perfiles han cambiado: recarga la página antes de guardar.")
+            out, renames = [], {}
+            for i, p in enumerate(orig):
+                if form.get(f"mf{i}_del") and not p.catchall:
+                    continue
+                name = p.name if p.catchall else (str(form.get(f"mf{i}_name", p.name)).strip() or p.name)
+                color = str(form.get(f"mf{i}_color", "")) if form.get(f"mf{i}_usecolor") else ""
+                if name != p.name:
+                    renames[p.name] = name
+                out.append(replace(p, name=name, color=color))
+            new_name = str(form.get("new_name", "")).strip()
+            if new_name:
+                color = str(form.get("new_color", "")) if form.get("new_usecolor") else ""
+                style = str(form.get("new_style", "tpc"))
+                out.append(MgmtProfile(new_name, style if style in exits_mod.STYLES else "tpc", color, {}, "", False))
+            service.save_management_profiles(out, renames)
+        except ValueError as exc:
+            return RedirectResponse("/scanner/config?" + urlencode({"error": str(exc)}), status_code=303)
+        return RedirectResponse("/scanner/config?" + urlencode({"ok": "Perfiles de gestión guardados."}), status_code=303)
 
     @app.post("/scanner/feeds")
     async def scanner_feeds_save(request: Request):

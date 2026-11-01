@@ -40,8 +40,8 @@ def test_exits_page_describes_every_profile_and_saves_changes(client_and_service
     page = client.get("/exits").text
     assert "Uno" in page and "Dos" in page and "Recoger beneficios al ganar el 50 %" in page and "No se recoge antes del vencimiento" in page
 
-    form = {"n_profiles": "2", "pf0_style": "tastytrade", "pf0_take_profit_pct": "70", "pf0_take_profit_max_pct": "80", "pf0_review_dte": "",
-            "pf1_style": "tpc"}
+    form = {"n_profiles": "2", "n_mgmt": str(len(svc.management_profiles())), "pf0_style": "tastytrade", "pf0_take_profit_pct": "70",
+            "pf0_take_profit_max_pct": "80", "pf0_review_dte": "", "pf1_style": "tpc"}
     r = client.post("/exits/save", data=form, follow_redirects=False)
     assert r.status_code == 303 and "ok=" in r.headers["location"]
     saved = {p.name: p for p in svc.stored_profiles()[0]}
@@ -53,6 +53,36 @@ def test_exits_page_describes_every_profile_and_saves_changes(client_and_service
     assert "error=" in bad.headers["location"] and svc.stored_profiles()[0][0].exits == saved["Uno"].exits
     client.post("/exits/save", data={**form, "pf0_style": "tpc"}, follow_redirects=False)
     assert {p.name: p for p in svc.stored_profiles()[0]}["Uno"].exits == {}
+
+
+def test_management_profiles_crud_and_assignment_of_other_positions(client_and_service):
+    from datetime import timedelta
+    from scanner_opciones.domain.enums import OptionRight
+    from scanner_opciones.domain.models import OptionContract, Position
+    client, svc, gw, _ = client_and_service
+    # una call comprada suelta: va a «Otras posiciones» y se clasifica en el catch-all MTO
+    opt = OptionContract("AAPL", svc.now().date() + timedelta(days=30), 200.0, OptionRight.CALL)
+    svc.state.positions = [Position("AAPL", 1, 500.0, "Technology", opt, avg_cost=400.0)]
+    page = client.get("/").text
+    assert "Otras posiciones" in page and '<option value="MTO" selected>' in page      # clasificada, no «Otros» fijo
+    key = f"AAPL|{opt.expiry.isoformat()}|200"
+    assert client.post("/management/profile", data={"key": key, "profile": "Comunidad"}, follow_redirects=False).status_code == 303
+    assert svc.put_profiles()[key] == "Comunidad"
+    assert '<option value="Comunidad" selected>' in client.get("/").text
+
+    # crear, renombrar y borrar perfiles de gestión
+    n = len(svc.management_profiles())
+    r = client.post("/scanner/profiles/mgmt", data={"n_mgmt": str(n), "new_name": "Swing", "new_style": "tastytrade",
+                                                    **{f"mf{i}_name": p.name for i, p in enumerate(svc.management_profiles())}},
+                    follow_redirects=False)
+    assert r.status_code == 303 and "ok=" in r.headers["location"]
+    assert "Swing" in [p.name for p in svc.management_profiles()]
+    # intentar borrar el catch-all (aunque se fuerce la casilla): se ignora, MTO sigue
+    profs = svc.management_profiles()
+    data = {"n_mgmt": str(len(profs)), **{f"mf{i}_name": p.name for i, p in enumerate(profs)}}
+    data.update({f"mf{i}_del": "on" for i, p in enumerate(profs) if p.catchall})
+    client.post("/scanner/profiles/mgmt", data=data, follow_redirects=False)
+    assert "MTO" in [p.name for p in svc.management_profiles()]
 
 
 def test_put_status_uses_the_profile_rules():

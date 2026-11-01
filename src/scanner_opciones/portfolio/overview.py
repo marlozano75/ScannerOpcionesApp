@@ -6,7 +6,7 @@ La prima capturada solo existe en las opciones VENDIDAS (la parte de lo cobrado 
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Optional, Sequence
 
@@ -15,6 +15,13 @@ from scanner_opciones.domain.models import AccountSummary, Position
 from scanner_opciones.portfolio.spreads import Combo, split_combos, split_spreads
 
 OTHERS = "Otros"
+
+
+def other_key(op: "OtherPosition") -> str:
+    """Clave estable de una «otra posición» o combo para recordar su perfil de gestión (mismo formato `TICKER|venc|strike` que `put_key`)."""
+    exp = op.expiry.isoformat() if op.expiry else ""
+    sid = op.strikes if op.strikes else (f"{op.strike:g}" if op.strike is not None else "")
+    return f"{op.ticker}|{exp}|{sid}"
 
 
 @dataclass(frozen=True)
@@ -37,6 +44,7 @@ class OtherPosition:
     profile: str = OTHERS
     underlying: Optional[float] = None  # precio actual del subyacente
     strikes: Optional[str] = None       # combos: strikes de las patas ("100/105"); si los vencimientos difieren, también ellos
+    key: str = ""                       # `other_key`, para cambiar el perfil desde el Panel
 
     @property
     def is_short_option(self) -> bool:
@@ -90,8 +98,11 @@ def _combo_position(c: Combo, today: date, nlv_usd: Optional[float], underlying:
 
 
 def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optional[float],
-                    prices: Optional[dict[str, Optional[float]]] = None) -> list[OtherPosition]:
-    """Todo lo que no es una put vendida (ni parte de un spread): acciones, calls y puts compradas sueltas. Más peso primero."""
+                    prices: Optional[dict[str, Optional[float]]] = None,
+                    assigned: Optional[dict[str, str]] = None, default_profile: str = OTHERS) -> list[OtherPosition]:
+    """Todo lo que no es una put vendida (ni parte de un spread): acciones, calls y puts compradas sueltas y combos. Más peso primero.
+    `assigned`: perfil elegido a mano por `other_key`; el resto va a `default_profile` (el catch-all de gestión)."""
+    assigned = assigned or {}
     out = []
     rest, _ = split_spreads(positions)
     rest, combos = split_combos(rest)
@@ -119,6 +130,7 @@ def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optiona
             p.ticker, _other_kind(p), p.quantity, o.expiry if o else None, o.strike if o else None,
             (o.expiry - today).days if o else None, entry, current, value, pnl, pct, premium, captured, cpct,
             abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=(prices or {}).get(p.ticker)))
+    out = [replace(op, key=other_key(op), profile=assigned.get(other_key(op), default_profile)) for op in out]
     return sorted(out, key=lambda x: -abs(x.value))
 
 
