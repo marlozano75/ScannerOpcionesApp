@@ -1009,9 +1009,11 @@ def test_historico_tab_configures_the_scan_log_and_shows_what_the_sheet_receives
     client, svc, gw, _ = client_and_service
     svc.scan_log_repo.apply("2026-10-30T10:00:00", "TPC", "put", [Hit("AAPL", "2026-12-18", 90.0, None, 1.2, 25.0, 35, 12.0)], [], [], 0)
     page = client.get("/historico")
-    assert page.status_code == 200 and 'href="/historico"' in page.text and "Histórico de escaneos" in page.text
-    assert "Fecha y hora" in page.text and "aparece" in page.text and "AAPL" in page.text          # pestaña Eventos, mismas columnas que el Sheet
-    assert "Primera vez" in client.get("/historico?tab=Activos").text and "Cumplen" in client.get("/historico?tab=Escaneos").text
+    assert page.status_code == 200 and 'href="/historico"' in page.text and "Histórico" in page.text
+    assert "Fecha y hora" in page.text and "aparece" in page.text and "AAPL" in page.text          # Escaneos › Eventos, mismas columnas que el Sheet
+    assert "Primera vez" in client.get("/historico?tab=escaneos&sub=activos").text                  # Escaneos › Activos
+    assert "P&amp;L" in client.get("/historico?tab=comunidad").text                                 # libro de la comunidad
+    assert "Market Radar" in client.get("/historico?tab=marketradar").text                          # pestaña MarketRadar
     r = client.post("/historico/config", data={"enabled": "on", "interval_minutes": "7", "profiles": ["TPC"], "spreadsheet_id": " abc ", "auth": "oauth"},
                     follow_redirects=False)
     assert r.status_code == 303
@@ -1021,3 +1023,17 @@ def test_historico_tab_configures_the_scan_log_and_shows_what_the_sheet_receives
     assert svc._load_scan_log_cfg(svc.settings.scan_log).interval_minutes == 7                      # sobrevive al reinicio
     bad = client.post("/historico/config", data={"interval_minutes": "0"}, follow_redirects=False)
     assert "intervalo" in bad.headers["location"] or "interval" in bad.headers["location"].lower()
+
+
+def test_historico_comunidad_tab_shows_the_open_close_book(client_and_service):
+    client, svc, gw, _ = client_and_service
+    from scanner_opciones.community.feed_data import FeedLeg, FeedTrade
+    leg = FeedLeg("SELL", "P", 1, 1.5, 80.0, date(2026, 11, 20), 0.6)
+    svc.community_trades.upsert_many(
+        [FeedTrade("z1", "Zalo", "NFLX", "Short Put", "closed", date(2026, 10, 1), date(2026, 10, 16), 90.0, "USD", None, (leg,))],
+        "2026-10-17T10:00:00")
+    page = client.get("/historico?tab=comunidad")
+    assert page.status_code == 200 and "Zalo" in page.text and "NFLX" in page.text and "Short Put" in page.text
+    assert "Cerrada" in page.text and "P&amp;L" in page.text and "Coste cierre $" in page.text and "90" in page.text   # P&L y coste de cierre del libro
+    assert "AAPL" not in client.get("/historico?tab=comunidad").text                                 # no mezcla el registro de escaneos
+    assert "Zalo" in client.get("/historico?tab=comunidad&trader=Zalo").text

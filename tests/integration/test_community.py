@@ -368,9 +368,10 @@ def test_the_historico_filters_by_origin_and_trader_and_the_sheet_gets_the_new_c
     act = active_row(repo.all_active(origin="Comunidad")[0])
     assert len(act) == len(ACTIVE_HEADER) and act[-3:] == ["Comunidad", "Ana", "2026-10-29"]
     assert len(run_row(repo.recent_runs()[0])) == len(RUNS_HEADER) and EVENTS_HEADER[-3:] == ["Origen", "Trader", "Abierto el"]
-    page = client.get("/historico?origen=Comunidad&trader=Ana").text
-    assert "MSFT" in page and "AAPL" not in page.split("<table")[1]
-    assert "AAPL" in client.get("/historico?origen=scan").text.split("<table")[1]
+    # la pestaña Escaneos solo muestra origin=scan; el registro scan_log de origin=Comunidad ya no se surte en el Histórico (la pestaña Comunidad usa el libro community_trades)
+    esc = client.get("/historico?tab=escaneos").text.split("<table")[1]
+    assert "AAPL" in esc and "MSFT" not in esc
+    assert "Todavía no hay nada registrado" in client.get("/historico?tab=marketradar").text
 
 
 # ---- las fuentes de contratos como fuente de tickers del Universo -----------------------------------------------------------

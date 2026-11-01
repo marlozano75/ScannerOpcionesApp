@@ -49,6 +49,7 @@ class TradeRow:
     pnl: Optional[float]
     note: Optional[str]
     credit_open: Optional[float]
+    close_cost: Optional[float]
     pct_captured: Optional[float]
     dte_open: Optional[int]
     dte_close: Optional[int]
@@ -84,7 +85,7 @@ class ExitStyle:
 
 def _row(r) -> TradeRow:
     return TradeRow(r["id"], r["trader"], r["ticker"], r["strategy"], r["currency"], r["status"], r["opened"], r["closed"],
-                    r["pnl"], r["note"], r["credit_open"], r["pct_captured"], r["dte_open"], r["dte_close"], r["hold_days"],
+                    r["pnl"], r["note"], r["credit_open"], r["close_cost"], r["pct_captured"], r["dte_open"], r["dte_close"], r["hold_days"],
                     r["first_seen"], r["last_seen"])
 
 
