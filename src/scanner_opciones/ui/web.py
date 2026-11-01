@@ -33,7 +33,7 @@ from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, u
 from scanner_opciones.portfolio import exits as exits_mod
 from scanner_opciones.portfolio.mgmt_profiles import MgmtProfile
 from scanner_opciones.portfolio.management import manage_puts
-from scanner_opciones.ui.position_charts import exit_plan, position_chart, position_mini
+from scanner_opciones.ui.position_charts import exit_plan, other_chart, other_mini, position_chart, position_mini
 from scanner_opciones.scanner.engine import ScanOutput
 from scanner_opciones.tortuga.radar import passes as radar_passes
 from scanner_opciones.tortuga.routines import ROUTINES
@@ -277,14 +277,18 @@ def create_app(
         for s in mgmt.puts:
             by_ticker.setdefault(s.ticker, []).append(s)
         key_of = lambda t: t.replace(" ", "-")                      # IBKR escribe la clase con espacio (BRK B); el histórico, con guion      # noqa: E731
-        closes = service.bars.all_closes({key_of(t) for t in by_ticker}) if by_ticker else {}
+        closes = service.bars.all_closes({key_of(t) for t in by_ticker} | {key_of(x.ticker) for x in others}) if (by_ticker or others) else {}
         pkey = lambda s: f"{s.ticker}|{s.expiry.isoformat()}|{s.strike}|{s.long_strike}"      # noqa: E731  (un gráfico por put o spread)
         mgmt_cfg, weeks_cfg = service.settings.management, service.settings.management.chart_weeks
         minis = {pkey(s): position_mini(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, weeks_cfg, s.underlying_price) for s in mgmt.puts}
+        minis.update({x.key: other_mini(closes.get(key_of(x.ticker), []), x, today, weeks_cfg, x.underlying) for x in others})
         pos_charts = [dict(ticker=s.ticker, chart=position_chart(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, weeks_cfg, s.underlying_price,
                                                   service.next_earnings(s.ticker)),
                            company=Markup(service.company_card(s.ticker)), plans=[(s, exit_plan(s, mgmt_cfg, today))]) for s in mgmt.puts]
+        pos_charts += [dict(ticker=x.ticker, chart=other_chart(closes.get(key_of(x.ticker), []), x, today, weeks_cfg, x.underlying, service.next_earnings(x.ticker)),
+                            company=Markup(service.company_card(x.ticker)), plans=[]) for x in others]
         pc_index = {pkey(s): n for n, s in enumerate(mgmt.puts, 1)}
+        pc_index.update({x.key: len(mgmt.puts) + n for n, x in enumerate(others, 1)})
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
             cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),

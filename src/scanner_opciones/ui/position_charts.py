@@ -13,6 +13,7 @@ from markupsafe import Markup
 from scanner_opciones.config.settings import ManagementSettings
 from scanner_opciones.portfolio.exits import defaults as style_rules
 from scanner_opciones.portfolio.management import PutStatus
+from scanner_opciones.portfolio.overview import OtherPosition
 from scanner_opciones.ui.charts import _mon3
 from scanner_opciones.ui.viz import _e, _scale, empty, nice_ticks
 
@@ -196,5 +197,121 @@ def position_mini(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatus
     for exp in sorted({s.expiry for s in puts}):
         x = px(min(exp, end))
         out.append(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{pad}" y2="{h - pad}" stroke="{EXPIRY}" stroke-width="1.2" stroke-dasharray="3 2"/>')
+    out.append("</svg>")
+    return Markup("".join(out))
+
+
+def _other_end(op: OtherPosition, today: date) -> date:
+    return max(min(op.expiry, today + timedelta(days=FUTURE_DAYS)), today + timedelta(days=7)) if op.expiry else today + timedelta(days=7)
+
+
+def other_mini(closes: Sequence[tuple[date, float]], op: OtherPosition, today: date, weeks: int = 10, price: Optional[float] = None) -> Markup:
+    """Miniatura para la tabla de gestión de una posición que NO es una put vendida (acción, call, combo, put comprada): cierres, strikes de las patas
+    (`op.levels`) y vencimiento. Sin zona de revisión."""
+    w, h, pad = 112, 34, 2
+    start = today - timedelta(weeks=weeks)
+    bars = sorted((d, p) for d, p in closes if start <= d <= today)
+    if len(bars) < 2:
+        return Markup("")
+    end = _other_end(op, today)
+    span = max((end - start).days, 1)
+    px = lambda d: _scale((d - start).days, 0, span, pad, w - pad)                # noqa: E731
+    values = [p for _, p in bars] + list(op.levels) + ([price] if price else [])
+    lo, hi = min(values), max(values)
+    margin = (hi - lo) * 0.08 or hi * 0.05 or 1.0
+    py = lambda v: _scale(v, lo - margin, hi + margin, h - pad, pad)              # noqa: E731
+    short = op.premium is not None and len(op.levels) == 1          # opción vendida suelta: strike en rojo; lo demás en azul
+    color = SOLD if short else BOUGHT
+    out = [f'<svg class="pos-mini-svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" aria-hidden="true">']
+    for k in sorted(set(op.levels)):
+        out.append(f'<line x1="{pad}" x2="{w - pad}" y1="{py(k):.1f}" y2="{py(k):.1f}" stroke="{color}" stroke-width="1"/>')
+    out.append('<path d="M' + " L".join(f"{px(d):.1f},{py(p):.1f}" for d, p in bars) + '" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linejoin="round"/>')
+    if op.expiry:
+        x = px(min(op.expiry, end))
+        out.append(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{pad}" y2="{h - pad}" stroke="{EXPIRY}" stroke-width="1.2" stroke-dasharray="3 2"/>')
+    out.append("</svg>")
+    return Markup("".join(out))
+
+
+def other_chart(closes: Sequence[tuple[date, float]], op: OtherPosition, today: date, weeks: int = 10,
+                price: Optional[float] = None, earnings: Optional[date] = None) -> Markup:
+    """Gráfico grande de una posición que NO es una put vendida: cierres diarios, strikes de las patas y vencimiento (sin zona de revisión)."""
+    start = today - timedelta(weeks=weeks)
+    bars = sorted((d, p) for d, p in closes if start <= d <= today)
+    if len(bars) < 2:
+        return empty("Sin cierres diarios guardados de este ticker")
+    end = _other_end(op, today)
+    span = max((end - start).days, 1)
+    px = lambda d: _scale((d - start).days, 0, span, LEFT, W - RIGHT)             # noqa: E731
+    values = [p for _, p in bars] + list(op.levels) + ([price] if price else [])
+    lo, hi = min(values), max(values)
+    pad = (hi - lo) * 0.10 or hi * 0.05 or 1.0
+    lo, hi = lo - pad, hi + pad
+    py = lambda v: _scale(v, lo, hi, H - BOTTOM, TOP)                             # noqa: E731
+    short = op.premium is not None and len(op.levels) == 1
+    color = SOLD if short else BOUGHT
+
+    out = [f'<svg class="lc" viewBox="0 0 {W} {H}" role="img" aria-label="Evolución diaria, strikes y vencimiento">']
+    for v in nice_ticks(lo, hi, 4):
+        if lo <= v <= hi:
+            out.append(f'<line class="gl" x1="{LEFT}" x2="{W - RIGHT}" y1="{py(v):.1f}" y2="{py(v):.1f}"/>'
+                       f'<text class="ax" x="{LEFT - 6}" y="{py(v) + 4:.1f}" text-anchor="end">{_e(f"{v:g}")}</text>')
+    step = 14 if span > 70 else 7
+    d = start
+    while d <= end:
+        out.append(f'<text class="ax" x="{px(d):.1f}" y="{H - 8}" text-anchor="middle">{d:%d/%m}</text>')
+        d += timedelta(days=step)
+
+    for k in sorted(set(op.levels)):
+        y = py(k)
+        out.append(f'<g tabindex="0" data-tip="{_e(f"{k:g}|Strike|{op.kind}")}"><line x1="{LEFT}" x2="{W - RIGHT}" y1="{y:.1f}" y2="{y:.1f}" stroke="{color}" stroke-width="1.6"/>'
+                   f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{y:.1f}" y2="{y:.1f}" stroke="transparent" stroke-width="10"/>'
+                   f'<text x="{LEFT + 4}" y="{y - 4:.1f}" font-size="11" font-weight="700" fill="{color}" stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(f"strike {k:g}")}</text></g>')
+
+    pts = [(px(d), py(p)) for d, p in bars]
+    path = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    area = f"{path} L{pts[-1][0]:.1f},{H - BOTTOM} L{pts[0][0]:.1f},{H - BOTTOM} Z"
+    out.append(f'<path class="ar" d="{area}"/><path class="ln" d="{path}"/>')
+    last_price = price if price else bars[-1][1]
+    out.append(f'<circle class="mk" cx="{pts[-1][0]:.1f}" cy="{py(last_price):.1f}" r="4"/>')
+    for i, ((x, y), (dd, p)) in enumerate(zip(pts, bars)):
+        x0 = (pts[i - 1][0] + x) / 2 if i else LEFT
+        x1 = (x + pts[i + 1][0]) / 2 if i < len(pts) - 1 else x + 6
+        out.append(f'<g class="pt" tabindex="0" data-tip="{_e(f"{p:g}|{dd:%d/%m/%Y}|cierre")}"><rect x="{x0:.1f}" y="{TOP}" width="{x1 - x0:.1f}" '
+                   f'height="{H - TOP - BOTTOM}" fill="transparent"/><line class="xh" x1="{x:.1f}" x2="{x:.1f}" y1="{TOP}" y2="{H - BOTTOM}"/>'
+                   f'<circle class="dt" cx="{x:.1f}" cy="{y:.1f}" r="4.5"/></g>')
+    out.append(f'<line x1="{px(today):.1f}" x2="{px(today):.1f}" y1="{TOP}" y2="{H - BOTTOM}" stroke="var(--line-strong)" stroke-dasharray="2 3"/>')
+    near_edge = pts[-1][0] > W - RIGHT - 50
+    out.append(f'<text x="{pts[-1][0] + (-8 if near_edge else 8):.1f}" y="{py(last_price) - (8 if near_edge else -4):.1f}" font-size="11" font-weight="700" '
+               f'text-anchor="{"end" if near_edge else "start"}" fill="var(--ink)" stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(f"{last_price:.2f}")}</text>')
+
+    marks: list[tuple[date, str, str, str]] = []
+    if op.expiry is not None:
+        marks.append((op.expiry, f"venc. {op.expiry:%d/%m} · {(op.expiry - today).days} d", EXPIRY, f"{op.expiry:%d/%m/%Y}|Vencimiento|quedan {(op.expiry - today).days} días"))
+    if earnings is not None and earnings >= today:
+        marks.append((earnings, f"resultados {earnings:%d/%m} · en {(earnings - today).days} d", EARNINGS,
+                      f"{earnings:%d/%m/%Y}|Presentación de resultados|faltan {(earnings - today).days} días"))
+    row_ends: list[float] = []
+    for d, text, mcolor, tip in sorted(marks):
+        if d < start:
+            continue
+        beyond = d > end
+        x = px(min(d, end))
+        anchor = "end" if x > W - 150 else "start"
+        dx = -4 if anchor == "end" else 4
+        width = 6.2 * (len(text) + (2 if beyond else 0))
+        left_edge, right_edge = (x - 4 - width, x) if anchor == "end" else (x, x + 4 + width)
+        row = next((r for r, edge in enumerate(row_ends) if left_edge > edge + 4), len(row_ends))
+        row = min(row, 3)
+        if row == len(row_ends):
+            row_ends.append(right_edge)
+        else:
+            row_ends[row] = max(row_ends[row], right_edge)
+        y_text = 4 + row * 12
+        dash = "6 4" if mcolor == EXPIRY else "2 3"
+        out.append(f'<g tabindex="0" data-tip="{_e(tip)}"><line x1="{x:.1f}" x2="{x:.1f}" y1="{y_text + 3:.1f}" y2="{H - BOTTOM}" stroke="{mcolor}" stroke-width="1.8" '
+                   f'stroke-dasharray="{dash}"/><line x1="{x:.1f}" x2="{x:.1f}" y1="{TOP}" y2="{H - BOTTOM}" stroke="transparent" stroke-width="10"/>'
+                   f'<text x="{x + dx:.1f}" y="{y_text + 8:.1f}" font-size="10.5" font-weight="700" text-anchor="{anchor}" fill="{"var(--ink)" if mcolor == EXPIRY else "#a8480a"}" '
+                   f'stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(text + (" →" if beyond else ""))}</text></g>')
     out.append("</svg>")
     return Markup("".join(out))

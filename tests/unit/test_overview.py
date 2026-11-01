@@ -60,6 +60,27 @@ def test_option_combos_are_detected_and_valued_net():
     assert ccs.premium == pytest.approx(50.0) and ccs.captured == pytest.approx(20.0)
 
 
+def test_other_positions_carry_numeric_levels_for_the_chart():
+    single = other_positions([Position("AAPL", 1, 500.0, option=opt(OptionRight.CALL, 100.0), avg_cost=200.0)], TODAY, None)[0]
+    assert single.levels == (100.0,)
+    combo = {r.kind: r for r in other_positions(
+        [Position("AAPL", 1, 500.0, option=opt(OptionRight.CALL, 100.0), avg_cost=400.0),
+         Position("AAPL", -1, -200.0, option=opt(OptionRight.CALL, 110.0), avg_cost=150.0)], TODAY, None)}["Call Debit Spread"]
+    assert combo.levels == (100.0, 110.0)
+    stock = other_positions([Position("MSFT", 10, 4000.0, avg_cost=350.0)], TODAY, None)[0]
+    assert stock.levels == ()
+
+
+def test_other_chart_and_mini_render_with_closes():
+    from scanner_opciones.ui.position_charts import other_chart, other_mini
+    op = other_positions([Position("AAPL", 1, 500.0, option=opt(OptionRight.CALL, 100.0), avg_cost=200.0)], TODAY, None)[0]
+    closes = [(date(2026, 9, 1), 95.0), (date(2026, 10, 1), 102.0), (TODAY, 104.0)]
+    chart, mini = other_chart(closes, op, TODAY), other_mini(closes, op, TODAY)
+    assert "<svg" in chart and "strike 100" in chart and "venc." in chart
+    assert "<svg" in mini
+    assert str(other_mini([], op, TODAY)) == ""          # sin cierres: miniatura vacía
+
+
 def test_put_status_reports_captured_amount_and_report_totals():
     puts = [Position("AAPL", -2, -300.0, option=opt(OptionRight.PUT, 90.0), avg_cost=300.0)]     # cobró 600, recomprar cuesta 300
     report = manage_puts(puts, 50_000.0, TODAY, {"AAPL": 100.0}, ManagementSettings())

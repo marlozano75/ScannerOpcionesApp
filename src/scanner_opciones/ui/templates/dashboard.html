@@ -70,7 +70,7 @@
     {% endfor %}
     {% for x in others %}
     <tr><td><b title="{{ tk_title(company_names, x.ticker) }}">{{ x.ticker }}</b>{{ sec_flag(sec_alerts, x.ticker) }}{{ analyst_flag(analyst_alerts, x.ticker) }}</td>
-      <td class="pos-cell"><span class="muted">—</span></td>
+      <td class="pos-cell">{% if minis.get(x.key) %}<a href="#" class="pos-mini" data-pc="{{ pc_index[x.key] }}" aria-label="Ampliar el gráfico de {{ x.ticker }}">{{ minis[x.key] }}</a>{% else %}<span class="muted" title="Sin cierres diarios guardados de este ticker">—</span>{% endif %}</td>
       <td>{{ x.kind }}</td>
       <td{% if x.expiry %} data-sort="{{ x.expiry.isoformat() }}" title="{{ x.expiry.strftime('%d/%m/%Y') }}"{% endif %}>{% if x.expiry %}{{ x.expiry.strftime('%d/%m') }} · <b>{{ x.dte }}</b> d{% else %}—{% endif %}</td>
       <td data-sort="{{ x.strike if x.strike is not none else -1 }}">{% if x.strikes %}{{ x.quantity|abs|num(0) }}× {{ x.strikes }}{% elif x.strike is not none %}{{ x.quantity|abs|num(0) }}× {{ x.strike|num }}{% else %}{{ x.quantity|num(0) }} acc{% endif %}</td>

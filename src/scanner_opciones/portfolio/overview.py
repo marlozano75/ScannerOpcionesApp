@@ -45,6 +45,7 @@ class OtherPosition:
     underlying: Optional[float] = None  # precio actual del subyacente
     strikes: Optional[str] = None       # combos: strikes de las patas ("100/105"); si los vencimientos difieren, también ellos
     key: str = ""                       # `other_key`, para cambiar el perfil desde el Panel
+    levels: tuple[float, ...] = ()      # strikes numéricos de las patas (para el gráfico; vacío en una acción)
 
     @property
     def is_short_option(self) -> bool:
@@ -94,7 +95,8 @@ def _combo_position(c: Combo, today: date, nlv_usd: Optional[float], underlying:
     return OtherPosition(
         legs[0].ticker, c.name, n, expiry, None, (expiry - today).days, entry, current, value, pnl, pct,
         -cost if credit else None, pnl if credit else None, pct if credit else None,
-        abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=underlying, strikes=strikes)
+        abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=underlying, strikes=strikes,
+        levels=tuple(sorted(p.option.strike for p in legs)))
 
 
 def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optional[float],
@@ -129,7 +131,8 @@ def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optiona
         out.append(OtherPosition(
             p.ticker, _other_kind(p), p.quantity, o.expiry if o else None, o.strike if o else None,
             (o.expiry - today).days if o else None, entry, current, value, pnl, pct, premium, captured, cpct,
-            abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=(prices or {}).get(p.ticker)))
+            abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=(prices or {}).get(p.ticker),
+            levels=(o.strike,) if o else ()))
     out = [replace(op, key=other_key(op), profile=assigned.get(other_key(op), default_profile)) for op in out]
     return sorted(out, key=lambda x: -abs(x.value))
 
