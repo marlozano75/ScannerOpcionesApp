@@ -84,11 +84,10 @@
             {% if m.take_profit_max %}<div class="seg ok" style="left:{{ m.take_profit }}%;width:{{ m.take_profit_max - m.take_profit }}%"></div>{% endif %}
             <div class="mk ok" style="left:{{ m.take_profit }}%" title="Recoger al {{ '%g' % m.take_profit }} %"></div>
           {% endif %}
-          {% if m.close_capture is not none %}<div class="mk info" style="left:{{ m.close_capture }}%" title="Aviso informativo al {{ '%g' % m.close_capture }} %"></div>{% endif %}
         </div>
         <div class="tl-ax"><span>0 %</span><span>50 %</span><span>100 %</span></div>
         <div class="tl-note">{% if m.take_profit is not none %}<span style="color:var(--green,#2a9d5c)">✓</span> Recoger al {{ '%g' % m.take_profit }} %{% if m.take_profit_max %} (rango hasta {{ '%g' % m.take_profit_max }} %){% endif %}
-          {% elif m.close_capture is not none %}ⓘ Sin objetivo: solo aviso informativo al {{ '%g' % m.close_capture }} %{% else %}Sin objetivo: se aguanta hasta el final{% endif %}</div>
+          {% else %}Sin objetivo: se aguanta hasta el final{% endif %}</div>
         <div class="sty-chips">
           <span class="{{ 'y' if m.itm == 'close' else 'n' }}">En el dinero: {{ 'valorar cerrar' if m.itm == 'close' else 'mantener, no rolar' }}</span>
           <span class="{{ 'y' if m.defense else 'n' }}">Defensa de la put: {{ 'sí' if m.defense else 'no' }}</span>
@@ -131,7 +130,8 @@
       {% for g in c.sections if g.on %}
       <div class="ex-group">
         <div class="ex-gh"><b>{{ g.title }}</b>
-          {% for k, name, on in g.strategies %}<span class="chip {{ 'on' if on }}">{{ name }}</span>{% endfor %}
+          {% set n_on = g.strategies|selectattr(2)|list|length %}
+          {% for k, name, on in g.strategies if on or n_on != 1 %}<span class="chip {{ 'on' if on }}">{{ name }}</span>{% endfor %}
 </div>
         <table class="ex-t">
           {% for key in g.rows %}
