@@ -8,7 +8,9 @@
   .st-open { background:#e8eaf3; color:#3b4a8a; } .st-closed { background:#eceff1; color:var(--mute); }
   /* legs y tesis: texto libre que puede ser largo. `max-width` en una celda de tabla (layout automático) NO limita el ancho,
      así que el contenido se salía sobre la columna de al lado. Se envuelve en un inline-block, que sí respeta max-width y ajusta. */
-  table.cmp td.lg, table.cmp td.th { vertical-align:top; }
+  /* Patas o Tesis ocupan varias líneas y el resto de `table.cmp` va a `vertical-align:middle` (base.html): las celdas cortas
+     quedaban centradas mientras estas dos empezaban arriba, y la fila se veía descuadrada. Se alinean arriba TODAS las celdas. */
+  table.cmp th, table.cmp td { vertical-align:top; }
   td.lg span.wrap { display:inline-block; max-width:240px; white-space:normal; line-height:1.3; overflow-wrap:anywhere; }
   td.th span.wrap { display:inline-block; max-width:300px; white-space:normal; line-height:1.35; overflow-wrap:anywhere; }
 </style>
