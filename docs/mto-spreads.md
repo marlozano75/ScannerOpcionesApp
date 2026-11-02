@@ -207,10 +207,26 @@ Reutiliza: comisiones, filtros de calidad de la empresa (quien llama los aplica 
 - `AppService.scan_cds` (calidad de la empresa = filtros activos del criterio por defecto del Scanner; comisiones y precio de venta del Scanner) y la pestaña **CDS** (`/cds`, `ui/routes_cds.py`, `cds.html`).
 - **Coste medido (2026-11-02, watchlist de 2.351 tickers, mercado cerrado, activado con `enabled: true`):** actualización diaria 212,6 s; 37.533 calls guardadas de 1.921 tickers (unas 20 por ticker; 33.578 con bid), +9 MB en la base (225 MB); cotizar los 38.474 contratos nuevos 85,6 s; la pestaña `/cds` carga en 1,5 s y sale con 946 spreads con los valores por defecto (sin revisar uno a uno). Sin medir: el ciclo periódico con el mercado abierto. Para generar las calls en una instalación existente hay que hacer una actualización diaria completa (los tickers ya actualizados hoy no se vuelven a sincronizar).
 
+## Perfil «MTO CDS» dentro del Scanner (2026-11-03)
+
+El CDS es un **tercer instrumento de los perfiles del Scanner** (`scanner/profiles.py::INSTRUMENTS = put | spread | cds`; `Profile.cds` guarda los parámetros de la URL de `/cds`). El perfil **«MTO CDS»** se siembra una vez (`AppService.seed_mto_cds_profile`, `meta.mig_mto_cds_profile`; si lo borras no vuelve) con los valores de `scanner.cds`, aparece en la barra de perfiles del Scanner y en `/scanner/config` (nombre, color, orden, duplicado, borrado) y su botón abre **`/cds?profile=…`**, que lleva el formulario editable (`ui/cds_form.py`, `scanner/cds_profile.py`), «Guardar en perfil» (reutiliza `POST /scanner/profile/save`: guarda el juego `cds` del perfil) y los resultados. «Todos los perfiles», el reconocimiento de puts por DTE (`classify.dte_range`) y la comparación de Comunidad/Radar ignoran los perfiles CDS; `/exits` los trata con las reglas de debit spread.
+
+**La ventana es la del catálogo.** DTE (200–500), % OTM de la comprada (25–130) y los anchos que se pueden elegir son los de `scanner.cds` (config.yaml), como `scanner.candidates` para las puts: el formulario solo puede estrecharlos (un valor fuera se recorta y se avisa; un ancho que el catálogo no guarda se descarta). Débito, OI, spread de las patas, movimiento esperado, retorno máximo y SMA200 no afectan al catálogo y son libres.
+
+**Valores revisados con el logbook (51 CDS reconstruidos del CSV, 2026-11-03):**
+- **Débito máximo 2.150 $** (máximo del logbook: NVDA 250/350 dic. 2028, 2.145 $). Solo 5 de los 51 superan 650 $ (META 920/1000 1.040 $, NVDA ×2 2.140–2.145 $, RDDT 200/300 1.670 $, UBER 100/150 650 $); 9 están por debajo de 150 $ (mínimo 57 $, no se ha cambiado el mínimo).
+- **Anchos:** 2–100 $ con mediana 50 $; los más frecuentes son 50 (13), 60 (7), 20 (4) y 100 (4). Son **proporcionales al precio**: strike < 50 $ → 3–25 $ (mediana 8), 50–100 $ → 15–30 $, 100–200 $ → 20–85 $, 200–400 $ → 50–100 $. Los anchos ≤ 10 $ solo aparecen en acciones baratas (RIVN, TSLL, ONDS, TTD, EOSE, GIS), así que no sobran: son los de esos tickers. Lista nueva: 5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 100 (antes 5/10/20/50, que solo cubrían 19 de los 51). **Coste del catálogo: +4 % de calls** (los strikes vendidos caen en la rejilla de los comprados), medido sobre las cadenas guardadas.
+- **Ancho / strike de la comprada:** p10 8,7 %, mediana 22 %, p90 50 % (máximo 260 %: una acción de 8 $). `width_pct_min: 7` y `width_pct_max: 110` descartan anchos ridículos en acciones caras (p. ej. 5 $ sobre META) y enormes en las baratas.
+- **SMA200:** el filtro (`sma200_below_pct_min`) queda **apagado por defecto** (era 10 %); la columna «vs SMA200 %» se calcula y se muestra siempre que haya 200 cierres (en verde si el precio está al menos un 10 % por debajo).
+- **Mejor ancho:** `best_width` deja una fila por ticker, vencimiento y call comprada (la del menor movimiento necesario).
+- **Limitación del emparejado:** el CSV no identifica los combos; las patas se emparejan por cuenta, ticker, vencimiento y minuto de apertura. 5 grupos tienen dos patas largas o cortas (entradas por duplicado de 1 contrato); los 4 débitos > 1.000 son CDS únicos.
+
+**Efecto sobre los resultados (copia de la base, 2026-11-03):** con los valores nuevos salen 21.328 spreads de 284 tickers (antes 2.200 de 76); 6.080 con «mejor ancho»; con la SMA200 a −10 % bajarían a 9.554. La página muestra los 300 de menor movimiento necesario. META 930/1000 de 2028-01-21 (912 $, ×0,90 el movimiento esperado, −3,1 % bajo la SMA200) ya aparece.
+
 ## Pendiente
 
 - Medir el coste del ciclo con `cds.enabled` y ajustar el rango si hace falta.
-- Instrumento `cds` en perfiles y formulario editable (hoy los valores se editan en `config.yaml`), presets «MTO CDS OTM» / «MTO CDS 200–400», filtros de calidad propios del CDS (hoy los del criterio por defecto) y calibrar el filtro de movimiento necesario con el logbook.
+- Presets «MTO CDS 200–400» (más perfiles CDS: se crean desde `/cds` con «Guardar en perfil»), filtros de calidad propios del CDS (hoy los del criterio por defecto) y calibrar el filtro de movimiento necesario con el logbook.
 - Añadir los CDS abiertos al Panel con el perfil MTO (las salidas ya existen en `other_mgmt`).
 
 - Código: strikes vendidos por encima del precio en el Scanner (descuento ≤ 0 %) y presets «MTO PCS ITM» y «MTO CDS OTM».

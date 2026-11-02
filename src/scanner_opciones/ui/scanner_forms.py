@@ -4,6 +4,7 @@ Funciones y constantes sin estado (reciben los ajustes por argumento); `web.py` 
 from __future__ import annotations
 
 from scanner_opciones.domain.models import TickerInfo
+from scanner_opciones.scanner import cds_profile
 from scanner_opciones.scanner.profiles import Profile
 from scanner_opciones.scanner.quality import ticker_quality_reject
 from typing import Optional
@@ -330,12 +331,18 @@ def seed_profiles(settings) -> tuple[list[Profile], str]:
     params = dict(parse_qsl(strategy_link(settings, {}, None)[0]))
     out.append(Profile("TastyPut", ("put",), management="tpc", color=SEED_COLORS["TastyPut"]).with_filters("put", params))
     out.append(Profile("TastySpread", ("spread",), color=SEED_COLORS["TastySpread"]).with_filters("spread", params))
+    out.append(Profile(cds_profile.MTO_CDS, ("cds",), management="tpc", color=cds_profile.MTO_CDS_COLOR).with_filters("cds", cds_profile.profile_params(settings)))
     return out, "TastyPut"
 
 
 def profile_link(p: Profile) -> str:
     """Consulta que carga el perfil en el Scanner (reemplaza todo el formulario): los filtros de su instrumento."""
     return urlencode({**p.set_params(p.mode), "submitted": "1", "mode": p.mode, "profile": p.name})
+
+
+def profile_href(p: Profile) -> str:
+    """Dirección que abre el perfil: el Scanner (put y spread) o la página del CDS (`/cds`, con sus propios filtros)."""
+    return ("/cds?" if p.mode == "cds" else "/scanner?") + profile_link(p)
 
 
 # parámetros de la URL que no pertenecen a ningún juego de filtros
@@ -346,7 +353,7 @@ def split_sets(qp) -> tuple[str, dict]:
     """(instrumento, parámetros de sus filtros). El instrumento es `mode` (un enlace antiguo con `mode=both` cuenta como put); los `o_...`
     de los enlaces antiguos (el juego del otro instrumento) se ignoran."""
     items = dict(qp)
-    shown = "spread" if items.get("mode") == "spread" else "put"
+    shown = items.get("mode") if items.get("mode") in ("spread", "cds") else "put"
     return shown, {k: v for k, v in items.items() if k not in STRUCT_KEYS and not k.startswith("o_")}
 
 

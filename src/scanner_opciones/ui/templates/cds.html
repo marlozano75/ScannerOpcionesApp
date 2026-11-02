@@ -1,31 +1,104 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  .cdsf { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:10px 18px; margin:8px 0 12px; }
+  .cdsf fieldset { border:1px solid var(--line, #d0d7de); border-radius:6px; padding:6px 10px 8px; margin:0; }
+  .cdsf legend { font-size:12px; color:var(--mute, #666); padding:0 4px; }
+  .cdsf label { display:flex; align-items:center; gap:6px; font-size:13px; margin:3px 0; }
+  .cdsf input[type=text] { width:80px; }
+  .cdsf input.wide { width:100%; }
+  .cds-profiles { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:4px 0 8px; }
+  .sma-below { color:#2e7d32; font-weight:600; }
+</style>
 <div class="card">
   <h2>MTO CDS OTM: Call Debit Spread muy OTM</h2>
-  <div class="help-scope" style="min-height:24px;padding-right:32px"><p class="note" style="margin-top:0">
-    Call comprada {{ cfg.long_otm_pct_min|num(0) }}–{{ cfg.long_otm_pct_max|num(0) }} % sobre el precio y call vendida más arriba, DTE {{ cfg.dte_min }}–{{ cfg.dte_max }}, débito {{ cfg.min_debit_usd|num(0) }}–{{ cfg.max_debit_usd|num(0) }} $.
-    <b>Rentabilidad mínima esperada (obligatoria):</b> el subyacente debe poder subir lo necesario para ganar el {{ cfg.target_gain_pct|num(0) }} % del débito (objetivo de salida de MTO) en {{ cfg.move_days }} días:
-    movimiento necesario = objetivo × débito / delta neta, y debe ser como mucho {{ cfg.max_required_move_mult|num(2) }} × el movimiento esperado (IV30 × √(días/365)).
-    {% if cfg.min_max_return_pct is not none %}Retorno máximo mínimo: {{ cfg.min_max_return_pct|num(0) }} %. {% endif %}{% if cfg.sma200_below_pct_min is not none %}Precio al menos {{ cfg.sma200_below_pct_min|num(0) }} % bajo la SMA200. {% endif %}
-    Los valores salen de un análisis con muestras pequeñas (docs/mto-spreads.md), no son una recomendación. Sin límite de riesgo total.</p></div>
+  <div class="cds-profiles"><span class="muted">Perfiles CDS:</span>
+    {% for b in buttons %}<a class="preset{{ ' active' if b.on }}" href="{{ b.href }}" style="text-decoration:none{{ ';--pc:' ~ b.color if b.color }}">{{ '✓ ' if b.on }}{{ b.name }}</a>{% else %}<span class="muted">ninguno (guarda estos filtros en un perfil)</span>{% endfor %}
+    <a class="muted" href="/scanner" style="font-size:12px">← Scanner</a>
+    <a class="muted" href="/scanner/config" style="font-size:12px">✎ Editar perfiles</a>
+    <button type="button" class="secondary" id="cds-save" style="font-size:12px;padding:2px 8px" title="Guarda los filtros que ves en un perfil CDS (el del nombre que elijas o uno nuevo)">💾 Guardar en perfil</button>
+  </div>
   {% if not cfg.enabled %}
   <p class="muted">Apagado. Pon <code>scanner.cds.enabled: true</code> en <code>config.yaml</code> y haz una actualización diaria para que se guarden y coticen las calls (DTE largo: el ciclo de refresco será más lento).</p>
-  {% elif not rows %}
+  {% endif %}
+  {% if parsed.error %}<p class="error">{{ parsed.error }}</p>{% endif %}
+  {% for n in parsed.notices %}<p class="note">⚠ {{ n }}</p>{% endfor %}
+  <form method="get" action="/cds" id="cds-form">
+    <input type="hidden" name="submitted" value="1"><input type="hidden" name="mode" value="cds"><input type="hidden" name="profile" value="{{ active.name if active else '' }}">
+    <div class="cdsf">
+      <fieldset><legend>Ventana (catálogo: {{ cfg.dte_min }}–{{ cfg.dte_max }} días, {{ cfg.long_otm_pct_min|num(0) }}–{{ cfg.long_otm_pct_max|num(0) }} % OTM)</legend>
+        <label>DTE <input type="text" name="dte_min" value="{{ f.dte_min }}"> a <input type="text" name="dte_max" value="{{ f.dte_max }}"></label>
+        <label>% OTM comprada <input type="text" name="otm_min" value="{{ f.otm_min }}"> a <input type="text" name="otm_max" value="{{ f.otm_max }}"></label>
+      </fieldset>
+      <fieldset><legend>Ancho ($; el catálogo guarda {% for w in widths_all %}{{ w|num(0) }}{{ ', ' if not loop.last }}{% endfor %})</legend>
+        <label><input class="wide" type="text" name="widths" value="{{ f.widths }}"></label>
+        <label>Ancho / strike (%) <input type="text" name="wpct_min" value="{{ f.wpct_min }}" placeholder="mín."> a <input type="text" name="wpct_max" value="{{ f.wpct_max }}" placeholder="máx."></label>
+        <label><input type="checkbox" name="best" {{ 'checked' if f.best }}> Solo el mejor ancho (menor movimiento necesario) por comprada</label>
+      </fieldset>
+      <fieldset><legend>Débito y patas</legend>
+        <label>Débito $ <input type="text" name="dmin" value="{{ f.dmin }}"> a <input type="text" name="dmax" value="{{ f.dmax }}"></label>
+        <label>OI mín. de cada pata <input type="text" name="oi" value="{{ f.oi }}"></label>
+        <label>Spread máx. de cada pata (%) <input type="text" name="ls" value="{{ f.ls }}"></label>
+      </fieldset>
+      <fieldset><legend>Rentabilidad mínima esperada (obligatoria)</legend>
+        <label>Objetivo (% del débito) <input type="text" name="gain" value="{{ f.gain }}"></label>
+        <label>En <input type="text" name="days" value="{{ f.days }}"> días</label>
+        <label>Necesario ≤ <input type="text" name="mult" value="{{ f.mult }}"> × el esperado</label>
+        <label><input type="checkbox" name="use_ret" {{ 'checked' if f.use_ret }}> Retorno máx. ≥ <input type="text" name="ret" value="{{ f.ret }}"> %</label>
+      </fieldset>
+      <fieldset><legend>Tendencia</legend>
+        <label><input type="checkbox" name="use_sma" {{ 'checked' if f.use_sma }}> Precio ≥ <input type="text" name="sma" value="{{ f.sma }}"> % bajo la SMA200</label>
+        <span class="muted" style="font-size:12px">Apagado por defecto: la columna «vs SMA200» siempre se muestra.</span>
+      </fieldset>
+      <fieldset><legend>Precio de venta de la pata corta</legend>
+        <label>Referencia <select name="ref"><option value="bid" {{ 'selected' if f.ref == 'bid' }}>bid</option><option value="mid" {{ 'selected' if f.ref == 'mid' }}>mid</option><option value="bid_plus_spread" {{ 'selected' if f.ref == 'bid_plus_spread' }}>bid + X % spread</option></select></label>
+        <label>X (%) <input type="text" name="ref_x" value="{{ f.ref_x }}"></label>
+      </fieldset>
+    </div>
+    <button>Escanear</button>
+    {% if changed %}<span class="muted" style="font-size:12px;margin-left:8px">Distinto del perfil «{{ active.name }}»: {{ changed|join(', ') }}</span>{% endif %}
+  </form>
+  <p class="note" style="margin-top:10px">La ventana (DTE, % OTM y anchos) solo se puede estrechar: es lo que <code>scanner.cds</code> guarda y cotiza. <b>Rentabilidad mínima esperada:</b> el subyacente debe poder subir lo necesario para ganar el objetivo del débito en los días indicados (necesario = objetivo × débito / delta neta; esperado = IV30 × √(días/365)). Los valores salen de un análisis con muestras pequeñas (docs/mto-spreads.md), no son una recomendación. Sin límite de riesgo total.</p>
+  {% if cfg.enabled and not rows and not parsed.error %}
   <p class="muted">Ningún spread cumple los filtros (¿ya hay calls guardadas y cotizadas?).</p>
-  {% else %}
+  {% elif rows %}
   <p class="muted">{{ total }} spreads{% if total > rows|length %} (se muestran los {{ rows|length }} con menor movimiento necesario){% endif %}.</p>
-  <table class="sortable">
-    <thead><tr><th>Ticker</th><th>Venc.</th><th>Comprada</th><th>Vendida</th><th>Débito $</th><th>Pérd. máx. $</th><th>Retorno máx. %</th><th>OTM %</th><th>Δ neta</th>
-      <th title="Subida del subyacente para ganar el objetivo">Necesario %</th><th title="Movimiento esperado en los días indicados">Esperado %</th><th title="Necesario / esperado">× esperado</th><th>Breakeven %</th><th>vs SMA200 %</th></tr></thead>
+  <div class="scroll"><table class="sortable">
+    <thead><tr><th>Ticker</th><th>Venc.</th><th>Comprada</th><th>Vendida</th><th>Ancho</th><th>Débito $</th><th>Pérd. máx. $</th><th>Retorno máx. %</th><th>OTM %</th><th>Δ neta</th>
+      <th title="Subida del subyacente para ganar el objetivo">Necesario %</th><th title="Movimiento esperado en los días indicados">Esperado %</th><th title="Necesario / esperado">× esperado</th><th>Breakeven %</th>
+      <th title="Distancia del precio a su media de 200 sesiones (negativo = por debajo). El filtro está apagado por defecto">vs SMA200 %</th></tr></thead>
     <tbody>
     {% for r in rows %}
-      <tr><td class="tk">{{ r.long.contract.ticker }}</td><td>{{ r.long.contract.expiry }}</td><td>{{ r.long.contract.strike|num(2) }}</td><td>{{ r.short.contract.strike|num(2) }}</td>
+      <tr><td class="tk">{{ r.long.contract.ticker }}</td><td>{{ r.long.contract.expiry }}</td><td>{{ r.long.contract.strike|num(2) }}</td><td>{{ r.short.contract.strike|num(2) }}</td><td>{{ r.width|num(0) }}</td>
         <td>{{ (r.debit * r.long.contract.multiplier)|num(0) }}</td><td>{{ r.max_loss|num(0) }}</td><td>{{ r.max_return_pct|num(0) }}</td><td>{{ r.long_otm_pct|num(1) }}</td><td>{{ r.net_delta|num(2) }}</td>
         <td>{{ r.required_move_pct|num(1) }}</td><td>{{ r.expected_move_pct|num(1) }}</td><td>{{ r.required_move_mult|num(2) }}</td>
-        <td>{{ r.breakeven_distance_pct|num(1) if r.breakeven_distance_pct is not none else '—' }}</td><td>{{ r.sma200_distance_pct|num(1) if r.sma200_distance_pct is not none else '—' }}</td></tr>
+        <td>{{ r.breakeven_distance_pct|num(1) if r.breakeven_distance_pct is not none else '—' }}</td>
+        <td data-sort="{{ r.sma200_distance_pct if r.sma200_distance_pct is not none else '' }}"{% if r.sma200_distance_pct is not none and r.sma200_distance_pct <= -10 %} class="sma-below"{% endif %}>{{ r.sma200_distance_pct|num(1) if r.sma200_distance_pct is not none else '—' }}</td></tr>
     {% endfor %}
     </tbody>
-  </table>
+  </table></div>
   {% endif %}
 </div>
+<dialog id="cds-dialog" class="sh-dialog pf-dialog">
+  <form method="post" action="/scanner/profile/save" id="cds-profile-form">
+    <h3>Guardar en perfil CDS</h3>
+    <input type="text" name="name" id="cds-name" list="cds-names" autocomplete="off" required maxlength="60" placeholder="Nombre del perfil" value="{{ active.name if active else '' }}">
+    <datalist id="cds-names">{% for b in buttons %}<option value="{{ b.name }}">{% endfor %}</datalist>
+    <input type="hidden" name="query" value="{{ save_query }}" id="cds-query">
+    <div class="pf-actions"><button type="button" class="secondary" id="cds-cancel">Cancelar</button><button type="submit">Guardar</button></div>
+  </form>
+</dialog>
+<script>
+  (function () {
+    var btn = document.getElementById('cds-save'), dlg = document.getElementById('cds-dialog'), form = document.getElementById('cds-form');
+    if (!btn || !dlg) return;
+    btn.addEventListener('click', function () {
+      var qs = new URLSearchParams(new FormData(form));
+      qs.set('mode', 'cds');
+      document.getElementById('cds-query').value = qs.toString();
+      dlg.showModal();
+    });
+    document.getElementById('cds-cancel').addEventListener('click', function () { dlg.close(); });
+  })();
+</script>
 {% endblock %}

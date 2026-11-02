@@ -543,9 +543,14 @@ class CdsSettings(_Model):
     dte_max: int = Field(500, ge=1)
     long_otm_pct_min: float = Field(25, ge=0)            # call comprada: % mínimo sobre el precio
     long_otm_pct_max: float = Field(130, ge=0)
-    width_options: tuple[float, ...] = (5.0, 10.0, 20.0, 50.0)   # anchos probados ($)
-    min_debit_usd: float = Field(150, ge=0)              # débito por contrato en $
-    max_debit_usd: float = Field(650, gt=0)
+    # Anchos probados ($): los del logbook de MTO (51 CDS: de 2 a 100 $; mediana 50; son proporcionales al precio: ≤ 10 $ solo en acciones baratas).
+    # Ampliarlos casi no encarece el catálogo (+4 % de calls: los strikes vendidos caen en la rejilla de los comprados).
+    width_options: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 100.0)
+    width_pct_min: Optional[float] = Field(7, ge=0)      # ancho / strike de la comprada mínimo (%): el logbook tiene p10 = 8,7 %; descarta anchos ridículos en acciones caras
+    width_pct_max: Optional[float] = Field(110, gt=0)    # ... y máximo (%): descarta anchos enormes en acciones baratas
+    best_width: bool = False                             # una sola fila por ticker, vencimiento y call comprada: el ancho con menor movimiento necesario
+    min_debit_usd: float = Field(150, ge=0)              # débito por contrato en $ (el logbook llega a 57 $)
+    max_debit_usd: float = Field(2150, gt=0)             # máximo del logbook de MTO: 2.145 $ (NVDA 250/350, dic. 2028); solo 5 de 51 superan 650 $
     min_long_oi: int = Field(10, ge=0)                   # OI mínimo de cada pata
     max_leg_spread_pct: float = Field(25, gt=0)          # spread bid/ask máximo de cada pata (%)
     # Rentabilidad mínima esperada (obligatoria): el subyacente debe poder mover lo necesario para ganar `target_gain_pct` del débito
@@ -555,7 +560,7 @@ class CdsSettings(_Model):
     move_days: int = Field(10, ge=1)
     max_required_move_mult: float = Field(1.0, gt=0)
     min_max_return_pct: Optional[float] = Field(100, gt=0)     # apoyo: (ancho − débito) / débito mínimo (None = sin filtro)
-    sma200_below_pct_min: Optional[float] = Field(10, ge=0)    # retroceso: precio al menos N % bajo la SMA200 (None = sin filtro)
+    sma200_below_pct_min: Optional[float] = Field(None, ge=0)  # retroceso: precio al menos N % bajo la SMA200 (None = sin filtro; la columna «vs SMA200» se muestra siempre)
 
     @model_validator(mode="after")
     def _check(self) -> "CdsSettings":
@@ -563,6 +568,8 @@ class CdsSettings(_Model):
             raise ValueError("cds: los mínimos no pueden superar a los máximos")
         if not self.width_options or any(w <= 0 for w in self.width_options):
             raise ValueError("cds.width_options debe tener anchos positivos")
+        if self.width_pct_min is not None and self.width_pct_max is not None and self.width_pct_min > self.width_pct_max:
+            raise ValueError("cds: el ancho mínimo (%) no puede superar al máximo")
         return self
 
 

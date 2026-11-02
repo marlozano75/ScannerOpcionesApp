@@ -72,12 +72,14 @@ def build_call_debit_spreads(
         if not (cds.dte_min <= dte <= cds.dte_max) or not (cds.long_otm_pct_min - EPS <= otm <= cds.long_otm_pct_max + EPS):
             continue
         dist200: Optional[float] = None
-        if cds.sma200_below_pct_min is not None:
+        if bars is not None or cds.sma200_below_pct_min is not None:      # la distancia a la SMA200 se calcula siempre que haya cierres (es una columna)
             if ticker not in sma_cache:
                 sma_cache[ticker] = ta.sma([px for _, px in (bars or {}).get(ticker, [])], 200)
-            if not sma_cache[ticker]:
+            if sma_cache[ticker]:
+                dist200 = (price / sma_cache[ticker] - 1) * 100
+        if cds.sma200_below_pct_min is not None:
+            if dist200 is None:
                 continue                   # sin 200 sesiones no se puede comprobar el retroceso
-            dist200 = (price / sma_cache[ticker] - 1) * 100
             if dist200 > -cds.sma200_below_pct_min + EPS:
                 continue
         if not _leg_ok(lg, cds) or lg.delta is None:
@@ -87,7 +89,11 @@ def build_call_debit_spreads(
             continue
         expected_pct = iv * math.sqrt(cds.move_days / 365) * 100
         mult = lg.contract.multiplier
+        found: list[CdsResult] = []
         for width in cds.width_options:
+            width_pct = width / strike * 100
+            if (cds.width_pct_min is not None and width_pct < cds.width_pct_min - EPS) or (cds.width_pct_max is not None and width_pct > cds.width_pct_max + EPS):
+                continue
             sh = calls.get((ticker, expiry, round(strike + width, 4)))
             if sh is None or sh.delta is None or sh.contract.multiplier != mult or not _leg_ok(sh, cds):
                 continue
@@ -110,7 +116,10 @@ def build_call_debit_spreads(
             if required_mult > cds.max_required_move_mult + EPS:
                 continue                   # filtro obligatorio: rentabilidad mínima esperada
             breakeven = strike + debit
-            out.append(CdsResult(lg, sh, width, debit, debit * mult, max_return, breakeven, (breakeven / price - 1) * 100,
-                                 otm, net_delta, required_pct, expected_pct, required_mult, dist200))
+            found.append(CdsResult(lg, sh, width, debit, debit * mult, max_return, breakeven, (breakeven / price - 1) * 100,
+                                   otm, net_delta, required_pct, expected_pct, required_mult, dist200))
+        if cds.best_width and found:
+            found = [min(found, key=lambda r: r.required_move_mult)]
+        out.extend(found)
     out.sort(key=lambda r: r.required_move_mult)
     return out

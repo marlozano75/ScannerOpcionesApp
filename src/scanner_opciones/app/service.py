@@ -67,6 +67,7 @@ from scanner_opciones.scanner.currency import Nlv
 from scanner_opciones.scanner.quality import put_floor_reject, ticker_quality_reject
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.scanner.spreads import build_profile_rows
+from scanner_opciones.scanner import cds_profile as cds_profile_mod
 from scanner_opciones.scanner import modes as modes_mod
 from scanner_opciones.scanner.tech_summary import TechSummarizer, TechSummary
 from scanner_opciones.scanner.impact import ImpactReport, impact_report
@@ -75,6 +76,7 @@ from scanner_opciones.storage.repositories import (
     QualityRepo,
     BarRepo, ContractRepo, MetaRepo, ModeRepo, PositionDeltaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
+from scanner_opciones.config.settings import CdsSettings
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystProvider
 from scanner_opciones.marketdata.history import DividendProvider, EarningsHistoryProvider
@@ -107,6 +109,7 @@ EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos)
 MIG_NO_FALLBACK = "mig_no_fallback_profile"   # clave de `meta`: el perfil de recambio ya se convirtió en la etiqueta «Sin perfil»
 MIG_TASTYPUT_TPC = "mig_tastyput_tpc"   # clave de `meta`: ya se pasó TastyPut a la gestión TPC
 MIG_MTO_EXITS = "mig_mto_exits"   # clave de `meta`: ya se aplicaron al perfil MTO guardado las salidas de docs/mto-spreads.md
+MIG_MTO_CDS_PROFILE = "mig_mto_cds_profile"   # clave de `meta`: el perfil «MTO CDS» ya se sembró (una vez; si se borra, no vuelve)
 MIG_MGMT_PROFILES = "mig_mgmt_profiles"   # clave de `meta`: ya se sembraron los perfiles de gestión y «Sin perfil» pasó a MTO
 VIX_CACHE = "vix_cache"   # clave de `meta`: último VIX leído (ver `app/vix_cache.py`)
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
@@ -962,6 +965,7 @@ class AppService:
         self.tastyput_to_tpc()
         self.seed_management_profiles()
         self.apply_mto_exits()
+        self.seed_mto_cds_profile()
         self._starting = True
         try:
             connected = await self._connect()
@@ -1574,6 +1578,22 @@ class AppService:
             self.meta.set(MGMT_PROFILES, mgmt_mod.dump(mgmt_mod.seed(self.community_feed.name, self.radar_feed.name)))
         self.rename_profile_refs({UNASSIGNED: self._mgmt_catchall()})
         log.info("Perfiles de gestión sembrados; «%s» pasa a «%s»", UNASSIGNED, self._mgmt_catchall())
+        return True
+
+    def seed_mto_cds_profile(self) -> bool:
+        """Migración única (2026-11-03): añade el perfil de escaneo «MTO CDS» (instrumento `cds`, filtros de `scanner.cds`) a los perfiles ya guardados.
+        Sin perfiles guardados no hace falta: `seed_profiles` ya lo incluye. Si lo borras, no vuelve. True si cambió algo."""
+        if self.meta.get(MIG_MTO_CDS_PROFILE):
+            return False
+        self.meta.set(MIG_MTO_CDS_PROFILE, "1")
+        stored = self.stored_profiles()
+        if stored is None or any(p.name.casefold() == cds_profile_mod.MTO_CDS.casefold() for p in stored[0]):
+            return False
+        profiles, default = stored
+        new = ScannerProfile(cds_profile_mod.MTO_CDS, ("cds",), management="tpc", color=cds_profile_mod.MTO_CDS_COLOR).with_filters(
+            "cds", cds_profile_mod.profile_params(self.settings))
+        self.save_profiles([*profiles, new], default)
+        log.info("Perfil «%s» añadido a los perfiles del Scanner", cds_profile_mod.MTO_CDS)
         return True
 
     def apply_mto_exits(self) -> bool:
@@ -3492,13 +3512,15 @@ class AppService:
             self.quality_exempt(), self._atr(criteria, snapshots), self.nlv_usd(), self.naked_blocked(criteria),
         )
 
-    def scan_cds(self) -> list:
-        """Call Debit Spread muy OTM (`scanner/cds.py`) sobre las calls guardadas. Los filtros de calidad de la empresa son los del criterio por
-        defecto del Scanner (los que estén activos); comisiones y precio de venta, los del Scanner. Vacío si `scanner.cds.enabled` es falso."""
-        cds = self.settings.scanner.cds
-        if not cds.enabled:
+    def scan_cds(self, cds: Optional[CdsSettings] = None, **criteria_overrides) -> list:
+        """Call Debit Spread muy OTM (`scanner/cds.py`) sobre las calls guardadas. `cds` = filtros de un perfil CDS (siempre dentro de la ventana
+        que guarda `scanner.cds`); sin él, los de la configuración. Los filtros de calidad de la empresa son los del criterio por defecto del Scanner
+        (los que estén activos) y `criteria_overrides` cambia el precio de venta de referencia (`price_reference`, `price_spread_pct`); comisiones, las
+        del Scanner. Vacío si `scanner.cds.enabled` es falso. Los cierres se cargan siempre: la columna «vs SMA200» se muestra aunque el filtro esté apagado."""
+        cds = cds or self.settings.scanner.cds
+        if not self.settings.scanner.cds.enabled:
             return []
-        criteria = self.criteria()
+        criteria = self.criteria(**criteria_overrides)
         infos = self.infos(criteria)
         if criteria.ticker_quality_active:
             exempt = self.quality_exempt()
@@ -3509,7 +3531,7 @@ class AppService:
             ok = self.ticker_modes()
             infos_ok = {t: i for t, i in infos_ok.items() if ok.get(t, modes_mod.ALL_ON).cds}
         snaps = [s for s in self._scan_call_snapshots() if s.contract.ticker in infos_ok]
-        bars = self._scan_closes(snaps) if cds.sma200_below_pct_min is not None else None
+        bars = self._scan_closes(snaps)
         return build_call_debit_spreads(
             snaps, infos_ok, cds, self.now().date(), bars, criteria.price_reference, criteria.price_spread_pct,
             lambda mult: criteria.cost_ps(mult, legs=2))

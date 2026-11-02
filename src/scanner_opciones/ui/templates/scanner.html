@@ -234,8 +234,8 @@
       <input type="hidden" name="profile" value="{{ active_profile.name if active_profile else '' }}">
       <div class="presets"><span class="lbl">Perfiles</span>
         {% for p in profile_buttons %}
-        <a class="preset{{ ' strategy' if p.strategy }}{{ ' active' if p.on }}" href="/scanner?{{ p.qs }}" style="text-decoration:none{{ ';--pc:' ~ p.color if p.color }}"
-          title="Carga el perfil «{{ p.name }}» ({{ 'put vendida' if p.mode == 'put' else 'spread de puts' }}): reemplaza todos los filtros del formulario por los guardados en el perfil">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
+        <a class="preset{{ ' strategy' if p.strategy }}{{ ' active' if p.on }}" href="{{ p.href }}" style="text-decoration:none{{ ';--pc:' ~ p.color if p.color }}"
+          title="Carga el perfil «{{ p.name }}» ({{ 'put vendida' if p.mode == 'put' else 'Call Debit Spread (página CDS)' if p.mode == 'cds' else 'spread de puts' }}): reemplaza todos los filtros del formulario por los guardados en el perfil">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
         <a class="preset all-profiles" href="/scanner/todos" style="text-decoration:none" title="Un solo escaneo con los filtros de todos los perfiles y una columna con los que cumple cada fila">Todos los perfiles</a>
         <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Perfiles: nombre, instrumentos activos y perfil inicial">✎ Editar</a>
         <button type="button" class="secondary" id="save-profile" style="font-size:12px;padding:2px 8px"

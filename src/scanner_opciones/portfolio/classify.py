@@ -14,6 +14,8 @@ def dte_range(p: Profile) -> Optional[tuple[int, int]]:
     """(DTE mín., DTE máx.) de los filtros de los instrumentos activos del perfil, o None si no los define."""
     lows, highs = [], []
     for inst in p.instruments:
+        if inst == "cds":      # sus DTE (200–500) son de otra estructura: no clasifican puts vendidas
+            continue
         params = p.spread if inst == "spread" else p.put
         try:
             lo, hi = int(params["dte_min"]), int(params["dte_max"])

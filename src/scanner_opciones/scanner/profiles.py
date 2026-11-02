@@ -13,7 +13,7 @@ from typing import Optional
 
 from scanner_opciones.portfolio import exits as exits_mod
 
-INSTRUMENTS = ("put", "spread")
+INSTRUMENTS = ("put", "spread", "cds")     # `cds`: Call Debit Spread muy OTM (MTO; filtros en `cds`, ver `ui/cds_form.py`)
 UNASSIGNED = "Sin perfil"      # etiqueta (no es un perfil: sin filtros ni gestión) de las puts del Panel que no encajan por DTE en ningún perfil
 LEGACY_FALLBACK = "Tortuga"    # nombre de origen del antiguo perfil de recambio, que ya no existe (se migra a `UNASSIGNED`)
 # claves de la URL que no son filtros de un perfil (navegación, estado de la página o identidad del perfil)
@@ -26,6 +26,7 @@ class Profile:
     instruments: tuple[str, ...] = ("put",)
     put: dict = field(default_factory=dict)       # parámetros de la URL del juego de filtros de put
     spread: dict = field(default_factory=dict)    # ... y del de spread
+    cds: dict = field(default_factory=dict)       # ... y del de Call Debit Spread (parámetros de `/cds`)
     management: str = "tastytrade"                # reglas con las que se gestionan en el Panel las puts de este perfil: tastytrade | tpc
     color: str = ""                               # color del botón del perfil y de su etiqueta en el Panel (#rrggbb; vacío = sin color)
     exits: dict = field(default_factory=dict)     # estrategia de salida: solo lo que cambia respecto al estilo `management` (`portfolio.exits`)
@@ -36,7 +37,7 @@ class Profile:
 
     @property
     def mode(self) -> str:
-        """Instrumento del perfil (`put` o `spread`): con el que arranca el Scanner al cargarlo."""
+        """Instrumento del perfil (`put`, `spread` o `cds`): con el que arranca el Scanner al cargarlo."""
         return self.instruments[0]
 
     def params(self, mode: Optional[str] = None) -> dict:
@@ -44,22 +45,22 @@ class Profile:
         return self.set_params(mode or self.mode)
 
     def set_params(self, name: str) -> dict:
-        """Parámetros de la URL del juego de filtros `put` o `spread`."""
-        return dict(self.spread if name == "spread" else self.put)
+        """Parámetros de la URL del juego de filtros `put`, `spread` o `cds`."""
+        return dict(self.spread if name == "spread" else self.cds if name == "cds" else self.put)
 
-    def with_sets(self, put: dict, spread: dict) -> "Profile":
-        """Copia con los dos juegos de filtros sustituidos (sin las claves que no son filtros ni los `o_...` del otro juego)."""
+    def with_sets(self, put: dict, spread: dict, cds: Optional[dict] = None) -> "Profile":
+        """Copia con los juegos de filtros sustituidos (sin las claves que no son filtros ni los `o_...` del otro juego); el de `cds`, solo si se da."""
         def clean(params: dict) -> dict:
             return {k: str(v) for k, v in params.items() if k not in NOT_FILTERS and not k.startswith("o_")}
-        return replace(self, put=clean(put), spread=clean(spread))
+        return replace(self, put=clean(put), spread=clean(spread), **({} if cds is None else {"cds": clean(cds)}))
 
     def with_filters(self, mode: str, params: dict) -> "Profile":
         """Copia con el juego de filtros del instrumento `mode` sustituido por `params` (sin las claves que no son filtros)."""
         clean = {k: str(v) for k, v in params.items() if k not in NOT_FILTERS}
-        return replace(self, spread=clean) if mode == "spread" else replace(self, put=clean)
+        return replace(self, spread=clean) if mode == "spread" else replace(self, cds=clean) if mode == "cds" else replace(self, put=clean)
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "instruments": list(self.instruments), "put": self.put, "spread": self.spread, "management": self.management,
+        return {"name": self.name, "instruments": list(self.instruments), "put": self.put, "spread": self.spread, "cds": self.cds, "management": self.management,
                 "color": self.color, "exits": self.exits}
 
 
@@ -69,7 +70,7 @@ def validate_profile(p: Profile) -> Profile:
         raise ValueError("el perfil necesita un nombre")
     instruments = tuple(i for i in INSTRUMENTS if i in p.instruments)
     if len(instruments) != 1:
-        raise ValueError(f"«{name}»: elige un instrumento (put o spread)")
+        raise ValueError(f"«{name}»: elige un instrumento (put, spread o cds)")
     if p.color and not re.fullmatch(r"#[0-9a-fA-F]{6}", p.color):
         raise ValueError(f"«{name}»: color no válido")
     if not exits_mod.is_style(p.management):
@@ -83,7 +84,7 @@ def split_dual(profiles: list[Profile], default: Optional[str] = None) -> tuple[
     out: list[Profile] = []
     renames: dict[str, str] = {}
     for p in profiles:
-        ins = tuple(i for i in INSTRUMENTS if i in p.instruments)
+        ins = tuple(i for i in ("put", "spread") if i in p.instruments)
         if len(ins) < 2:
             out.append(p)
         else:
@@ -130,7 +131,8 @@ def parse(raw: str) -> Optional[tuple[list[Profile], Optional[str]]]:
     try:
         data = json.loads(raw)
         profiles = [Profile(d["name"], tuple(d["instruments"]), {str(k): str(v) for k, v in d["put"].items()},
-                            {str(k): str(v) for k, v in d["spread"].items()}, d.get("management", "tastytrade"), d.get("color", ""),
+                            {str(k): str(v) for k, v in d["spread"].items()}, {str(k): str(v) for k, v in (d.get("cds") or {}).items()},
+                            d.get("management", "tastytrade"), d.get("color", ""),
                             exits_mod.check_overrides(d.get("exits") or {})) for d in data["profiles"]]
         return profiles, data.get("default")
     except Exception:

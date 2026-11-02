@@ -184,7 +184,7 @@ from scanner_opciones.ui.scanner_forms import (  # noqa: F401  (se vuelven a exp
     QUALITY_SELECTS, SEED_COLORS, UNASSIGNED_COLOR, SOLVENCY_CORE, SOLVENCY_UI, SPREAD_FIELDS, STRATEGY_FIELDS,
     STRATEGY_KEYS, STRUCT_KEYS, VIX_FIELDS, _count_text, _fmt, _opt_float,
     _read_num, _required, _sector_of, _threshold_text, parse_scanner_config, parse_spread_config,
-    preset_link, profile_link, quality_counts, quality_form, read_quality,
+    preset_link, profile_href, profile_link, quality_counts, quality_form, read_quality,
     seed_profiles, solvency_controls, split_sets, strategy_link,
 )
 
@@ -387,6 +387,8 @@ def create_app(
         Tortuga: (nombre, criterios del juego de put | None, criterios del juego de spread | None)."""
         out = []
         for p in get_profiles()[0]:
+            if p.mode == "cds":      # el Call Debit Spread no se compara con puts ni spreads de puts
+                continue
             crit = {inst: parse_scan({"submitted": "1", "mode": inst, "profile": p.name, **p.set_params(inst)}, inst)["criteria"] if inst in p.instruments else None
                     for inst in ("put", "spread")}
             out.append((p.name, crit["put"], crit["spread"]))
@@ -399,12 +401,14 @@ def create_app(
         """Un solo escaneo con los filtros de varios perfiles (`pf` repetido; sin ninguno, todos): cada
         put o spread que cumple los de alguno sale una vez, con la columna de los perfiles que cumple. Los filtros son los guardados en cada perfil."""
         profiles, _ = get_profiles()
-        candidates = profiles
+        candidates = [p for p in profiles if p.mode != "cds"]
         asked = set(request.query_params.getlist("pf"))
         chosen = [p for p in candidates if not asked or p.name in asked]
         sets, errors = [], []
         for p in chosen:
             for inst in p.instruments:
+                if inst == "cds":      # el Call Debit Spread tiene su propia página (`/cds`)
+                    continue
                 parsed = parse_scan({"submitted": "1", "mode": inst, "profile": p.name, **p.set_params(inst)}, inst)
                 if parsed["criteria"] is None:
                     errors.append(f"{p.name} ({'put' if inst == 'put' else 'spread'}): {parsed['error']}")
@@ -437,9 +441,9 @@ def create_app(
                 profiles = [*profiles, saved]
             service.save_profiles(profiles, default)
         except ValueError:
-            return RedirectResponse("/scanner?" + urlencode({**qp, "submitted": "1"}), status_code=303)
+            return RedirectResponse(("/cds?" if shown == "cds" else "/scanner?") + urlencode({**qp, "submitted": "1"}), status_code=303)
         remembered.pop("scanner", None)
-        return RedirectResponse("/scanner?" + profile_link(saved), status_code=303)
+        return RedirectResponse(profile_href(saved), status_code=303)
 
     @app.post("/scanner/profiles")
     async def scanner_profiles_save(request: Request):
@@ -455,12 +459,12 @@ def create_app(
             orig = by_name.get(str(form.get(f"pf{i}_orig", "")))
             if orig is None or form.get(f"pf{i}_del"):
                 continue
-            inst = "spread" if form.get(f"pf{i}_inst") == "spread" else "put" if form.get(f"pf{i}_inst") == "put" else orig.mode
+            inst = str(form.get(f"pf{i}_inst")) if form.get(f"pf{i}_inst") in ("put", "spread", "cds") else orig.mode
             name = str(form.get(f"pf{i}_name", ""))
             if name != orig.name:
                 renames[orig.name] = name
             color = str(form.get(f"pf{i}_color", orig.color)) if form.get(f"pf{i}_usecolor") else ""
-            kept = Profile(name, (inst,), orig.put, orig.spread, orig.management, color, orig.exits)
+            kept = Profile(name, (inst,), orig.put, orig.spread, orig.cds, orig.management, color, orig.exits)
             if inst != orig.mode:      # cambia de instrumento: parte de los filtros del anterior
                 kept = kept.with_filters(inst, orig.set_params(orig.mode))
             try:
@@ -501,7 +505,7 @@ def create_app(
                         diff=exits_mod.diff_rules(base, rules), style_label=exits_mod.style_label(p.management),
                         text=exits_mod.describe(rules), open_puts=open_puts.get(p.name, 0))
         # un perfil de escaneo gestiona las estrategias de sus instrumentos; uno de gestión, todas
-        cards = [card(p, f"pf{i}", p.mode, set(p.instruments) & {"put", "spread"}) for i, p in enumerate(profiles)]
+        cards = [card(p, f"pf{i}", p.mode, {"debit" if i_ == "cds" else i_ for i_ in p.instruments}) for i, p in enumerate(profiles)]
         all_strategies = {k for k, _ in exits_mod.STRATEGIES}
         mgmt_cards = [card(p, f"mf{i}", "gestión", all_strategies) for i, p in enumerate(mgmt_profiles)]
         styles = exits_mod.all_styles()
@@ -683,9 +687,11 @@ def create_app(
         if (back := recall(request, "scanner")) is not None:
             return back
         profiles, default_profile = get_profiles()
+        if request.query_params.get("mode") == "cds":      # el CDS tiene su propia página, con sus filtros
+            return RedirectResponse("/cds?" + str(request.url.query), status_code=303)
         if "submitted" not in request.query_params and "reset" not in request.query_params:    # sin consulta: se carga el perfil inicial
             first = next((p for p in profiles if p.name == default_profile), profiles[0])
-            return RedirectResponse("/scanner?" + profile_link(first), status_code=303)
+            return RedirectResponse(profile_href(first), status_code=303)
         mode, parsed = parse_one(request.query_params)
         out = c = parsed["criteria"]
         if c is not None:
@@ -725,8 +731,9 @@ def create_app(
                                 min_yield=_fmt(p.min_yield_pct), qs=qs, on=on))
         active_profile = next((p for p in profiles if p.name == request.query_params.get("profile", "") and p.mode == mode), None)   # el de otro instrumento no cuenta
         active_name = active_profile.name if active_profile else ""
-        default_qs = profile_link(next((p for p in profiles if p.name == default_profile), profiles[0]))
-        profile_buttons = [dict(name=p.name, qs=profile_link(p), on=p.name == active_name, instruments=p.instruments, color=p.color,
+        scan_profiles = [p for p in profiles if p.mode != "cds"] or profiles
+        default_qs = profile_link(next((p for p in scan_profiles if p.name == default_profile), scan_profiles[0]))
+        profile_buttons = [dict(name=p.name, qs=profile_link(p), href=profile_href(p), mode=p.mode, on=p.name == active_name, instruments=p.instruments, color=p.color,
                                 strategy=p.params().get("use_delta") == "on") for p in profiles]
         # filtros que difieren del perfil guardado (juego visible): se marcan en naranja (cambio pequeño) o rojo
         diff = profile_diff(active_profile.set_params(mode), split_sets(request.query_params)[1]) if active_profile else {}

@@ -70,3 +70,26 @@ def test_call_candidates_add_short_legs():
     got = {(c.strike, c.right) for c in call_candidate_contracts(chain, 100.0, TODAY, CdsSettings(width_options=(10.0,)))}
     # compradas 125 y 130 y 150 (25–50 % OTM) y sus vendidas +10 que existen (140, 150); el vencimiento a 30 días y el 400 quedan fuera
     assert got == {(125.0, OptionRight.CALL), (130.0, OptionRight.CALL), (140.0, OptionRight.CALL), (150.0, OptionRight.CALL)}
+
+
+def test_sma200_distance_is_always_computed_but_only_filters_when_set():
+    snaps = [call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)]
+    above = {"ZZZ": [(TODAY - timedelta(days=i), 105.0) for i in range(250)]}          # precio 100: 4,8 % por debajo
+    [r] = build_call_debit_spreads(snaps, info(), cfg(), TODAY, bars=above)            # filtro apagado: sale, con la columna rellena
+    assert round(r.sma200_distance_pct, 1) == -4.8
+    [r] = build_call_debit_spreads(snaps, info(), cfg(), TODAY, bars={})               # sin cierres: sale y la columna queda vacía
+    assert r.sma200_distance_pct is None
+
+
+def test_width_percent_window_and_best_width():
+    # comprada 130 con dos vendidas posibles: 140 (ancho 10 = 7,7 %) y 150 (ancho 20 = 15,4 %)
+    snaps = [call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22), call(150, 1.2, 1.4, 0.15)]
+    assert {r.width for r in build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0)), TODAY)} == {10.0, 20.0}
+    assert {r.width for r in build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0), width_pct_min=10), TODAY)} == {20.0}
+    assert {r.width for r in build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0), width_pct_max=10), TODAY)} == {10.0}
+    every = build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0)), TODAY)
+    best = build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0), best_width=True), TODAY)
+    # una fila por call comprada (130 y 140): la de menor movimiento necesario de sus anchos
+    assert sorted(r.long.contract.strike for r in best) == [130, 140] and len(every) == 3
+    for r in best:
+        assert r.required_move_mult == min(x.required_move_mult for x in every if x.long.contract.strike == r.long.contract.strike)
