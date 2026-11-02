@@ -40,7 +40,7 @@ def put_key(p: Position) -> str:
 # (patrón del comienzo del aviso, etiqueta corta): la primera que coincide manda. El texto completo se ve en el tooltip.
 _SHORT_LABELS = (
     (r"Recoger beneficios", "Recoger beneficios"), (r"Casi toda la prima", "Prima casi ganada"), (r"Revisar:", "Revisar / rolar"),
-    (r"En pérdida", "En pérdida"), (r"Put testeada", "Testeada: esperar"), (r"En el dinero \(", "Rolar abajo y fuera"),
+    (r"En pérdida", "En pérdida"), (r"Put testeada", "Testeada: mantener"), (r"En el dinero \(", "Rolar abajo y fuera"),
     (r"Muy dentro", "Muy dentro: rolar fuera"), (r"Quedan \d+ días", "Gamma: gestionar ya"),
     (r"Extrínseco casi cero", "Asignación anticipada"), (r"Ex-dividendo", "Ex-dividendo cerca"), (r"Pérdida de", "Pérdida alta"),
     (r"IV Rank", "IV Rank"), (r"Resultados", "Resultados antes del venc."), (r"Stop:", "Stop: cerrar o defender"),
@@ -196,7 +196,8 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         extra = " Ya supera el rango: no esperes más." if r.take_profit_max_pct and captured > r.take_profit_max_pct else ""
         alerts.append(Alert("ok", f"Recoger beneficios: {captured:.0f} % de la prima ganada (objetivo {rango}).{extra}"))
     elif r.review_dte is not None and 0 <= dte <= r.review_dte:
-        got = "sin dato de la prima" if captured is None else f"{captured:.0f} % de la prima ganada"
+        got = ("sin dato de la prima" if captured is None else f"{captured:.0f} % de la prima ganada" if captured >= 0
+               else f"va perdiendo: recomprarla cuesta un {-captured:.0f} % más de lo cobrado")
         goal = f" y no se ha llegado al {r.take_profit_pct:g} %" if r.take_profit_pct is not None else ""
         alerts.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {r.review_dte}){goal} "
                                     f"({got}). Cerrarla o rolarla a un vencimiento posterior cobrando crédito."))
@@ -217,6 +218,8 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
                 o.expiry, o.strike, p.hedge_strike, dte, underlying, entry, current, live_delta, c.get("iv_rank"), c.get("iv30"),
                 c.get("next_earnings"), today, c.get("closes")), cfg.defense)
         if defense is not None and not spread:
+            if defense.zone != defense_mod.CALM:     # la defensa ya dice qué hacer con el tiempo que queda: no se repite con «Revisar»
+                alerts = [a for a in alerts if not a.text.startswith("Revisar:")]
             alerts.extend(Alert(level, text) for level, text in defense.steps)
     if spread:      # orden de urgencia: stop, defensa (strike tocado / pérdida máxima / cerrar), y después recoger o revisar por tiempo
         alerts = stop + [Alert(level, text) for level, text in (defense.steps if defense is not None else ())] + alerts
@@ -229,13 +232,13 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         elif p.hedge_strike is not None and underlying <= p.hedge_strike:
             alerts.append(Alert("warn", f"Pérdida máxima: el precio ({underlying:.2f}) está por debajo de la put comprada ({p.hedge_strike:g}); "
                                         f"el spread ya vale su ancho ({o.strike - p.hedge_strike:g})."))
-        elif underlying <= o.strike and defense is not None and (spread or defense.zone in (defense_mod.ATM, defense_mod.DEEP)):
+        elif underlying <= o.strike and defense is not None and (spread or defense.zone != defense_mod.CALM):
             pass     # la defensa ya dice qué hacer con una put en el dinero
         elif underlying <= o.strike:
             todo = ("Mantener sin rolar: no se rola; si te asignan, reevalúa la tesis y valora vender calls." if r.itm_action == "hold"
                     else "Valora cerrar antes que esperar la asignación.")
             alerts.append(Alert("warn", f"En el dinero: el precio ({underlying:.2f}) está por debajo del strike. {todo}"))
-        elif (underlying - o.strike) / underlying * 100 < cfg.near_strike_pct and not (spread and defense is not None):
+        elif (underlying - o.strike) / underlying * 100 < cfg.near_strike_pct and not (defense is not None and (spread or defense.zone != defense_mod.CALM)):
             alerts.append(Alert("info", f"El precio ({underlying:g}) está a menos de {cfg.near_strike_pct:g} % del strike."))
         if spread and defense is not None and not alerts:     # nada que hacer: lo dice con los números que lo justifican
             goal = f"; objetivo {r.take_profit_pct:g} %" if r.take_profit_pct is not None else ""

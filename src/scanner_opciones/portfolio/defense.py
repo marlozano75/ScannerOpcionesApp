@@ -149,8 +149,23 @@ def assess(i: DefenseInput, cfg: DefenseSettings) -> Optional[Defense]:
 
     # 1. según lo dentro del dinero que esté
     if zone == TESTED:
-        steps.append(("info", f"Put testeada ({d}, aún fuera del dinero): espera o vende la call (mismo vencimiento, Δ {cfg.call_delta_min:g}–{cfg.call_delta_max:g}, "
-                              "mejor tras una caída fuerte y algo de rebote, no en caída libre). Rolar ahora suele rendir poco."))
+        iv = ""
+        if i.iv_rank is not None:
+            iv = (f" Si toca rolar, con IV Rank {i.iv_rank:.0f} % el crédito será bueno." if good_iv
+                  else f" Con IV Rank {i.iv_rank:.0f} % (< {cfg.ivr_good:g}) rolar pagaría poco.")
+        where = (f"el precio ya está {(i.strike - i.underlying) / i.strike * 100:.0f} % por debajo del strike, pero la Δ es baja por el vencimiento lejano"
+                 if itm else "aún fuera del dinero")
+        event = (i.next_earnings is not None and i.today is not None and i.today <= i.next_earnings <= i.expiry
+                 and (i.next_earnings - i.today).days <= cfg.event_days)
+        if 0 <= i.dte <= cfg.gamma_dte:     # sin margen para esperar: el gamma se acelera (este aviso sustituye al genérico de tiempo)
+            steps.append(("warn", f"Put testeada ({d}, {where}) con solo {i.dte} días (≤ {cfg.gamma_dte}). Qué hacer: no esperes más, el gamma se acelera. "
+                                  f"Rola abajo y fuera con crédito neto (↻) o cierra.{iv}"))
+        else:
+            call = ("" if momentum_step(momentum(i.closes, cfg), cfg) is not None      # con una caída fuerte, el aviso de la call va aparte
+                    else f" Opcional: vender la call del strangle (mismo vencimiento, Δ {cfg.call_delta_min:g}–{cfg.call_delta_max:g}).")
+            hold = "MANTENER y no rolar todavía (rolar ahora rinde poco)" + (", salvo lo que digan los resultados (aviso de abajo)" if event else "")
+            steps.append(("info", f"Put testeada ({d}, {where}). Qué hacer: {hold}. "
+                                  f"Rola abajo y fuera solo si la Δ llega a {cfg.atm_delta:g} o a ≤ {cfg.gamma_dte} DTE (ahora {i.dte}).{call}{iv}"))
     elif zone == ATM:
         steps.append(("warn", f"En el dinero ({d}, {ext}): es el momento de rolar abajo y fuera, aún hay valor extrínseco que capturar. "
                               f"Busca crédito neto, {cfg.roll_dte_min}–{cfg.roll_dte_max} DTE y volver a Δ {cfg.roll_target_delta_min:g}–{cfg.roll_target_delta_max:g}."))
@@ -161,9 +176,8 @@ def assess(i: DefenseInput, cfg: DefenseSettings) -> Optional[Defense]:
         mom = momentum(i.closes, cfg)
         if (m := momentum_step(mom, cfg)) is not None:
             steps.append(m)
-            steps.append(("info", roll_timing(mom, i, cfg)))
     # 2. tiempo
-    if zone != CALM and 0 <= i.dte <= cfg.gamma_dte:
+    if zone not in (CALM, TESTED) and 0 <= i.dte <= cfg.gamma_dte:
         steps.append(("warn", f"Quedan {i.dte} días (≤ {cfg.gamma_dte}): gestiónala ya aunque la pérdida no sea extrema; a partir de aquí el gamma se acelera."))
     # 3. asignación anticipada
     if itm and extrinsic is not None and extrinsic <= cfg.min_extrinsic:
@@ -181,7 +195,7 @@ def assess(i: DefenseInput, cfg: DefenseSettings) -> Optional[Defense]:
         elif loss >= cfg.loss_multiple:
             steps.append(("warn", f"Pérdida de {loss:.1f} veces el crédito cobrado (aviso a {cfg.loss_multiple:g}×): valora cerrar si la tesis se ha roto."))
     # 5. volatilidad y eventos (solo cuando hay que decidir algo)
-    if zone in (ATM, DEEP, TESTED) and i.iv_rank is not None:
+    if zone == ATM and i.iv_rank is not None:      # en DEEP el aviso ya dice que los rolls dan poco crédito: no se contradice con «mejor momento»
         if i.iv_rank >= cfg.ivr_high:
             steps.append(("info", f"IV Rank {i.iv_rank:.0f} %: el mejor momento para rolar, el vencimiento lejano paga más."))
         elif good_iv:

@@ -63,7 +63,8 @@ def test_a_calm_put_gets_no_advice_and_no_price_means_no_assessment():
 def test_tested_put_waits_or_sells_the_call_and_does_not_roll_yet():
     d = dfn.assess(inp(underlying=103.5, current=priced(103.5)), CFG)
     assert d.zone == TESTED and 0.30 <= d.delta < 0.50
-    assert "vende la call" in texts(d) and "Rolar ahora suele rendir poco" in texts(d) and "rolar abajo y fuera" not in texts(d)
+    assert "vender la call" in texts(d) and "MANTENER y no rolar todavía" in texts(d) and "Rola abajo y fuera solo si" in texts(d)
+    assert len(d.steps) == 1                                                  # un único mensaje con la acción clara
 
 
 def test_atm_put_is_the_moment_to_roll_down_and_out():
@@ -295,3 +296,9 @@ def test_exit_sections_grey_out_strategies_the_profile_lacks():
     assert on == {"sell": True, "put": True, "credit": False, "buy": False, "long": False, "debit": False}
     assert all(s["on"] for s in exits.sections({k for k, _ in exits.STRATEGIES}))
     assert {k for g in exits.GROUPS for k in g[3]} == set(exits.KEYS) == set(exits.ALERTS)
+
+
+def test_tested_put_below_the_strike_is_one_coherent_message():
+    """Put de vencimiento lejano ya por debajo del strike pero con Δ baja (IREN): no dice «fuera del dinero» ni se contradice con «En el dinero»."""
+    d = dfn.assess(inp(underlying=95.0, current=priced(95.0), delta=0.35), CFG)
+    assert d.zone == TESTED and "fuera del dinero" not in texts(d) and "por debajo del strike" in texts(d)

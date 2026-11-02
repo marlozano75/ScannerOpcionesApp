@@ -77,7 +77,7 @@ def test_the_panel_shows_the_zone_and_the_roll_button_and_the_route_renders(clie
     svc.save_profiles([Profile("Tasty", ("put",), management="tastytrade"), Profile("Tpc", ("put",), management="tpc")], "Tasty")
     svc.set_put_profile(put_key(pos), "Tasty")
     page = client.get("/").text
-    assert 'class="roll-btn"' in page and "En el dinero" in page and "↻</a>" in page
+    assert 'class="roll-btn"' in page and "Put testeada" in page and "↻</a>" in page
     frag = client.get("/management/roll", params={"key": put_key(pos)}).text
     assert "Roll viable" in frag and "Crédito neto" in frag and "95" in frag and "<html" not in frag
     assert "ya no está en la cartera" in client.get("/management/roll", params={"key": "MSFT|2026-11-20|100"}).text

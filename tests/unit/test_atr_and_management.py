@@ -113,7 +113,7 @@ def test_review_at_21_dte_when_the_target_was_not_reached_and_not_when_it_was():
 def test_in_the_money_near_the_strike_and_losses():
     itm = put_status(short_put(), TODAY, 89.0, CFG)
     assert "En el dinero" in " ".join(a.text for a in itm.alerts if a.level == "warn")      # con la defensa activada lo dice ella (zona + qué hacer)
-    assert "menos de 2 %" in alerts(put_status(short_put(), TODAY, 91.0, CFG))["info"]
+    assert "Put testeada" in alerts(put_status(short_put(), TODAY, 91.0, CFG))["info"]       # la zona testeada ya lo dice: sin el aviso genérico de cercanía
     loss = put_status(short_put(market_value=-440.0), TODAY, 100.0, CFG)
     assert loss.captured_pct == pytest.approx(-100.0) and "info" not in alerts(loss)
     assert put_status(short_put(), TODAY, None, CFG).alerts == ()                 # sin precio del subyacente no se avisa

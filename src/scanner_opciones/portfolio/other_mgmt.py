@@ -133,7 +133,8 @@ def _credit_alerts(op: OtherPosition, r: ExitRules, cfg: ManagementSettings, tod
         out.append(Alert("ok", f"Recoger beneficios: {cap:.0f} % de la prima ganada (objetivo {rango})."))
     elif r.review_dte is not None and 0 <= dte <= r.review_dte:
         goal = f" y no se ha llegado al {r.take_profit_pct:g} %" if r.take_profit_pct is not None else ""
-        got = "sin dato de la prima" if cap is None else f"{cap:.0f} % de la prima ganada"
+        got = ("sin dato de la prima" if cap is None else f"{cap:.0f} % de la prima ganada" if cap >= 0
+               else f"va perdiendo: recomprarla cuesta un {-cap:.0f} % más de lo cobrado")
         out.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {r.review_dte}){goal} ({got}). Cerrarla o rolarla a un vencimiento posterior cobrando crédito."))
     if r.risk_stop_pct is not None and roi is not None and roi <= -r.risk_stop_pct:
         out.append(Alert("warn", f"Stop: pierde un {-roi:.0f} % del riesgo (límite {r.risk_stop_pct:g} %). Valora cerrar."))
