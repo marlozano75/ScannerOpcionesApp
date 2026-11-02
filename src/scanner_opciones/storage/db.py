@@ -352,6 +352,29 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX idx_community_trades_trader ON community_trades (trader, status);
     """,
+    # v35: modos por ticker (qué motores pueden dar resultados con él) y su historial diario
+    """
+    CREATE TABLE ticker_mode (
+        ticker TEXT PRIMARY KEY,
+        put INTEGER NOT NULL,
+        put_spread INTEGER NOT NULL,
+        cds INTEGER NOT NULL,
+        reasons TEXT NOT NULL DEFAULT '{}',
+        evaluated_at TEXT NOT NULL
+    );
+    CREATE TABLE ticker_mode_history (
+        ticker TEXT NOT NULL,
+        day TEXT NOT NULL,
+        price REAL,
+        iv_rank REAL,
+        iv_percentile REAL,
+        option_liquidity INTEGER,
+        put INTEGER NOT NULL,
+        put_spread INTEGER NOT NULL,
+        cds INTEGER NOT NULL,
+        PRIMARY KEY (ticker, day)
+    );
+    """,
 ]
 
 

@@ -351,7 +351,7 @@ def create_app(
     async def watchlist(request: Request, message: str = ""):
         tickers, infos = service.watchlist.list(), service.ticker_info.all()
         return render(request, "watchlist.html", no_autorefresh=True, watch_data=True, tickers=tickers, infos=infos, message=message, groups=message_groups(message),
-                      ov=page_charts.watchlist_overview(tickers, infos), modes=service.put_quality())
+                      ov=page_charts.watchlist_overview(tickers, infos), modes=service.put_quality(), tmodes=service.ticker_modes())
 
     # ---- ideas de la comunidad ---------------------------------------------------------------
     routes_comunidad.register(app, service, render, remembered)

@@ -67,12 +67,13 @@ from scanner_opciones.scanner.currency import Nlv
 from scanner_opciones.scanner.quality import put_floor_reject, ticker_quality_reject
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.scanner.spreads import build_profile_rows
+from scanner_opciones.scanner import modes as modes_mod
 from scanner_opciones.scanner.tech_summary import TechSummarizer, TechSummary
 from scanner_opciones.scanner.impact import ImpactReport, impact_report
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     QualityRepo,
-    BarRepo, ContractRepo, MetaRepo, PositionDeltaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
+    BarRepo, ContractRepo, MetaRepo, ModeRepo, PositionDeltaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.marketdata.analysts import AnalystChange, AnalystProvider
@@ -241,6 +242,8 @@ class AppService:
         exits_mod.set_custom_styles(exits_mod.load_custom(self.meta.get(EXIT_STYLES) or ""))
         self.bars = BarRepo(db)
         self.position_delta_log = PositionDeltaRepo(db)
+        self.ticker_modes_repo = ModeRepo(db)
+        self._modes_recorded_day: Optional[date] = None
         sl = settings.scan_log
         scan_log_repo = ScanLogRepo(db)
         self.scan_log_repo = scan_log_repo
@@ -261,6 +264,8 @@ class AppService:
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
             volatility, prices, syncer, self.market,
         )
+        if settings.scanner.ticker_modes.enabled:
+            self.refresh_job.mode_resolver = self.resolve_modes
         self.state = AppState()
         self._scan_memo: dict[tuple, tuple[float, object]] = {}
         self._openings: Optional[tuple[float, OpeningsData]] = None
@@ -1660,8 +1665,51 @@ class AppService:
 
     def naked_blocked(self, criteria: Optional[ScanCriteria] = None) -> dict[str, str]:
         """{ticker: motivo} de los que no pueden salir como put desnuda con la calidad mínima de `criteria`, vengan de donde vengan (la
-        calidad decide, no la fuente)."""
-        return dict(self.put_floor_reasons(criteria))
+        calidad decide, no la fuente) y, con `scanner.ticker_modes`, los que superan el precio máximo de las puts por el NLV."""
+        blocked = dict(self.put_floor_reasons(criteria))
+        if self.settings.scanner.ticker_modes.enabled:
+            for t, m in self.ticker_modes().items():
+                if not m.put and t not in blocked:
+                    blocked[t] = m.reasons.get("put", "modo put apagado")
+        return blocked
+
+    # ---- Modos por ticker (`scanner/modes.py`, `scanner.ticker_modes`) -----------------------------------------------------------
+
+    def ticker_modes(self) -> dict:
+        """{ticker: TickerModes} guardados en la última evaluación; vacío con los modos apagados."""
+        if not self.settings.scanner.ticker_modes.enabled:
+            return {}
+        return self._memo("ticker_modes", self.ticker_modes_repo.all)
+
+    def put_price_cap(self) -> Optional[float]:
+        """Precio máximo para vender puts desnudas con el NLV (ver `modes.derive_put_price_cap`); None si no se puede derivar."""
+        rules = self.settings.scanner.ticker_modes
+        put_criteria = [put for _, put, _ in self.profile_specs() if put is not None]
+        return modes_mod.derive_put_price_cap(put_criteria, self.nlv_usd(), rules)
+
+    def resolve_modes(self, infos: dict) -> dict:
+        """Evalúa los modos de todos los tickers con las fichas dadas, guarda los que cambian (y una fila diaria de historial) y los devuelve.
+        Tickers con posiciones abiertas e instrumentos propios: todos los modos encendidos. Lo llama `RefreshJob` tras actualizar los subyacentes."""
+        rules = self.settings.scanner.ticker_modes
+        cap = self.put_price_cap()
+        held = set(self.held_tickers())
+        own = {norm_ticker(t) for t in self.settings.instruments}
+        previous = self.ticker_modes_repo.all()
+        out: dict = {}
+        for t, info in infos.items():
+            key = norm_ticker(t)
+            out[t] = modes_mod.ALL_ON if key in held or key in own else modes_mod.evaluate(info, rules, cap, previous.get(t))
+        now = self.now()
+        changed = self.ticker_modes_repo.save_changed(out, now)
+        if rules.history and (changed or self._modes_recorded_day != now.date()):
+            self.ticker_modes_repo.record_day(now.date(), out, infos)
+            self._modes_recorded_day = now.date()
+        if changed:
+            log.info("Modos por ticker: %d cambios; puts %d, spreads de puts %d, CDS %d, ninguno %d de %d (tope de precio de puts %s)", changed,
+                     sum(m.put for m in out.values()), sum(m.put_spread for m in out.values()), sum(m.cds for m in out.values()),
+                     sum(1 for m in out.values() if not m.any), len(out),
+                     f"{cap:.0f} $" if cap is not None else f"{rules.put_max_price_fallback:g} $ (respaldo)")
+        return out
 
     def put_quality(self) -> dict[str, dict]:
         """Por ticker de la watchlist: si pasa la calidad mínima de las puts (la inicial de `scanner.quality.put_floor`) y, si no, por qué."""
@@ -3434,6 +3482,9 @@ class AppService:
 
     def _scan(self, criteria: ScanCriteria, include_rejections: bool) -> ScanOutput:
         snapshots = self._scan_snapshots()
+        if criteria.spread_mode and self.settings.scanner.ticker_modes.enabled:   # sin el modo de spreads de puts no se escanea (ni se cotiza)
+            ok = self.ticker_modes()
+            snapshots = [s for s in snapshots if ok.get(s.contract.ticker, modes_mod.ALL_ON).put_spread]
         bars = self._scan_closes(snapshots) if criteria.technical_active else None
         return run_scan(
             snapshots, self.infos(criteria), with_spreads(self.state.positions), criteria,
@@ -3454,6 +3505,9 @@ class AppService:
             infos_ok = {t: i for t, i in infos.items() if ticker_quality_reject(i, criteria, exempt) is None}
         else:
             infos_ok = infos
+        if self.settings.scanner.ticker_modes.enabled:
+            ok = self.ticker_modes()
+            infos_ok = {t: i for t, i in infos_ok.items() if ok.get(t, modes_mod.ALL_ON).cds}
         snaps = [s for s in self._scan_call_snapshots() if s.contract.ticker in infos_ok]
         bars = self._scan_closes(snaps) if cds.sma200_below_pct_min is not None else None
         return build_call_debit_spreads(

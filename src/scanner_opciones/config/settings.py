@@ -512,6 +512,29 @@ class StrategySettings(_Model):
         return self
 
 
+class TickerModesSettings(_Model):
+    """Modos por ticker (2026-11-02): qué se COTIZA y qué se escanea de cada ticker según tres condiciones baratas, con los datos que ya hay
+    (precio, IV Rank/Percentile, liquidez de tastytrade). `put`: puts desnudas (precio máximo por el NLV); `put_spread`: spreads de puts
+    (liquidez e IV); `cds`: Call Debit Spread (liquidez; la IV es opcional: es un débito y le conviene IV baja). Apagado no cambia nada.
+    Siempre activos: tickers con posiciones abiertas (el Panel los gestiona con sus cotizaciones) e instrumentos propios (TWS)."""
+    enabled: bool = False
+    # Puts desnudas: el precio máximo sale del NLV y del perfil de put MENOS restrictivo entre los que tienen activo el límite de capital en
+    # riesgo: riesgo % × NLV (USD) / (multiplicador × (1 − descuento mínimo)). Los perfiles sin ese límite no cuentan.
+    put_max_price: Optional[float] = Field(None, gt=0)   # precio fijo ($); None = derivado del NLV y de los perfiles
+    put_max_price_fallback: float = Field(120, gt=0)     # si no hay NLV en USD o ningún perfil limita el capital en riesgo
+    put_price_margin_pct: float = Field(5, ge=0)         # holgura sobre el precio derivado (la prima cobrada reduce el capital en riesgo)
+    # Spreads (de puts y CDS): liquidez de las opciones (tastytrade, 1–4)
+    spread_min_option_liquidity: int = Field(2, ge=0)
+    # Spreads de puts: IV Rank o IV Percentile (basta uno, como `iv_any` de TastyPut); None desactiva ese mínimo
+    put_spread_min_iv_rank: Optional[float] = Field(30, ge=0)
+    put_spread_min_iv_percentile: Optional[float] = Field(50, ge=0)
+    # CDS: sin mínimo de IV por defecto (compra prima: le conviene IV baja). Mismo criterio «uno de los dos» si se ponen.
+    cds_min_iv_rank: Optional[float] = Field(None, ge=0)
+    cds_min_iv_percentile: Optional[float] = Field(None, ge=0)
+    iv_hysteresis_pts: float = Field(5, ge=0)            # un modo ya encendido por IV no se apaga hasta bajar estos puntos del mínimo
+    history: bool = True                                 # una fila por ticker y día en `ticker_mode_history`
+
+
 class CdsSettings(_Model):
     """Call Debit Spread muy OTM (MTO; ver docs/mto-spreads.md): call comprada lejos del dinero + call vendida más arriba, DTE largo.
     Son valores del análisis del logbook (muestras pequeñas), editables."""
@@ -561,6 +584,7 @@ class ScannerSettings(_Model):
     quality: QualitySettings = QualitySettings()
     spreads: SpreadSettings = SpreadSettings()
     cds: CdsSettings = CdsSettings()
+    ticker_modes: TickerModesSettings = TickerModesSettings()
 
     @property
     def catalog(self) -> CandidateRange:

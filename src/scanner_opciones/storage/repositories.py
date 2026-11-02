@@ -55,6 +55,52 @@ class MetaRepo:
             self.db.quiet_changes += self.db.conn.total_changes - before
 
 
+class ModeRepo:
+    """Modos por ticker (`scanner/modes.py`) y su historial diario."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def all(self) -> dict:
+        from scanner_opciones.scanner.modes import TickerModes
+        rows = self.db.conn.execute("SELECT ticker, put, put_spread, cds, reasons FROM ticker_mode").fetchall()
+        return {r["ticker"]: TickerModes(bool(r["put"]), bool(r["put_spread"]), bool(r["cds"]), TickerModes.load_reasons(r["reasons"])) for r in rows}
+
+    def save_changed(self, modes: dict, at: datetime) -> int:
+        """Guarda solo los modos que cambian (y borra los de tickers que ya no están): no invalida las cachés del Scanner si no hay cambios."""
+        old = self.all()
+        changed = [(t, m) for t, m in modes.items() if old.get(t) != m]
+        gone = [t for t in old if t not in modes]
+        if not changed and not gone:
+            return 0
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO ticker_mode (ticker, put, put_spread, cds, reasons, evaluated_at) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(ticker) DO UPDATE SET put = excluded.put, put_spread = excluded.put_spread, cds = excluded.cds, "
+                "reasons = excluded.reasons, evaluated_at = excluded.evaluated_at",
+                [(t, int(m.put), int(m.put_spread), int(m.cds), m.reasons_json(), at.isoformat(timespec="seconds")) for t, m in changed])
+            if gone:
+                self.db.conn.executemany("DELETE FROM ticker_mode WHERE ticker = ?", [(t,) for t in gone])
+        return len(changed) + len(gone)
+
+    def record_day(self, day: date, modes: dict, infos: dict) -> int:
+        """Una fila por ticker y día (la última evaluación del día gana). No altera lo que escanea el Scanner."""
+        rows = []
+        for t, m in modes.items():
+            i = infos.get(t)
+            rows.append((t, day.isoformat(), i.underlying_price if i else None, i.iv_rank if i else None, i.iv_percentile if i else None,
+                         i.option_liquidity if i else None, int(m.put), int(m.put_spread), int(m.cds)))
+        before = self.db.conn.total_changes
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO ticker_mode_history (ticker, day, price, iv_rank, iv_percentile, option_liquidity, put, put_spread, cds) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(ticker, day) DO UPDATE SET price = excluded.price, iv_rank = excluded.iv_rank, "
+                "iv_percentile = excluded.iv_percentile, option_liquidity = excluded.option_liquidity, put = excluded.put, "
+                "put_spread = excluded.put_spread, cds = excluded.cds", rows)
+        self.db.quiet_changes += self.db.conn.total_changes - before
+        return len(rows)
+
+
 class PositionDeltaRepo:
     """Histórico de la |delta| real de las puts vendidas de la cartera. Cada medida lleva el precio del subyacente de ese momento: sin él no se
     puede saber si la delta guardada sigue valiendo. No altera lo que escanea el Scanner (sus escrituras no invalidan sus cachés)."""

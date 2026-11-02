@@ -44,6 +44,8 @@ class RefreshReport:
     margins_reused: int = 0   # márgenes recientes reutilizados sin pedir un what-if nuevo
     bid_sizes_checked: int = 0   # contratos cuyo bid size se pidió a TWS
     bid_sizes_changed: int = 0   # de ellos, los que tenían un tamaño distinto al del proveedor
+    mode_skipped: int = 0     # contratos en alcance que no se cotizan porque el modo de su ticker no los necesita (`scanner.ticker_modes`)
+    mode_tickers_off: int = 0   # tickers sin ningún modo
     margin_streak: int = 0    # what-if fallidos seguidos; al llegar a MARGIN_MAX_FAILURES no se piden más en el ciclo
     margin_ok: bool = False   # TWS ya respondió a algún what-if del ciclo: el resto se pide en paralelo
     errors: dict[str, str] = field(default_factory=dict)  # ticker -> motivo
@@ -77,6 +79,8 @@ class RefreshJob:
         market: Optional[MarketCalendar] = None,
     ) -> None:
         self.market = market
+        # `scanner.ticker_modes`: lo pone el servicio; recibe las fichas y devuelve {ticker: TickerModes} (guardados, con historial); None = sin modos
+        self.mode_resolver: Optional[Callable[[dict], dict]] = None
         # mercado propio de los instrumentos de TWS (Eurex...): fuera del horario de EE. UU. también se cotizan mientras el suyo está abierto
         self._instrument_calendars: dict[str, tuple] = {}
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
@@ -159,6 +163,7 @@ class RefreshJob:
         quote_scope = criteria + self._leg_scope(criteria)
         all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), quote_scope, today)
                          or self._cds_in_scope(c, infos.get(c.ticker), today)]
+        all_contracts = self._apply_modes(all_contracts, infos, report)
         # snapshots anteriores: de ellos se reutiliza el margen mientras sea reciente
         prev = {self._snap_key(s.contract): s for s in self.snapshots.all()} if all_contracts else {}
         if only_unquoted:
@@ -217,12 +222,33 @@ class RefreshJob:
         log.info(
             "Refresco: %d contratos cotizados (de %d guardados) en %.1f s (subyacentes %.1f s); "
             "márgenes pedidos %d, reutilizados %d; sin precio nuevo (se conserva el anterior): %d; "
-            "catálogo: +%d / -%d contratos; bid size de TWS: %d pedidos, %d distintos",
+            "catálogo: +%d / -%d contratos; bid size de TWS: %d pedidos, %d distintos%s",
             report.in_scope, report.stored, time.monotonic() - started, t_underlyings,
             report.margins_requested, report.margins_reused, report.quotes_kept,
             report.contracts_added, report.contracts_removed, report.bid_sizes_checked, report.bid_sizes_changed,
+            (f"; modos por ticker: {report.mode_skipped} contratos sin cotizar ({report.mode_tickers_off} tickers sin ningún modo)"
+             if self.mode_resolver is not None else ""),
         )
         return report
+
+    def _apply_modes(self, contracts: list, infos: dict, report: RefreshReport) -> list:
+        """Quita de lo que se cotiza los contratos que el modo de su ticker no necesita: las puts, si no sirve ni para puts desnudas ni para
+        spreads de puts; las calls del CDS, si no sirve para el CDS. Sin `mode_resolver` (o si falla) no se quita nada."""
+        if self.mode_resolver is None or not contracts:
+            return contracts
+        try:
+            modes = self.mode_resolver(infos)
+        except Exception:   # noqa: BLE001 - los modos son una optimización: un fallo no debe impedir el refresco
+            log.exception("Modos por ticker: no se pudieron evaluar; se cotiza todo")
+            return contracts
+        kept = []
+        for c in contracts:
+            m = modes.get(c.ticker)
+            if m is None or (m.cds if c.right is OptionRight.CALL else m.any_puts):
+                kept.append(c)
+        report.mode_skipped = len(contracts) - len(kept)
+        report.mode_tickers_off = sum(1 for m in modes.values() if not m.any)
+        return kept
 
     def _tws_size_fresh(self, snap: ContractSnapshot) -> bool:
         age = self.settings.refresh.tws_bid_size_max_age_minutes
