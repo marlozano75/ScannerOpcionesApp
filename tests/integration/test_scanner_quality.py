@@ -480,3 +480,16 @@ def test_the_exact_opening_date_from_tortuga_beats_the_first_time_the_app_saw_th
     assert "fecha exacta de Tortuga" in page and "40 DTE al abrir" in page
     f.write_text("no es json", encoding="utf-8")                                              # un fichero estropeado conserva lo último bueno
     assert svc.put_open_dates()[key][1] is True
+
+
+def test_the_universe_has_mini_charts_and_loads_the_big_chart_on_demand(client_and_service):
+    from datetime import timedelta
+    client, svc, gw, _ = client_and_service
+    load_rank(client)
+    today = svc.now().date()
+    svc.bars.upsert("KO", [(today - timedelta(days=n), 60.0 + n % 5) for n in range(1, 120)])
+    page = client.get("/universe").text
+    assert 'data-ut="KO"' in page and "pos-mini-svg" in page and "<th data-nosort" in page
+    chart = client.get("/universe/chart?ticker=KO").text
+    assert 'class="pcw"' in chart and 'class="lc"' in chart and "pcw-log" in chart
+    assert "Sin cierres diarios" in client.get("/universe/chart?ticker=ZZZZ").text

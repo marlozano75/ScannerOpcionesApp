@@ -4,6 +4,7 @@ el vencimiento como línea vertical y, la fecha en la que toca revisarla (`manag
 Todo texto que viene de los datos se escapa."""
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional, Sequence
@@ -22,6 +23,36 @@ LEFT, RIGHT, TOP, BOTTOM = 46, 16, 52, 28      # TOP deja sitio a 4 filas de eti
 FUTURE_DAYS = 60            # hasta dónde se dibuja el futuro; un vencimiento más lejano se marca con una flecha en el borde derecho
 EARNINGS = "#e87a1e"
 SOLD, BOUGHT, EXPIRY, REVIEW = "var(--red)", "#2f7de1", "var(--ink)", "var(--amber)"
+
+
+def _date_ticks(start: date, end: date) -> list[tuple[date, str]]:
+    """Marcas del eje de fechas: cada 7/14 días en tramos cortos; en históricos largos, el día 1 de cada 1/2/3/6/12 meses (`mm/aa`)."""
+    span = (end - start).days
+    if span <= 200:
+        step, out, d = (14 if span > 70 else 7), [], start
+        while d <= end:
+            out.append((d, f"{d:%d/%m}"))
+            d += timedelta(days=step)
+        return out
+    every = next(k for k in (1, 2, 3, 6, 12, 24) if span / 30.4 / k <= 9 or k == 24)
+    out, (y, m) = [], (start.year, start.month)
+    while date(y, m, 1) <= end:
+        if date(y, m, 1) >= start and (m - 1) % every == 0:
+            out.append((date(y, m, 1), f"{m:02d}/{y % 100:02d}"))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+WINDOWS = ((26, "6 meses"), (52, "1 año"), (104, "2 años"))     # ventanas del gráfico ampliado; la última, «Todo», usa `management.chart_weeks`
+
+
+def windowed(render, total_weeks: int) -> Markup:   # `render(semanas, log)`
+    """Gráfico ampliado con botones de ventana: `render(semanas, log)` se llama por ventana (las que no superan el histórico) y «Todo», en lineal y en logarítmica;
+    el script del Panel (`.pcw-btn`, `.pcw-log`) alterna cuál se ve. Sin JS se ve «Todo»."""
+    wins = [(w, label) for w, label in WINDOWS if w < total_weeks] + [(total_weeks, "Todo")]
+    buttons = "".join(f'<button type="button" class="pcw-btn{" on" if n == len(wins) - 1 else ""}" data-w="{w}">{label}</button>' for n, (w, label) in enumerate(wins))
+    views = "".join(f'<div class="pcw-view" data-w="{w}" data-log="0"{"" if n == len(wins) - 1 else " hidden"}>{render(w, False)}</div><div class="pcw-view" data-w="{w}" data-log="1" hidden>{render(w, True)}</div>' for n, (w, _) in enumerate(wins))
+    return Markup(f'<div class="pcw"><div class="pcw-bar">{buttons}<button type="button" class="pcw-log" aria-pressed="false" title="Escala logarítmica del eje de precios">Log</button></div>{views}</div>')
 
 
 @dataclass(frozen=True)
@@ -55,8 +86,30 @@ def exit_plan(s: PutStatus, cfg: ManagementSettings, today: date) -> Exit:
     return Exit(f"en zona de revisión (≤ {dte} DTE): cerrar o rolar{goal}", review, left, True, dte)
 
 
+def _yaxis(values: Sequence[float], log: bool):
+    """Eje de precios: (función valor→y, marcas). Lineal con un 10 % de margen, o logarítmico (margen del 5 % en proporción) con marcas 1-2-5 × 10ⁿ."""
+    values = [v for v in values if v > 0] if log else list(values)
+    lo, hi = min(values), max(values)
+    if not log:
+        pad = (hi - lo) * 0.10 or hi * 0.05 or 1.0
+        lo, hi = lo - pad, hi + pad
+        return (lambda v: _scale(v, lo, hi, H - BOTTOM, TOP)), [v for v in nice_ticks(lo, hi, 4) if lo <= v <= hi]
+    llo, lhi = math.log(lo), math.log(hi)
+    pad = (lhi - llo) * 0.05 or 0.05
+    llo, lhi = llo - pad, lhi + pad
+    ticks: list[float] = []
+    for mults in ((1, 2, 5), (1, 1.5, 2, 3, 5, 7), (1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 9)):
+        ticks = [round(m * 10 ** e, 10) for e in range(math.floor(llo / math.log(10)) - 1, math.ceil(lhi / math.log(10)) + 1) for m in mults
+                 if llo <= math.log(m * 10 ** e) <= lhi]
+        if len(ticks) >= 4:
+            break
+    if len(ticks) < 3:                                                                  # rango estrecho: marcas redondas normales
+        ticks = [v for v in nice_ticks(math.exp(llo), math.exp(lhi), 4) if llo <= math.log(max(v, 1e-9)) <= lhi]
+    return (lambda v: _scale(math.log(max(v, 1e-9)), llo, lhi, H - BOTTOM, TOP)), ticks
+
+
 def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatus], cfg: ManagementSettings, today: date, weeks: int = 10,
-                   price: Optional[float] = None, earnings: Optional[date] = None) -> Markup:
+                   price: Optional[float] = None, earnings: Optional[date] = None, log: bool = False) -> Markup:
     """`closes`: cierres diarios (fecha, cierre) del ticker; `puts`: sus puts vendidas (un spread es una fila con `long_strike`)."""
     start = today - timedelta(weeks=weeks)
     bars = sorted((d, p) for d, p in closes if start <= d <= today)
@@ -76,21 +129,14 @@ def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatu
             strikes.setdefault((s.long_strike, "bought"), []).append(f"cobertura del spread {s.strike:g}/{s.long_strike:g}")
             expiries.setdefault((s.long_strike, "bought"), set()).add(s.expiry)
     values = [p for _, p in bars] + [k for k, _ in strikes] + ([price] if price else [])
-    lo, hi = min(values), max(values)
-    pad = (hi - lo) * 0.10 or hi * 0.05 or 1.0
-    lo, hi = lo - pad, hi + pad
-    py = lambda v: _scale(v, lo, hi, H - BOTTOM, TOP)                           # noqa: E731
-
+    py, yticks = _yaxis(values, log)
     out = [f'<svg class="lc" viewBox="0 0 {W} {H}" role="img" aria-label="Evolución diaria, strikes y vencimientos">']
-    for v in nice_ticks(lo, hi, 4):                                                    # cuadrícula y precios
-        if lo <= v <= hi:
+    for v in yticks:                                                                   # cuadrícula y precios
+        if True:
             out.append(f'<line class="gl" x1="{LEFT}" x2="{W - RIGHT}" y1="{py(v):.1f}" y2="{py(v):.1f}"/>'
                        f'<text class="ax" x="{LEFT - 6}" y="{py(v) + 4:.1f}" text-anchor="end">{_e(f"{v:g}")}</text>')
-    step = 14 if span > 70 else 7                                                       # fechas del eje
-    d = start
-    while d <= end:
-        out.append(f'<text class="ax" x="{px(d):.1f}" y="{H - 8}" text-anchor="middle">{d:%d/%m}</text>')
-        d += timedelta(days=step)
+    for d, label in _date_ticks(start, end):                                            # fechas del eje
+        out.append(f'<text class="ax" x="{px(d):.1f}" y="{H - 8}" text-anchor="middle">{label}</text>')
 
     reviews = {}                                                                       # zona de revisión: de la fecha de revisión al vencimiento
     for s in puts:
@@ -240,7 +286,7 @@ def other_mini(closes: Sequence[tuple[date, float]], op: OtherPosition, today: d
 
 
 def other_chart(closes: Sequence[tuple[date, float]], op: OtherPosition, today: date, weeks: int = 10,
-                price: Optional[float] = None, earnings: Optional[date] = None) -> Markup:
+                price: Optional[float] = None, earnings: Optional[date] = None, log: bool = False) -> Markup:
     """Gráfico grande de una posición que NO es una put vendida: cierres diarios, strikes de las patas y vencimiento (sin zona de revisión)."""
     start = today - timedelta(weeks=weeks)
     bars = sorted((d, p) for d, p in closes if start <= d <= today)
@@ -250,21 +296,14 @@ def other_chart(closes: Sequence[tuple[date, float]], op: OtherPosition, today: 
     span = max((end - start).days, 1)
     px = lambda d: _scale((d - start).days, 0, span, LEFT, W - RIGHT)             # noqa: E731
     values = [p for _, p in bars] + list(op.levels) + ([price] if price else [])
-    lo, hi = min(values), max(values)
-    pad = (hi - lo) * 0.10 or hi * 0.05 or 1.0
-    lo, hi = lo - pad, hi + pad
-    py = lambda v: _scale(v, lo, hi, H - BOTTOM, TOP)                             # noqa: E731
-
+    py, yticks = _yaxis(values, log)
     out = [f'<svg class="lc" viewBox="0 0 {W} {H}" role="img" aria-label="Evolución diaria, strikes y vencimiento">']
-    for v in nice_ticks(lo, hi, 4):
-        if lo <= v <= hi:
+    for v in yticks:
+        if True:
             out.append(f'<line class="gl" x1="{LEFT}" x2="{W - RIGHT}" y1="{py(v):.1f}" y2="{py(v):.1f}"/>'
                        f'<text class="ax" x="{LEFT - 6}" y="{py(v) + 4:.1f}" text-anchor="end">{_e(f"{v:g}")}</text>')
-    step = 14 if span > 70 else 7
-    d = start
-    while d <= end:
-        out.append(f'<text class="ax" x="{px(d):.1f}" y="{H - 8}" text-anchor="middle">{d:%d/%m}</text>')
-        d += timedelta(days=step)
+    for d, label in _date_ticks(start, end):
+        out.append(f'<text class="ax" x="{px(d):.1f}" y="{H - 8}" text-anchor="middle">{label}</text>')
 
     for k, is_short, right in sorted(set(_other_legs(op))):
         y = py(k)
@@ -321,5 +360,61 @@ def other_chart(closes: Sequence[tuple[date, float]], op: OtherPosition, today: 
                    f'stroke-dasharray="{dash}"/><line x1="{x:.1f}" x2="{x:.1f}" y1="{TOP}" y2="{H - BOTTOM}" stroke="transparent" stroke-width="10"/>'
                    f'<text x="{x + dx:.1f}" y="{y_text + 8:.1f}" font-size="10.5" font-weight="700" text-anchor="{anchor}" fill="{"var(--ink)" if mcolor == EXPIRY else "#a8480a"}" '
                    f'stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(text + (" →" if beyond else ""))}</text></g>')
+    out.append("</svg>")
+    return Markup("".join(out))
+
+
+def ticker_mini(closes: Sequence[tuple[date, float]], today: date, weeks: int = 10) -> Markup:
+    """Miniatura de un ticker sin posición (Universo): solo los cierres diarios de las últimas semanas."""
+    w, h, pad = 112, 34, 2
+    start = today - timedelta(weeks=weeks)
+    bars = sorted((d, p) for d, p in closes if start <= d <= today)
+    if len(bars) < 2:
+        return Markup("")
+    span = max((bars[-1][0] - bars[0][0]).days, 1)
+    lo, hi = min(p for _, p in bars), max(p for _, p in bars)
+    margin = (hi - lo) * 0.08 or hi * 0.05 or 1.0
+    path = "M" + " L".join(f"{_scale((d - bars[0][0]).days, 0, span, pad, w - pad):.1f},{_scale(p, lo - margin, hi + margin, h - pad, pad):.1f}" for d, p in bars)
+    return Markup(f'<svg class="pos-mini-svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" aria-hidden="true">'
+                  f'<path d="{path}" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linejoin="round"/></svg>')
+
+
+def ticker_chart(closes: Sequence[tuple[date, float]], today: date, weeks: int = 10, earnings: Optional[date] = None, log: bool = False) -> Markup:
+    """Gráfico grande de un ticker sin posición (Universo): cierres diarios con el último precio y, si se conoce, la próxima presentación de resultados."""
+    start = today - timedelta(weeks=weeks)
+    bars = sorted((d, p) for d, p in closes if start <= d <= today)
+    if len(bars) < 2:
+        return empty("Sin cierres diarios guardados de este ticker")
+    show_earn = earnings is not None and earnings >= today
+    end = max(min(earnings, today + timedelta(days=FUTURE_DAYS)), today + timedelta(days=7)) if show_earn else today + timedelta(days=7)
+    span = max((end - start).days, 1)
+    px = lambda d: _scale((d - start).days, 0, span, LEFT, W - RIGHT)             # noqa: E731
+    py, yticks = _yaxis([p for _, p in bars], log)
+    out = [f'<svg class="lc" viewBox="0 0 {W} {H}" role="img" aria-label="Evolución diaria del precio">']
+    for v in yticks:
+        out.append(f'<line class="gl" x1="{LEFT}" x2="{W - RIGHT}" y1="{py(v):.1f}" y2="{py(v):.1f}"/>'
+                   f'<text class="ax" x="{LEFT - 6}" y="{py(v) + 4:.1f}" text-anchor="end">{_e(f"{v:g}")}</text>')
+    for d, label in _date_ticks(start, end):
+        out.append(f'<text class="ax" x="{px(d):.1f}" y="{H - 8}" text-anchor="middle">{label}</text>')
+    pts = [(px(d), py(p)) for d, p in bars]
+    path = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    out.append(f'<path class="ar" d="{path} L{pts[-1][0]:.1f},{H - BOTTOM} L{pts[0][0]:.1f},{H - BOTTOM} Z"/><path class="ln" d="{path}"/>'
+               f'<circle class="mk" cx="{pts[-1][0]:.1f}" cy="{pts[-1][1]:.1f}" r="4"/>')
+    for i, ((x, y), (d, p)) in enumerate(zip(pts, bars)):
+        x0 = (pts[i - 1][0] + x) / 2 if i else LEFT
+        x1 = (x + pts[i + 1][0]) / 2 if i < len(pts) - 1 else x + 6
+        out.append(f'<g class="pt" tabindex="0" data-tip="{_e(f"{p:g}|{d:%d/%m/%Y}|cierre")}"><rect x="{x0:.1f}" y="{TOP}" width="{x1 - x0:.1f}" '
+                   f'height="{H - TOP - BOTTOM}" fill="transparent"/><line class="xh" x1="{x:.1f}" x2="{x:.1f}" y1="{TOP}" y2="{H - BOTTOM}"/>'
+                   f'<circle class="dt" cx="{x:.1f}" cy="{y:.1f}" r="4.5"/></g>')
+    out.append(f'<text x="{pts[-1][0] - 8:.1f}" y="{pts[-1][1] - 8:.1f}" font-size="11" font-weight="700" text-anchor="end" fill="var(--ink)" '
+               f'stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(f"{bars[-1][1]:.2f}")}</text>')
+    if show_earn:
+        x, text = px(min(earnings, end)), f"resultados {earnings:%d/%m} · en {(earnings - today).days} d"
+        anchor = "end" if x > W - 150 else "start"
+        out.append(f'<g tabindex="0" data-tip="{_e(f"{earnings:%d/%m/%Y}|Presentación de resultados|faltan {(earnings - today).days} días")}">'
+                   f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{TOP - 40}" y2="{H - BOTTOM}" stroke="{EARNINGS}" stroke-width="1.8" stroke-dasharray="2 3"/>'
+                   f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{TOP}" y2="{H - BOTTOM}" stroke="transparent" stroke-width="10"/>'
+                   f'<text x="{x + (-4 if anchor == "end" else 4):.1f}" y="{TOP - 32}" font-size="10.5" font-weight="700" text-anchor="{anchor}" fill="#a8480a" '
+                   f'stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(text + (" →" if earnings > end else ""))}</text></g>')
     out.append("</svg>")
     return Markup("".join(out))

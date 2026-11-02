@@ -5,6 +5,7 @@ import logging
 import tempfile
 from dataclasses import replace
 from datetime import datetime
+from markupsafe import Markup
 from fastapi import Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pathlib import Path
@@ -14,6 +15,7 @@ from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
 from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.tortuga.schedule import FeedSchedule, ScheduleError, describe as describe_schedule, parse_times
 from scanner_opciones.ui.common import MAX_FORM_FIELDS, _grp, _load_groups, message_groups
+from scanner_opciones.ui.position_charts import ticker_chart, ticker_mini, windowed
 from scanner_opciones.ui.scanner_forms import SOLVENCY_UI, _fmt, _sector_of, quality_form, read_quality, solvency_controls
 from scanner_opciones.universe.descriptions import SourceInfo, describe, describe_manual
 from scanner_opciones.universe.hellostocks_html import HTML_SUFFIXES, missing_strategies
@@ -91,8 +93,12 @@ def register(app, service, render, recall, remembered) -> None:
                 else describe(current.name, current.criteria)
         identity_cols = {"company", "empresa", "sector"} | set(SYMBOL_HEADERS)   # van delante: no se repiten al final
         skip = {i for i, c in enumerate(table.columns) if _plain(c.name) in identity_cols} if table else set()
+        today, weeks_cfg = service.now().date(), service.settings.management.chart_weeks
+        key_of = lambda t: t.replace(" ", "-")                      # IBKR escribe la clase con espacio (BRK B); el histórico, con guion      # noqa: E731
+        closes = service.bars.all_closes({key_of(r.ticker) for r in rows})
+        minis = {r.ticker: ticker_mini(closes.get(key_of(r.ticker), []), today, weeks_cfg) for r in rows}
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message, groups=message_groups(message),
-                      ident=ident, skip=skip, wl_sync=wl_sync,
+                      minis=minis, ident=ident, skip=skip, wl_sync=wl_sync,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
                       all_count=len(member), manual=[(n, len(t)) for n, t in service.manual_sources.items()],
@@ -105,6 +111,14 @@ def register(app, service, render, recall, remembered) -> None:
                       solvency=solvency_controls(qcfg, form), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
                       quality_opts=dict(quarters=qcfg.positive_quarters_options,
                                         leverage=[_fmt(v) for v in qcfg.leverage_options]))
+
+    @app.get("/universe/chart", response_class=HTMLResponse)
+    async def universe_chart(ticker: str = ""):
+        """Gráfico ampliado de un ticker del Universo (ficha de la empresa y cierres diarios con ventanas), cargado al pulsar su miniatura."""
+        closes = sorted(service.bars.closes(ticker.replace(" ", "-")).items())
+        today, weeks_cfg = service.now().date(), service.settings.management.chart_weeks
+        earnings = service.next_earnings(ticker)
+        return HTMLResponse(str(Markup(service.company_card(ticker)) + windowed(lambda w, log: ticker_chart(closes, today, w, earnings, log), weeks_cfg)))
 
     @app.post("/universe/load")
     async def universe_load(files: list[UploadFile]):

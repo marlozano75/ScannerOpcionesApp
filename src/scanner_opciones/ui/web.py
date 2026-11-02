@@ -33,7 +33,7 @@ from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, u
 from scanner_opciones.portfolio import exits as exits_mod
 from scanner_opciones.portfolio.mgmt_profiles import MgmtProfile
 from scanner_opciones.portfolio.management import manage_puts
-from scanner_opciones.ui.position_charts import exit_plan, other_chart, other_mini, position_chart, position_mini
+from scanner_opciones.ui.position_charts import exit_plan, other_chart, other_mini, position_chart, position_mini, windowed
 from scanner_opciones.scanner.engine import ScanOutput
 from scanner_opciones.tortuga.radar import passes as radar_passes
 from scanner_opciones.tortuga.routines import ROUTINES
@@ -286,10 +286,10 @@ def create_app(
         mgmt_cfg, weeks_cfg = service.settings.management, service.settings.management.chart_weeks
         minis = {pkey(s): position_mini(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, weeks_cfg, s.underlying_price) for s in mgmt.puts}
         minis.update({x.key: other_mini(closes.get(key_of(x.ticker), []), x, today, weeks_cfg, x.underlying) for x in others})
-        pos_charts = [dict(ticker=s.ticker, chart=position_chart(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, weeks_cfg, s.underlying_price,
-                                                  service.next_earnings(s.ticker)),
+        pos_charts = [dict(ticker=s.ticker, chart=windowed(lambda w, log, s=s: position_chart(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, w, s.underlying_price,
+                                                                                         service.next_earnings(s.ticker), log), weeks_cfg),
                            company=Markup(service.company_card(s.ticker)), plans=[(s, exit_plan(s, mgmt_cfg, today))]) for s in mgmt.puts]
-        pos_charts += [dict(ticker=x.ticker, chart=other_chart(closes.get(key_of(x.ticker), []), x, today, weeks_cfg, x.underlying, service.next_earnings(x.ticker)),
+        pos_charts += [dict(ticker=x.ticker, chart=windowed(lambda w, log, x=x: other_chart(closes.get(key_of(x.ticker), []), x, today, w, x.underlying, service.next_earnings(x.ticker), log), weeks_cfg),
                             company=Markup(service.company_card(x.ticker)), plans=[]) for x in others]
         pc_index = {pkey(s): n for n, s in enumerate(mgmt.puts, 1)}
         pc_index.update({x.key: len(mgmt.puts) + n for n, x in enumerate(others, 1)})

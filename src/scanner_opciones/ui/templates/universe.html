@@ -237,6 +237,8 @@
 <form method="post" class="card" id="rk-apply">
   <h2>{{ rows|length }} acciones{% if rows|length != total_rows %} <span class="muted">de {{ total_rows }}</span>{% endif %} <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
   {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
+  <p style="margin:0 0 6px"><input type="search" id="tk-filter" placeholder="Filtrar por ticker (AAPL, MS…)" autocomplete="off" aria-label="Filtrar la tabla por nombre de ticker" style="width:240px">
+    <span class="muted" id="tk-filter-info"></span></p>
   <p class="muted" style="margin:0">La Watchlist sigue sola a las fuentes del Universo (resumen arriba la primera vez). Marca los tickers para quitarlos de la fuente.</p>
   {% if src %}
   <p>
@@ -258,12 +260,13 @@
   {% endif %}
   {% endif %}
   <div class="scroll"><table class="sortable sticky-tk with-sel" id="universe-table">
-    <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th class="tk">Ticker</th><th>En watchlist</th><th class="txt">Fuentes (nº)</th><th class="txt">Empresa</th><th class="txt">Sector</th>
+    <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th class="tk">Ticker</th><th data-nosort style="text-align:center" title="Pulsa la miniatura para ampliar el gráfico">Gráfico</th><th>En watchlist</th><th class="txt">Fuentes (nº)</th><th class="txt">Empresa</th><th class="txt">Sector</th>
       <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th><th>Deuda/Patr.</th><th>Cobertura int.</th><th>Efectivo/Deuda CP</th><th>Flujo op./Deuda</th><th>CapEx/Flujo op.</th><th>FCF/Activos</th><th>Recompra neta</th><th>ROIC</th><th>Años con pérdidas</th><th>Caídas de ingresos</th><th>Volatilidad beneficios</th>
       {% for col in table.columns %}{% if loop.index0 not in skip %}<th{{ ' class="txt"' if col.kind != 'number' }}>{{ col.name }}</th>{% endif %}{% endfor %}</tr>
     {% for row in rows %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ row.ticker }}" checked></td>
-        <td class="tk"><b>{{ row.ticker }}</b></td>
+        <td class="tk"><b title="{{ tk_title(company_names, row.ticker) }}">{{ row.ticker }}</b>{{ sec_flag(sec_alerts, row.ticker) }}{{ analyst_flag(analyst_alerts, row.ticker) }}</td>
+        <td class="pos-cell">{% if minis.get(row.ticker) %}<a href="#" class="pos-mini" data-ut="{{ row.ticker }}" aria-label="Ampliar el gráfico de {{ row.ticker }}">{{ minis[row.ticker] }}</a>{% else %}<span class="muted" title="Sin cierres diarios guardados de este ticker">—</span>{% endif %}</td>
         <td>{{ '✓' if row.ticker in in_watchlist else '—' }}</td>
         <td class="txt">{{ member.get(row.ticker, '') }}</td>
         {%- set who = ident.get(row.ticker, ('', '')) %}
@@ -288,22 +291,93 @@
           {% if cell.value is not none %}<td data-sort="{{ cell.value }}">{{ cell.text }}</td>
           {% else %}<td{{ ' class="txt"' if table.columns[loop.index0].kind != 'number' }}>{{ cell.text }}</td>{% endif %}
         {% endif %}{% endfor %}</tr>
-    {% else %}<tr><td colspan="{{ table.columns|length - skip|length + 24 }}" class="muted">Sin filas.</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="{{ table.columns|length - skip|length + 25 }}" class="muted">Sin filas.</td></tr>{% endfor %}
   </table></div>
 </form>
   </section>
 </div>
+<div id="uni-overlay" hidden data-soft-keep>
+  <div class="pos-box" role="dialog" aria-modal="true" aria-labelledby="uni-title">
+    <div class="pos-head"><h2 id="uni-title"></h2><button type="button" id="uni-close" aria-label="Cerrar">×</button></div>
+    <div id="uni-body"></div>
+  </div>
+</div>
+<style>
+  td.pos-cell { text-align:center; padding-top:2px; padding-bottom:2px; }
+  a.pos-mini { display:inline-block; vertical-align:middle; line-height:0; border:1px solid var(--line); border-radius:6px; background:var(--panel); }
+  a.pos-mini:hover { border-color:var(--accent); }
+  #uni-overlay { position:fixed; inset:0; z-index:40; background:rgba(31,45,74,.45); display:flex; align-items:center; justify-content:center; padding:16px; }
+  #uni-overlay[hidden] { display:none; }
+  #uni-overlay .pos-box { background:var(--panel); color:var(--ink); border:1px solid var(--line-strong); border-radius:14px; padding:14px 18px 16px; width:min(760px, 96vw); max-height:92vh; overflow:auto; }
+  #uni-overlay .pos-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  #uni-overlay .pos-head h2 { margin:0; }
+  #uni-overlay .pos-head button { font-size:22px; line-height:1; padding:2px 10px; background:transparent; color:var(--mute); border:0; cursor:pointer; }
+  .pcw-bar { display:flex; gap:6px; margin:0 0 6px; }
+  .pcw-btn, .pcw-log { font-size:12px; padding:2px 10px; border:1px solid var(--line-strong); border-radius:999px; background:var(--panel); color:var(--mute); cursor:pointer; }
+  .pcw-log { margin-left:auto; }
+  .pcw-btn.on, .pcw-log.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+</style>
+<script>
+(function () {
+  function close() { document.getElementById('uni-overlay').hidden = true; document.getElementById('uni-body').textContent = ''; }
+  document.addEventListener('click', function (e) {
+    var overlay = document.getElementById('uni-overlay'); if (!overlay) return;
+    var body = document.getElementById('uni-body'), a = e.target.closest && e.target.closest('a.pos-mini[data-ut]');
+    if (a) {
+      e.preventDefault();
+      var t = a.getAttribute('data-ut');
+      document.getElementById('uni-title').textContent = t;
+      body.textContent = 'Cargando…';
+      overlay.hidden = false;
+      fetch('/universe/chart?ticker=' + encodeURIComponent(t))
+        .then(function (res) { return res.text(); })
+        .then(function (html) { if (!overlay.hidden) body.innerHTML = html; })
+        .catch(function () { body.textContent = 'No se pudo cargar el gráfico.'; });
+      return;
+    }
+    var wb = e.target.closest && e.target.closest('#uni-overlay .pcw-btn, #uni-overlay .pcw-log');
+    if (wb) {
+      var box = wb.closest('.pcw');
+      if (wb.classList.contains('pcw-log')) wb.classList.toggle('on');
+      else box.querySelectorAll('.pcw-btn').forEach(function (b) { b.classList.toggle('on', b === wb); });
+      var lg = box.querySelector('.pcw-log'), on = lg.classList.contains('on'), w = box.querySelector('.pcw-btn.on').getAttribute('data-w');
+      lg.setAttribute('aria-pressed', on ? 'true' : 'false');
+      box.querySelectorAll('.pcw-view').forEach(function (v) { v.hidden = v.getAttribute('data-w') !== w || (v.getAttribute('data-log') === '1') !== on; });
+      return;
+    }
+    if (e.target === overlay || (e.target.closest && e.target.closest('#uni-close'))) close();
+  });
+  document.addEventListener('keydown', function (e) { var o = document.getElementById('uni-overlay'); if (o && e.key === 'Escape' && !o.hidden) close(); });
+})();
+</script>
 <script>
   (function () {
     var boxes = function () { return document.querySelectorAll('#rk-apply input[name=sel]'); };
+    var visible = function () { return Array.prototype.filter.call(boxes(), function (b) { return b.closest('tr').style.display !== 'none'; }); };
     var count = document.getElementById('rk-count'), all = document.getElementById('rk-all');
+    var filter = document.getElementById('tk-filter'), info = document.getElementById('tk-filter-info');
     function update() {
-      var n = 0; boxes().forEach(function (b) { if (b.checked) n++; });
+      var vis = visible(), n = vis.filter(function (b) { return b.checked; }).length;
       count.textContent = n;
-      all.checked = n === boxes().length && n > 0;
+      all.checked = n === vis.length && n > 0;
     }
-    all.addEventListener('change', function () { boxes().forEach(function (b) { b.checked = all.checked; }); update(); });
+    all.addEventListener('change', function () { visible().forEach(function (b) { b.checked = all.checked; }); update(); });
     boxes().forEach(function (b) { b.addEventListener('change', update); });
+    function applyFilter() {   // varios términos separados por coma o espacio; coincide con parte del ticker
+      var terms = filter.value.toUpperCase().split(/[\s,;]+/).filter(Boolean), shown = 0;
+      boxes().forEach(function (b) {
+        var ok = !terms.length || terms.some(function (t) { return b.value.toUpperCase().indexOf(t) !== -1; });
+        b.closest('tr').style.display = ok ? '' : 'none';
+        if (ok) shown++;
+      });
+      info.textContent = terms.length ? shown + ' de ' + boxes().length + ' tickers' : '';
+      update();
+    }
+    filter.addEventListener('input', applyFilter);
+    document.getElementById('rk-apply').addEventListener('submit', function () {   // lo oculto por el filtro no se quita
+      boxes().forEach(function (b) { if (b.closest('tr').style.display === 'none') b.disabled = true; });
+    });
+    window.addEventListener('pageshow', function () { boxes().forEach(function (b) { b.disabled = false; }); if (filter.value) applyFilter(); });
   })();
 </script>
 {% endif %}
