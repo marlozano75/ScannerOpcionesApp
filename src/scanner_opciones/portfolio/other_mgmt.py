@@ -124,13 +124,19 @@ def _debit_capture(op: OtherPosition) -> Optional[float]:
 def _credit_alerts(op: OtherPosition, r: ExitRules, cfg: ManagementSettings, today: date, zone: str, delta: Optional[float]) -> list[Alert]:
     out: list[Alert] = []
     cap, dte, price = op.captured_pct, op.dte if op.dte is not None else 9999, op.underlying
-    if r.take_profit_pct is not None and cap is not None and cap >= r.take_profit_pct:
+    risk = op.width - op.entry if op.width is not None and op.entry is not None else None
+    roi = (op.entry - op.current) / risk * 100 if risk and risk > 0 and op.current is not None else None    # sobre el riesgo (ancho − crédito)
+    if r.risk_take_profit_pct is not None and roi is not None and roi >= r.risk_take_profit_pct:
+        out.append(Alert("ok", f"Recoger beneficios: {roi:.0f} % del riesgo ganado (objetivo {r.risk_take_profit_pct:g} %)."))
+    elif r.take_profit_pct is not None and cap is not None and cap >= r.take_profit_pct:
         rango = f"{r.take_profit_pct:g}–{r.take_profit_max_pct:g} %" if r.take_profit_max_pct else f"{r.take_profit_pct:g} %"
         out.append(Alert("ok", f"Recoger beneficios: {cap:.0f} % de la prima ganada (objetivo {rango})."))
     elif r.review_dte is not None and 0 <= dte <= r.review_dte:
         goal = f" y no se ha llegado al {r.take_profit_pct:g} %" if r.take_profit_pct is not None else ""
         got = "sin dato de la prima" if cap is None else f"{cap:.0f} % de la prima ganada"
         out.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {r.review_dte}){goal} ({got}). Cerrarla o rolarla a un vencimiento posterior cobrando crédito."))
+    if r.risk_stop_pct is not None and roi is not None and roi <= -r.risk_stop_pct:
+        out.append(Alert("warn", f"Stop: pierde un {-roi:.0f} % del riesgo (límite {r.risk_stop_pct:g} %). Valora cerrar."))
     shorts = [l for l in op.legs if l[1]]
     longs = [l for l in op.legs if not l[1]]
     if r.stop_multiple is not None and op.entry and op.current is not None and op.current >= r.stop_multiple * op.entry:
@@ -158,6 +164,8 @@ def _long_alerts(op: OtherPosition, r: ExitRules, today: date, gain: Optional[fl
     if target is not None and gain is not None and gain >= target:
         base = "del beneficio máximo" if debit_spread else "sobre lo pagado"
         out.append(Alert("ok", f"Recoger beneficios: {gain:.0f} % {base} (objetivo {target:g} %)."))
+    elif debit_spread and r.debit_gain_pct is not None and pnl_pct is not None and pnl_pct >= r.debit_gain_pct:
+        out.append(Alert("ok", f"Recoger beneficios: {pnl_pct:.0f} % sobre lo pagado (objetivo {r.debit_gain_pct:g} %)."))
     elif r.long_review_dte is not None and 0 <= dte <= r.long_review_dte:
         out.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {r.long_review_dte}) y no se ha llegado al objetivo: el valor temporal se evapora. Cerrarla o rolarla."))
     if r.long_stop_pct is not None and pnl_pct is not None and pnl_pct <= -r.long_stop_pct:

@@ -1,0 +1,219 @@
+A continuación se presenta el detalle explicativo y los ejemplos reales documentados en los boletines sobre **Put Credit Spreads "In the Money" (ITM)** y **Call Debit Spreads (CDS) muy fuera del dinero (OTM)**.
+
+---
+
+## 1. Put Credit Spread "In the Money" (ITM)
+
+### ¿En qué consiste y cuál es su mecánica?
+Un **Put Credit Spread** tradicional coloca ambos strikes por debajo del precio actual del activo (Out of the Money - OTM). Sin embargo, la versión no convencional descrita en las fuentes consiste en situar **ambos strikes (o al menos el de la Put vendida) por encima del precio actual del subyacente (ITM)**.
+
+La estructura mantiene la norma de los spreads de crédito: **se vende la Put de strike superior y se compra la Put de strike inferior**.
+
+### Razones y ventajas de usar la versión ITM
+1. **Prima cobrada sensiblemente mayor:** Al estar metidos en el dinero, el contrato que se vende acumula mucho valor intrínseco, lo que permite ingresar una prima inicial muy elevada.
+2. **Riesgo máximo real muy reducido:** Dado que la pérdida máxima teórica es la diferencia entre strikes menos el crédito cobrado, al ingresar una prima alta el capital real en riesgo disminuye drásticamente.
+3. **Reacción rápida y cierre anticipado:** La estrategia no busca esperar al vencimiento. Ante un ligero movimiento alcista del activo, la prima cobrada cae rápido, permitiendo recomprar el spread con beneficio en pocos días y liberar capital.
+4. **Desventaja o inconveniente:** Requiere que el activo suba a favor, ya que ofrece menos "colchón" de caída en comparación con un spread OTM.
+
+---
+
+### Ejemplos reales de Put Credit Spread ITM
+
+* **Apple (AAPL):**
+  * *Entorno:* Cotizando a 255 \$ el 16 de enero.
+  * *Estructura:* Venta de Put strike 290 \$ y compra de Put strike 285 \$ (vencimiento 17 de abril).
+  * *Números:* Crédito cobrado: 426 \\(. Diferencia de strikes: 500 \\). Riesgo máximo real: **74 \$** (500 \$ − 426 \$).
+  * *Resultado:* El 4 de febrero, con Apple en 275 \$, se cerró la posición pagando 317 \$, asegurando un **beneficio neto de 109 \$** arriesgando únicamente 74 \$ iniciales.
+
+* **Amazon (AMZN):**
+  * *Ejemplo 1:* Con la acción a 214 \$ el 1 de agosto, se vendió la Put 217,5 \$ (por 635 \$) y se compró la Put 215 \$ (por 505 \$) con vencimiento 15 de agosto. Se ingresaron 130 \$ netos para un riesgo máximo de 120 \$. Se cerró 3 días después pagando 85 \$, logrando **45 \$ de beneficio neto**.
+  * *Ejemplo 2:* Cotizando a 198 \$ el 13 de febrero, se vendió la Put 230 \$ y se compró la Put 225 \$. Con un riesgo máximo de solo 63 \$, se cerró el 25 de febrero con la acción a 210 \$ pagando 381,10 \$, obteniendo **55,80 \$ de beneficio**.
+
+* **Costco (COST):**
+  * *Entorno:* Cotizando a 870 \$ el 10 de diciembre.
+  * *Estructura:* Venta de Put strike 910 \$ (por 46,91 \$) y compra de Put strike 905 \$ (por 43,45 \$) con vencimiento 16 de enero.
+  * *Números:* Crédito inicial: 346 \$ (3,46 \$ por acción). Riesgo máximo real: **154 \$** (500 \$ − 346 \$).
+  * *Resultado:* El 8 de enero se cerró la posición pagando 109 \$, obteniendo un **beneficio neto de 237 \$**.
+
+* **Celsius (CELH):**
+  * *Entorno:* Cotizando a 44 \$ el 16 de marzo.
+  * *Estructura:* Venta de Put 47,50 \$ (por 470 \$) y compra de Put 45 \$ (por 315 \\() con vencimiento 17 de abril. Prima neta: 152,90 \\); riesgo máximo: 97,10 \$.
+  * *Gestión:* La acción cayó a 34 \$ y fue asignada a 47,50 \$. Posteriormente se aplicó la gestión vendiendo una Call de strike 30 \$, acumulando un total de 1.763,47 \$ en primas cobradas frente a los 1.750 \$ de caída en las acciones, transformando la asignación en una **operación ganadora**.
+
+* **UiPath (PATH):**
+  * *Entorno:* Cotizando a 12 \$ el 23 de marzo.
+  * *Estructura:* Venta de Put 14 \$ (por 242 \$) y compra de Put 13 \$ (por 170 \$) con vencimiento 15 de mayo. Crédito neto: 69,90 \$; riesgo máximo: 30,10 \$.
+  * *Gestión:* Tras la asignación de las acciones a 14 \$, se ejecutó la estrategia "MTO Wheel Spread" vendiendo Calls sucesivas. Se acumularon 446,49 \$ en primas totales, reduciendo el precio de compra efectivo a 9,53 \$ y cerrando la estrategia completa con **224,72 \$ de beneficio final**.
+
+* **Tesla 2x (TSLL):**
+  * *Entorno:* Cotizando a 14,50 \$ el 1 de julio (abierta el 23 de junio).
+  * *Estructura:* Venta de 5 Puts strike 14 \$ (a 290 \$/cu) y compra de 5 Puts strike 13 \$ (a 232 \$/cu) con vencimiento 21 de agosto.
+  * *Números:* Crédito cobrado: 58 \$ por contrato; riesgo máximo: **42 \$ por contrato**.
+  * *Resultado:* Se cerró el 1 de julio pagando 44 \$ por contrato, capturando el beneficio de forma anticipada.
+
+---
+
+## 2. Call Debit Spreads (CDS) Muy Fuera del Dinero (OTM) ("Billetes de Lotería")
+
+### ¿En qué consiste y cuál es su mecánica?
+Un **Call Debit Spread** (o Bull Call Spread) se compone mediante la **compra de una Call con strike más bajo y la venta simultánea de una Call con strike más alto** del mismo vencimiento. 
+
+Cuando se configura **muy Out of the Money (OTM)**, ambos precios de ejercicio se eligen **muy por encima de la cotización actual del activo**.
+
+### Razones y ventajas de usar esta versión OTM
+1. **Riesgo estrictamente acotado (débito bajo):** La pérdida máxima posible equivale exactamente a la prima neta pagada al abrir la posición (el 100 % del débito).
+2. **Asimetría riesgo/beneficio:** Al costar muy poco capital de entrada, si el subyacente experimenta un fuerte movimiento alcista, el potencial de revalorización es varias veces superior al débito invertido.
+3. **Uso de vencimientos largos (1 a 2 años / LEAPs):** Se emplean vencimientos lejanos para evitar que la erosión temporal (*theta*) desgaste la posición rápidamente, dándole tiempo al movimiento.
+4. **Regla de salida anticipada:** No se espera a que la opción llegue a vencimiento ni a alcanzar el strike superior; en cuanto se produce un impulso alcista del subyacente que revalorice el spread, se cierra la posición para materializar la ganancia.
+
+---
+
+### Ejemplos reales de Call Debit Spread OTM
+
+* **Reddit (RDDT):**
+  * *Entorno:* Cotizando a 141 \$ el 31 de julio.
+  * *Estructura:* Compra de Call strike 300 \$ y venta de Call strike 360 \$ (vencimiento 17 de junio de 2027, con strikes a más del doble del precio de mercado).
+  * *Débito pagado (Riesgo máximo):* **339,39 \$**. (Ganancia máxima teórica: 5.660,61 \$).
+  * *Serie de resultados en el mismo activo:*
+    1. *Operación 1 (31/07 al 14/08):* RDDT subió a 180 \$, se cerró por 641,58 \$, dejando **302,19 \$ de beneficio neto** en 15 días (+90 % de rentabilidad sobre capital).
+    2. *Operación 2 (20/08 al 25/08):* RDDT a 149 \$, débito de 327,09 \$, cerrada a 162 \$ por 429,60 \$, ganando **102,50 \$** en 5 días.
+    3. *Operación 3 (31/08 al 03/09):* RDDT a 150 \$, débito de 307,39 \$, cerrada a 162 \$ por 395,60 \$, ganando **88,21 \$** en 3 días.
+    4. *Operación 4 (09/09 al 10/09):* RDDT a 145 \$, débito de 301,09 \$, cerrada a 154 \$ por 370,88 \$, ganando **69,79 \$** en 1 día.
+
+* **EOS Energy (EOSE):**
+  * *Operación de referencia ("Billete de Lotería"):* Con la acción cotizando por debajo de 7 \$, se compraron 5 Calls strike 11 \$ y se vendieron 5 Calls strike 12,5 \$ (vencimiento 16 de enero de 2026).
+  * *Números:* Débito total pagado (Riesgo máximo): **80 \$**. Ganancia máxima potencial: 670 \$.
+  * *Resultado:* El 8 de octubre, con EOSE cotizando sobre los 15 \$, la posición se cerró obteniendo un **beneficio superior al +400 %** sobre el débito inicial.
+  * *Segunda operación en EOSE (13/11):* Compra Call 17 \$ (por 237 \$) y venta Call 20 \$ (por 158 \$) con vencimiento 16/01/26; riesgo máximo: 79 \$.
+
+* **Microsoft (MSFT):**
+  * *Entorno:* Cotizando entre 370 \$ y 390 \$ el 9 de abril.
+  * *Estructura:* Compra de Call 550 \$ (por 591 \$) y venta de Call 600 \$ (por 331 \$) con vencimiento 19 de marzo de 2027.
+  * *Débito pagado (Riesgo máximo):* **260 \$** (261,4 \$ con comisiones). Ganancia máxima teórica: 4.738,60 \$.
+  * *Resultado:* El 30 de julio (casi 4 meses después), con Microsoft cotizando cerca de 450 \$, se cerró la posición recibiendo 751 \$, asegurando un **beneficio neto de 488,17 \$**.
+
+* **Adobe (ADBE):**
+  * *Entorno:* Cotizando a 233 \$ el 10 de junio.
+  * *Estructura:* Compra de Call strike 350 \$ (por 952 \$) y venta de Call strike 420 \$ (por 450 \$) con vencimiento 15 de enero de 2027.
+  * *Débito pagado (Riesgo máximo):* **500 \$**.
+  * *Resultado:* El 29 de julio (mes y medio después), se cerró la posición recibiendo 729 \$, generando un **beneficio neto de 223,48 \$**.
+
+* **AST SpaceMobile (ASTS):**
+  * *Entorno:* Posición especulativa abierta el 13 de agosto en un activo de alta volatilidad.
+  * *Estructura:* Compra de Call 125 \$ y venta de Call 175 \$ con vencimiento 15 de enero de 2027 por un débito de 318,38 \$.
+  * *Gestión:* La cotización cayó significativamente. Se gestionó cerrando la Call vendida para asegurar esa ganancia parcial y mantener la Call 125 comprada a la espera de un posible rebote.
+
+----
+
+La gestión del riesgo y la ejecución de ajustes cuando una posición evoluciona en contra constituyen el núcleo operativo de los boletines. A continuación se analiza detalladamente el marco sistemático y las reglas de salida que aplica el autor:
+
+---
+
+### 1. Principios de Gestión del Riesgo y Reglas de Salida
+
+* **Planificación previa desde la apertura:** La gestión del riesgo comienza en el momento exacto en que se entra al mercado, definiendo de antemano el plan de salida ante cualquier escenario. Mantener un tamaño de posición controlado es la única vía para garantizar la supervivencia del capital a largo plazo.
+* **No llevar las operaciones a vencimiento:** El autor recalca que esperar sistemáticamente al día de expiración es un error habitual. Muchas posiciones ganadoras pueden darse la vuelta en los últimos días. Se recomienda cerrar de forma anticipada tan pronto como se capture un porcentaje suficiente del beneficio (habitualmente entre el 50% y el 60% de la prima o al producirse un impulso favorable) para asegurar ganancias y liberar capital.
+* **Control mediante Delta y distancia al strike:** Cuando una operación va en contra, se deben tomar decisiones antes de que las opciones se metan demasiado *In the Money* (ITM). Si la Delta se aproxima a 1,00, el coste de cerrar la posición aumenta drásticamente y realizar un *roll over* ventajoso resulta prácticamente imposible.
+* **Rechazo al autoengaño ("La esperanza no es gestión"):** Perder en operaciones individuales está permitido, pero arruinar la cuenta no. Si un ajuste no logra reducir el riesgo máximo ni mejorar el punto de equilibrio (*break-even*) sin aumentar la exposición, la decisión correcta es asumir la pérdida y pasar a la siguiente jugada.
+
+---
+
+### 2. Reglas de Ajuste cuando la Operación va en Contra
+
+#### A. Roll Overs a Crédito (Extensión de plazo y ajuste de strikes)
+Cuando un spread de crédito se ve amenazado, la técnica básica consiste en cerrar la estructura actual y abrir una nueva en un vencimiento posterior (*rolling out*), habitualmente alejando o bajando el strike vendido (*rolling down*) o ampliando la anchura entre strikes.
+* **Regla imprescindible:** El ajuste debe ejecutarse de forma que la combinación de operaciones genere un **crédito adicional neto**, evitando ingresar dinero fresco en la posición para ir reduciendo el punto de equilibrio.
+
+* **Ejemplo real de ajuste en Put Credit Spread (MGM):**
+  * *Entrada:* PCS 35/34 abierto cobrando 48 \$ de crédito inicial.
+  * *Problema:* El precio de MGM cayó amenazando el spread.
+  * *Ajuste:* Se cerró el spread pagando 104 \$ de débito (pérdida temporal de 56 \$) y se abrió inmediatamente un nuevo spread 34/32 (bajando el strike a 34 y ampliando la anchura a 2 puntos) a un vencimiento más lejano, cobrando 129 \$ de crédito.
+  * *Resultado:* Crédito total acumulado de 73 \$ (48 \$ − 104 \$ + 129 \$) y un riesgo máximo recalibrado a 127 \$ (200 \$ − 73 \$) con un strike vendido más holgado.
+
+* **Ejemplo real de reestructuración con Doble Spread (SNAP):**
+  * *Entrada:* Venta de Put strike 7 cobrando 42 \$ de prima.
+  * *Problema:* El activo cayó a 6 \$ previo a la presentación de resultados (*earnings*). Un *roll* simple de 1 Put daba solo 6 \$ de crédito extra, manteniendo un riesgo de 652 \$.
+  * *Ajuste:* Se cerró la Put 7 original y se abrieron **dos Put Credit Spreads 7/6** a un vencimiento posterior, cobrando un crédito adicional de 15 \$.
+  * *Resultado:* Se transformó una venta descubierta de alto riesgo en dos spreads limitados con un riesgo máximo total de solo 143 \$ sin aportar capital adicional.
+
+#### B. Conversión en Iron Condor o Iron Butterfly
+* Ante un Put Credit Spread amenazado por una caída del activo, se puede vender un Call Credit Spread en el lado superior con el mismo vencimiento.
+* Esta acción neutraliza la Delta global y aporta un crédito extra que reduce la pérdida máxima de la posición sin incrementar el riesgo total, siempre que ambos spreads tengan la misma anchura. Si el precio ha caído con mucha fuerza, se puede centrar el nuevo spread en el mismo strike vendido (Iron Butterfly) para maximizar el crédito recibido.
+
+---
+
+### 3. Gestión de Asignaciones: La Estrategia "MTO Wheel Spread"
+
+Cuando se opera un Put Credit Spread ITM y la cotización no remonta, puede producirse la asignación de las 100 acciones asociadas a la Put vendida. En lugar de asumir la pérdida del spread, se activa la estrategia **MTO Wheel Spread**:
+
+1. **Recepción de acciones y ejecución de protecciones:** Se adquieren las 100 acciones al precio del strike vendido y se liquida o ejerce la Put comprada si procede.
+2. **Venta continuada de Covered Calls:** Se comienzan a vender opciones Call cubiertas sobre las acciones asignadas ciclo tras ciclo.
+3. **Reducción del coste efectivo:** Todas las primas acumuladas (crédito del spread inicial + prima de la Put comprada vendida + primas de las Covered Calls) se restan del precio de asignación.
+
+* **Ejemplo real (PATH):** 
+  * Tras abrir un PCS ITM 14/13, las acciones cayeron y fueron asignadas a 14 \$. 
+  * Se cobraron 69,90 \$ del spread inicial y 376,59 \$ netos vendiendo la Put de cobertura y Calls cubiertas sucesivas (446,49 \$ en primas totales). 
+  * Esto redujo el precio de compra efectivo a 9,53 \$ por acción, permitiendo cerrar toda la estrategia con **224,72 \$ de beneficio final**.
+
+---
+
+### 4. Ajustes en Call Debit Spreads (CDS) en Contra
+
+Si un Call Debit Spread OTM o ITM no reacciona al alza como se esperaba:
+* **Cierre parcial de la pierna corta:** Si el activo cae, la Call vendida pierde valor rápidamente. Se recompra esa opción por muy poco dinero para asegurar esa ganancia parcial y se reestructura la posición o se vende una nueva Call en un strike/vencimiento distinto.
+* **Venta periódica de Calls de corto plazo:** Se venden Calls a vencimientos más cercanos contra la Call larga comprada para ir ingresando créditos que financien el débito pagado al inicio.
+
+---
+
+🔍 ¿Te gustaría que hagamos una simulación numérica paso a paso sobre cómo se calcula el punto de equilibrio (*break-even*) al aplicar la Rueda MTO en un caso de asignación?
+
+
+
+
+---
+
+
+CMG Put Credit Spread 32/34 18/12/2026
+Empresa de calidad. Si la cotización evoluciona a nuestro favor cerraremos la operación antes con beneficios.
+Si se pone en contra, la idea original es aplicar la estrategia que hemos realizado tantas veces: vender la put comprada y quedarnos con las acciones. Esto nos garantiza un precio de adquisición muy cercano al de cotización, por mucho que baje la acción.
+El riesgo en sí de la operación es bajo: $87,39 por contrato. Si se acepta esa posible pérdida la operación se podría realizar perfectamente en la cuenta de 10K. Prefiero hacerla en la de 50K por la posibilidad de que  nos quedemos con las acciones.
+Hacemos dos contratos.
+
+ASTS CDS 125/175  15/01/2027
+Cerramos la pata de la call vendida. En esta parte materializamos un beneficio, pero hay que ver al final el global de la operación.
+Incrementamos la pérdida máxima en estos 12,69 $ que hemos pagado para cerrarla.
+
+PFE CDS 26/27 18/06/2026
+Empezamos la operación con un put credit spread. Ver en Cuenta 50K
+Nos asignaron dos put vendidas con strike 27 y cerramos otras dos put compradas con strike 26. Después vendimos dos call a 28 que nos acaban de ejercer, así que hemos vendido las 200 acciones a 28 $.
+En total hemos cobrado 241,38 $ en primas y, además, el 1 de septiembre cobramos 86 $ de dividendo.
+Como compramos a 27 y hemos vendido a 28 añadimos 200 $ de beneficio.
+Por lo tanto, el beneficio final de toda la operación ha sido:
+
+DAL CDS 110/140 21/01/2028
+Buena empresa por fundamentales y con tendencia alcista de largo plazo.
+Después del último retroceso está recuperando la media móvil de 200 sesiones en gráfico diario, un nivel importante que puede volver a actuar como soporte.
+La idea es aprovechar esta corrección para entrar a un precio más atractivo, buscando que la tendencia alcista de fondo continúe.
+
+
+BAC CDS 55/75 15/12/2028
+Banco de gran calidad que venía de una buena tendencia alcista y que ha tenido una corrección importante. Creemos que puede ser un buen momento para buscar una recuperación.
+Damos a la operación más de dos años de plazo, aunque esto no quiere decir que nuestra intención sea mantenerla hasta el vencimiento. Si la cotización se recupera y conseguimos un beneficio que consideremos aceptable, cerraremos antes y recogeremos ganancias.
+El riesgo máximo de la operación está limitado desde el principio a la prima que hemos pagado.
+
+
+META CDS 920/1000 21/01/2028
+META me sigue pareciendo una empresa excelente y hemos aprovechado el retroceso de las últimas jornadas para abrir un Call Debit Spread.
+Como siempre en estas operaciones la idea no es llegar al vencimiento. Buscamos que la cotización rebote y, si conseguimos un beneficio interesante, cerrar antes.
+Me gusta aprovechar este tipo de correcciones en buenas empresas para buscar el movimiento de vuelta al alza. Tenemos claro desde el principio el riesgo: como máximo podemos perder la prima pagada.
+
+
+RDDT CDS 320/380  21/01/2028
+Cerramos la call vendida y nos quedamos con la comprada. Materializamos $367,52 de beneficio en esta pata, lógicamente la que dejamos abierta está en pérdidas, pero tenemos hasta junio del 27. Si remonta no tenemos tope por arriba. Aumentamos el riesgo en esos $39,78 que hemos pagado para cerrarla.
+
+ENPH CDS 60/80 15/01/2027
+¿Por qué en esto casos cerramos la call vendida?
+Si la acción cae las dos calls pierden valor. En la call vendida esto nos beneficia, porque podemos recomprarla mucho más barata de lo que la vendimos y cerrar esa parte de la operación con beneficio.
+Una vez cerrada nos quedamos solo con la call comprada. Si seguimos confiando en que la acción puede recuperarse, esta call queda libre para aprovechar mejor una posible subida, ya que no tenemos la call vendida limitando las ganancias.
+Por eso suele tener sentido hacerlo cuando la call vendida ya ha perdido buena parte de su valor, cuesta poco recomprarla y seguimos teniendo una visión alcista sobre la acción.
+

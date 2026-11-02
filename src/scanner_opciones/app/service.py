@@ -44,7 +44,8 @@ from scanner_opciones.feeds.community import CommunityFeed
 from scanner_opciones.feeds.marketradar import MarketRadarFeed
 from scanner_opciones.community.fit import profile_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
-from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
+from scanner_opciones.portfolio import flex as flex_mod
+from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker, parse_openings
 from scanner_opciones.portfolio.classify import classify_dte
 from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry, recognize_shown, source_note
 from scanner_opciones.portfolio import exits as exits_mod
@@ -104,6 +105,7 @@ LAST_FULL_REFRESH = "last_full_refresh_at"  # clave de `meta`: último refresco 
 EXCLUDED = "watchlist_excluded"   # meta antigua (lista permanente de excluidos): ya no se usa, se vacía al arrancar
 MIG_NO_FALLBACK = "mig_no_fallback_profile"   # clave de `meta`: el perfil de recambio ya se convirtió en la etiqueta «Sin perfil»
 MIG_TASTYPUT_TPC = "mig_tastyput_tpc"   # clave de `meta`: ya se pasó TastyPut a la gestión TPC
+MIG_MTO_EXITS = "mig_mto_exits"   # clave de `meta`: ya se aplicaron al perfil MTO guardado las salidas de docs/mto-spreads.md
 MIG_MGMT_PROFILES = "mig_mgmt_profiles"   # clave de `meta`: ya se sembraron los perfiles de gestión y «Sin perfil» pasó a MTO
 VIX_CACHE = "vix_cache"   # clave de `meta`: último VIX leído (ver `app/vix_cache.py`)
 PORTFOLIO_CACHE = "portfolio_cache"   # clave de `meta`: última cuenta y posiciones de TWS (se muestran sin conexión)
@@ -262,6 +264,9 @@ class AppService:
         self._scan_memo: dict[tuple, tuple[float, object]] = {}
         self._openings: Optional[tuple[float, OpeningsData]] = None
         self._openings_error: Optional[str] = None
+        self._flex_openings: Optional[tuple[float, OpeningsData]] = None
+        self._merged_openings: Optional[tuple[tuple, Optional[OpeningsData]]] = None
+        self._flex_error: Optional[str] = None
         self.profile_criteria_provider: Optional[Callable[[], list[tuple]]] = None   # lo pone la interfaz web: filtros grabados en cada perfil
         self.profile_provider: Optional[Callable[[], tuple[list[ScannerProfile], str]]] = None   # lo pone la interfaz web (perfiles guardados o derivados)
         self._yaml_scanner = (settings.scanner.presets, settings.scanner.strategy, settings.scanner.spreads)   # los de config.yaml, para restaurarlos
@@ -953,6 +958,7 @@ class AppService:
         self.split_dual_profiles()
         self.tastyput_to_tpc()
         self.seed_management_profiles()
+        self.apply_mto_exits()
         self._starting = True
         try:
             connected = await self._connect()
@@ -1565,6 +1571,18 @@ class AppService:
             self.meta.set(MGMT_PROFILES, mgmt_mod.dump(mgmt_mod.seed(self.community_feed.name, self.radar_feed.name)))
         self.rename_profile_refs({UNASSIGNED: self._mgmt_catchall()})
         log.info("Perfiles de gestión sembrados; «%s» pasa a «%s»", UNASSIGNED, self._mgmt_catchall())
+        return True
+
+    def apply_mto_exits(self) -> bool:
+        """Migración única: el MTO ya guardado (sin cambios sobre TPC) recibe las salidas de `mgmt_mod.MTO_EXITS`; si el usuario ya las editó, no se toca."""
+        if self.meta.get(MIG_MTO_EXITS):
+            return False
+        self.meta.set(MIG_MTO_EXITS, "1")
+        profiles = self.management_profiles()
+        out = [replace(p, exits=dict(mgmt_mod.MTO_EXITS)) if p.catchall and not p.exits else p for p in profiles]
+        if out == profiles:
+            return False
+        self.meta.set(MGMT_PROFILES, mgmt_mod.dump(out))
         return True
 
     def drop_fallback_profile(self) -> bool:
@@ -2699,6 +2717,66 @@ class AppService:
         self.meta.set(PUT_PROFILES, json.dumps(data))
 
     def openings(self) -> Optional[OpeningsData]:
+        """Fechas exactas de apertura: las de IBKR Flex (`refresh_flex`, mandan: siguen la posición actual) completadas con las de Tortuga (rutina de
+        aperturas, que también aporta los cierres). None si no hay ninguna."""
+        tortuga, flex = self._tortuga_openings(), self._flex_cached()
+        stamp = (id(tortuga), id(flex))
+        if self._merged_openings is not None and self._merged_openings[0] == stamp:
+            return self._merged_openings[1]
+        if flex is None:
+            merged = tortuga
+        elif tortuga is None:
+            merged = flex
+        else:
+            merged = OpeningsData(max(tortuga.generated_at, flex.generated_at), {**tortuga.opened, **flex.opened}, tortuga.warnings + flex.warnings, tortuga.closes)
+        self._merged_openings = (stamp, merged)
+        return merged
+
+    def _flex_cached(self) -> Optional[OpeningsData]:
+        """Última conversión del informe de Flex (fichero de caché), releída solo si cambió."""
+        path = Path(self.settings.flex.cache_path)
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            return None
+        if self._flex_openings is not None and self._flex_openings[0] == mtime:
+            return self._flex_openings[1]
+        try:
+            data = load_openings(path)
+        except OpeningsError as exc:
+            log.warning("Aperturas de Flex: %s no es válido (%s)", path, exc)
+            return self._flex_openings[1] if self._flex_openings is not None else None
+        self._flex_openings = (mtime, data)
+        return data
+
+    async def refresh_flex(self) -> bool:
+        """Pide el informe de IBKR Flex y guarda las fechas de apertura de las puts vendidas. False si no está configurado o falla (se conserva la
+        última caché). Solo lectura: Flex no envía órdenes."""
+        cfg = self.settings.flex
+        if not cfg.enabled:
+            return False
+        try:
+            xml = await flex_mod.fetch_statement(cfg.token.strip(), cfg.query_id.strip(), timeout=cfg.timeout_seconds)
+            data, warnings = flex_mod.statement_to_openings(xml, self.now().date(), self.now())
+        except flex_mod.FlexError as exc:
+            if self._flex_error != str(exc):
+                log.warning("IBKR Flex: %s", exc)
+                self._flex_error = str(exc)
+            return False
+        self._flex_error = None
+        for w in warnings:
+            log.warning("IBKR Flex: %s", w)
+        path = Path(cfg.cache_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(path)
+        parse_openings(data)      # valida lo que se acaba de escribir
+        log.info("IBKR Flex: %d puts vendidas con fecha de apertura", len(data["puts"]))
+        self.state.account_version += 1
+        return True
+
+    def _tortuga_openings(self) -> Optional[OpeningsData]:
         """Fechas exactas de apertura (JSON de la rutina de aperturas), releídas solo si el fichero cambió. None si no existe; si el nuevo es
         inválido se conservan los últimos datos buenos."""
         path = Path(self.settings.community.openings_path)

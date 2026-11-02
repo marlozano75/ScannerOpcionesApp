@@ -181,6 +181,14 @@ trend:
 
 # Comunidad de traders de Tortuga Trades: un JSON que deja la rutina diaria scripts/actualizar_comunidad.ps1 (se programa con
 # scripts/programar_comunidad.ps1). Los trades llegan con un día de retraso (IBKR Flex): sirven para ideas y consenso, no como señal.
+# IBKR Flex Query (solo lectura): fecha exacta de apertura de tus puts vendidas. Client Portal → Informes → Flex Queries: una consulta con la sección
+# «Trades» (nivel Ejecuciones; campos assetCategory, underlyingSymbol, expiry, strike, putCall, buySell, quantity, openCloseIndicator, tradeDate) y el token
+# del Flex Web Service. Sin token e id de consulta no se usa y las fechas salen de Tortuga o de la primera vez que la app ve la posición.
+flex:
+  token: ""
+  query_id: ""
+  refresh_hours: 6
+
 community:
   path: data/community/tortuga.json
   openings_path: data/community/aperturas.json   # fecha exacta de apertura de tus puts vendidas (scripts/actualizar_aperturas.ps1); sin él, la primera vez que la app las ve

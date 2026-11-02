@@ -899,6 +899,20 @@ class SuperInvestorsSettings(_Model):
     min_managers: int = Field(1, ge=1)         # nº mínimo de gestores que la tienen con ese peso
 
 
+class FlexSettings(_Model):
+    """IBKR Flex Query (informe de solo lectura) con tus operaciones: de ahí sale la fecha exacta de apertura de las puts vendidas
+    (`portfolio/flex.py`). Sin `token` y `query_id` no se usa. El token se genera en IBKR (Client Portal → Informes → Flex Queries → Flex Web Service)."""
+    token: str = ""
+    query_id: str = ""
+    refresh_hours: float = Field(6, gt=0)                    # cada cuánto se vuelve a pedir el informe (IBKR lo limita; las aperturas cambian poco)
+    cache_path: str = "data/flex_aperturas.json"             # última conversión correcta (la app la sigue usando si IBKR no responde)
+    timeout_seconds: float = Field(60, gt=0)
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.token.strip() and self.query_id.strip())
+
+
 class Settings(_Model):
     ibkr: IbkrSettings = IbkrSettings()
     refresh: RefreshSettings = RefreshSettings()
@@ -920,6 +934,7 @@ class Settings(_Model):
     market: MarketSettings = MarketSettings()
     management: ManagementSettings = ManagementSettings()
     community: CommunitySettings = CommunitySettings()
+    flex: FlexSettings = FlexSettings()
     tortuga: TortugaSettings = TortugaSettings()
     tasty_lists: TastyListsSettings = TastyListsSettings()
     watchlist_sync: WatchlistSyncSettings = WatchlistSyncSettings()

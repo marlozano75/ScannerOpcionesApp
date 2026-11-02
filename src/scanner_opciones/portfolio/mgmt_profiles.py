@@ -22,6 +22,11 @@ COMMUNITY = "Comunidad"
 RADAR = "Radar"
 
 
+# Salidas de MTO (docs/mto-spreads.md): PCS ITM (+40 % / stop −50 % del riesgo / 21 DTE) y CDS muy OTM (+20 % / stop −70 % de lo pagado / 90 DTE)
+MTO_EXITS = {"risk_take_profit_pct": 40, "risk_take_profit_days": 15, "risk_stop_pct": 50, "review_dte": 21,
+             "debit_gain_pct": 20, "long_stop_pct": 70, "long_review_dte": 90}
+
+
 @dataclass(frozen=True)
 class MgmtProfile:
     name: str
@@ -45,7 +50,7 @@ def seed(community_source: str, radar_source: str) -> list[MgmtProfile]:
     return [
         MgmtProfile(COMMUNITY, "tpc", "", {}, community_source, False),
         MgmtProfile(RADAR, "tpc", "", {}, radar_source, False),
-        MgmtProfile(CATCHALL, "tpc", "", {}, "", True),
+        MgmtProfile(CATCHALL, "tpc", "", dict(MTO_EXITS), "", True),
     ]
 
 

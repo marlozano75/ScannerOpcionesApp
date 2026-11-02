@@ -31,6 +31,11 @@ class ExitRules:
     long_stop_pct: Optional[float] = None          # opción comprada o debit spread: stop al perder este % de lo pagado (None = sin stop)
     long_review_dte: Optional[int] = None          # opción comprada o debit spread: a ≤ N DTE sin haber llegado al objetivo, cerrar o rolar (None = no se revisa)
     debit_take_profit_pct: Optional[float] = None  # debit spread: recoger al capturar este % del beneficio máximo (None = no se recoge antes)
+    # --- medidas sobre el RIESGO (ancho − crédito) en spreads verticales de crédito y sobre lo PAGADO en debit spreads (perfil MTO, docs/mto-spreads.md) ---
+    risk_take_profit_pct: Optional[float] = None   # spread de crédito: recoger al ganar este % del riesgo (ancho − crédito) (None = no aplica)
+    risk_stop_pct: Optional[float] = None          # spread de crédito: stop al perder este % del riesgo (None = no aplica)
+    risk_take_profit_days: Optional[int] = None    # el objetivo `risk_take_profit_pct` solo vale en los primeros N días desde la apertura (None = siempre; fecha desconocida = vale)
+    debit_gain_pct: Optional[float] = None         # debit spread: recoger al ganar este % de lo pagado (None = no aplica)
 
     @property
     def holds_to_expiry(self) -> bool:
@@ -43,12 +48,16 @@ FIELDS = (
     ("take_profit_max_pct", "Techo del rango", "pct", True, "Por encima de este % no esperar más. Vacío = sin techo."),
     ("review_dte", "Revisar / rolar a ≤", "int", True, "DTE a partir del cual, sin haber llegado al objetivo, se avisa de cerrar o rolar. Vacío = no se revisa."),
     ("stop_multiple", "Stop del spread", "mult", True, "El spread vale N veces el crédito cobrado (2 = la pérdida iguala el crédito). Vacío = sin stop."),
+    ("risk_take_profit_pct", "Spread de crédito: recoger al (sobre el riesgo)", "pct", True, "% del riesgo (ancho − crédito) ya ganado a partir del cual se avisa de recoger. Vacío = no aplica."),
+    ("risk_take_profit_days", "Spread de crédito: objetivo solo en los primeros", "int", True, "Días desde la apertura en los que vale el objetivo sobre el riesgo; pasado el plazo solo quedan el stop y la revisión por DTE. Vacío = vale siempre."),
+    ("risk_stop_pct", "Spread de crédito: stop al (sobre el riesgo)", "pct", True, "% del riesgo (ancho − crédito) perdido a partir del cual se avisa de cerrar. Vacío = no aplica."),
     ("pin_dte", "Riesgo de pin: últimos", "int", False, "Días antes del vencimiento en los que se vigila el pin de un spread."),
     ("pin_buffer_pct", "Pin: distancia al strike", "pct", False, "% por encima del strike vendido por debajo del cual hay riesgo de pin."),
     ("long_take_profit_pct", "Opción comprada: recoger al", "pct", True, "% de lo pagado ya ganado a partir del cual se avisa de recoger (100 = duplicado). Vacío = no se recoge antes."),
     ("long_stop_pct", "Opción comprada / debit spread: stop al", "pct", True, "% de lo pagado perdido a partir del cual se avisa de cerrar. Vacío = sin stop."),
     ("long_review_dte", "Opción comprada / debit spread: revisar a ≤", "int", True, "DTE a partir del cual se avisa de cerrar o rolar (el valor temporal se evapora). Vacío = no se revisa."),
     ("debit_take_profit_pct", "Debit spread: recoger al", "pct", True, "% del beneficio máximo ya capturado a partir del cual se avisa de recoger. Vacío = no se recoge antes."),
+    ("debit_gain_pct", "Debit spread: recoger al (sobre lo pagado)", "pct", True, "% de lo pagado ya ganado a partir del cual se avisa de recoger (20 = +20 % sobre el débito). Vacío = no aplica."),
 )
 KEYS = tuple(k for k, *_ in FIELDS) + ("itm_action", "defense")
 
@@ -74,12 +83,16 @@ ALERTS = {
     "itm_action": ("warn", "En el dinero: el precio pasó el strike vendido (valorar cerrar, o mantener sin rolar)."),
     "defense": ("warn", "Testeada / en el dinero / muy dentro, poco extrínseco, dividendo y resultados; evaluación de rolls."),
     "stop_multiple": ("warn", "Stop: el spread vale N veces el crédito cobrado."),
+    "risk_take_profit_pct": ("ok", "Recoger beneficios: ganado este % del riesgo (ancho − crédito)."),
+    "risk_take_profit_days": ("info", "El objetivo sobre el riesgo solo avisa en los primeros N días desde la apertura."),
+    "risk_stop_pct": ("warn", "Stop: perdido este % del riesgo (ancho − crédito); valorar cerrar."),
     "pin_dte": ("warn", "Riesgo de pin: quedan ≤ N días y el precio está cerca del strike vendido."),
     "pin_buffer_pct": ("warn", "Riesgo de pin: el precio está a ≤ este % por encima del strike vendido."),
     "long_take_profit_pct": ("ok", "Recoger beneficios: ganado este % de lo pagado."),
     "long_stop_pct": ("warn", "Stop: pierde este % de lo pagado; valorar cerrar."),
     "long_review_dte": ("warn", "Revisar: quedan ≤ N días sin llegar al objetivo; el valor temporal se evapora."),
     "debit_take_profit_pct": ("ok", "Recoger beneficios: capturado este % del beneficio máximo."),
+    "debit_gain_pct": ("ok", "Recoger beneficios: ganado este % de lo pagado."),
 }
 
 # Umbrales de delta/DTE que acompañan a las reglas de un grupo: son de solo lectura aquí (salen de `management.defense` de config.yaml, comunes a
@@ -108,10 +121,10 @@ DELTA_INFO = {
 GROUPS = (
     ("sell", "Venta de opciones · reglas comunes", SELL, ("take_profit_pct", "take_profit_max_pct", "review_dte", "itm_action")),
     ("put", "Solo put vendida", ("put",), ("defense",)),
-    ("credit", "Spreads y combos de crédito", ("spread", "call"), ("stop_multiple", "pin_dte", "pin_buffer_pct")),
+    ("credit", "Spreads y combos de crédito", ("spread", "call"), ("stop_multiple", "risk_take_profit_pct", "risk_take_profit_days", "risk_stop_pct", "pin_dte", "pin_buffer_pct")),
     ("buy", "Compra de opciones · reglas comunes", ("long", "debit"), ("long_stop_pct", "long_review_dte")),
     ("long", "Solo opción comprada", ("long",), ("long_take_profit_pct",)),
-    ("debit", "Solo debit spread", ("debit",), ("debit_take_profit_pct",)),
+    ("debit", "Solo debit spread", ("debit",), ("debit_take_profit_pct", "debit_gain_pct")),
 )
 
 
@@ -227,6 +240,14 @@ def validate(rules: ExitRules) -> ExitRules:
         raise ValueError("«Opción comprada: revisar a ≤» no puede ser negativo")
     if rules.debit_take_profit_pct is not None and not 0 < rules.debit_take_profit_pct <= 100:
         raise ValueError("«Debit spread: recoger al» tiene que estar entre 0 y 100 %")
+    if rules.risk_take_profit_pct is not None and rules.risk_take_profit_pct <= 0:
+        raise ValueError("«Spread de crédito: recoger al» tiene que ser positivo")
+    if rules.risk_take_profit_days is not None and rules.risk_take_profit_days <= 0:
+        raise ValueError("los días del objetivo sobre el riesgo tienen que ser positivos")
+    if rules.risk_stop_pct is not None and not 0 < rules.risk_stop_pct <= 100:
+        raise ValueError("el stop sobre el riesgo del spread tiene que estar entre 0 y 100 %")
+    if rules.debit_gain_pct is not None and rules.debit_gain_pct <= 0:
+        raise ValueError("«Debit spread: recoger al (sobre lo pagado)» tiene que ser positivo")
     if rules.itm_action not in ITM_ACTIONS:
         raise ValueError("acción en el dinero no válida")
     return rules
@@ -270,6 +291,11 @@ def describe(r: ExitRules) -> list[str]:
         out.append(f"Spreads: stop cuando el spread vale {r.stop_multiple:g} veces el crédito cobrado.")
     else:
         out.append("Spreads: sin stop (la pérdida máxima es el ancho menos el crédito).")
+    if r.risk_take_profit_pct is not None:
+        days = f", solo en los primeros {r.risk_take_profit_days} días" if r.risk_take_profit_days is not None else ""
+        out.append(f"Spreads de crédito: recoger al ganar el {r.risk_take_profit_pct:g} % del riesgo (ancho − crédito){days}.")
+    if r.risk_stop_pct is not None:
+        out.append(f"Spreads de crédito: stop al perder el {r.risk_stop_pct:g} % del riesgo (ancho − crédito).")
     out.append(f"Spreads: riesgo de pin en los últimos {r.pin_dte} días si el precio está a ≤ {r.pin_buffer_pct:g} % del strike vendido.")
     out.append("En el dinero: " + ("valorar cerrar antes que esperar la asignación." if r.itm_action == "close"
                                   else "no se rola; si te asignan, reevaluar la tesis y valorar vender calls."))
@@ -281,7 +307,9 @@ def describe(r: ExitRules) -> list[str]:
         out.append(f"Opción comprada y debit spread: a ≤ {r.long_review_dte} DTE, cerrar o rolar (el valor temporal se evapora).")
     if r.debit_take_profit_pct is not None:
         out.append(f"Debit spread: recoger al capturar el {r.debit_take_profit_pct:g} % del beneficio máximo.")
-    if r.long_take_profit_pct is None and r.long_stop_pct is None and r.long_review_dte is None and r.debit_take_profit_pct is None:
+    if r.debit_gain_pct is not None:
+        out.append(f"Debit spread: recoger al ganar el {r.debit_gain_pct:g} % de lo pagado.")
+    if all(v is None for v in (r.long_take_profit_pct, r.long_stop_pct, r.long_review_dte, r.debit_take_profit_pct, r.debit_gain_pct)):
         out.append("Opciones compradas y debit spreads: se mantienen hasta el vencimiento (sin objetivo, stop ni revisión).")
     if r.defense:
         out.append("Defensa de las puts desnudas según su delta, los días y el IV Rank: testeada (Δ 0,30+) esperar o vender la call; en el dinero (Δ 0,50+) rolar "
@@ -298,7 +326,7 @@ def style_summary(r: ExitRules) -> dict:
     return dict(
         take_profit=r.take_profit_pct, take_profit_max=r.take_profit_max_pct, review_dte=r.review_dte, stop=r.stop_multiple,
         hold=r.holds_to_expiry, itm=r.itm_action, defense=r.defense, pin_dte=r.pin_dte, pin_buffer=r.pin_buffer_pct,
-        long_on=any(v is not None for v in (r.long_take_profit_pct, r.long_stop_pct, r.long_review_dte, r.debit_take_profit_pct)),
+        long_on=any(v is not None for v in (r.long_take_profit_pct, r.long_stop_pct, r.long_review_dte, r.debit_take_profit_pct, r.debit_gain_pct)),
         long_tp=r.long_take_profit_pct, long_stop=r.long_stop_pct, long_review=r.long_review_dte, debit_tp=r.debit_take_profit_pct,
         close_capture=r.close_capture_pct)
 

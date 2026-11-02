@@ -404,7 +404,7 @@ def test_put_profile_is_assigned_by_opening_dte_and_can_be_corrected(client_and_
     key = f"AAPL|{option.expiry.isoformat()}|90"
     page = client.get("/").text
     assert f'name="key" value="{key}"' in page
-    assert '<option value="MTO" selected>' in page and "Revisar: quedan" not in page   # 20 DTE no encaja en ningún perfil de escaneo: catch-all MTO (gestión TPC: no revisa)
+    assert '<option value="MTO" selected>' in page and "Revisar: quedan" in page   # 20 DTE no encaja en ningún perfil de escaneo: catch-all MTO (gestión TPC + salidas MTO: revisa a ≤ 21 DTE)
     assert svc.put_management() == {key: "tpc"} and key in svc.put_exit_rules()   # MTO sí tiene gestión (a diferencia de la antigua «Sin perfil»)
     r = client.post("/management/profile", data={"key": key, "profile": "Mensual (TPC)"}, follow_redirects=False)
     assert r.status_code == 303 and svc.put_profiles() == {key: "Mensual (TPC)"}

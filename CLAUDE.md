@@ -86,3 +86,4 @@ El detalle de cada área vive en `docs/` para no cargarlo entero en cada sesión
 - `docs/comisiones.md` — Comisiones de IBKR (tarifa medida con ejecuciones reales), prima neta en yield/crédito/ratios, descuento hasta el breakeven y comisión de cierre en los perfiles que salen antes.
 - `docs/escaneo-automatico.md` — Escaneo periódico de perfiles con registro de apariciones/desapariciones (y motivo), mercado abierto por ticker y volcado a Google Sheets.
 - `docs/rendimiento-peticiones.md` — Peticiones a tastytrade al abrir con el mercado cerrado, días sin sesión y caché de cadenas de opciones.
+- `docs/mto-spreads.md` — Análisis del logbook de MTO: Put Credit Spread ITM y Call Debit Spread muy OTM, propuesta de screener (pendiente) y salidas ya aplicadas al perfil MTO (`risk_*`, `debit_gain_pct`), fecha de apertura desde IBKR Flex (`portfolio/flex.py`, `flex` en config); el CSV registra asignaciones como expiraciones.

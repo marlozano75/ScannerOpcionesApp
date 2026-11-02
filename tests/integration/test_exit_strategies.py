@@ -123,3 +123,60 @@ def test_custom_base_style_save_use_and_delete(client_and_service):
     assert "Mi estilo" not in exits.custom_styles()
     with pytest.raises(ValueError):
         exits.validate_style_name("TPC")
+
+
+def test_mto_exits_measure_spreads_on_the_risk_and_debit_spreads_on_what_was_paid():
+    from dataclasses import replace
+    from tests.unit.test_atr_and_management import TODAY, alerts, short_put
+    from scanner_opciones.portfolio import mgmt_profiles
+    from scanner_opciones.portfolio.management import put_status
+    rules = mgmt_profiles.seed("c", "r")[-1].exit_rules(CFG)
+    assert (rules.risk_take_profit_pct, rules.risk_stop_pct, rules.review_dte, rules.debit_gain_pct) == (40, 50, 21, 20)
+    assert (rules.long_stop_pct, rules.long_review_dte) == (70, 90) and exits.validate(rules) == rules
+    spread = lambda mv: replace(short_put(strike=90.0, days=30, market_value=mv), hedge_strike=88.0)     # ancho 2, crédito 1,10 → riesgo 0,90
+    win = alerts(put_status(spread(-140.0), TODAY, 100.0, CFG, rules=rules))                              # vale 0,70: +44 % del riesgo
+    assert "44 % del riesgo" in win["ok"]
+    assert "Recoger beneficios" not in alerts(put_status(spread(-170.0), TODAY, 100.0, CFG, rules=rules)).get("ok", "")      # +33 %
+    assert "56 % del riesgo" in alerts(put_status(spread(-320.0), TODAY, 100.0, CFG, rules=rules))["warn"]                    # vale 1,60: −56 %
+    assert "del riesgo" not in " ".join(alerts(put_status(spread(-320.0), TODAY, 100.0, CFG)).values())                        # sin MTO no aplica
+
+
+def test_mto_risk_target_only_counts_in_the_first_15_days_since_opening():
+    from dataclasses import replace
+    from datetime import timedelta
+    from tests.unit.test_atr_and_management import TODAY, alerts, short_put
+    from scanner_opciones.portfolio import mgmt_profiles
+    from scanner_opciones.portfolio.management import put_status
+    rules = mgmt_profiles.seed("c", "r")[-1].exit_rules(CFG)
+    sp = replace(short_put(strike=90.0, days=30, market_value=-140.0), hedge_strike=88.0)       # +44 % del riesgo
+    def ok(opened):
+        return alerts(put_status(sp, TODAY, 100.0, CFG, rules=rules, opened_on=opened)).get("ok", "")
+    assert "del riesgo" in ok(TODAY - timedelta(days=15)) and "del riesgo" in ok(None)        # dentro del plazo o sin fecha: avisa
+    assert "del riesgo" not in ok(TODAY - timedelta(days=16))                                  # fuera del plazo: ya no
+
+
+async def test_flex_dates_feed_put_open_dates_and_beat_the_tortuga_file(client_and_service, tmp_path, monkeypatch):
+    from datetime import timedelta
+    from scanner_opciones.config.settings import FlexSettings
+    from scanner_opciones.domain.enums import OptionRight
+    from scanner_opciones.domain.models import OptionContract, Position
+    from scanner_opciones.portfolio import flex
+    from tests.unit.test_flex import statement, trade
+    client, svc, gw, _ = client_and_service
+    exp = svc.now().date() + timedelta(days=30)
+    svc.state.positions = [Position("AAPL", -1, -90.0, "Technology", OptionContract("AAPL", exp, 90.0, OptionRight.PUT), 110.0)]
+    key = f"AAPL|{exp.isoformat()}|90"
+    assert await svc.refresh_flex() is False                                            # sin token ni consulta: no hace nada
+    svc.settings = svc.settings.model_copy(update={"flex": FlexSettings(token="t", query_id="q", cache_path=str(tmp_path / "flex.json"))})
+    opened = svc.now().date() - timedelta(days=9)
+    xml = statement(trade(opened.strftime("%Y%m%d"), "SELL", -1, expiry=exp.strftime("%Y%m%d")))
+
+    async def ok(*a, **k):
+        return xml
+    monkeypatch.setattr(flex, "fetch_statement", ok)
+    assert await svc.refresh_flex() is True
+    assert svc.put_open_dates()[key] == (opened, True)                                  # fecha exacta de Flex
+    async def fail(*a, **k):
+        raise flex.FlexError("1012: token caducado")
+    monkeypatch.setattr(flex, "fetch_statement", fail)
+    assert await svc.refresh_flex() is False and svc.put_open_dates()[key] == (opened, True)     # si IBKR falla se conserva la última caché

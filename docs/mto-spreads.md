@@ -1,0 +1,198 @@
+# MTO: Put Credit Spread ITM y Call Debit Spread muy OTM (análisis 2026-11-02)
+
+Análisis de `estrategia/Estrategias MTO.txt` y `estrategia/logbook_mto_2026-11-02.csv` (550 patas, cuentas 5K/10K/50K, 2025-11 a 2026-11) para definir un screener de las dos estructuras y sus salidas. **Es un análisis de operaciones pasadas, no una recomendación de inversión.** Los screeners de «Propuesta» están pendientes de implementar; las salidas ya están en el perfil MTO (ver «Salidas implementadas»).
+
+## Método y límites
+
+- **Spreads:** se reconstruyen uniendo patas por cuenta, ticker, hora de apertura y vencimiento (62 PCS y 53 CDS; 52 PCS y 49 CDS tras limpiar patas sueltas, ETHA, VIX y estructuras no verticales).
+- **Precio del subyacente:** cierres diarios de la base de datos de la app (tastytrade/IBKR); BITO, CELH, CONL, EOSE, ETHA, HIMS, OPEN y SCHD (y el VIX) salen de Yahoo (`yfinance`, solo para este análisis, sin guardar nada). Se toma el cierre del día de apertura, no el precio intradía exacto.
+- **ETHA se excluye**: sus strikes (15–19) no cuadran con el precio de Yahoo (~50).
+- **Trayectoria:** no hay precios históricos de opciones. El valor del spread cada día es `precio real de entrada + (Black-Scholes_t − Black-Scholes_0)`, con la volatilidad realizada a 60 días del subyacente. Validación contra los cierres reales: CDS correlación 0,96 y error mediano 5 % del riesgo; PCS correlación 0,88 y error mediano 9 %. Sirve para **comparar reglas entre sí**, no para dar un P&L exacto.
+- **Muestras pequeñas** (46 PCS y 28 CDS cerrados) y concentradas (TSLL, CELH, RDDT, NVDA). Los tramos de unas pocas operaciones no son concluyentes.
+
+## Corrección clave: el CSV no recoge la pata de acciones
+
+En 17 de los 46 PCS cerrados el subyacente cerró **por debajo de ambos strikes** al vencimiento (ASTS 85 con 125/130, NFLX 88 con 103/105, TSLL 9,8 con 13/14…). El CSV los da como «Expirada» a precio 0 y con el crédito entero como beneficio: es una **asignación registrada como expiración**, sin el resultado de las acciones.
+
+| | Nº | P&L del CSV | P&L económico del spread* | Aciertos |
+|---|---|---|---|---|
+| PCS cerrados antes del vencimiento o sin asignar | 29 | +770 $ | +738 $ | 86 % |
+| PCS asignados / ITM al vencer | 17 | +6.095 $ | −1.468 $ | 6 % |
+| **Total** | 46 | **+6.865 $** | **−730 $** | 57 % |
+
+\* Valor intrínseco al vencer de ambas patas (pérdida acotada por la put comprada), sin comisiones. No incluye lo que dé después la rueda con las acciones.
+
+Por tanto: el «90 % de aciertos y +8.022 $» de una primera lectura del CSV **no es válido** como resultado del spread.
+
+### La rueda sí se puede estimar
+
+El CSV no trae las acciones, pero sí las calls cubiertas vendidas después. Se reconstruye así: resultado = P&L del spread (con la put comprada vendida, si se vendió) + primas netas de las calls cubiertas + acciones (compradas al strike vendido; vendidas al strike de la call si la ejercieron, o marcadas al último cierre si no). Contraste con los números del propio texto: **PATH +225 $ (texto: +224,72 $) y CELH +13 $ (texto: 1.763 $ de primas frente a 1.750 $ de caída)**.
+
+| Grupo (17 PCS asignados) | Nº | Spread puro | Con rueda |
+|---|---|---|---|
+| Con calls cubiertas posteriores (CONL, PATH, PFE ×2, SNAP, ZETA, CELH, TSLL) | 8 | −561 $ | **≈ +3.200 $** (+13 a +1.048 $ cada una) |
+| Sin calls (ASTS, HOOD, NFLX, SOUN, TLT, UBER ×2, META) | 8 | −907 $ | −907 $ (se asume que se cerraron como spread; mantener las acciones habría costado entre −1.000 y −8.900 $ cada una) |
+| OPEN | 1 | −11 $ | −495 $ (dos calls y acciones marcadas a 1,80 $) |
+| **Total** | 17 | −1.468 $ | **≈ +1.800 a +2.300 $** |
+
+Con la rueda, los 46 PCS cerrados pasan de −730 $ a **≈ +1.100 a +1.600 $**.
+
+Salvedades:
+- **Sesgo de selección:** se hizo la rueda en los valores que luego se recuperaron (PFE, ZETA, TSLL) y se cortó en los que no (ASTS, HOOD, NFLX…). Es un resultado con visión retrospectiva; la regla «rueda solo en empresas de calidad» tendría que saber elegir de antemano.
+- Las acciones no vendidas (SNAP, TSLL) se marcan al cierre del 2026-10-30. Se ignoran dividendos (PFE ~86 $) y comisiones de acciones.
+- La asignación de calls cubiertas por ticker/cuenta/fecha puede confundirse con calls de otras estrategias en el mismo valor; se filtraron por strike cercano al de asignación y se revisaron CELH y PATH a mano.
+- Las acciones de ASTS, META, NFLX o HOOD no se incluyen aunque se hubieran conservado: el cálculo exige que haya evidencia de la rueda en el CSV.
+
+## Resultados por cuenta
+
+El logbook mezcla tres cuentas: **10K** (275 patas, 51 tickers), **50K** (254 patas, 51 tickers) y **5K** (21 patas: TSLL, BITO, SCHD, PBR; es la de ETFs). Lo que sigue repite el análisis por cuenta. Las muestras por cuenta son pequeñas: las diferencias entre 10K y 50K no son estadísticamente concluyentes.
+
+| Cuenta | PCS cerrados | Spread puro (eco) | Con rueda | CDS cerrados (real) | CDS abiertos (modelo) | CDS neto | CDS con reglas (+20 / −70 / 90 DTE) |
+|---|---|---|---|---|---|---|---|
+| **10K** | 33 (13 asignados) | −617 $ | **+819 $** | +670 $ (70 % aciertos) | −815 $ (10 abiertos) | −145 $ | +363 $ |
+| **50K** | 11 (4 asignados) | −133 $ | **+1.690 $** | +1.883 $ (17 de 17) | −2.475 $ (12 abiertos) | −592 $ | −11 $ |
+| **5K** | 2 | +20 $ | +20 $ | +54 $ (1 operación) | — | +54 $ | +33 $ |
+
+- **Resultado total por cuenta (PCS con rueda + CDS neto):** 10K ≈ +674 $ (+6,7 % de la cuenta), 50K ≈ +1.098 $ (+2,2 %), 5K ≈ +74 $ (+1,5 %). Con PCS y CDS ocupando una parte pequeña del capital.
+- **50K:** la rueda explica todo el resultado de los PCS (CELH +13, PFE ×2 y TSLL ≈ +1.500 $). Sus 17 CDS cerrados son todos ganadores (movimientos rápidos de grandes empresas), pero los 12 abiertos (5.433 $ de riesgo, un 11 % de la cuenta) se marcan al −46 % del riesgo.
+- **10K:** los PCS pasan de −617 $ a +819 $ solo por la rueda (ZETA +920, SNAP +254, PATH +225, PFE +174, CONL +107, OPEN −495). Sus 10 CDS abiertos (1.587 $ de riesgo) más los PCS abiertos suponen **~20 % de la cuenta en riesgo definido**, la concentración mayor.
+- **5K (ETFs):** solo 2 PCS y 1 CDS; no permite sacar conclusiones. Su P&L viene de TSLL con puts desnudas (+386 $), fuera de estas dos estrategias.
+- **Fuera de alcance, pero relevante por cuenta:** las Long Put suman −9.816 $ (10K) y −4.344 $ (50K), más que lo que dan los PCS y CDS juntos; conviene saber si son coberturas.
+- En ambas cuentas el backtest de reglas da lo mismo que en conjunto: mantener hasta vencimiento pierde (PCS 10K −829 $, 50K −679 $; CDS 10K −303 $, 50K −5.893 $), y las salidas rápidas recortan la pérdida (CDS 10K +363 $, 50K −11 $).
+- La mejor cuenta no es la mejor estrategia: en 50K los CDS son casi todo ganancia realizada y pérdida latente; en 10K es al revés en proporción.
+
+## 1. Put Credit Spread ITM
+
+**Lo que sí se sostiene con los datos:**
+
+- **Cerrar pronto funciona; esperar al vencimiento no.** Cerrados en ≤ 30 días: 86 % de aciertos. Los que pasan de 30 días: 28 % de aciertos y −1.041 $.
+- **El filtro de tendencia es el que más separa:** con el precio > 10 % por debajo de la media de 200 sesiones (22 operaciones): 77 % de aciertos y +305 $; el resto (24): −1.035 $.
+- **Profundidad ITM (strike vendido sobre el precio):** ≤ 2 %: 44 % de aciertos; 15–50 %: 78 %. La relación es débil (5–10 % también salió floja: 42 %).
+- **DTE:** 45–60 y > 60 días: 75 % de aciertos; ≤ 45 días: 38–44 % y pérdidas.
+- **Crédito/ancho** no discrimina una vez corregida la asignación (0,5–0,7: 56–64 % de aciertos).
+
+**Backtest de reglas de salida** (52 PCS, mark diario, deslizamiento 2 % del ancho):
+
+| Regla | Aciertos | P&L modelo | ROI medio sobre riesgo |
+|---|---|---|---|
+| Mantener hasta vencimiento | 31 % | −1.460 $ | −30 % |
+| Cerrar siempre a 21 DTE | 44 % | −94 $ | −2 % |
+| Objetivo +60 % del riesgo + stop −70 % | 50 % | −261 $ | −2 % |
+| Objetivo +40 % + stop −50 % + 21 DTE (solo vs200 < −10 %) | 52 % | −117 $ | −3 % |
+| Real (decisiones del operador, cerrados) | 57 % | −730 $ | −8 % |
+
+Ninguna regla mecánica sale claramente positiva: el spread, **como instrumento aislado, es aproximadamente neutro** en este periodo. Lo que lo vuelve ligeramente positivo es la rueda de acciones tras la asignación (ver arriba, ≈ +1.800 a +2.300 $ sobre los 17 asignados), que depende de elegir bien en qué valores quedarse con las acciones.
+
+### Propuesta: screener «MTO PCS ITM»
+
+| Filtro | Valor | Respaldo |
+|---|---|---|
+| Strike vendido | En el dinero o por encima del precio, mejor ≥ 2–5 % ITM | débil |
+| Precio vs media 200 | ≥ 10 % por debajo | fuerte (22/22 con ROI mediano +71 %) |
+| DTE | 45–60 | moderado |
+| Ancho / riesgo | 1–2,5 puntos; riesgo ≤ ~150 $ por contrato | descriptivo |
+| Calidad | La de la rueda: solo empresas con las que se quiera quedar las acciones | texto de MTO |
+| Sin resultados dentro del DTE | sí | prudencia |
+
+### Propuesta: salidas PCS ITM
+
+1. **Cerrar con +40 % del riesgo** en ≤ 15 días (los cierres rápidos son los que ganan).
+2. **Stop al −50 % del riesgo.** El stop heredado de tastytrade (200 % del crédito) **no puede saltar** aquí: con crédito/ancho 0,6 equivale a 1,2 veces el ancho, más que la pérdida máxima.
+3. **Cierre a 21 DTE** si no hay objetivo; no mantener hasta el vencimiento salvo que se quiera la asignación.
+4. **Asignación solo como decisión de rueda** (empresa de calidad); contabilizar aparte la pata de acciones.
+
+## 2. Call Debit Spread muy OTM
+
+**Resultado real vs marcas:** 28 CDS cerrados dieron +2.607 $ (89 % de aciertos, ROI mediano +21 %, mediana de 7 días). Los 21 abiertos, valorados con el modelo, llevan **−3.290 $** (riesgo 6.410 $; 13 por debajo de −60 % del débito). El conjunto es aproximadamente neutro.
+
+| Corte (reglas: +20 % / stop −70 % / salir a 90 DTE) | Nº | Aciertos | P&L | Mantener |
+|---|---|---|---|---|
+| Todos | 49 | 59 % | +385 $ | −6.126 $ |
+| DTE de apertura < 200 | 11 | 18 % | −763 $ | −1.420 $ |
+| DTE de apertura 200–400 | 15 | 80 % | +655 $ | −1.318 $ |
+| DTE de apertura 400–1000 | 23 | 65 % | +493 $ | −3.388 $ |
+| Precio < SMA200 − 10 % | 27 | 70 % | +290 $ | −3.475 $ |
+| Grandes empresas (NVDA, META, GOOGL, MSFT, AVGO, ADBE, BAC, MCD, PEP, DAL, UBER, NOW) | 21 | 71 % | +1.216 $ | −706 $ |
+| Pequeñas y volátiles | 28 | 50 % | −830 $ | −5.420 $ |
+
+- **El patrón ganador es un rebote rápido:** las 20 operaciones con subida > 0 % ganaron (ROI mediano +15–25 % en 4–11 días). Las 3 con caída perdieron el ~100 % (57 días de media, DTE < 75).
+- **Distancia OTM de la call comprada:** no discrimina de forma clara (0–30 %: 47 % de aciertos con reglas; 30–60 %: 64 %; 60–130 %: 63 %).
+- **Débito/ancho:** sin relación clara una vez aplicadas las reglas.
+- **Mantener sin reglas pierde** (−6.126 $, 22 % de aciertos): sin la salida rápida, la estrategia no funciona.
+
+**Grid de salidas (49 CDS, deslizamiento 3 % del débito):**
+
+| Objetivo | Aciertos | P&L |
+|---|---|---|
+| +15 % | 65 % | −227 $ |
+| +20 % | 59 % | −107 $ |
+| +25 % | 53 % | −923 $ |
+| +35 % | 43 % | −2.643 $ |
+| +100 % | 24 % | −5.388 $ |
+| +20 % con stop −70 % y salida a 90 DTE | 59 % | **+385 $** |
+
+El objetivo corto (+15–20 %) con un stop y una salida por DTE es lo único que sale positivo. Un objetivo alto (+50–100 %) —el del texto— pierde en conjunto: los pocos ganadores grandes (MSFT +188 %, RDDT +89 %, ADBE +45 %) no compensan.
+
+### Propuesta: screener «MTO CDS OTM»
+
+| Filtro | Valor |
+|---|---|
+| Call comprada | Muy OTM (≥ ~25 % sobre el precio) y call vendida más arriba |
+| DTE | **200–500**; descartar < 200 |
+| Calidad | Grandes empresas líquidas; evitar pequeñas y muy volátiles |
+| Tendencia | Precio ≥ 10 % por debajo de la SMA200 (retroceso, no ruptura) |
+| Débito | ~150–650 $ por contrato |
+| Límites | Una CDS abierta por ticker; riesgo total en CDS con tope explícito |
+
+### Propuesta: salidas CDS OTM
+
+1. **Objetivo +20 % sobre el débito** (no sobre el beneficio máximo).
+2. **Stop −70 % del débito.**
+3. **Salida por tiempo:** cerrar a ≤ 90 DTE si no se ha cumplido el objetivo.
+4. **Pata corta:** recomprarla cuando valga ≤ 10–15 % de lo cobrado y se mantenga la tesis; sube la pérdida máxima por el coste de recompra.
+5. **Posiciones abiertas:** revisar las que tienen ≤ 120 DTE y marca ≈ −100 % (EOSE, ASTS, RKLB, ONDS, ENPH, RIVN, IBIT); el valor residual es casi nulo.
+
+## ¿El DTE largo sirve para esperar una recuperación? (2026-11-02)
+
+Hipótesis: se eligen DTE tan lejanos para tener tiempo de que cualquier recuperación deje cerrar en positivo. Contraste con la trayectoria modelada (el pico de ROI es optimista: es el máximo de una serie con error, sin deslizamiento):
+
+| CDS por DTE de apertura | Nº | Tocaron beneficio (>0) | Alcanzaron +20 % | Días a +20 % (mediana) | En pérdida > 20 % al día 30 → luego > 0 |
+|---|---|---|---|---|---|
+| < 200 | 11 | 55 % | 27 % | 16 | 8 → **0** |
+| 200–400 | 15 | **100 %** | **80 %** | 6,5 | 3 → **3** |
+| ≥ 400 | 23 | 83 % | 52 % | 7 | 4 → 2 |
+
+- **Sí:** un DTE largo da opciones. Con 200–400 días las 15 tocaron beneficio en algún momento, y las 3 que iban en pérdida al día 30 acabaron en positivo. Con < 200 días ninguna se recuperó. En total, 5 de 15 CDS en pérdida al día 30 volvieron a positivo. En PCS, DTE > 45 acaba con −6 % de media frente a −52 % con ≤ 45.
+- **Pero la ventana de salida es corta:** la mediana hasta +20 % son 7–8 días, y el 55 % de las operaciones lo alcanzó en algún momento. Esperar una recuperación posterior es la excepción (5 de 15), no la norma.
+- **El coste de esperar:** de los 21 CDS abiertos, 8 llegaron a +20 % o más y ya no están ahí. EOSE +91 % → −100 %, ONDS +51 % → −70 %, NKE +44 % → −88 %, IBIT +31 % → −65 %, RIVN +22 % → −73 %. Los 6 que nunca fueron positivos (ASTS, RKLB, NFLX, GOOGL ×2, AVGO) tienen una tesis que aún no ha empezado.
+- **Lectura:** el DTE largo funciona **si hay una regla que obligue a cerrar en el primer rebote** (+20 %). Sin esa regla, el tiempo se convierte en el riesgo: la mayoría de los que no cerraron en el pico devolvieron todo. Recuperar a cero (> 0) no cubre además comisiones ni deslizamiento.
+
+## Salidas implementadas en el perfil MTO (2026-11-02)
+
+`ExitRules` tiene tres campos nuevos: `risk_take_profit_pct` y `risk_stop_pct` (spreads verticales de crédito, % del **riesgo** = ancho − crédito) y `debit_gain_pct` (debit spread, % de lo **pagado**). Los aplican `management.put_status` (puts-spread) y `other_mgmt` (call credit spreads y debit spreads). El perfil de gestión MTO (`mgmt_profiles.MTO_EXITS`, sobre el estilo TPC) lleva:
+
+| Estructura | Regla | Valor |
+|---|---|---|
+| PCS | Recoger | +40 % del riesgo en ≤ 15 días (`risk_take_profit_pct`, `risk_take_profit_days`) |
+| PCS | Stop | −50 % del riesgo (`risk_stop_pct`) |
+| PCS | Tiempo | revisar a ≤ 21 DTE (`review_dte`) |
+| CDS | Recoger | +20 % sobre el débito (`debit_gain_pct`) |
+| CDS | Stop | −70 % del débito (`long_stop_pct`) |
+| CDS | Tiempo | revisar a ≤ 90 DTE (`long_review_dte`) |
+
+Los avisos son orientativos. Una instalación que ya tenía MTO sin cambios recibe estas reglas una vez (`AppService.apply_mto_exits`, `meta.mig_mto_exits`); si MTO ya estaba editado no se toca.
+
+Límites conocidos:
+- `review_dte` es común a todas las ventas de opciones: las puts desnudas de MTO también se revisan a ≤ 21 DTE.
+- El objetivo +40 % del PCS solo vale en los primeros 15 días desde la apertura (`risk_take_profit_days`; `put_status(opened_on=...)`, con la fecha de `AppService.put_open_dates`: la exacta de Tortuga o, si no está, la primera vez que la app vio la posición). Sin fecha, el objetivo vale. Pasado el plazo solo quedan el stop y la revisión a 21 DTE. Solo en puts-spread: los call credit spreads no llevan fecha.
+- La pata corta del CDS (recompra a ≤ 10–15 % de lo cobrado) y la regla de asignación/rueda no están implementadas.
+
+## Pendiente
+
+- Código: strikes vendidos por encima del precio en el Scanner (descuento ≤ 0 %) y presets «MTO PCS ITM» y «MTO CDS OTM».
+- Registrar la pata de acciones tras una asignación para medir la rueda completa con exactitud (hoy solo se estima a partir de las calls cubiertas).
+- Repetir el análisis cuando los CDS abiertos venzan, para sustituir las marcas del modelo por resultados reales.
+
+## Fecha de apertura desde IBKR Flex (2026-11-02)
+
+`portfolio/flex.py` pide un Flex Query de IBKR (solo lectura; `flex.token` y `flex.query_id` en `config.yaml`, que está ignorado por git) y lo convierte al JSON de aperturas versión 1. `AppService.refresh_flex` lo ejecuta al arrancar y cada `flex.refresh_hours` (6) y guarda `flex.cache_path`; `AppService.openings` lo combina con el de Tortuga y la fecha de Flex manda (sigue la posición neta ejecución a ejecución y toma el día en que salió de cero). Si IBKR falla, se conserva la última caché y, sin ninguna, la primera vez que la app vio la posición. La consulta necesita la sección Trades con assetCategory, underlyingSymbol, expiry, strike, putCall, buySell, quantity, openCloseIndicator y tradeDate. **No verificado contra IBKR**: el 2026-11-02 el servicio devolvió el error 1001 («no se pudo generar ahora») y después falló la red; la conversión está probada con XML sintético (`tests/unit/test_flex.py`).

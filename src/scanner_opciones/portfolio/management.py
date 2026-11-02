@@ -166,11 +166,12 @@ def committed_margin(p: Position, entry: Optional[float], contracts: int, what_i
 
 def put_status(p: Position, today: date, underlying: Optional[float], cfg: ManagementSettings, profile: str = TASTYTRADE,
                what_if_margin: Optional[float] = None, rules: Optional[ExitRules] = None, defense_ctx: Optional[dict] = None,
-               live_delta: Optional[float] = None, commission: Optional[CommissionModel] = None, managed: bool = True) -> PutStatus:
+               live_delta: Optional[float] = None, commission: Optional[CommissionModel] = None, managed: bool = True, opened_on: Optional[date] = None) -> PutStatus:
     """`rules`: estrategia de salida del perfil de la put; sin ella, la del estilo `profile` (tastytrade | tpc) con los valores de `cfg`.
     `defense_ctx`: datos del subyacente para la defensa (`iv_rank`, `iv30` en fracción, `next_earnings`, `ex_dividend_in`).
     `live_delta`: |delta| real de la put (cotización de tastytrade); sin ella la defensa la estima con Black-Scholes.
     `managed`: False = «Sin perfil»: sin estrategia de salida, así que ni avisos ni defensa (solo los datos de la posición).
+    `opened_on`: fecha de apertura (exacta o la primera vez vista); `risk_take_profit_days` limita a esos primeros días el objetivo sobre el riesgo.
     `commission`: tarifa de IBKR. Si la estrategia de salida cierra antes del vencimiento, lo capturado descuenta la comisión de recomprar (una orden;
     un spread, una sola orden combo): es lo que te quedaría de verdad al recoger. La de apertura ya está pagada y no se resta."""
     o = p.option
@@ -184,7 +185,13 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
                if commission is not None and managed and not r.holds_to_expiry else 0.0)
     captured = (entry - current - exit_ps) / entry * 100 if entry and current is not None else None
     alerts: list[Alert] = []
-    if r.take_profit_pct is not None and captured is not None and captured >= r.take_profit_pct:
+    spread = p.hedge_strike is not None
+    risk = o.strike - p.hedge_strike - entry if spread and entry else None     # riesgo por acción: ancho − crédito
+    risk_roi = (entry - current - exit_ps) / risk * 100 if risk and risk > 0 and current is not None else None   # ganado (+) o perdido (−) sobre el riesgo
+    in_window = r.risk_take_profit_days is None or opened_on is None or (today - opened_on).days <= r.risk_take_profit_days
+    if r.risk_take_profit_pct is not None and in_window and risk_roi is not None and risk_roi >= r.risk_take_profit_pct:
+        alerts.append(Alert("ok", f"Recoger beneficios: {risk_roi:.0f} % del riesgo ganado (objetivo {r.risk_take_profit_pct:g} %)."))
+    elif r.take_profit_pct is not None and captured is not None and captured >= r.take_profit_pct:
         rango = f"{r.take_profit_pct:g}–{r.take_profit_max_pct:g} %" if r.take_profit_max_pct else f"{r.take_profit_pct:g} %"
         extra = " Ya supera el rango: no esperes más." if r.take_profit_max_pct and captured > r.take_profit_max_pct else ""
         alerts.append(Alert("ok", f"Recoger beneficios: {captured:.0f} % de la prima ganada (objetivo {rango}).{extra}"))
@@ -193,9 +200,10 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
         goal = f" y no se ha llegado al {r.take_profit_pct:g} %" if r.take_profit_pct is not None else ""
         alerts.append(Alert("warn", f"Revisar: quedan {dte} días (≤ {r.review_dte}){goal} "
                                     f"({got}). Cerrarla o rolarla a un vencimiento posterior cobrando crédito."))
-    spread = p.hedge_strike is not None
     defense = None
     stop: list[Alert] = []
+    if r.risk_stop_pct is not None and risk_roi is not None and risk_roi <= -r.risk_stop_pct:
+        stop.append(Alert("warn", f"Stop: el spread pierde un {-risk_roi:.0f} % del riesgo (límite {r.risk_stop_pct:g} %). Cierra y asume la pérdida o defiende ya."))
     if spread and r.stop_multiple is not None and entry and current is not None and current >= r.stop_multiple * entry:
         stop.append(Alert("warn", f"Stop: recomprar el spread cuesta {current / entry:.1f} veces el crédito cobrado (límite {r.stop_multiple:g}×). "
                                   "Defiende ya (rola con crédito neto sin ampliar el ancho) o cierra y asume la pérdida."))
@@ -285,7 +293,7 @@ def manage_puts(
     positions = with_spreads(positions)     # cada spread es una sola fila: prima y valor netos, riesgo = ancho
     profiles = profiles or {}
     assigned, opened, margins, notes, rules = assigned or {}, opened or {}, margins or {}, notes or {}, rules or {}
-    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile), margins.get(put_key(p)), rules.get(put_key(p)), (defense_ctx or {}).get(p.ticker), (live_deltas or {}).get(put_key(p)), commission, assigned.get(put_key(p)) != UNASSIGNED),
+    puts = sorted((replace(put_status(p, today, prices.get(p.ticker), cfg, profiles.get(put_key(p), cfg.default_profile), margins.get(put_key(p)), rules.get(put_key(p)), (defense_ctx or {}).get(p.ticker), (live_deltas or {}).get(put_key(p)), commission, assigned.get(put_key(p)) != UNASSIGNED, opened.get(put_key(p), (None, False))[0]),
                            assigned=assigned.get(put_key(p), ""), assign_note=notes.get(put_key(p), ""), opened=opened.get(put_key(p), (None, False))[0],
                            opened_exact=opened.get(put_key(p), (None, False))[1])
                    for p in _short_puts(positions)), key=lambda s: (s.expiry, s.ticker, s.strike))
