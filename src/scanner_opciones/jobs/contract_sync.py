@@ -9,7 +9,7 @@ from typing import Optional
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
 from scanner_opciones.domain.models import OptionChain
-from scanner_opciones.scanner.candidates import candidate_contracts
+from scanner_opciones.scanner.candidates import call_candidate_contracts, candidate_contracts
 from scanner_opciones.storage.repositories import ContractRepo
 
 log = logging.getLogger(__name__)
@@ -44,6 +44,8 @@ class ContractSyncer:
     ) -> tuple[int, int]:
         """Devuelve (contratos retirados, contratos nuevos guardados)."""
         wanted = candidate_contracts(chain, price, today, self.settings.scanner.catalog)
+        if self.settings.scanner.cds.enabled:       # calls de los Call Debit Spread (DTE largo, por encima del precio)
+            wanted += call_candidate_contracts(chain, price, today, self.settings.scanner.cds)
         wanted_keys = {ContractRepo.key(c) for c in wanted}
         if revalidate:
             self.contracts.clear_misses(ticker)

@@ -315,14 +315,16 @@ class HybridGateway:
             by_ticker = {t: g for t, g in by_ticker.items() if t not in self.instruments}
         for ticker, group in by_ticker.items():
             try:
-                listing = await self._listing(ticker)
+                listing = await self._listing(ticker) if any(c.right is OptionRight.PUT for c in group) else {}
+                call_listing = await self._call_listing(ticker) if any(c.right is OptionRight.CALL for c in group) else {}
             except OptionDataError as exc:
                 if not self.inner.is_connected():
                     raise self._no_broker(f"Contratos de {ticker}") from exc
                 log.warning("Contratos de %s no verificables en el proveedor, se validan con IBKR: %s", ticker, exc)
                 valid.update((ident(c), c) for c in await self.inner.qualify_contracts(group))
                 continue
-            valid.update((ident(c), c) for c in group if listing_key(c.expiry, c.strike) in listing)
+            valid.update((ident(c), c) for c in group
+                         if listing_key(c.expiry, c.strike) in (call_listing if c.right is OptionRight.CALL else listing))
         return [valid[k] for c in contracts if (k := ident(c)) in valid]
 
     async def get_quotes(self, contracts: Sequence[OptionContract]) -> dict[OptionContract, OptionQuote]:

@@ -47,7 +47,7 @@ from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.portfolio import defense as defense_mod, other_mgmt
 from scanner_opciones.portfolio.overview import other_positions, portfolio_status
 from scanner_opciones.scanner.criteria import commission_model
-from scanner_opciones.ui import dashboard_charts as dash, page_charts, routes_comunidad, routes_historico, routes_marketradar, routes_universe, scanner_parse, viz
+from scanner_opciones.ui import dashboard_charts as dash, page_charts, routes_cds, routes_comunidad, routes_historico, routes_marketradar, routes_universe, scanner_parse, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 
 STRIKE_WINDOWS = ((6, "6 meses"), (12, "1 año"), (24, "2 años"))     # ventanas del gráfico del strike; la última, «Todo», usa todo el histórico
@@ -356,6 +356,7 @@ def create_app(
     # ---- ideas de la comunidad ---------------------------------------------------------------
     routes_comunidad.register(app, service, render, remembered)
     routes_marketradar.register(app, service, render)
+    routes_cds.register(app, service, render)
     routes_historico.register(app, service, render, remembered)
     routes_universe.register(app, service, render, recall, remembered)
 

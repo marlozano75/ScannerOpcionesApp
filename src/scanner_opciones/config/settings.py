@@ -512,6 +512,37 @@ class StrategySettings(_Model):
         return self
 
 
+class CdsSettings(_Model):
+    """Call Debit Spread muy OTM (MTO; ver docs/mto-spreads.md): call comprada lejos del dinero + call vendida más arriba, DTE largo.
+    Son valores del análisis del logbook (muestras pequeñas), editables."""
+    enabled: bool = False                                # guarda y cotiza las calls del CDS (encarece el ciclo: DTE largo); apagado no cambia nada
+    dte_min: int = Field(200, ge=1)
+    dte_max: int = Field(500, ge=1)
+    long_otm_pct_min: float = Field(25, ge=0)            # call comprada: % mínimo sobre el precio
+    long_otm_pct_max: float = Field(130, ge=0)
+    width_options: tuple[float, ...] = (5.0, 10.0, 20.0, 50.0)   # anchos probados ($)
+    min_debit_usd: float = Field(150, ge=0)              # débito por contrato en $
+    max_debit_usd: float = Field(650, gt=0)
+    min_long_oi: int = Field(10, ge=0)                   # OI mínimo de cada pata
+    max_leg_spread_pct: float = Field(25, gt=0)          # spread bid/ask máximo de cada pata (%)
+    # Rentabilidad mínima esperada (obligatoria): el subyacente debe poder mover lo necesario para ganar `target_gain_pct` del débito
+    # (objetivo de salida del perfil MTO) en `move_days` días. Movimiento necesario = objetivo × débito / delta neta; se compara con el
+    # movimiento esperado a `move_days` días (precio × IV30 × √(días/365)).
+    target_gain_pct: float = Field(20, gt=0)
+    move_days: int = Field(10, ge=1)
+    max_required_move_mult: float = Field(1.0, gt=0)
+    min_max_return_pct: Optional[float] = Field(100, gt=0)     # apoyo: (ancho − débito) / débito mínimo (None = sin filtro)
+    sma200_below_pct_min: Optional[float] = Field(10, ge=0)    # retroceso: precio al menos N % bajo la SMA200 (None = sin filtro)
+
+    @model_validator(mode="after")
+    def _check(self) -> "CdsSettings":
+        if self.dte_min > self.dte_max or self.long_otm_pct_min > self.long_otm_pct_max or self.min_debit_usd > self.max_debit_usd:
+            raise ValueError("cds: los mínimos no pueden superar a los máximos")
+        if not self.width_options or any(w <= 0 for w in self.width_options):
+            raise ValueError("cds.width_options debe tener anchos positivos")
+        return self
+
+
 class ScannerSettings(_Model):
     price_reference: PriceReferenceSettings = PriceReferenceSettings()
     # bid mínimo en $ que SIEMPRE se exige (no es un filtro opcional): con bid 0 nadie compra la put y el ask, a menudo irreal,
@@ -529,6 +560,7 @@ class ScannerSettings(_Model):
     technical: TechnicalSettings = TechnicalSettings()
     quality: QualitySettings = QualitySettings()
     spreads: SpreadSettings = SpreadSettings()
+    cds: CdsSettings = CdsSettings()
 
     @property
     def catalog(self) -> CandidateRange:

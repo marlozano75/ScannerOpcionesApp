@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
+from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import BrokerDisconnectedError, BrokerError, VolatilityError
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, OptionQuote
 from scanner_opciones.jobs.contract_sync import ContractSyncer
@@ -108,8 +109,19 @@ class RefreshJob:
         limit = self.settings.scanner.catalog.strike_below_pct_max
         return [c.with_filters(strike_below_pct_max=limit) for c in criteria if c.strike_below_pct_max < limit]
 
+    def _cds_in_scope(self, contract: OptionContract, info, today) -> bool:
+        """Calls del Call Debit Spread (solo con `scanner.cds.enabled`): las guardadas dentro de su ventana; nunca piden margen."""
+        cds = self.settings.scanner.cds
+        price = info.underlying_price if info else None
+        if not cds.enabled or contract.right is not OptionRight.CALL or not price:
+            return False
+        otm = (contract.strike / price - 1) * 100
+        return cds.dte_min <= contract.dte(today) <= cds.dte_max and otm >= cds.long_otm_pct_min - 1e-9
+
     @staticmethod
     def _in_scope(contract: OptionContract, info, criteria: Sequence[ScanCriteria], today) -> bool:
+        if contract.right is not OptionRight.PUT:      # las calls solo se cotizan por `_cds_in_scope`
+            return False
         price = info.underlying_price if info else None
         dist = strike_distance_pct(price, contract.strike)
         if dist is None:
@@ -145,7 +157,8 @@ class RefreshJob:
         # las patas compradas de los spreads están por debajo de la vendida: se cotiza también la franja extra guardada
         # (solo para cotizar: los márgenes se siguen pidiendo con `criteria`)
         quote_scope = criteria + self._leg_scope(criteria)
-        all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), quote_scope, today)]
+        all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), quote_scope, today)
+                         or self._cds_in_scope(c, infos.get(c.ticker), today)]
         # snapshots anteriores: de ellos se reutiliza el margen mientras sea reciente
         prev = {self._snap_key(s.contract): s for s in self.snapshots.all()} if all_contracts else {}
         if only_unquoted:
@@ -231,7 +244,7 @@ class RefreshJob:
         relaxed = [c.with_filters(min_bid_size=None, min_oi=fv.min_oi, max_spread_pct=fv.max_spread_pct) for c in criteria]
         wanted = []
         for snap in snaps:
-            if snap.bid_size is None or snap.bid_size >= fv.min_bid_size or self._tws_size_fresh(snap):
+            if snap.contract.right is not OptionRight.PUT or snap.bid_size is None or snap.bid_size >= fv.min_bid_size or self._tws_size_fresh(snap):
                 continue
             info = infos.get(snap.contract.ticker)
             price = info.underlying_price if info else None
@@ -406,6 +419,8 @@ class RefreshJob:
     ) -> ContractSnapshot:
         """Solo pide what-if para contratos que pasan algún escaneo (limita las peticiones) y
         reutiliza el margen del snapshot anterior si es más reciente que `margin_max_age_minutes`."""
+        if snap.contract.right is not OptionRight.PUT:     # las calls del Call Debit Spread no piden margen (el riesgo es el débito)
+            return snap
         price = info.underlying_price if info else None
         today = self.now().date()
         passes = any(

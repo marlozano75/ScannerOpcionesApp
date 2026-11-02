@@ -193,7 +193,25 @@ Las posiciones abiertas de MTO y su fecha exacta de apertura ya no se piden a IB
 
 Lo que el análisis de este documento obtuvo del CSV del logbook (patas, precios de entrada, cierres) se puede pedir con las mismas herramientas (`list_trades`, `get_trade`, `get_portfolio`) para repetir el análisis sin exportar a mano. **No verificado:** la app solo usa `list_trades`; no se ha comprobado que la API HTTP exponga `get_portfolio`/`get_trade` con el mismo JSON que el conector, ni que `list_trades` traiga la pata de acciones tras una asignación (limitación del CSV, ver arriba).
 
+## Motor del screener «MTO CDS OTM» (2026-11-02, solo el motor)
+
+`scanner/cds.py::build_call_debit_spreads` (función pura, `tests/unit/test_cds.py`) y `scanner/candidates.py::call_candidate_contracts`, con los valores de `scanner.cds` (`CdsSettings`: DTE 200–500, comprada 25–130 % OTM, anchos 5/10/20/50 $, débito 150–650 $, OI ≥ 10 y spread ≤ 25 % en cada pata, SMA200 −10 %). Comprada al ask, vendida al precio de referencia, comisiones de las dos patas (`cost_ps`). Sin límite de riesgo total (decisión del usuario).
+
+**Rentabilidad mínima esperada (filtro obligatorio):** movimiento necesario = `target_gain_pct` (20 %) × débito / delta neta (delta comprada − delta vendida), en % del precio; debe ser ≤ `max_required_move_mult` (1) × el movimiento esperado a `move_days` (10) días = IV30 × √(días/365) (sin IV30, la IV de la pata). Sin delta o sin IV se descarta. De apoyo: retorno máximo `(ancho − débito)/débito` ≥ `min_max_return_pct` (100 %). La distancia al breakeven solo se informa. **Los valores iniciales (1×, 10 días, 100 %) no salen del análisis: hay que calibrarlos con los CDS del logbook.**
+
+Reutiliza: comisiones, filtros de calidad de la empresa (quien llama los aplica antes), cierres diarios para la SMA200. No reutiliza: delta/yield/crédito de la put vendida ni IV Rank (invertido en un débito).
+
+**Conectado (2026-11-02), apagado por defecto (`scanner.cds.enabled: false`):**
+- `ContractSyncer.sync` añade las calls (`call_candidate_contracts`) al catálogo; `HybridGateway.qualify_contracts` las valida con la lista de calls del proveedor (`get_call_listing`).
+- `RefreshJob._cds_in_scope` las cotiza (DTE y OTM del CDS); `_in_scope` solo acepta puts y las calls nunca piden margen ni tamaño de TWS. Los escaneos de puts (`AppService._scan_snapshots`, simulador) ignoran las calls; `_scan_call_snapshots` las da al CDS.
+- `AppService.scan_cds` (calidad de la empresa = filtros activos del criterio por defecto del Scanner; comisiones y precio de venta del Scanner) y la pestaña **CDS** (`/cds`, `ui/routes_cds.py`, `cds.html`).
+- **Coste medido (2026-11-02, watchlist de 2.351 tickers, mercado cerrado, activado con `enabled: true`):** actualización diaria 212,6 s; 37.533 calls guardadas de 1.921 tickers (unas 20 por ticker; 33.578 con bid), +9 MB en la base (225 MB); cotizar los 38.474 contratos nuevos 85,6 s; la pestaña `/cds` carga en 1,5 s y sale con 946 spreads con los valores por defecto (sin revisar uno a uno). Sin medir: el ciclo periódico con el mercado abierto. Para generar las calls en una instalación existente hay que hacer una actualización diaria completa (los tickers ya actualizados hoy no se vuelven a sincronizar).
+
 ## Pendiente
+
+- Medir el coste del ciclo con `cds.enabled` y ajustar el rango si hace falta.
+- Instrumento `cds` en perfiles y formulario editable (hoy los valores se editan en `config.yaml`), presets «MTO CDS OTM» / «MTO CDS 200–400», filtros de calidad propios del CDS (hoy los del criterio por defecto) y calibrar el filtro de movimiento necesario con el logbook.
+- Añadir los CDS abiertos al Panel con el perfil MTO (las salidas ya existen en `other_mgmt`).
 
 - Código: strikes vendidos por encima del precio en el Scanner (descuento ≤ 0 %) y presets «MTO PCS ITM» y «MTO CDS OTM».
 - Registrar la pata de acciones tras una asignación para medir la rueda completa con exactitud (hoy solo se estima a partir de las calls cubiertas).

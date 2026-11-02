@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>MTO CDS OTM: Call Debit Spread muy OTM</h2>
+  <div class="help-scope" style="min-height:24px;padding-right:32px"><p class="note" style="margin-top:0">
+    Call comprada {{ cfg.long_otm_pct_min|num(0) }}–{{ cfg.long_otm_pct_max|num(0) }} % sobre el precio y call vendida más arriba, DTE {{ cfg.dte_min }}–{{ cfg.dte_max }}, débito {{ cfg.min_debit_usd|num(0) }}–{{ cfg.max_debit_usd|num(0) }} $.
+    <b>Rentabilidad mínima esperada (obligatoria):</b> el subyacente debe poder subir lo necesario para ganar el {{ cfg.target_gain_pct|num(0) }} % del débito (objetivo de salida de MTO) en {{ cfg.move_days }} días:
+    movimiento necesario = objetivo × débito / delta neta, y debe ser como mucho {{ cfg.max_required_move_mult|num(2) }} × el movimiento esperado (IV30 × √(días/365)).
+    {% if cfg.min_max_return_pct is not none %}Retorno máximo mínimo: {{ cfg.min_max_return_pct|num(0) }} %. {% endif %}{% if cfg.sma200_below_pct_min is not none %}Precio al menos {{ cfg.sma200_below_pct_min|num(0) }} % bajo la SMA200. {% endif %}
+    Los valores salen de un análisis con muestras pequeñas (docs/mto-spreads.md), no son una recomendación. Sin límite de riesgo total.</p></div>
+  {% if not cfg.enabled %}
+  <p class="muted">Apagado. Pon <code>scanner.cds.enabled: true</code> en <code>config.yaml</code> y haz una actualización diaria para que se guarden y coticen las calls (DTE largo: el ciclo de refresco será más lento).</p>
+  {% elif not rows %}
+  <p class="muted">Ningún spread cumple los filtros (¿ya hay calls guardadas y cotizadas?).</p>
+  {% else %}
+  <p class="muted">{{ total }} spreads{% if total > rows|length %} (se muestran los {{ rows|length }} con menor movimiento necesario){% endif %}.</p>
+  <table class="sortable">
+    <thead><tr><th>Ticker</th><th>Venc.</th><th>Comprada</th><th>Vendida</th><th>Débito $</th><th>Pérd. máx. $</th><th>Retorno máx. %</th><th>OTM %</th><th>Δ neta</th>
+      <th title="Subida del subyacente para ganar el objetivo">Necesario %</th><th title="Movimiento esperado en los días indicados">Esperado %</th><th title="Necesario / esperado">× esperado</th><th>Breakeven %</th><th>vs SMA200 %</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr><td class="tk">{{ r.long.contract.ticker }}</td><td>{{ r.long.contract.expiry }}</td><td>{{ r.long.contract.strike|num(2) }}</td><td>{{ r.short.contract.strike|num(2) }}</td>
+        <td>{{ (r.debit * r.long.contract.multiplier)|num(0) }}</td><td>{{ r.max_loss|num(0) }}</td><td>{{ r.max_return_pct|num(0) }}</td><td>{{ r.long_otm_pct|num(1) }}</td><td>{{ r.net_delta|num(2) }}</td>
+        <td>{{ r.required_move_pct|num(1) }}</td><td>{{ r.expected_move_pct|num(1) }}</td><td>{{ r.required_move_mult|num(2) }}</td>
+        <td>{{ r.breakeven_distance_pct|num(1) if r.breakeven_distance_pct is not none else '—' }}</td><td>{{ r.sma200_distance_pct|num(1) if r.sma200_distance_pct is not none else '—' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

@@ -61,9 +61,10 @@ from scanner_opciones.scanner.filters import iv_change_available, iv_hv_availabl
 from scanner_opciones.metrics import technical as ta
 from scanner_opciones.metrics.yields import reference_price
 from scanner_opciones.scanner.criteria import commission_model
+from scanner_opciones.scanner.cds import build_call_debit_spreads
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.currency import Nlv
-from scanner_opciones.scanner.quality import put_floor_reject
+from scanner_opciones.scanner.quality import put_floor_reject, ticker_quality_reject
 from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.scanner.spreads import build_profile_rows
 from scanner_opciones.scanner.tech_summary import TechSummarizer, TechSummary
@@ -3419,7 +3420,11 @@ class AppService:
         return self._memo(repr(key), build)
 
     def _scan_snapshots(self):
-        return self._memo("snapshots", self.snapshots.all)
+        """Snapshots de PUTS para los escaneos (las calls guardadas para los Call Debit Spread no entran: `_scan_call_snapshots`)."""
+        return self._memo("snapshots", lambda: [s for s in self.snapshots.all() if s.contract.right is OptionRight.PUT])
+
+    def _scan_call_snapshots(self):
+        return self._memo("call_snapshots", lambda: [s for s in self.snapshots.all() if s.contract.right is OptionRight.CALL])
 
     def _scan_closes(self, snapshots):
         return self._memo("closes", lambda: self.bars.all_closes({s.contract.ticker for s in snapshots}))
@@ -3435,6 +3440,25 @@ class AppService:
             self.now().date(), include_rejections, bars, self.settings.scanner.technical,
             self.quality_exempt(), self._atr(criteria, snapshots), self.nlv_usd(), self.naked_blocked(criteria),
         )
+
+    def scan_cds(self) -> list:
+        """Call Debit Spread muy OTM (`scanner/cds.py`) sobre las calls guardadas. Los filtros de calidad de la empresa son los del criterio por
+        defecto del Scanner (los que estén activos); comisiones y precio de venta, los del Scanner. Vacío si `scanner.cds.enabled` es falso."""
+        cds = self.settings.scanner.cds
+        if not cds.enabled:
+            return []
+        criteria = self.criteria()
+        infos = self.infos(criteria)
+        if criteria.ticker_quality_active:
+            exempt = self.quality_exempt()
+            infos_ok = {t: i for t, i in infos.items() if ticker_quality_reject(i, criteria, exempt) is None}
+        else:
+            infos_ok = infos
+        snaps = [s for s in self._scan_call_snapshots() if s.contract.ticker in infos_ok]
+        bars = self._scan_closes(snaps) if cds.sma200_below_pct_min is not None else None
+        return build_call_debit_spreads(
+            snaps, infos_ok, cds, self.now().date(), bars, criteria.price_reference, criteria.price_spread_pct,
+            lambda mult: criteria.cost_ps(mult, legs=2))
 
     def scan_profiles(self, sets: list[tuple[str, str, ScanCriteria]]) -> tuple[list, dict[str, dict[str, int]]]:
         """Un solo escaneo con los filtros de varios perfiles: `sets` = (perfil, instrumento `put`|`spread`, criterios). Cada contrato (o spread)
@@ -3963,7 +3987,7 @@ class AppService:
     async def simulate(self, selected: list[SelectedContract]) -> SimulationResult:
         """Simula vender y ser asignado en los contratos elegidos. Margen aproximado (suma)."""
         infos = self.ticker_info.all()
-        snaps = {(s.contract.ticker, s.contract.expiry, s.contract.strike): s for s in self.snapshots.all()}
+        snaps = {(s.contract.ticker, s.contract.expiry, s.contract.strike): s for s in self.snapshots.all() if s.contract.right is OptionRight.PUT}
         trades: list[SimulatedTrade] = []
         for sel in selected:
             snap = snaps.get((sel.ticker, sel.expiry, sel.strike))

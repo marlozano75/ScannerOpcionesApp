@@ -29,6 +29,10 @@ daily_update:
   concurrency: 4         # tickers que se actualizan a la vez
 
 scanner:
+  cds:                     # Call Debit Spread muy OTM (MTO; docs/mto-spreads.md), pestaña CDS. Apagado: guardar y cotizar calls con DTE largo encarece el ciclo
+    enabled: false
+    # dte_min: 200, dte_max: 500, long_otm_pct_min: 25, long_otm_pct_max: 130, width_options: [5, 10, 20, 50], min_debit_usd: 150, max_debit_usd: 650
+    # target_gain_pct: 20, move_days: 10, max_required_move_mult: 1.0 (rentabilidad mínima esperada, obligatoria), min_max_return_pct: 100, sma200_below_pct_min: 10
   spreads:                 # modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior)
     width_options: [1, 2.5, 5, 10, 15, 20]        # anchos que se prueban todos (strike vendido − comprado, en $)
     max_combo_spread_pct: 15                # spread bid/ask del combo (vendida − comprada) máximo, en % del crédito
