@@ -106,10 +106,10 @@ def assess(op: OtherPosition, rules: Optional[ExitRules], cfg: ManagementSetting
         alerts = _credit_alerts(op, r, cfg, today, zone, delta)
     elif fam == LONG or op.width is None:
         captured, target, note = op.pnl_pct, r.long_take_profit_pct, "Ganancia sobre lo pagado"
-        alerts = _long_alerts(op, r, today, captured)
+        alerts = _long_alerts(op, r, cfg, today, captured)
     else:
         captured, target, note = _debit_capture(op), r.debit_take_profit_pct, "Beneficio máximo ya capturado"
-        alerts = _long_alerts(op, r, today, captured, debit_spread=True)
+        alerts = _long_alerts(op, r, cfg, today, captured, debit_spread=True)
     return replace(op, rules=r, zone=zone, zone_label=label, delta=delta, delta_live=live, alerts=tuple(alerts),
                    captured_pct=captured if fam != CREDIT else op.captured_pct, take_profit_pct=target, captured_note=note)
 
@@ -156,8 +156,15 @@ def _credit_alerts(op: OtherPosition, r: ExitRules, cfg: ManagementSettings, tod
     return out
 
 
-def _long_alerts(op: OtherPosition, r: ExitRules, today: date, gain: Optional[float], debit_spread: bool = False) -> list[Alert]:
+def _long_alerts(op: OtherPosition, r: ExitRules, cfg: ManagementSettings, today: date, gain: Optional[float],
+                 debit_spread: bool = False) -> list[Alert]:
     out: list[Alert] = []
+    if op.pnl_pct is not None and op.pnl_pct <= -cfg.long_worthless_pct:
+        # Ya casi sin valor: el stop y la revisión por DTE no tienen sentido (cerrar apenas recupera nada, a veces menos que la comisión).
+        left = max(0.0, 100 + op.pnl_pct)
+        out.append(Alert("info", f"Casi sin valor: queda un {left:.0f} % de lo pagado. Cerrarla ya apenas recupera nada (la comisión puede superarlo): "
+                                 f"déjala expirar como billete de lotería o ciérrala solo para realizar la pérdida."))
+        return out
     dte = op.dte if op.dte is not None else 9999
     target = r.debit_take_profit_pct if debit_spread else r.long_take_profit_pct
     pnl_pct = op.pnl_pct

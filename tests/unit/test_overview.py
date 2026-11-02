@@ -179,6 +179,13 @@ def test_long_call_zone_is_inverted_and_applies_target_stop_and_review():
     assert any(a.text.startswith("Revisar") for a in row.alerts)            # ≤ 21 DTE sin objetivo
 
 
+def test_long_call_nearly_worthless_gets_only_an_info_alert():
+    c = opt(OptionRight.CALL, 100.0)
+    dead = Position("AAPL", 1, 10.0, option=c, avg_cost=200.0)             # pagó 2,00, vale 0,10: −95 %
+    row = _row(_assess([dead], today=EXP - timedelta(days=10)), "Call comprada")
+    assert [a.level for a in row.alerts] == ["info"] and row.alerts[0].text.startswith("Casi sin valor")
+
+
 def test_debit_spread_captures_share_of_max_profit_and_has_max_risk():
     long, short = opt(OptionRight.CALL, 100.0), opt(OptionRight.CALL, 110.0)
     positions = [Position("AAPL", 1, 900.0, option=long, avg_cost=500.0), Position("AAPL", -1, -50.0, option=short, avg_cost=100.0)]
