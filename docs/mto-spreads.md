@@ -187,12 +187,15 @@ Límites conocidos:
 - El objetivo +40 % del PCS solo vale en los primeros 15 días desde la apertura (`risk_take_profit_days`; `put_status(opened_on=...)`, con la fecha de `AppService.put_open_dates`: la exacta de Tortuga o, si no está, la primera vez que la app vio la posición). Sin fecha, el objetivo vale. Pasado el plazo solo quedan el stop y la revisión a 21 DTE. Solo en puts-spread: los call credit spreads no llevan fecha.
 - La pata corta del CDS (recompra a ≤ 10–15 % de lo cobrado) y la regla de asignación/rueda no están implementadas.
 
+## Posiciones actuales y fechas de apertura: API de Tortuga (2026-11-02)
+
+Las posiciones abiertas de MTO y su fecha exacta de apertura ya no se piden a IBKR Flex (retirado): salen de la **API de Tortuga** (`tortuga/api.py::TortugaApi.openings_document`, rutina `aperturas`, `tortuga.api_token`). Llama a `get_context` (cuentas) y a `list_trades` por cuenta (`status=open`/`closed`, `type=option`/`stock`, paginado) y escribe `community.openings_path`: puts vendidas abiertas (120 días), puts recompradas (90 días, con `pct_premium_captured` y `pnl`) y `others` (acciones, calls y puts compradas, 400 días; incluye las patas de combos, de ahí salen los CDS). `AppService.openings` lee ese fichero y `put_open_dates` da la fecha a `put_status(opened_on=...)`; sin fecha, la primera vez que la app vio la posición.
+
+Lo que el análisis de este documento obtuvo del CSV del logbook (patas, precios de entrada, cierres) se puede pedir con las mismas herramientas (`list_trades`, `get_trade`, `get_portfolio`) para repetir el análisis sin exportar a mano. **No verificado:** la app solo usa `list_trades`; no se ha comprobado que la API HTTP exponga `get_portfolio`/`get_trade` con el mismo JSON que el conector, ni que `list_trades` traiga la pata de acciones tras una asignación (limitación del CSV, ver arriba).
+
 ## Pendiente
 
 - Código: strikes vendidos por encima del precio en el Scanner (descuento ≤ 0 %) y presets «MTO PCS ITM» y «MTO CDS OTM».
 - Registrar la pata de acciones tras una asignación para medir la rueda completa con exactitud (hoy solo se estima a partir de las calls cubiertas).
+- Sustituir el CSV del logbook por `list_trades`/`get_portfolio` de la API de Tortuga y comprobar si trae las acciones asignadas.
 - Repetir el análisis cuando los CDS abiertos venzan, para sustituir las marcas del modelo por resultados reales.
-
-## Fecha de apertura desde IBKR Flex (2026-11-02)
-
-`portfolio/flex.py` pide un Flex Query de IBKR (solo lectura; `flex.token` y `flex.query_id` en `config.yaml`, que está ignorado por git) y lo convierte al JSON de aperturas versión 1. `AppService.refresh_flex` lo ejecuta al arrancar y cada `flex.refresh_hours` (6) y guarda `flex.cache_path`; `AppService.openings` lo combina con el de Tortuga y la fecha de Flex manda (sigue la posición neta ejecución a ejecución y toma el día en que salió de cero). Si IBKR falla, se conserva la última caché y, sin ninguna, la primera vez que la app vio la posición. La consulta necesita la sección Trades con assetCategory, underlyingSymbol, expiry, strike, putCall, buySell, quantity, openCloseIndicator y tradeDate. **No verificado contra IBKR**: el 2026-11-02 el servicio devolvió el error 1001 («no se pudo generar ahora») y después falló la red; la conversión está probada con XML sintético (`tests/unit/test_flex.py`).

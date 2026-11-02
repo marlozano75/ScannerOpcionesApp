@@ -153,30 +153,3 @@ def test_mto_risk_target_only_counts_in_the_first_15_days_since_opening():
         return alerts(put_status(sp, TODAY, 100.0, CFG, rules=rules, opened_on=opened)).get("ok", "")
     assert "del riesgo" in ok(TODAY - timedelta(days=15)) and "del riesgo" in ok(None)        # dentro del plazo o sin fecha: avisa
     assert "del riesgo" not in ok(TODAY - timedelta(days=16))                                  # fuera del plazo: ya no
-
-
-async def test_flex_dates_feed_put_open_dates_and_beat_the_tortuga_file(client_and_service, tmp_path, monkeypatch):
-    from datetime import timedelta
-    from scanner_opciones.config.settings import FlexSettings
-    from scanner_opciones.domain.enums import OptionRight
-    from scanner_opciones.domain.models import OptionContract, Position
-    from scanner_opciones.portfolio import flex
-    from tests.unit.test_flex import statement, trade
-    client, svc, gw, _ = client_and_service
-    exp = svc.now().date() + timedelta(days=30)
-    svc.state.positions = [Position("AAPL", -1, -90.0, "Technology", OptionContract("AAPL", exp, 90.0, OptionRight.PUT), 110.0)]
-    key = f"AAPL|{exp.isoformat()}|90"
-    assert await svc.refresh_flex() is False                                            # sin token ni consulta: no hace nada
-    svc.settings = svc.settings.model_copy(update={"flex": FlexSettings(token="t", query_id="q", cache_path=str(tmp_path / "flex.json"))})
-    opened = svc.now().date() - timedelta(days=9)
-    xml = statement(trade(opened.strftime("%Y%m%d"), "SELL", -1, expiry=exp.strftime("%Y%m%d")))
-
-    async def ok(*a, **k):
-        return xml
-    monkeypatch.setattr(flex, "fetch_statement", ok)
-    assert await svc.refresh_flex() is True
-    assert svc.put_open_dates()[key] == (opened, True)                                  # fecha exacta de Flex
-    async def fail(*a, **k):
-        raise flex.FlexError("1012: token caducado")
-    monkeypatch.setattr(flex, "fetch_statement", fail)
-    assert await svc.refresh_flex() is False and svc.put_open_dates()[key] == (opened, True)     # si IBKR falla se conserva la última caché

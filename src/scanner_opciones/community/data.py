@@ -10,7 +10,7 @@ Formato (versión 1). Lo escribe la rutina diaria a partir del conector de Tortu
         {"ticker": "PEP", "month_traders": 17, "month_operations": 45, "week_traders": 6, "week_operations": 10,
          "traders": ["JBJ", "yors37"]}
       ],
-      "ideas": [     # aperturas del último día hábil con datos (llegan un día tarde: IBKR Flex)
+      "ideas": [     # aperturas del último día hábil con datos (llegan un día tarde)
         {"date": "2026-10-09", "trader": "Juancm", "ticker": "VZ", "strategy": "Short Put", "expiry": "2026-11-20",
          "short_strike": 42, "long_strike": null, "contracts": 1, "credit": 0.96, "max_loss": 4104}
       ],

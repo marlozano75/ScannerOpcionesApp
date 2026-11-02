@@ -112,7 +112,6 @@ def build_app(settings: Settings):
     account_runner = PeriodicRunner(
         lambda: service.refresh_account(skip_closed_vix=True), settings.refresh.account_interval_minutes * 60)
     scan_log_runner = PeriodicRunner(service.scan_log_cycle, 60)      # late cada minuto; el ciclo respeta lo activado y el intervalo (pestaña Histórico)
-    flex_runner = PeriodicRunner(service.refresh_flex, settings.flex.refresh_hours * 3600) if settings.flex.enabled else None   # fechas de apertura (IBKR Flex)
     startup_task: list[asyncio.Task] = []
 
     failed: set[tuple] = set()      # destinos con el puerto abierto cuya conexión falló en este ciclo de reintentos
@@ -151,16 +150,11 @@ def build_app(settings: Settings):
         startup_task.append(asyncio.create_task(service.start()))
         runner.start()
         account_runner.start()
-        if flex_runner is not None:
-            startup_task.append(asyncio.create_task(service.refresh_flex()))
-            flex_runner.start()
         reconnect_runner.start()
         if scan_log_runner is not None:
             scan_log_runner.start()
 
     async def on_shutdown() -> None:
-        if flex_runner is not None:
-            await flex_runner.stop()
         if scan_log_runner is not None:
             await scan_log_runner.stop()
         await reconnect_runner.stop()

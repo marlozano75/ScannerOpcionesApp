@@ -44,8 +44,7 @@ from scanner_opciones.feeds.community import CommunityFeed
 from scanner_opciones.feeds.marketradar import MarketRadarFeed
 from scanner_opciones.community.fit import profile_fits
 from scanner_opciones.community.ideas import IdeaView, evaluate_ideas, idea_key, past_trade, snapshot_key
-from scanner_opciones.portfolio import flex as flex_mod
-from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker, parse_openings
+from scanner_opciones.portfolio.openings import OpeningsData, OpeningsError, load_openings, norm_ticker
 from scanner_opciones.portfolio.classify import classify_dte
 from scanner_opciones.portfolio.entry_fit import EntryFacts, EntryFit, recognize as recognize_entry, recognize_shown, source_note
 from scanner_opciones.portfolio import exits as exits_mod
@@ -265,9 +264,6 @@ class AppService:
         self._scan_memo: dict[tuple, tuple[float, object]] = {}
         self._openings: Optional[tuple[float, OpeningsData]] = None
         self._openings_error: Optional[str] = None
-        self._flex_openings: Optional[tuple[float, OpeningsData]] = None
-        self._merged_openings: Optional[tuple[tuple, Optional[OpeningsData]]] = None
-        self._flex_error: Optional[str] = None
         self.profile_criteria_provider: Optional[Callable[[], list[tuple]]] = None   # lo pone la interfaz web: filtros grabados en cada perfil
         self.profile_provider: Optional[Callable[[], tuple[list[ScannerProfile], str]]] = None   # lo pone la interfaz web (perfiles guardados o derivados)
         self._yaml_scanner = (settings.scanner.presets, settings.scanner.strategy, settings.scanner.spreads)   # los de config.yaml, para restaurarlos
@@ -2718,64 +2714,8 @@ class AppService:
         self.meta.set(PUT_PROFILES, json.dumps(data))
 
     def openings(self) -> Optional[OpeningsData]:
-        """Fechas exactas de apertura: las de IBKR Flex (`refresh_flex`, mandan: siguen la posición actual) completadas con las de Tortuga (rutina de
-        aperturas, que también aporta los cierres). None si no hay ninguna."""
-        tortuga, flex = self._tortuga_openings(), self._flex_cached()
-        stamp = (id(tortuga), id(flex))
-        if self._merged_openings is not None and self._merged_openings[0] == stamp:
-            return self._merged_openings[1]
-        if flex is None:
-            merged = tortuga
-        elif tortuga is None:
-            merged = flex
-        else:
-            merged = OpeningsData(max(tortuga.generated_at, flex.generated_at), {**tortuga.opened, **flex.opened}, tortuga.warnings + flex.warnings, tortuga.closes, {**tortuga.others, **flex.others})
-        self._merged_openings = (stamp, merged)
-        return merged
-
-    def _flex_cached(self) -> Optional[OpeningsData]:
-        """Última conversión del informe de Flex (fichero de caché), releída solo si cambió."""
-        path = Path(self.settings.flex.cache_path)
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            return None
-        if self._flex_openings is not None and self._flex_openings[0] == mtime:
-            return self._flex_openings[1]
-        try:
-            data = load_openings(path)
-        except OpeningsError as exc:
-            log.warning("Aperturas de Flex: %s no es válido (%s)", path, exc)
-            return self._flex_openings[1] if self._flex_openings is not None else None
-        self._flex_openings = (mtime, data)
-        return data
-
-    async def refresh_flex(self) -> bool:
-        """Pide el informe de IBKR Flex y guarda las fechas de apertura de las puts vendidas. False si no está configurado o falla (se conserva la
-        última caché). Solo lectura: Flex no envía órdenes."""
-        cfg = self.settings.flex
-        if not cfg.enabled:
-            return False
-        try:
-            xml = await flex_mod.fetch_statement(cfg.token.strip(), cfg.query_id.strip(), timeout=cfg.timeout_seconds)
-            data, warnings = flex_mod.statement_to_openings(xml, self.now().date(), self.now())
-        except flex_mod.FlexError as exc:
-            if self._flex_error != str(exc):
-                log.warning("IBKR Flex: %s", exc)
-                self._flex_error = str(exc)
-            return False
-        self._flex_error = None
-        for w in warnings:
-            log.warning("IBKR Flex: %s", w)
-        path = Path(cfg.cache_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-        tmp.replace(path)
-        parse_openings(data)      # valida lo que se acaba de escribir
-        log.info("IBKR Flex: %d puts vendidas con fecha de apertura", len(data["puts"]))
-        self.state.account_version += 1
-        return True
+        """Fechas exactas de apertura (rutina de aperturas de Tortuga, que también aporta los cierres). None si no hay ninguna."""
+        return self._tortuga_openings()
 
     def _tortuga_openings(self) -> Optional[OpeningsData]:
         """Fechas exactas de apertura (JSON de la rutina de aperturas), releídas solo si el fichero cambió. None si no existe; si el nuevo es

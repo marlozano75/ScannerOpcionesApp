@@ -1,6 +1,6 @@
 """Ideas de la comunidad re-valoradas con los datos de hoy.
 
-Los trades de Tortuga llegan un día tarde (IBKR Flex): cuando se ven, el precio y las primas ya son otros. Esta función compara
+Los trades de Tortuga llegan un día tarde: cuando se ven, el precio y las primas ya son otros. Esta función compara
 cada idea con lo que hay guardado hoy (precio del subyacente, cotización de las patas, cierre del día en que se abrió) y dice si
 sigue siendo la misma operación. No inventa nada: sin la cotización guardada (ticker fuera de la watchlist) no valora la prima.
 """
