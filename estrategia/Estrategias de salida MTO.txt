@@ -1,0 +1,44 @@
+CMG Put Credit Spread 32/34 18/12/2026
+Empresa de calidad. Si la cotización evoluciona a nuestro favor cerraremos la operación antes con beneficios.
+Si se pone en contra, la idea original es aplicar la estrategia que hemos realizado tantas veces: vender la put comprada y quedarnos con las acciones. Esto nos garantiza un precio de adquisición muy cercano al de cotización, por mucho que baje la acción.
+El riesgo en sí de la operación es bajo: $87,39 por contrato. Si se acepta esa posible pérdida la operación se podría realizar perfectamente en la cuenta de 10K. Prefiero hacerla en la de 50K por la posibilidad de que  nos quedemos con las acciones.
+Hacemos dos contratos.
+
+ASTS CDS 125/175  15/01/2027
+Cerramos la pata de la call vendida. En esta parte materializamos un beneficio, pero hay que ver al final el global de la operación.
+Incrementamos la pérdida máxima en estos 12,69 $ que hemos pagado para cerrarla.
+
+PFE CDS 26/27 18/06/2026
+Empezamos la operación con un put credit spread. Ver en Cuenta 50K
+Nos asignaron dos put vendidas con strike 27 y cerramos otras dos put compradas con strike 26. Después vendimos dos call a 28 que nos acaban de ejercer, así que hemos vendido las 200 acciones a 28 $.
+En total hemos cobrado 241,38 $ en primas y, además, el 1 de septiembre cobramos 86 $ de dividendo.
+Como compramos a 27 y hemos vendido a 28 añadimos 200 $ de beneficio.
+Por lo tanto, el beneficio final de toda la operación ha sido:
+
+DAL CDS 110/140 21/01/2028
+Buena empresa por fundamentales y con tendencia alcista de largo plazo.
+Después del último retroceso está recuperando la media móvil de 200 sesiones en gráfico diario, un nivel importante que puede volver a actuar como soporte.
+La idea es aprovechar esta corrección para entrar a un precio más atractivo, buscando que la tendencia alcista de fondo continúe.
+
+
+BAC CDS 55/75 15/12/2028
+Banco de gran calidad que venía de una buena tendencia alcista y que ha tenido una corrección importante. Creemos que puede ser un buen momento para buscar una recuperación.
+Damos a la operación más de dos años de plazo, aunque esto no quiere decir que nuestra intención sea mantenerla hasta el vencimiento. Si la cotización se recupera y conseguimos un beneficio que consideremos aceptable, cerraremos antes y recogeremos ganancias.
+El riesgo máximo de la operación está limitado desde el principio a la prima que hemos pagado.
+
+
+META CDS 920/1000 21/01/2028
+META me sigue pareciendo una empresa excelente y hemos aprovechado el retroceso de las últimas jornadas para abrir un Call Debit Spread.
+Como siempre en estas operaciones la idea no es llegar al vencimiento. Buscamos que la cotización rebote y, si conseguimos un beneficio interesante, cerrar antes.
+Me gusta aprovechar este tipo de correcciones en buenas empresas para buscar el movimiento de vuelta al alza. Tenemos claro desde el principio el riesgo: como máximo podemos perder la prima pagada.
+
+
+RDDT CDS 320/380  21/01/2028
+Cerramos la call vendida y nos quedamos con la comprada. Materializamos $367,52 de beneficio en esta pata, lógicamente la que dejamos abierta está en pérdidas, pero tenemos hasta junio del 27. Si remonta no tenemos tope por arriba. Aumentamos el riesgo en esos $39,78 que hemos pagado para cerrarla.
+
+ENPH CDS 60/80 15/01/2027
+¿Por qué en esto casos cerramos la call vendida?
+Si la acción cae las dos calls pierden valor. En la call vendida esto nos beneficia, porque podemos recomprarla mucho más barata de lo que la vendimos y cerrar esa parte de la operación con beneficio.
+Una vez cerrada nos quedamos solo con la call comprada. Si seguimos confiando en que la acción puede recuperarse, esta call queda libre para aprovechar mejor una posible subida, ya que no tenemos la call vendida limitando las ganancias.
+Por eso suele tener sentido hacerlo cuando la call vendida ya ha perdido buena parte de su valor, cuesta poco recomprarla y seguimos teniendo una visión alcista sobre la acción.
+

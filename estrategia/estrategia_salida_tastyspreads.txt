@@ -1,0 +1,50 @@
+La estrategia de salida para un **Bull Put Spread** (o *Put Credit Spread*) se rige por reglas mecánicas estrictas divididas en tres escenarios: toma de beneficios, límite temporal y gestión defensiva.
+
+---
+
+### 1. Toma de beneficios (Cierre con ganancias)
+* **Objetivo de prima (50% – 65%):** No se busca aguantar el *spread* hasta el vencimiento final para cobrar el 100%. La regla fija es colocar una orden limitada de compra (*Good 'Til Canceled*) para cerrar la posición cuando se haya capturado entre el **50% y el 65% del crédito inicial ingresado**.
+* **Cierre acelerado por velocidad (Tabla temporal):** Si la ganancia se produce de forma muy rápida en los primeros días de vida del contrato, la posición se cierra anticipadamente para liberar el capital y rotarlo. Un criterio habitual es cerrar si se obtiene un **20% de ganancia en 6 días** o un **40% en 10 días**.
+
+---
+
+### 2. Regla límite de tiempo (Límite de los 21 DTE)
+* **Salida a los 21 días del vencimiento (21 DTE):** Si faltando **21 días para la fecha de expiración** la posición no ha alcanzado el objetivo de beneficio, se cierra o se rola obligatoriamente.
+* **Protección contra el riesgo de *gamma*:** Aunque a partir de los 21 DTE el decaimiento temporal (*theta*) se acelera, la *gamma* aumenta de forma desproporcionada. Esto significa que un pequeño movimiento en contra del subyacente puede provocar oscilaciones muy bruscas en el precio de las opciones y borrar rápidamente las ganancias acumuladas.
+
+---
+
+### 3. Gestión defensiva cuando la posición se mueve en contra
+Al tratarse de una estrategia de **riesgo definido**, la pérdida máxima ya está estrictamente acotada desde la apertura al ancho entre *strikes* menos el crédito cobrado. Aun así, se aplican los siguientes controles:
+
+* **Stop de pérdida mecánico (200% del crédito):** Una norma habitual para no asumir la pérdida máxima del *spread* es recomprar y cerrar la posición si el coste de recomprarla alcanza el **200% del crédito cobrado** (por ejemplo, si cobraste \$100, la cierras si te cuesta \$200 recomprarla, asumiendo \$100 de pérdida neta).
+* **Rolar el *spread* por crédito (*Rollover*):** Si mantienes la confianza en la tesis de inversión pero necesitas más tiempo, puedes cerrar el *spread* actual y abrir uno nuevo a un vencimiento posterior (~45 DTE). Para un *spread*, esta maniobra exige dos condiciones obligatorias:
+  1. Debe ejecutarse **siempre ingresando un crédito neto adicional**.
+  2. **No se debe ampliar el ancho de las alas (distancia entre *strikes*):** Ensanchar las alas para forzar el cobro de crédito incrementa el riesgo máximo de la posición y rompe la gestión de riesgo inicial.
+* **Convertir en Iron Condor:** Si el mercado cae hacia tu Put vendida, puedes vender un *Call Credit Spread* en el lado superior (lado no amenazado) para ingresar prima extra, reducir la pérdida potencial y rebalancear las *deltas* de la posición.
+* **Aceptar el riesgo definido:** Si no es posible rolar cobrando crédito o la tesis se ha roto, se asume la pérdida acotada y se cierra la posición sin forzar ajustes.
+
+**No se espera obligatoriamente a los 21 DTE**; la gestión defensiva se activa **en el momento en que se cumple el disparador mecánico**, mientras que los 21 DTE actúan como el **límite máximo de tiempo** para permanecer en la operación.
+
+---
+
+### 1. Gestión por movimiento de precio (En cualquier momento)
+* **Mientras el precio esté tranquilo:** Si el subyacente fluctúa pero no amenaza ni toca el *strike*, no se actúa por pánico ni se improvisa; se deja correr la probabilidad estadística.
+* **Cuando se toca el *strike* o se rompe la tesis:** Si el precio cae o sube con fuerza y **toca el *strike*** de la opción vendida, o si en un *spread* salta el stop de pérdidas (por ejemplo, al alcanzar el 200% del crédito cobrado), la gestión defensiva se ejecuta **en ese mismo instante**. No se espera a que se consuman los días:
+  * Se rola la posición a un vencimiento posterior siempre ingresando un **crédito neto adicional**.
+  * Se ajusta el lado no probado (por ejemplo, bajando la Call en un Strangle para ingresar más prima).
+  * O bien se asume la pérdida y se cierra la posición si la tesis ya no se sostiene.
+
+---
+
+### 2. Gestión por tiempo (Regla de los 21 DTE)
+* Si la operación transcurre dentro del rango sin tocar el *strike*, pero tampoco ha alcanzado el objetivo de beneficio (50%–65% de la prima), la llegada a los **21 días restantes para el vencimiento (21 DTE)** funciona como una **alerta temporal infranqueable**.
+* Llegados a los 21 DTE, la posición se cierra o se rola obligatoriamente para eliminar el riesgo acelerado de *gamma*, aunque el precio no haya tocado el *strike*.
+
+---
+
+### En resumen
+* **¿Toca *strike* o salta el stop?** \\(\rightarrow\\) Se gestiona o se defiende **inmediatamente**.
+* **¿No toca *strike* pero se llega a los 21 DTE?** \\(\rightarrow\\) Se gestiona o se cierra **por tiempo** para evitar el riesgo *gamma*.
+
+---

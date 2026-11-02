@@ -10,6 +10,7 @@ from typing import Iterable, Optional, Sequence
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, TickerInfo
 from scanner_opciones.marketdata.analysts import AnalystChange
+from scanner_opciones.marketdata.bar_cleaning import clean_bars
 from scanner_opciones.marketdata.company import CompanyNotes, NewsItem
 from scanner_opciones.marketdata.filings import FilingAlert
 from scanner_opciones.marketdata.history import AnnualYear, Dividend, EarningsQuarter
@@ -491,16 +492,17 @@ class BarRepo:
     def _loaded(self) -> dict[str, list[tuple[date, float]]]:
         if self._cache is None:
             days: dict[str, date] = {}                          # ~1.400 fechas distintas para 1,3 millones de filas
-            cache: dict[str, list[tuple[date, float]]] = {}
+            raw: dict[str, list] = {}
             provisional: set[tuple[str, date]] = set()
-            for ticker, day, close, prov in self.db.conn.execute("SELECT ticker, day, close, provisional FROM daily_bars ORDER BY ticker, day"):
+            for ticker, day, close, prov, high, low in self.db.conn.execute(
+                    "SELECT ticker, day, close, provisional, high, low FROM daily_bars ORDER BY ticker, day"):
                 d = days.get(day)
                 if d is None:
                     d = days[day] = date.fromisoformat(day)
-                cache.setdefault(ticker, []).append((d, close))
+                raw.setdefault(ticker, []).append((d, close, high, low))
                 if prov:
                     provisional.add((ticker, d))
-            self._cache, self._provisional = cache, provisional
+            self._cache, self._provisional = {t: clean_bars(rows) for t, rows in raw.items()}, provisional
         return self._cache
 
     def _put(self, ticker: str, day: date, close: float, provisional: bool) -> None:
@@ -518,6 +520,14 @@ class BarRepo:
             else:
                 bars.insert(i, entry)
         (self._provisional.add if provisional else self._provisional.discard)((ticker, day))
+
+    def _reclean(self, ticker: str) -> None:
+        """Vuelve a limpiar de la base de datos el histórico de un ticker en la copia en memoria (un split recién llegado)."""
+        if self._cache is None:
+            return
+        rows = [(date.fromisoformat(r["day"]), r["close"], r["high"], r["low"]) for r in self.db.conn.execute(
+            "SELECT day, close, high, low FROM daily_bars WHERE ticker = ? ORDER BY day", (ticker,))]
+        self._cache[ticker] = clean_bars(rows)
 
     def _drop_cache(self) -> None:
         self._cache, self._provisional = None, set()
@@ -540,6 +550,9 @@ class BarRepo:
         return {t: list(cache[t]) for t in set(tickers) if t in cache}
 
     def closes(self, ticker: str, official_only: bool = False) -> dict[date, float]:
+        """Cierres del ticker. Con `official_only` se leen tal cual de la base de datos (comprueba ajustes del proveedor); si no, ya limpios."""
+        if not official_only:
+            return dict(self._loaded().get(ticker, ()))
         rows = self.db.conn.execute(
             "SELECT day, close FROM daily_bars WHERE ticker = ?" + (" AND provisional = 0" if official_only else ""),
             (ticker,),
@@ -569,6 +582,7 @@ class BarRepo:
             )
         for d, px, _, _ in bars:
             self._put(ticker, d, px, False)
+        self._reclean(ticker)
 
     def missing_ranges(self, tickers: Iterable[str], recent: int, needed: int) -> list[str]:
         """Tickers con histórico oficial de los que, entre las últimas `recent` sesiones, menos de `needed` tienen máximo y
