@@ -33,7 +33,7 @@ from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, u
 from scanner_opciones.portfolio import exits as exits_mod
 from scanner_opciones.portfolio.mgmt_profiles import MgmtProfile
 from scanner_opciones.portfolio.management import manage_puts
-from scanner_opciones.ui.position_charts import exit_plan, other_chart, other_mini, position_chart, position_mini, windowed
+from scanner_opciones.ui.position_charts import MINI_WEEKS, exit_plan, other_chart, other_mini, position_chart, position_mini, windowed
 from scanner_opciones.scanner.engine import ScanOutput
 from scanner_opciones.tortuga.radar import passes as radar_passes
 from scanner_opciones.tortuga.routines import ROUTINES
@@ -286,8 +286,8 @@ def create_app(
         closes = service.bars.all_closes({key_of(t) for t in by_ticker} | {key_of(x.ticker) for x in others}) if (by_ticker or others) else {}
         pkey = lambda s: f"{s.ticker}|{s.expiry.isoformat()}|{s.strike}|{s.long_strike}"      # noqa: E731  (un gráfico por put o spread)
         mgmt_cfg, weeks_cfg = service.settings.management, service.settings.management.chart_weeks
-        minis = {pkey(s): position_mini(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, weeks_cfg, s.underlying_price) for s in mgmt.puts}
-        minis.update({x.key: other_mini(closes.get(key_of(x.ticker), []), x, today, weeks_cfg, x.underlying) for x in others})
+        minis = {pkey(s): position_mini(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, MINI_WEEKS, s.underlying_price) for s in mgmt.puts}
+        minis.update({x.key: other_mini(closes.get(key_of(x.ticker), []), x, today, MINI_WEEKS, x.underlying) for x in others})
         pos_charts = [dict(ticker=s.ticker, chart=windowed(lambda w, log, s=s: position_chart(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, w, s.underlying_price,
                                                                                          service.next_earnings(s.ticker), log), weeks_cfg),
                            company=Markup(service.company_card(s.ticker)), plans=[(s, exit_plan(s, mgmt_cfg, today))]) for s in mgmt.puts]

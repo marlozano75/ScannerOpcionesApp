@@ -46,13 +46,15 @@ def _date_ticks(start: date, end: date) -> list[tuple[date, str]]:
 
 WINDOWS = ((13, "3 meses"), (26, "6 meses"), (52, "1 año"), (104, "2 años"))     # ventanas del gráfico ampliado; la última, «Todo», usa `management.chart_weeks`
 
+MINI_WEEKS = WINDOWS[0][0]      # las miniaturas del Panel muestran la ventana más corta (3 meses)
+
 
 def windowed(render, total_weeks: int) -> Markup:   # `render(semanas, log)`
     """Gráfico ampliado con botones de ventana: `render(semanas, log)` se llama por ventana (las que no superan el histórico) y «Todo», en lineal y en logarítmica;
-    el script del Panel (`.pcw-btn`, `.pcw-log`) alterna cuál se ve. Sin JS se ve «Todo»."""
+    el script del Panel (`.pcw-btn`, `.pcw-log`) alterna cuál se ve. Por defecto se ve la ventana más corta (3 meses); sin JS tampoco se ven las demás."""
     wins = [(w, label) for w, label in WINDOWS if w < total_weeks] + [(total_weeks, "Todo")]
-    buttons = "".join(f'<button type="button" class="pcw-btn{" on" if n == len(wins) - 1 else ""}" data-w="{w}">{label}</button>' for n, (w, label) in enumerate(wins))
-    views = "".join(f'<div class="pcw-view" data-w="{w}" data-log="0"{"" if n == len(wins) - 1 else " hidden"}>{render(w, False)}</div><div class="pcw-view" data-w="{w}" data-log="1" hidden>{render(w, True)}</div>' for n, (w, _) in enumerate(wins))
+    buttons = "".join(f'<button type="button" class="pcw-btn{" on" if n == 0 else ""}" data-w="{w}">{label}</button>' for n, (w, label) in enumerate(wins))
+    views = "".join(f'<div class="pcw-view" data-w="{w}" data-log="0"{"" if n == 0 else " hidden"}>{render(w, False)}</div><div class="pcw-view" data-w="{w}" data-log="1" hidden>{render(w, True)}</div>' for n, (w, _) in enumerate(wins))
     return Markup(f'<div class="pcw"><div class="pcw-bar">{buttons}<button type="button" class="pcw-log" aria-pressed="false" title="Escala logarítmica del eje de precios">Log</button></div>{views}</div>')
 
 
