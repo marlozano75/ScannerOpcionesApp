@@ -22,6 +22,7 @@ W, H = 560, 250
 LEFT, RIGHT, TOP, BOTTOM = 46, 16, 52, 28      # TOP deja sitio a 4 filas de etiquetas de fechas
 FUTURE_DAYS = 60            # hasta dónde se dibuja el futuro; un vencimiento más lejano se marca con una flecha en el borde derecho
 EARNINGS = "#e87a1e"
+OPENED = "#1a7f37"       # punto de apertura de la posición
 SOLD, BOUGHT, EXPIRY, REVIEW = "var(--red)", "#2f7de1", "var(--ink)", "var(--amber)"
 
 
@@ -43,7 +44,7 @@ def _date_ticks(start: date, end: date) -> list[tuple[date, str]]:
     return out
 
 
-WINDOWS = ((26, "6 meses"), (52, "1 año"), (104, "2 años"))     # ventanas del gráfico ampliado; la última, «Todo», usa `management.chart_weeks`
+WINDOWS = ((13, "3 meses"), (26, "6 meses"), (52, "1 año"), (104, "2 años"))     # ventanas del gráfico ampliado; la última, «Todo», usa `management.chart_weeks`
 
 
 def windowed(render, total_weeks: int) -> Markup:   # `render(semanas, log)`
@@ -172,7 +173,19 @@ def position_chart(closes: Sequence[tuple[date, float]], puts: Sequence[PutStatu
                    f'<circle class="dt" cx="{x:.1f}" cy="{y:.1f}" r="4.5"/></g>')
 
     out.append(f'<line x1="{px(today):.1f}" x2="{px(today):.1f}" y1="{TOP}" y2="{H - BOTTOM}" stroke="var(--line-strong)" stroke-dasharray="2 3"/>')
-    near_edge = pts[-1][0] > W - RIGHT - 50                                              # el precio actual se escribe junto al último punto
+    openings: dict[date, list[PutStatus]] = {}                                         # punto de apertura: sobre el cierre de ese día (o el anterior más cercano)
+    for s in puts:
+        if s.opened is not None and bars[0][0] <= s.opened <= today:
+            openings.setdefault(s.opened, []).append(s)
+    for od, group in sorted(openings.items()):
+        d_bar, p_bar = max(((d, p) for d, p in bars if d <= od), key=lambda b: b[0])
+        notes = "; ".join(f"{s.contracts} × {s.strike:g}" + (f"/{s.long_strike:g}" if s.long_strike is not None else "") + f" venc. {s.expiry:%d/%m}" for s in group)
+        exact = "" if all(s.opened_exact for s in group) else " (aprox.: primera vez vista)"
+        ox, oy = px(d_bar), py(p_bar)
+        out.append(f'<g tabindex="0" data-tip="{_e(f"{p_bar:g}|Apertura {od:%d/%m/%Y}{exact}|{notes}")}"><circle cx="{ox:.1f}" cy="{oy:.1f}" r="9" fill="transparent"/>'
+                   f'<circle cx="{ox:.1f}" cy="{oy:.1f}" r="5.5" fill="var(--panel)" stroke="{OPENED}" stroke-width="2.4"/>'
+                   f'<circle cx="{ox:.1f}" cy="{oy:.1f}" r="2" fill="{OPENED}"/></g>')
+    near_edge = pts[-1][0] > W - RIGHT - 50                                           # el precio actual se escribe junto al último punto
     out.append(f'<text x="{pts[-1][0] + (-8 if near_edge else 8):.1f}" y="{py(last_price) - (8 if near_edge else -4):.1f}" font-size="11" font-weight="700" '
                f'text-anchor="{"end" if near_edge else "start"}" fill="var(--ink)" stroke="var(--panel)" stroke-width="3" paint-order="stroke">{_e(f"{last_price:.2f}")}</text>')
 

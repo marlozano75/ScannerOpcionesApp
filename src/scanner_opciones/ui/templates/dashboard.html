@@ -91,7 +91,7 @@
   </table>
   </div>
   <p class="muted" style="margin:8px 0 0;font-size:12px"><span class="chip a-warn">⚠ actuar</span> <span class="chip a-ok">✔ cerrar con ganancia</span> <span class="chip a-info">ⓘ informativo</span> · franja de color a la izquierda de la fila = urgencia · pasa el ratón por el aviso para ver la explicación completa y el resto de avisos.</p>
-  <p class="muted" style="margin:8px 0 0;font-size:12px">Pulsa la miniatura junto a cada ticker para ampliar su gráfico: cierres diarios (botones 6 meses, 1 año, 2 años o Todo el histórico guardado; «Log» pasa el eje de precios a escala logarítmica), strike (rojo) o pareja del spread (gris discontinuo),
+  <p class="muted" style="margin:8px 0 0;font-size:12px">Pulsa la miniatura junto a cada ticker para ampliar su gráfico: cierres diarios (botones 3 meses, 6 meses, 1 año, 2 años o Todo el histórico guardado; «Log» pasa el eje de precios a escala logarítmica), strike (rojo) o pareja del spread (gris discontinuo),
     vencimiento (línea vertical) y la fecha de {{ mgmt_cfg.review_dte }} DTE (zona ámbar): en las puts gestionadas con Tastytrade es cuando toca revisarlas; con TPC se mantiene hasta el vencimiento y es solo una referencia.</p>
   <div hidden>{% for pc in pos_charts %}
     <div id="pc-{{ loop.index }}" data-ticker="{{ pc.ticker }}">
