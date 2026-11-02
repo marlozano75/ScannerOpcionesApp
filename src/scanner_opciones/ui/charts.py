@@ -5,6 +5,7 @@ fechas calculados aquí; el ticker se escapa.
 """
 from __future__ import annotations
 
+import math
 from datetime import date
 from typing import Optional
 from html import escape
@@ -105,7 +106,7 @@ def _side_tags(tags: list[tuple[float, str, str, str]], x: float, top: float, bo
 
 def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: float, earnings: Optional[date] = None,
                       long_strike: Optional[float] = None, expiry: Optional[date] = None, premium: Optional[float] = None,
-                      today: Optional[date] = None) -> str:
+                      today: Optional[date] = None, log: bool = False) -> str:
     """Resumen + gráfico (fragmento HTML). Con menos de 2 cierres mensuales devuelve solo un aviso.
     `long_strike`: strike de la put comprada si es un spread; se dibuja en azul (el vendido, `strike`, en rojo).
     `expiry`: vencimiento del contrato; se escribe («dic 18 · 23 d», con los días hasta él si se da `today`) bajo el precio de cada strike,
@@ -151,8 +152,17 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
         lo, hi = min(lo, long_strike), max(hi, long_strike)
     for _, _, _, s in mas:
         lo, hi = min(lo, min(v for _, v in s)), max(hi, max(v for _, v in s))
-    pad = (hi - lo) * 0.1 or hi * 0.05
-    lo, hi = lo - pad, hi + pad
+    if log:                                                            # escala logarítmica: lo/hi son logaritmos, margen del 5 % en proporción
+        lo, hi = math.log(max(lo, 1e-9)), math.log(max(hi, 1e-9))
+        pad = (hi - lo) * 0.05 or 0.05
+        lo, hi = lo - pad, hi + pad
+        to_v = math.exp
+        scale_of = lambda v: math.log(max(v, 1e-9))
+    else:
+        pad = (hi - lo) * 0.1 or hi * 0.05
+        lo, hi = lo - pad, hi + pad
+        to_v = lambda v: v
+        scale_of = lambda v: v
     t0, t1 = h.months[0][0].toordinal(), h.months[-1][0].toordinal()
     if earnings is not None and earnings.toordinal() > t1 and (earnings - h.months[-1][0]).days <= MAX_EARNINGS_AHEAD:
         t1 = earnings.toordinal()          # el eje se alarga hasta los resultados próximos
@@ -160,7 +170,7 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
         earnings = None
     span = max(t1 - t0, 1)
     px_x = lambda d: LEFT + (d.toordinal() - t0) / span * (W - LEFT - RIGHT)
-    px_y = lambda v: TOP + (hi - v) / (hi - lo) * (H - TOP - BOTTOM)
+    px_y = lambda v: TOP + (hi - scale_of(v)) / (hi - lo) * (H - TOP - BOTTOM)
     pts = [(px_x(d), px_y(p)) for d, p in h.months]
     curve = [(px_x(d), px_y(p)) for d, p in _series(h)]
     base_y = H - BOTTOM
@@ -169,10 +179,10 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     g = []
     tags: list[tuple[float, str, str, str]] = []
     for i in range(5):                                                 # cuadrícula y precios del eje
-        v = lo + (hi - lo) * i / 4
+        v = to_v(lo + (hi - lo) * i / 4)
         y = px_y(v)
         g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{y:.1f}" y2="{y:.1f}" stroke="currentColor" opacity=".12"/>'
-                 f'<text x="{LEFT - 8}" y="{y + 4:.1f}" text-anchor="end" font-size="11" fill="currentColor" opacity=".6">${v:,.0f}</text>')
+                 f'<text x="{LEFT - 8}" y="{y + 4:.1f}" text-anchor="end" font-size="11" fill="currentColor" opacity=".6">${v:,.0f}</text>')   # (log: marcas equiespaciadas en proporción)
     step = max(1, round(n / 12))                                       # etiquetas de meses en el eje X
     for i in range(0, n, step):
         g.append(f'<text x="{pts[i][0]:.1f}" y="{H - 10}" text-anchor="middle" font-size="11" fill="currentColor" opacity=".6">{_mon(h.months[i][0])}</text>')
@@ -226,7 +236,7 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
               + (f'<span style="--c:{ORANGE}" class="dash">Resultados {earnings.day} {_MONTHS[earnings.month - 1]}</span>' if earnings is not None else "")
               + "".join(f'<label class="sh-tog" style="--c:{c}"><input type="checkbox" data-ma="{k}" checked> {lb}</label>' for lb, k, c, _ in mas)
               + '</div>')
-    scale = f'data-lo="{lo:.4f}" data-hi="{hi:.4f}" data-top="{TOP}" data-base="{base_y}" data-t0="{t0}" data-t1="{t1}" data-left="{LEFT}" data-right="{W - RIGHT}"'
+    scale = f'data-lo="{lo:.4f}" data-hi="{hi:.4f}" data-top="{TOP}" data-base="{base_y}" data-t0="{t0}" data-t1="{t1}" data-left="{LEFT}" data-right="{W - RIGHT}"' + (' data-log="1"' if log else '')
     svg = (f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="Cierres mensuales de {escape(ticker)} frente al strike" '
            f'class="sh-svg" {scale}>{"".join(g)}</svg>')
     return f'<div class="sh-wrap">{summary}{touch_line}{ma_line}{legend}{svg}</div>'

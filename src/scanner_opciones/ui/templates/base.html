@@ -566,6 +566,24 @@
   })();
 </script>
 
+<style>
+  .shw-bar { display:flex; gap:6px; margin:0 0 6px; }
+  .shw-btn, .shw-log { font-size:12px; padding:2px 10px; border:1px solid var(--line-strong); border-radius:999px; background:var(--panel); color:var(--mute); cursor:pointer; }
+  .shw-log { margin-left:auto; }
+  .shw-btn.on, .shw-log.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+</style>
+<script>
+  // Gráfico del strike: botones de ventana (6 meses…Todo) y escala logarítmica; cada combinación viene ya dibujada, solo se alterna cuál se ve
+  document.addEventListener('click', function (e) {
+    const b = e.target.closest && e.target.closest('.shw-btn, .shw-log');
+    if (!b) return;
+    const box = b.closest('.shw'); if (!box) return;
+    if (b.classList.contains('shw-log')) { b.classList.toggle('on'); b.setAttribute('aria-pressed', b.classList.contains('on')); }
+    else box.querySelectorAll('.shw-btn').forEach(function (x) { x.classList.toggle('on', x === b); });
+    const on = box.querySelector('.shw-log').classList.contains('on'), m = box.querySelector('.shw-btn.on').dataset.m;
+    box.querySelectorAll('.shw-view').forEach(function (v) { v.hidden = v.dataset.m !== m || (v.dataset.log === '1') !== on; });
+  });
+</script>
 <script>
   // Gráfico del strike: al pasar el ratón por la curva de precios se muestra el precio (y la fecha) del punto sobre el que estás
   (function () {
@@ -588,7 +606,8 @@
       let a = 0, b = len;                                   // x crece a lo largo de la curva: búsqueda binaria de la longitud con ese x
       for (let i = 0; i < 24; i++) { const mid = (a + b) / 2; if (curve.getPointAtLength(mid).x < p.x) a = mid; else b = mid; }
       const q = curve.getPointAtLength((a + b) / 2);
-      const price = +d.hi - (q.y - top) / (base - top) * (+d.hi - +d.lo);
+      const lin = +d.hi - (q.y - top) / (base - top) * (+d.hi - +d.lo);
+      const price = d.log ? Math.exp(lin) : lin;                     // escala logarítmica: lo/hi son logaritmos
       const ord = +d.t0 + (q.x - left) / (right - left) * (+d.t1 - +d.t0);
       const day = new Date((Math.round(ord) - 719163) * 86400000).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' });
       const text = '$' + price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' · ' + day;

@@ -49,6 +49,8 @@ from scanner_opciones.portfolio.overview import other_positions, portfolio_statu
 from scanner_opciones.scanner.criteria import commission_model
 from scanner_opciones.ui import dashboard_charts as dash, page_charts, routes_comunidad, routes_historico, routes_marketradar, routes_universe, scanner_parse, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
+
+STRIKE_WINDOWS = ((6, "6 meses"), (12, "1 año"), (24, "2 años"))     # ventanas del gráfico del strike; la última, «Todo», usa todo el histórico
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
 from scanner_opciones.universe.descriptions import describe, describe_manual
 from scanner_opciones.universe.hellostocks_html import HTML_SUFFIXES, missing_strategies
@@ -791,13 +793,23 @@ def create_app(
         if not closes or strike <= 0:
             return HTMLResponse('<p class="muted">Sin histórico de cierres de este ticker: tastytrade no devolvió velas. Se reintenta al abrir el gráfico otra vez.</p>')
         tcfg = service.settings.scanner.technical
-        history = strike_history(sorted(closes.items()), strike, service.now().date(), tcfg.chart_months)
+        today = service.now().date()
+        bars = sorted(closes.items())
+        total = max((today - bars[0][0]).days // 30 + 1, 2)          # meses de histórico disponibles («Todo»)
+        wins = [(m, label) for m, label in STRIKE_WINDOWS if m < total] + [(total, "Todo")]
+        default = next((i for i, (m, _) in enumerate(wins) if m == tcfg.chart_months), len(wins) - 1)
+        earnings = service.next_earnings(ticker)
+        buttons = "".join(f'<button type="button" class="shw-btn{" on" if i == default else ""}" data-m="{m}">{label}</button>' for i, (m, label) in enumerate(wins))
+        views = "".join(
+            f'<div class="shw-view" data-m="{m}" data-log="{int(lg)}"{"" if (i == default and not lg) else " hidden"}>'
+            + strike_chart_html(strike_history(bars, strike, today, m), ticker, strike, tcfg.chart_near_pct, earnings, long, expiry, prem, today, lg)
+            + "</div>" for i, (m, _) in enumerate(wins) for lg in (False, True))
         alerts = service.filing_alert_map().get(norm_ticker(ticker), [])
         box = ('<div class="banner warn"><b>⚠ Presentaciones recientes ante la SEC</b><ul style="margin:4px 0 0 18px;padding:0">'
                + "".join(f"<li>{escape(a.text)}</li>" for a in alerts) + "</ul></div>") if alerts else ""
-        return HTMLResponse(service.company_card(ticker) + box
-                            + strike_chart_html(history, ticker, strike, tcfg.chart_near_pct, service.next_earnings(ticker), long, expiry,
-                                                prem, service.now().date()))
+        bar = (f'<div class="shw-bar">{buttons}<button type="button" class="shw-log" aria-pressed="false" '
+               f'title="Escala logarítmica del eje de precios">Log</button></div>')
+        return HTMLResponse(service.company_card(ticker) + box + f'<div class="shw">{bar}{views}</div>')
 
     @app.get("/chart/mini.svg")
     async def strike_mini(ticker: str, strike: float, long: Optional[float] = None):
