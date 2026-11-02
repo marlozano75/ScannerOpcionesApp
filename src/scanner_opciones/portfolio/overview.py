@@ -63,6 +63,8 @@ class OtherPosition:
     rules: object = None                # `exits.ExitRules` aplicadas
     take_profit_pct: Optional[float] = None   # objetivo de recogida (en % de `captured_pct`) para pintar el capturado en verde
     captured_note: str = ""
+    opened: Optional[date] = None       # fecha de apertura (de Tortuga si es exacta, si no la primera vez que la app vio la posición: IBKR no la da)
+    opened_exact: bool = False
 
     @property
     def is_short_option(self) -> bool:
@@ -139,10 +141,11 @@ def _combo_position(c: Combo, today: date, nlv_usd: Optional[float], underlying:
 
 def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optional[float],
                     prices: Optional[dict[str, Optional[float]]] = None,
-                    assigned: Optional[dict[str, str]] = None, default_profile: str = OTHERS) -> list[OtherPosition]:
+                    assigned: Optional[dict[str, str]] = None, default_profile: str = OTHERS,
+                    opened: Optional[dict[str, tuple[date, bool]]] = None) -> list[OtherPosition]:
     """Todo lo que no es una put vendida (ni parte de un spread): acciones, calls y puts compradas sueltas y combos. Más peso primero.
-    `assigned`: perfil elegido a mano por `other_key`; el resto va a `default_profile` (el catch-all de gestión)."""
-    assigned = assigned or {}
+    `assigned`: perfil elegido a mano por `other_key`; el resto va a `default_profile` (el catch-all de gestión). `opened`: (fecha de apertura, exacta) por `other_key`."""
+    assigned, opened = assigned or {}, opened or {}
     out = []
     rest, _ = split_spreads(positions)
     rest, combos = split_combos(rest)
@@ -173,7 +176,7 @@ def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optiona
             levels=(o.strike,) if o else (),
             legs=((o.strike, p.quantity < 0, "Call" if o.right is OptionRight.CALL else "Put", o.expiry),) if o else (),
             max_risk=cost if o is not None and not short_option else None))
-    out = [replace(op, key=other_key(op), profile=assigned.get(other_key(op), default_profile)) for op in out]
+    out = [replace(op, key=other_key(op), profile=assigned.get(other_key(op), default_profile), opened=opened.get(other_key(op), (None, False))[0], opened_exact=opened.get(other_key(op), (None, False))[1]) for op in out]
     return sorted(out, key=lambda x: -abs(x.value))
 
 

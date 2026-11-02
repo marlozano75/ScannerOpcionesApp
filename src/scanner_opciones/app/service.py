@@ -53,7 +53,7 @@ from scanner_opciones.portfolio import mgmt_profiles as mgmt_mod
 from scanner_opciones.portfolio.mgmt_profiles import MgmtProfile
 from scanner_opciones.portfolio import defense as defense_mod
 from scanner_opciones.portfolio.management import PROFILES as PUT_PROFILE_NAMES, put_key as put_key_of
-from scanner_opciones.portfolio.overview import leg_key
+from scanner_opciones.portfolio.overview import leg_key, other_key, other_positions
 from scanner_opciones.portfolio.spreads import split_combos, split_spreads, with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner import profiles as profiles_mod
@@ -136,6 +136,7 @@ COMMUNITY_PERM = "community_perm"   # clave de `meta`: trader(es) y mejor estrat
 FEED_TRADES_SYNCED = "feed_trades_synced"   # clave de `meta`: `generated_at` del Feed de la comunidad ya volcado en el libro `community_trades`
 SCANNER_PROFILES = "scanner_profiles"   # clave de `meta`: perfiles del Scanner (JSON, `scanner/profiles.py`); vacío = los que salen de config.yaml
 NO_CANDLES = "no_candles"   # clave de `meta`: símbolos que tastytrade no responde con velas (JSON {símbolo: epoch}); no se reintentan en cada arranque
+OTHER_OPENED = "other_opened"   # clave de `meta`: día en que la app vio por primera vez cada posición que no es put vendida (JSON {other_key: AAAA-MM-DD})
 PUT_OPENED = "put_opened"   # clave de `meta`: día en que la app vio por primera vez cada put vendida (JSON {put_key: AAAA-MM-DD})
 PUT_ENTRY_FIT = "put_entry_fit"   # clave de `meta`: estrategia reconocida al abrir cada put/spread (JSON {put_key: EntryFit})
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
@@ -2728,7 +2729,7 @@ class AppService:
         elif tortuga is None:
             merged = flex
         else:
-            merged = OpeningsData(max(tortuga.generated_at, flex.generated_at), {**tortuga.opened, **flex.opened}, tortuga.warnings + flex.warnings, tortuga.closes)
+            merged = OpeningsData(max(tortuga.generated_at, flex.generated_at), {**tortuga.opened, **flex.opened}, tortuga.warnings + flex.warnings, tortuga.closes, {**tortuga.others, **flex.others})
         self._merged_openings = (stamp, merged)
         return merged
 
@@ -2822,6 +2823,40 @@ class AppService:
             data.setdefault(key, today)
         if data != known:
             self.meta.set(PUT_OPENED, json.dumps(data))
+
+    def _note_other_opened(self) -> None:
+        """Apunta el día en que aparece por primera vez cada posición que no es una put vendida (acciones, calls, combos...); olvida las que ya no están."""
+        today = self.now().date()
+        known = self._other_seen()
+        keys = {other_key(x) for x in other_positions(self.state.positions, today, None)}
+        data = {k: known.get(k, today) for k in keys}
+        if data != known:
+            self.meta.set(OTHER_OPENED, json.dumps({k: v.isoformat() for k, v in data.items()}))
+
+    def _other_seen(self) -> dict[str, date]:
+        try:
+            return {str(k): date.fromisoformat(str(v)) for k, v in json.loads(self.meta.get(OTHER_OPENED) or "{}").items()}
+        except ValueError:
+            return {}
+
+    def other_open_dates(self) -> dict[str, tuple[date, bool]]:
+        """{other_key: (fecha de apertura, es exacta)} de lo que no es una put vendida: la de las operaciones de Tortuga (la más antigua de las patas,
+        y solo si están todas) y, si no, la primera vez que la app vio la posición."""
+        exact, seen = self.openings(), self._other_seen()
+        out: dict[str, tuple[date, bool]] = {}
+        for x in other_positions(self.state.positions, self.now().date(), None):
+            key = other_key(x)
+            days = []
+            if exact is not None:
+                if x.legs:
+                    days = [exact.get_other(x.ticker, e, k, "C" if r == "Call" else "P") for k, _, r, e in x.legs]
+                elif x.kind == "Acción":
+                    days = [exact.get_other(x.ticker)]
+            if days and all(d is not None for d in days):
+                out[key] = (min(days), True)
+            elif key in seen:
+                out[key] = (seen[key], False)
+        return out
 
     def put_assignments(self) -> dict[str, str]:
         """Perfil de cada put vendida: el elegido a mano o, si no, por este orden: el registro de escaneos, los filtros de los perfiles de ESCANEO y,
@@ -3379,6 +3414,7 @@ class AppService:
             self.state.account = await asyncio.wait_for(self.gateway.get_account_summary(), timeout=STEP_TIMEOUT_SECONDS)
             self.state.positions = self._with_fx(await asyncio.wait_for(self.gateway.get_positions(), timeout=STEP_TIMEOUT_SECONDS))
             self._note_put_opened()
+            self._note_other_opened()
             self._history_for_positions()
             self.state.risk = build_risk_status(self.state.account, self.settings.risk.cushion_thresholds)
             self.state.errors.pop("portfolio", None)

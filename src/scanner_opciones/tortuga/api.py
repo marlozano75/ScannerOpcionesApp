@@ -23,6 +23,7 @@ PRICE_RANGES = ((0, 50), (50, 100), (100, 200), (200, None))
 SPLIT_OPEN_AT = 350                       # el tramo abierto «200+» se parte en 200-350 y 350+
 MAX_SPLIT_DEPTH = 6
 CARD_CONCURRENCY = 5                      # fichas por valor a la vez
+OTHERS_DAYS = 400    # cuánto atrás se buscan las aperturas de acciones, calls y puts compradas (suelen durar más que una put vendida)
 API_ROUTINES = frozenset({"aperturas", "radar_spreads", "radar_puts", "super_investors"})
 
 
@@ -122,7 +123,7 @@ class TortugaApi:
         accounts = [a["account"] for a in ctx.get("accounts", [])]
         if not accounts:
             raise TortugaApiError("get_context no devuelve ninguna cuenta")
-        puts, closes = [], []
+        puts, closes, others = [], [], []
         for account in accounts:
             for row in await self._trades(account, "open", today - timedelta(days=120), today, "date_asc"):
                 if row.get("side") == "SELL" and row.get("right") == "P":
@@ -131,15 +132,20 @@ class TortugaApi:
                 if row.get("side") == "BUY" and row.get("right") == "P":
                     closes.append({"date": row["date"], "ticker": row["underlying"], "expiry": row["expiry"], "strike": row["strike"],
                                    "qty": row["qty"], "pct_captured": row.get("pct_premium_captured"), "pnl": row.get("pnl")})
+            for kind in ("option", "stock"):          # lo que no es una put vendida: acciones, calls y puts compradas (patas de combos incluidas)
+                for row in await self._trades(account, "open", today - timedelta(days=OTHERS_DAYS), today, "date_asc", kind=kind):
+                    if row.get("side") == "BUY" or (row.get("type") == "option" and row.get("right") == "C"):
+                        others.append({"date": row["date"], "ticker": row["underlying"], "expiry": row.get("expiry"), "strike": row.get("strike"),
+                                       "right": row.get("right") or "", "qty": row["qty"]})
         stamp = datetime.combine(today, datetime.min.time()).replace(hour=13, tzinfo=now.astimezone().tzinfo)
-        return json.dumps({"version": 1, "generated_at": stamp.isoformat(timespec="seconds"), "source": "tortuga", "puts": puts, "closes": closes},
-                          ensure_ascii=False)
+        return json.dumps({"version": 1, "generated_at": stamp.isoformat(timespec="seconds"), "source": "tortuga", "puts": puts, "closes": closes,
+                           "others": others}, ensure_ascii=False)
 
-    async def _trades(self, account: int, status: str, start: date, end: date, order: str, max_pages: int = 5) -> list[dict]:
+    async def _trades(self, account: int, status: str, start: date, end: date, order: str, max_pages: int = 5, kind: str = "option") -> list[dict]:
         rows: list[dict] = []
         cursor = None
         for _ in range(max_pages):
-            call = await self.call("list_trades", account=account, status=status, type="option", sort=order, limit=200,
+            call = await self.call("list_trades", account=account, status=status, type=kind, sort=order, limit=200,
                                    **{"from": start.isoformat(), "to": end.isoformat(), "cursor": cursor})
             page = json.loads(call.output)
             rows.extend(r for r in page.get("trades", []) if isinstance(r, dict))

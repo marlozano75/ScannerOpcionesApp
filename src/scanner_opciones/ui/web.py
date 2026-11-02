@@ -274,7 +274,7 @@ def create_app(
         today = service.now().date()
         others = other_positions(service.state.positions, today, nlv,
                                  {t: i.underlying_price for t, i in service.ticker_info.all().items()},
-                                 service.put_profiles(), service._mgmt_catchall())
+                                 service.put_profiles(), service._mgmt_catchall(), service.other_open_dates())
         rules_by_name, leg_deltas, dctx = service.other_exit_rules(), service.usable_leg_deltas(), service.defense_context()
         others = [other_mgmt.assess(x, rules_by_name.get(x.profile), service.settings.management, today, leg_deltas, (dctx.get(x.ticker) or {}).get("iv30"))
                   for x in others]

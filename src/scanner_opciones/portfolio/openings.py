@@ -57,9 +57,14 @@ class OpeningsData:
     opened: dict = field(default_factory=dict)      # (ticker normalizado, vencimiento, strike redondeado) -> fecha de la primera apertura
     warnings: tuple[str, ...] = ()
     closes: tuple[Close, ...] = ()                  # cierres de puts vendidas, más recientes primero
+    others: dict = field(default_factory=dict)      # (ticker normalizado, vencimiento|None, strike|None, "C"/"P"|"") -> primera apertura de lo que NO es una put vendida (acciones, calls, puts compradas)
 
     def get(self, ticker: str, expiry: date, strike: float) -> Optional[date]:
         return self.opened.get((norm_ticker(ticker), expiry, round(float(strike), 4)))
+
+    def get_other(self, ticker: str, expiry: Optional[date] = None, strike: Optional[float] = None, right: str = "") -> Optional[date]:
+        """Apertura de una acción (sin vencimiento ni strike) o de una opción que no es una put vendida (`right`: «C» o «P»)."""
+        return self.others.get((norm_ticker(ticker), expiry, round(float(strike), 4) if strike is not None else None, right))
 
 
 def parse_openings(raw: object) -> OpeningsData:
@@ -94,7 +99,23 @@ def parse_openings(raw: object) -> OpeningsData:
         except (KeyError, TypeError, ValueError) as exc:
             warnings.append(f"closes[{i}] descartado: {exc}")
     closes.sort(key=lambda c: c.day, reverse=True)
-    return OpeningsData(generated, opened, tuple(warnings), tuple(closes))
+    others: dict = {}
+    raw_others = raw.get("others", [])
+    for i, row in enumerate(raw_others if isinstance(raw_others, list) else []):
+        try:
+            expiry = date.fromisoformat(str(row["expiry"])) if row.get("expiry") else None
+            strike = round(float(row["strike"]), 4) if row.get("strike") is not None else None
+            right = str(row.get("right") or "").upper()[:1]
+            key = (norm_ticker(str(row["ticker"])), expiry, strike, right)
+            day = date.fromisoformat(str(row["date"]))
+            if not key[0] or (expiry is None) != (strike is None):
+                raise ValueError("ticker vacío o vencimiento y strike incoherentes")
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            warnings.append(f"others[{i}] descartado: {exc}")
+            continue
+        if key not in others or day < others[key]:
+            others[key] = day
+    return OpeningsData(generated, opened, tuple(warnings), tuple(closes), others)
 
 
 def _num(value: object) -> Optional[float]:
