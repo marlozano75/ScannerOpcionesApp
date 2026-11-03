@@ -30,6 +30,7 @@ Inspiran los filtros técnicos y los gráficos del Scanner (RF-44 en `ESPECIFICA
 | `error_Comunidad_Feed.png` | Captura de un error en la pestaña Comunidad › Feed. |
 | `Beneficios_Ultimos años.png` | Referencia visual (gráfico de TradingView) de los resultados anuales: barras de ingresos e ingresos netos y línea del margen neto. Base del gráfico «Resultados anuales» de la ficha (`marketdata/history_html.py::annual_svg`) |
 | `Beneficios_Ultimos_Quarters.png` | Referencia visual de los beneficios por acción de los últimos trimestres: punto relleno = real, hueco = estimación. Base del gráfico de la ficha (`history_html.py::earnings_svg`) |
+| `2026-11-03 121638_IBRK_P&L.png` | Captura de la ventana Cartera de TWS (PYG diarias y PYG N RLZDS por línea, DIARIO de la cuenta). Referencia para que «Var. día ($)» y «P&L ($)» del Panel coincidan con TWS: las líneas van en USD y el DIARIO en moneda base |
 
 ## Notas
 
