@@ -30,9 +30,11 @@ def default_form(settings) -> dict:
         "use_ret": cfg.min_max_return_pct is not None, "ret": _fmt(cfg.min_max_return_pct if cfg.min_max_return_pct is not None else 100),
         "use_sma": cfg.sma200_below_pct_min is not None, "sma": _fmt(cfg.sma200_below_pct_min if cfg.sma200_below_pct_min is not None else 10),
         "ref": crit.price_reference.value, "ref_x": _fmt(crit.price_spread_pct),
+        # empresa y ticker: sin filtros por defecto (el perfil guarda los que elijas)
+        "q_profit": False, "q_fcf": False, "q_quarters": "", "q_liq": "", "q_lev": "", "price_min": "", "price_max": "", "fsrc": [], "use_src": False,
     }
 
 
 def profile_params(settings) -> dict:
     """Parámetros de perfil (strings) con los valores de `scanner.cds`."""
-    return {k: ("on" if v is True else str(v)) for k, v in default_form(settings).items() if v is not False}
+    return {k: ("on" if v is True else str(v)) for k, v in default_form(settings).items() if v is not False and k not in ("fsrc", "use_src", "q_quarters", "q_liq", "q_lev", "price_min", "price_max")}

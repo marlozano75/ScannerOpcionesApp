@@ -12,10 +12,14 @@ from pydantic import ValidationError
 from scanner_opciones.config.settings import CdsSettings
 from scanner_opciones.domain.enums import PriceReference
 from scanner_opciones.scanner import cds_profile
-from scanner_opciones.ui.scanner_forms import _fmt
+from scanner_opciones.rankedstocks.loader import clean_ticker
+from scanner_opciones.ui.scanner_forms import _fmt, quality_form, read_quality
 
 # claves de la URL que identifican la página y no son filtros del perfil
 STRUCT = frozenset(("submitted", "mode", "profile", "reset", "message"))
+# filtros de la empresa y del ticker (no del spread): del mismo formulario y con el mismo parser que el Scanner de puts. El filtro de resultados no
+# existe aquí: con DTE 200–500 siempre hay unos resultados antes del vencimiento y descartaría todo.
+TICKER_KEYS = ("q_profit", "q_quarters", "q_fcf", "q_lev", "q_liq", "price_min", "price_max")
 
 
 def _num(text: str, name: str, kind=float, allow_empty: bool = False):
@@ -44,6 +48,7 @@ def parse_cds(service, qp) -> dict:
     notices: list[str] = []
     cds: Optional[CdsSettings] = None
     ref: dict = {}
+    ticker_filters: dict = {}
     error: Optional[str] = None
     if submitted:
         for key in ("dte_min", "dte_max", "otm_min", "otm_max", "widths", "wpct_min", "wpct_max", "dmin", "dmax", "oi", "ls", "gain", "days", "mult",
@@ -84,12 +89,45 @@ def parse_cds(service, qp) -> dict:
         if form["ref"] not in {r.value for r in PriceReference}:
             raise ValueError("precio de venta de referencia desconocido")
         ref = dict(price_reference=PriceReference(form["ref"]), price_spread_pct=_num(form["ref_x"], "X del precio de referencia"))
+        ticker_filters = _read_ticker_filters(service, qp, form, submitted)
+        ref.update(ticker_filters)
     except (ValueError, ValidationError) as exc:
         error = str(exc).replace("\n", " ")
         cds = None
     return dict(form=form, cds=cds, ref=ref, notices=notices, error=error, submitted=submitted)
 
 
+def _read_ticker_filters(service, qp, form: dict, submitted: bool) -> dict:
+    """Calidad de la empresa, liquidez de las opciones, precio del subyacente y fuentes del Universo: se leen como en el Scanner de puts. Devuelve los
+    campos del criterio (`ScanCriteria`) que cambian; deja en `form` lo que hay que pintar."""
+    qcfg = service.settings.scanner.quality
+    out: dict = {}
+    if submitted:
+        read_quality(qp, form, out, qcfg, earnings=False, liquidity=True, company=True)
+        for key, field_name in (("price_min", "min_price"), ("price_max", "max_price")):
+            form[key] = str(qp.get(key, "")).strip()
+            out[field_name] = _num(form[key], "Precio del subyacente", allow_empty=True)
+            if out[field_name] is not None and out[field_name] < 0:
+                raise ValueError("el precio del subyacente no puede ser negativo")
+        if None not in (out["min_price"], out["max_price"]) and out["min_price"] > out["max_price"]:
+            raise ValueError("el precio mínimo no puede superar el máximo")
+        universe = service.universe_sources
+        legacy = {new: old for old, new in service.legacy_radar_source_names().items()}
+        form["fsrc"] = [src.name for src in universe if f"fs_{src.name}" in qp or f"fs_{legacy.get(src.name)}" in qp]
+        form["use_src"] = ("use_src" in qp) if "src" in qp else bool(form["fsrc"])
+        if form["use_src"]:
+            chosen = set(form["fsrc"])
+            out["source_names"] = tuple(form["fsrc"])
+            out["source_tickers"] = frozenset(clean_ticker(r.ticker) for src in universe if src.name in chosen for r in src.table.rows)
+    return out
+
+
 def form_query(form: dict) -> dict:
     """Parámetros de la URL que reproducen `form` (para guardar en un perfil o recargar)."""
-    return {k: ("on" if v is True else str(v)) for k, v in form.items() if v is not False}
+    out = {k: ("on" if v is True else str(v)) for k, v in form.items() if v is not False and k not in ("fsrc", "use_src")}
+    if "fsrc" in form:                       # fuentes del Universo: `src=1` marca que el bloque se envió y una casilla `fs_<fuente>` por fuente
+        out["src"] = "1"
+        if form.get("use_src"):
+            out["use_src"] = "on"
+        out.update({f"fs_{name}": "on" for name in form["fsrc"]})
+    return out

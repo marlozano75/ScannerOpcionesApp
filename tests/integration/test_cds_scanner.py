@@ -85,3 +85,26 @@ def test_disabled_cds_shows_the_notice_and_no_table():
         text = client.get("/scanner?" + cds_profile_query(svc)).text
         assert "scanner.cds.enabled" in text and 'id="scan-results"' not in text and 'name="dmax"' in text
         assert client.get("/scanner/impact?mode=cds&submitted=1").status_code == 200
+
+
+def test_company_and_ticker_filters_apply_show_chips_and_count_in_the_impact_panel():
+    svc = _svc()
+    with _client(svc) as client:
+        client.portal.call(svc.wait_idle)
+        _seed(svc)                                     # ZZZ no tiene EPS ni liquidez guardados
+        base = cds_profile_query(svc)
+        assert '<td class="tk"' in client.get("/scanner?" + base).text
+        for extra, chip in (("&q_profit=on", "Beneficios 12 m"), ("&q_liq=3", "Liquidez opc."), ("&q_fcf=on", "FCF &gt; 0"), ("&price_min=200", "Subyacente $200")):
+            text = client.get("/scanner?" + base + extra).text
+            assert '<td class="tk"' not in text and 'name="q_profit"' in text, extra            # ZZZ (precio 100, sin datos) queda fuera
+            assert chip.replace("&gt;", ">") in text.replace("&gt;", ">"), extra
+        impact = client.get("/scanner/impact?" + base + "&q_profit=on&price_max=500").text
+        assert "Beneficios (12 meses)" in impact and "Precio del subyacente" in impact
+        # un precio que sí admite al ticker lo deja pasar
+        assert '<td class="tk"' in client.get("/scanner?" + base + "&price_min=50&price_max=500").text
+        # se guardan en el perfil y vuelven al cargarlo
+        client.post("/scanner/profile/save", data={"name": "CDS sano", "query": base + "&q_profit=on&q_quarters=3"})
+        prof = next(p for p in svc.stored_profiles()[0] if p.name == "CDS sano")
+        assert prof.cds["q_profit"] == "on" and prof.cds["q_quarters"] == "3"
+        page = client.get("/scanner?mode=cds&profile=CDS+sano").text
+        assert 'name="q_profit" checked' in page

@@ -37,3 +37,13 @@ def test_empty_result_lists_conflicting_filters_and_unknown_ticker_gives_empty_w
     report = cds_impact_report(_many(), info(), cds, TODAY)
     assert report.final == 0 and report.window >= 1
     assert cds_impact_report(_many(), {}, cds, TODAY).window == 0
+
+
+def test_ticker_filters_count_as_one_more_filter():
+    from scanner_opciones.scanner.cds_impact import TickerFilter
+    cds = cfg(width_options=(10.0,))
+    flt = TickerFilter("cds_profit", "Beneficios (12 meses)", "EPS > 0", lambda t: False)
+    report = cds_impact_report(_many(), info(), cds, TODAY, ticker_filters=[flt])
+    by = {f.key: f for f in report.filters}
+    assert report.final == 0 and report.window >= 1
+    assert by["cds_profit"].alone == 0 and by["cds_profit"].exclusive >= 1

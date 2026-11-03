@@ -6,6 +6,7 @@ construye UNA vez con todos los filtros opcionales relajados y cada filtro se ev
 escaneo entero por filtro). Se cuentan TODOS los anchos (`best_width` apagado): el recuento de la tabla puede ser menor si «mejor ancho» está activo."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from typing import Callable, Mapping, Optional, Sequence
 
@@ -18,6 +19,16 @@ from scanner_opciones.scanner.impact import FilterImpact, ImpactReport
 HUGE = 1e12
 
 Predicate = Callable[[CdsResult], bool]
+
+
+@dataclass(frozen=True)
+class TickerFilter:
+    """Filtro del ticker (calidad de la empresa, liquidez de opciones, precio, fuentes): se aplica antes de buscar spreads, pero en el panel cuenta
+    como un filtro más (sobre los spreads de los tickers que pasan)."""
+    key: str
+    label: str
+    config: str
+    passes: Callable[[str], bool]
 
 
 def _g(v: float) -> str:
@@ -64,9 +75,10 @@ def cds_impact_report(
     snapshots: Sequence[ContractSnapshot], infos: Mapping[str, TickerInfo], cds: CdsSettings, today: date,
     bars: Optional[Mapping[str, Sequence]] = None, price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD,
     price_spread_pct: float = 25.0, cost_ps: Callable[[float], float] = lambda multiplier: 0.0,
+    ticker_filters: Sequence[TickerFilter] = (),
 ) -> ImpactReport:
     window = build_call_debit_spreads(snapshots, infos, relaxed(cds), today, bars, price_reference, price_spread_pct, cost_ps)
-    preds = predicates(cds)
+    preds = predicates(cds) + [(f.key, f.label, f.config, (lambda r, f=f: f.passes(r.long.contract.ticker))) for f in ticker_filters]
     final = [r for r in window if all(p(r) for _, _, _, p in preds)]
     rows = []
     for key, label, config, pred in preds:

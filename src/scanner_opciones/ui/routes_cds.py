@@ -60,7 +60,7 @@ def read(service, profiles: list[Profile], qp) -> tuple[Optional[Profile], dict]
 
 def page(service, profiles: list[Profile], qp) -> dict:
     """Contexto específico del CDS para `scanner.html` (el resto —perfiles, avisos…— lo añade quien llama)."""
-    catalog = service.settings.scanner.cds
+    catalog, qcfg = service.settings.scanner.cds, service.settings.scanner.quality
     active, parsed = read(service, profiles, qp)
     rows: list[CdsResult] = []
     if catalog.enabled and parsed["cds"] is not None:
@@ -71,7 +71,9 @@ def page(service, profiles: list[Profile], qp) -> dict:
     diff = profile_diff(saved, cds_form.form_query(parsed["form"])) if active else {}
     return dict(is_cds=True, cds_cfg=catalog, cds_rows=[CdsRow(r, infos.get(r.long.contract.ticker), (r.long.contract.expiry - today).days) for r in rows[:MAX_ROWS]], cds_total=len(rows),
                 cds_max_rows=MAX_ROWS, form=form, error=parsed["error"], warnings=list(parsed["notices"]), active=active, diff=diff,
-                widths_all=catalog.width_options, cds_ok=parsed["cds"] is not None)
+                widths_all=catalog.width_options, cds_ok=parsed["cds"] is not None, source_names=[src.name for src in service.universe_sources],
+                quality_opts=dict(liquidity=qcfg.liquidity_options, quarters=qcfg.positive_quarters_options, leverage=qcfg.leverage_options),
+                count_text=lambda *_: "")
 
 
 def impact(service, profiles: list[Profile], qp):

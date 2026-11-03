@@ -62,7 +62,7 @@ from scanner_opciones.metrics import technical as ta
 from scanner_opciones.metrics.yields import reference_price
 from scanner_opciones.scanner.criteria import commission_model
 from scanner_opciones.scanner.cds import build_call_debit_spreads
-from scanner_opciones.scanner.cds_impact import cds_impact_report
+from scanner_opciones.scanner.cds_impact import TickerFilter, cds_impact_report
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.currency import Nlv
 from scanner_opciones.scanner.quality import put_floor_reject, ticker_quality_reject
@@ -3515,40 +3515,76 @@ class AppService:
 
     def scan_cds(self, cds: Optional[CdsSettings] = None, **criteria_overrides) -> list:
         """Call Debit Spread muy OTM (`scanner/cds.py`) sobre las calls guardadas. `cds` = filtros de un perfil CDS (siempre dentro de la ventana
-        que guarda `scanner.cds`); sin él, los de la configuración. Los filtros de calidad de la empresa son los del criterio por defecto del Scanner
-        (los que estén activos) y `criteria_overrides` cambia el precio de venta de referencia (`price_reference`, `price_spread_pct`); comisiones, las
-        del Scanner. Vacío si `scanner.cds.enabled` es falso. Los cierres se cargan siempre: la columna «vs SMA200» se muestra aunque el filtro esté apagado."""
+        que guarda `scanner.cds`); sin él, los de la configuración. Los filtros del ticker (calidad de la empresa, liquidez, precio, fuentes) y el precio de venta de
+        referencia llegan en `criteria_overrides` (los de `ui/cds_form.py`); comisiones, las del Scanner. Vacío si `scanner.cds.enabled` es falso. Los cierres se cargan siempre: la columna «vs SMA200» se muestra aunque el filtro esté apagado."""
         cds = cds or self.settings.scanner.cds
         if not self.settings.scanner.cds.enabled:
             return []
-        criteria, infos_ok, snaps, bars = self._cds_inputs(**criteria_overrides)
+        criteria, infos, filters = self._cds_inputs(**criteria_overrides)
+        infos_ok = {t: i for t, i in infos.items() if all(f.passes(t) for f in filters)}
+        snaps, bars = self._cds_data(infos_ok)
         return build_call_debit_spreads(
             snaps, infos_ok, cds, self.now().date(), bars, criteria.price_reference, criteria.price_spread_pct,
             lambda mult: criteria.cost_ps(mult, legs=2))
 
     def _cds_inputs(self, **criteria_overrides):
-        """(criterio, infos que pasan la calidad de la empresa y el modo `cds`, snapshots de calls, cierres) para escanear o medir el CDS."""
+        """(criterio, fichas de los tickers que admite el modo `cds`, filtros de ticker activos) para escanear o medir el CDS. Los filtros de ticker
+        (calidad de la empresa, liquidez de opciones, precio del subyacente, fuentes del Universo) se aplican aparte para que el panel de impacto
+        pueda medirlos uno a uno."""
         criteria = self.criteria(**criteria_overrides)
         infos = self.infos(criteria)
-        if criteria.ticker_quality_active:
-            exempt = self.quality_exempt()
-            infos_ok = {t: i for t, i in infos.items() if ticker_quality_reject(i, criteria, exempt) is None}
-        else:
-            infos_ok = infos
         if self.settings.scanner.ticker_modes.enabled:
             ok = self.ticker_modes()
-            infos_ok = {t: i for t, i in infos_ok.items() if ok.get(t, modes_mod.ALL_ON).cds}
-        snaps = [s for s in self._scan_call_snapshots() if s.contract.ticker in infos_ok]
-        return criteria, infos_ok, snaps, self._scan_closes(snaps)
+            infos = {t: i for t, i in infos.items() if ok.get(t, modes_mod.ALL_ON).cds}
+        return criteria, infos, self._cds_ticker_filters(criteria, infos)
+
+    def _cds_data(self, infos):
+        """(snapshots de calls, cierres) de los tickers dados. Los cierres tienen su propia memoria: no dependen del escaneo de puts."""
+        snaps = [s for s in self._scan_call_snapshots() if s.contract.ticker in infos]
+        tickers = {s.contract.ticker for s in snaps}
+        return snaps, self._memo("cds_closes", lambda: self.bars.all_closes(tickers))
+
+    def _cds_ticker_filters(self, criteria: ScanCriteria, infos) -> list:
+        """Filtros de ticker activos del perfil CDS: lista de `TickerFilter` (clave del panel de impacto, etiqueta, configuración y condición)."""
+        exempt = self.quality_exempt()
+        neutral = self.criteria()
+        out: list[TickerFilter] = []
+
+        def quality(key: str, label: str, config: str, **fields):
+            c = neutral.with_filters(**fields)
+            out.append(TickerFilter(key, label, config, lambda t, c=c: ticker_quality_reject(infos.get(t), c, exempt) is None))
+        if criteria.require_profitable:
+            quality("cds_profit", "Beneficios (12 meses)", "EPS > 0", require_profitable=True)
+        if criteria.min_positive_quarters is not None:
+            quality("cds_quarters", "Trimestres con beneficios", f"≥ {criteria.min_positive_quarters} de 4", min_positive_quarters=criteria.min_positive_quarters)
+        if criteria.require_positive_fcf:
+            quality("cds_fcf", "Flujo de caja libre", "> 0", require_positive_fcf=True)
+        if criteria.max_liabilities_to_equity is not None:
+            quality("cds_lev", "Pasivo / patrimonio", f"≤ {criteria.max_liabilities_to_equity:g}", max_liabilities_to_equity=criteria.max_liabilities_to_equity)
+        if criteria.min_option_liquidity is not None:
+            quality("cds_liq", "Liquidez de las opciones", f"≥ {criteria.min_option_liquidity}", min_option_liquidity=criteria.min_option_liquidity)
+        if criteria.min_price is not None or criteria.max_price is not None:
+            lo, hi = criteria.min_price, criteria.max_price
+
+            def price_ok(t: str) -> bool:
+                info = infos.get(t)
+                px = info.underlying_price if info else None
+                return px is not None and (lo is None or px >= lo) and (hi is None or px <= hi)
+            out.append(TickerFilter("cds_price", "Precio del subyacente", f"{lo:g}–{'∞' if hi is None else f'{hi:g}'} $" if lo is not None else f"≤ {hi:g} $", price_ok))
+        if criteria.source_tickers is not None:
+            wanted = criteria.source_tickers
+            out.append(TickerFilter("cds_sources", "Fuentes del Universo", ", ".join(criteria.source_names) or "ninguna", lambda t: clean_ticker(t) in wanted))
+        return out
 
     def scan_cds_impact(self, cds: Optional[CdsSettings] = None, **criteria_overrides) -> ImpactReport:
-        """Panel «¿Cuánto descarta cada filtro?» del perfil CDS (`scanner/cds_impact.py`): mismos filtros de empresa y mismo precio de venta que `scan_cds`."""
+        """Panel «¿Cuánto descarta cada filtro?» del perfil CDS (`scanner/cds_impact.py`): mismos filtros de ticker y mismo precio de venta que `scan_cds`."""
         cds = cds or self.settings.scanner.cds
         if not self.settings.scanner.cds.enabled:
             return ImpactReport(0, 0, ())
-        criteria, infos_ok, snaps, bars = self._cds_inputs(**criteria_overrides)
-        return cds_impact_report(snaps, infos_ok, cds, self.now().date(), bars, criteria.price_reference, criteria.price_spread_pct,
-                                 lambda mult: criteria.cost_ps(mult, legs=2))
+        criteria, infos, filters = self._cds_inputs(**criteria_overrides)
+        snaps, bars = self._cds_data(infos)
+        return cds_impact_report(snaps, infos, cds, self.now().date(), bars, criteria.price_reference, criteria.price_spread_pct,
+                                 lambda mult: criteria.cost_ps(mult, legs=2), filters)
 
     def scan_profiles(self, sets: list[tuple[str, str, ScanCriteria]]) -> tuple[list, dict[str, dict[str, int]]]:
         """Un solo escaneo con los filtros de varios perfiles: `sets` = (perfil, instrumento `put`|`spread`, criterios). Cada contrato (o spread)

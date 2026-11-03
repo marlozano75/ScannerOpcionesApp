@@ -710,7 +710,7 @@ def create_app(
             return render(request, "scanner.html", no_autorefresh=True, watch_data=True, owned=service.owned_options(), held=service.held_tickers(),
                           profile_buttons=profile_buttons_for(profiles, active_cds.name if active_cds else ""), active_profile=active_cds,
                           sev=lambda keys: sev_of(cds_diff, keys), marks={}, nlv_usd=service.nlv_usd(), techs={},
-                          default_qs=default_profile_qs(profiles, default_profile), source_names=[], report=service.state.last_refresh_report,
+                          default_qs=default_profile_qs(profiles, default_profile), report=service.state.last_refresh_report,
                           criteria=None, out=None, **cds_ctx)
         if "submitted" not in request.query_params and "reset" not in request.query_params:    # sin consulta: se carga el perfil inicial
             first = next((p for p in profiles if p.name == default_profile), profiles[0])
