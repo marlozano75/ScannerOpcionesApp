@@ -283,7 +283,8 @@ class IBKRGateway:
 
     def _daily_pnl(self, account: str, con_id: int) -> Optional[float]:
         try:
-            return m.pnl_value(getattr(self.ib.pnlSingle(account, "", con_id)[0], "dailyPnL", None))
+            value = m.pnl_value(getattr(self.ib.pnlSingle(account, "", con_id)[0], "dailyPnL", None))
+            return round(value, 2) + 0.0 if value is not None else None      # céntimos; el «+ 0.0» quita el -0.0 (ruido de IBKR en valores sin cambio)
         except Exception:
             return None
 

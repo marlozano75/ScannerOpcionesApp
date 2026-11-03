@@ -162,7 +162,9 @@ def _signed(v: Optional[float], digits: int = 0) -> str:
     """Importe con signo y miles: «+1,234» / «−56» (el signo menos tipográfico); «—» sin dato."""
     if v is None:
         return "—"
-    return f"{'+' if v >= 0 else '−'}{abs(v):,.{digits}f}"
+    if round(v, digits) == 0:        # «−0» (un valor negativo minúsculo) no es negativo: sin signo
+        return f"{0:,.{digits}f}"
+    return f"{'+' if v > 0 else '−'}{abs(v):,.{digits}f}"
 
 
 def _x(v: Optional[float]) -> str:
