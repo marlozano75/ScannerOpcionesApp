@@ -128,3 +128,16 @@ def test_min_exit_profit_filter():
     [r] = build_call_debit_spreads(snaps, info(), cfg(), TODAY)
     assert build_call_debit_spreads(snaps, info(), cfg(min_exit_profit_usd=r.exit_profit_usd - 1), TODAY) == [r]
     assert build_call_debit_spreads(snaps, info(), cfg(min_exit_profit_usd=r.exit_profit_usd + 1), TODAY) == []
+
+
+def test_iv_at_horizon_interpolates_total_variance():
+    from scanner_opciones.scanner.cds import iv_at_horizon
+    t = lambda n: (TODAY + timedelta(days=n)).isoformat()
+    i = TickerInfo("ZZZ", underlying_price=100.0, iv30=50.0, expiry_ivs={t(5): 0.80, t(25): 0.40, t(60): 0.30})
+    assert abs(iv_at_horizon(i, 5, TODAY) - 0.80) < 1e-9
+    mid = iv_at_horizon(i, 15, TODAY)                      # entre 5 y 25 días: varianza total lineal
+    assert abs(mid - ((0.8**2 * 5 + 0.4**2 * 25) / 2 / 15) ** 0.5) < 1e-9 and 0.4 < mid < 0.8
+    assert iv_at_horizon(i, 90, TODAY) == 0.30             # más allá del último: el más cercano
+    assert iv_at_horizon(i, 2, TODAY) == 0.80              # antes del primero: el primero
+    assert iv_at_horizon(TickerInfo("ZZZ", iv30=50.0), 10, TODAY) == 0.5      # sin vencimientos: IV30
+    assert iv_at_horizon(TickerInfo("ZZZ"), 10, TODAY) is None

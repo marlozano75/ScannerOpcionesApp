@@ -561,7 +561,7 @@ class CdsSettings(_Model):
     max_leg_spread_pct: float = Field(25, gt=0)          # spread bid/ask máximo de cada pata (%)
     # Rentabilidad mínima esperada (obligatoria): el subyacente debe poder mover lo necesario para ganar `target_gain_pct` del débito
     # (objetivo de salida del perfil MTO) en `move_days` días. Movimiento necesario = objetivo × débito / delta neta; se compara con el
-    # movimiento esperado a `move_days` días (precio × IV30 × √(días/365)).
+    # movimiento esperado a `move_days` días (precio × IV a `move_days` días × √(días/365); la IV sale de interpolar la IV por vencimiento de tastytrade en varianza total, con el IV30 de respaldo).
     target_gain_pct: float = Field(20, gt=0)
     move_days: int = Field(10, ge=1)
     max_required_move_mult: float = Field(1.0, gt=0)

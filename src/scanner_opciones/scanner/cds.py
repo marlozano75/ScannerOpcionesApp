@@ -49,6 +49,31 @@ def touch_probability_pct(z: float) -> float:
     return min(100.0, 200 * (1 - 0.5 * (1 + math.erf(z / math.sqrt(2)))))
 
 
+def iv_at_horizon(info: Optional[TickerInfo], days: int, today: date) -> Optional[float]:
+    """IV (fracción) para un horizonte de `days` días: interpola linealmente en varianza total (IV²·T) entre los dos vencimientos
+    de `info.expiry_ivs` que lo rodean; con uno solo a un lado usa el más cercano; sin vencimientos usa el IV30 (None si tampoco hay)."""
+    pts: list[tuple[int, float]] = []
+    for iso, iv in ((info.expiry_ivs if info else None) or {}).items():
+        try:
+            d = (date.fromisoformat(iso) - today).days
+        except ValueError:
+            continue
+        if d >= 1 and iv and iv > 0:
+            pts.append((d, float(iv)))
+    pts.sort()
+    if pts:
+        below = [p for p in pts if p[0] <= days]
+        above = [p for p in pts if p[0] >= days]
+        if below and above:
+            (d1, v1), (d2, v2) = below[-1], above[0]
+            if d1 == d2:
+                return v1
+            w = v1 * v1 * d1 + (v2 * v2 * d2 - v1 * v1 * d1) * (days - d1) / (d2 - d1)
+            return math.sqrt(w / days)
+        return (below[-1] if below else above[0])[1]
+    return (info.iv30 / 100) if info and info.iv30 else None
+
+
 def _spread_pct(s: ContractSnapshot) -> Optional[float]:
     """Spread bid/ask en % del mid; None si no es un mercado válido (sin bid, sin ask o ask 0)."""
     if s.bid is None or s.ask is None or s.bid <= 0 or s.ask <= 0 or mid_price(s.bid, s.ask) is None:
@@ -95,7 +120,7 @@ def build_call_debit_spreads(
                 continue
         if not _leg_ok(lg, cds) or lg.delta is None:
             continue
-        iv = (info.iv30 / 100) if info and info.iv30 else lg.iv
+        iv = iv_at_horizon(info, cds.move_days, today) or lg.iv
         if not iv or iv <= 0:
             continue
         expected_pct = iv * math.sqrt(cds.move_days / 365) * 100
