@@ -48,3 +48,14 @@ def test_dashboard_gives_non_put_positions_zone_alert_and_row_urgency(client_and
 def test_management_chart_of_an_unknown_position_is_404(client_and_service):
     client, *_ = client_and_service
     assert client.get("/management/chart", params={"key": "ZZZ|2030-01-01|1|None"}).status_code == 404
+
+
+def test_reloading_the_dashboard_does_not_write_to_the_database(client_and_service):
+    """Cargar el Panel no debe reescribir datos idénticos: cada escritura invalida las cachés compartidas del Scanner."""
+    client, svc, gw, _ = client_and_service
+    gw.positions = [Position("AAPL", -2, -1_500.0, "Technology", OptionContract("AAPL", TODAY + timedelta(days=35), 90.0, OptionRight.PUT), avg_cost=300.0)]
+    refresh(client)
+    client.get("/")                                   # la primera carga puede reconocer y guardar el perfil de la put
+    before = svc.watchlist.db.data_changes
+    client.get("/")
+    assert svc.watchlist.db.data_changes == before

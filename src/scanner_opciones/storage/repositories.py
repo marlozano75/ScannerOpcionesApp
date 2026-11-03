@@ -854,6 +854,19 @@ class SnapshotRepo:
                 self.db.conn.executemany(self._UPSERT, rows)
         return len(rows)
 
+    def put_margins(self) -> list[tuple[str, date, float, float]]:
+        """(ticker, vencimiento, strike, margen what-if) de las puts con margen guardado. Solo esas cuatro columnas, sin construir snapshots:
+        el Panel solo necesita el margen de las puts de la cartera y `all()` tardaba ~1,7 s en leer todos los contratos."""
+        days: dict[str, date] = {}
+        out = []
+        for tk, expiry, strike, margin in self.db.conn.execute(
+                "SELECT c.ticker, c.expiry, c.strike, s.initial_margin FROM snapshots s JOIN contracts c ON c.id = s.contract_id "
+                "WHERE c.right = ? AND s.initial_margin IS NOT NULL", (OptionRight.PUT.value,)):
+            if (d := days.get(expiry)) is None:
+                d = days[expiry] = date.fromisoformat(expiry)
+            out.append((tk, d, strike, margin))
+        return out
+
     def all(self, ticker: Optional[str] = None) -> list[ContractSnapshot]:
         # columnas explícitas y filas como tuplas: con ~65.000 contratos, leer por nombre y reconstruir fechas y enums por fila costaba ~1,5 s
         sql = (

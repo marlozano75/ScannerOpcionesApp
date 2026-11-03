@@ -438,3 +438,17 @@ async def test_failed_capture_is_retried_next_cycle():
     before = runs["quotes"]
     assert await svc.reconnect() is True               # al reconectar se reintenta la captura que faltaba
     assert runs["quotes"] == before + 1
+
+
+async def test_refresh_warms_the_shared_caches_in_the_background():
+    """Al acabar un refresco, los mapas de nombres y notas quedan en la caché compartida sin que ninguna página los pida."""
+    svc, gw = await started_service()
+    await svc.wait_idle()
+    assert any(k[0] == "company_notes" for k in svc._scan_memo)
+
+
+async def test_warming_the_caches_can_be_turned_off():
+    svc, gw = make_service()
+    svc.settings = svc.settings.model_copy(update={"refresh": svc.settings.refresh.model_copy(update={"warm_caches": False})})
+    svc.warm_caches()
+    assert svc._warming is None

@@ -148,6 +148,7 @@ PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido pa
 EXIT_STYLES = "exit_styles"   # clave de `meta`: estilos base de salida propios (JSON, `portfolio/exits.py::dump_custom`)
 MGMT_PROFILES = "mgmt_profiles"   # clave de `meta`: perfiles de GESTIÓN (JSON, `portfolio/mgmt_profiles.py`); vacío = los sembrados (Comunidad/Radar/MTO)
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
+WARM_BARS_CHUNK = 40                               # tickers cuyos cierres se precalientan entre cesiones del turno (~0,2 s)
 SCAN_MEMO_SECONDS = 1800.0                          # vida de las lecturas reutilizadas entre cálculos del Scanner (`_memo`)
 KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
 MAX_SOURCE_NAME = 40  # longitud máxima del nombre de una fuente manual
@@ -336,6 +337,8 @@ class AppService:
         self._session_begun = False  # ya se hizo el primer refresco/actualización diaria de la sesión (con o sin TWS)
         self._iv_stats_running = False
         self._tasty_done = False     # histórico y calidad de tastytrade ya descargados en esta ejecución
+        self._warming: Optional["asyncio.Future"] = None      # precalentamiento de cachés en curso (`warm_caches`)
+        self._bars_warmed = False    # cierres de la watchlist ya precalentados en esta ejecución
         self._tasty_task: "asyncio.Future | None" = None   # descarga de arranque de tastytrade, en segundo plano
         self._tasty_again = False    # una actualización diaria acabó mientras la del arranque seguía: que la repita al terminar
         self._account_lock = asyncio.Lock()  # cuenta, posiciones y VIX: aparte, para que un ciclo largo de mercado no los retrase
@@ -1284,6 +1287,29 @@ class AppService:
         if any(removed.values()):
             log.info("Limpieza de tickers fuera de la watchlist: %s", removed)
         return removed
+
+    def warm_caches(self) -> None:
+        """Prepara en segundo plano lo que las páginas construyen con TODOS los tickers del Universo (nombres, notas, avisos de la SEC y de analistas;
+        ~1 s tras cada refresco) y, una sola vez por ejecución, los cierres de la watchlist (~12 s). Las lecturas usan la caché compartida (`_memo`),
+        así que la primera página que las pida ya las encuentra hechas. Va en el propio bucle de eventos, en trozos pequeños que ceden el turno
+        (`await asyncio.sleep(0)`): un hilo compartiría la conexión de SQLite y la caché con las peticiones. Nunca falla: es optativo."""
+        if not self.settings.refresh.warm_caches or (self._warming is not None and not self._warming.done()):
+            return
+        self._warming = self.launch(self._warm_caches())
+
+    async def _warm_caches(self) -> None:
+        try:
+            for build in (self.company_name_map, self.company_notes_map, self.filing_alert_map, self.analyst_map):
+                build()
+                await asyncio.sleep(0)
+            if not self._bars_warmed:
+                self._bars_warmed = True
+                tickers = self.watchlist.list()
+                for i in range(0, len(tickers), WARM_BARS_CHUNK):
+                    self.bars.all_closes(tickers[i:i + WARM_BARS_CHUNK])
+                    await asyncio.sleep(0)
+        except Exception:       # base cerrada al apagar, etc.: precalentar es optativo
+            log.debug("No se pudieron precalentar las cachés", exc_info=True)
 
     def launch(self, coro) -> "asyncio.Future":
         """Ejecuta una corrutina en segundo plano (acciones manuales largas)."""
@@ -2898,7 +2924,7 @@ class AppService:
             fit = self._resolve_fit(pos, self._entry_facts(pos, dates[key][0]), profiles, dates[key][0], stored if known else None, catchall)
             fits[key] = fit
             out[key] = fit.profile
-            changed = True
+            changed = changed or stored is None or fit.to_json() != stored.to_json()     # reescribir lo idéntico invalidaba las cachés del Scanner en cada carga
         if changed:
             self.meta.set(PUT_ENTRY_FIT, json.dumps({k: v.to_json() for k, v in fits.items() if _key_alive(k, today)}))
         return out
@@ -3282,6 +3308,7 @@ class AppService:
                 await self.refresh_leg_deltas()
                 self.state.last_refresh = self.now()
                 self.state.data_version += 1
+                self.warm_caches()
             return ok
         if self.busy:
             log.info("Refresco omitido: hay otra ejecución en curso")
@@ -3305,6 +3332,7 @@ class AppService:
             await self.refresh_leg_deltas()
             self.state.last_refresh = self.now()
             self.state.data_version += 1
+            self.warm_caches()
             return True
 
     async def refresh_account(self, skip_closed_vix: bool = False) -> bool:
@@ -3973,8 +4001,7 @@ class AppService:
     def put_margins(self) -> dict[str, float]:
         """Margen what-if guardado (por contrato) de las puts vendidas de la cartera, por `put_key` (en un spread, de la pata vendida).
         Es el de abrir una put nueva con esos datos: sirve para saber cuánto margen libera cerrarla, no es el margen real que fija IBKR."""
-        stored = {(norm_ticker(s.contract.ticker), s.contract.expiry, round(float(s.contract.strike), 4)): s.initial_margin
-                  for s in self._scan_snapshots() if s.initial_margin is not None and s.contract.right is OptionRight.PUT}
+        stored = {(norm_ticker(tk), expiry, round(float(strike), 4)): margin for tk, expiry, strike, margin in self.snapshots.put_margins()}
         out: dict[str, float] = {}
         for p in self.state.positions:
             o = p.option
