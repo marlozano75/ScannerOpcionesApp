@@ -837,7 +837,8 @@ def create_app(
 
     @app.get("/chart/strike", response_class=HTMLResponse)
     async def strike_chart(ticker: str, strike: float, long: Optional[float] = None, expiry: Optional[date] = None,
-                           prem: Optional[float] = None, kind: str = ""):
+                           prem: Optional[float] = None, kind: str = "",
+                           exit: Optional[float] = None, need: Optional[float] = None):
         """Gráfico de cierres mensuales del ticker frente al strike, con los días desde el último toque
         (fragmento HTML que el Scanner muestra en una ventana)."""
         closes = service.bars.closes(ticker)
@@ -855,7 +856,8 @@ def create_app(
         buttons = "".join(f'<button type="button" class="shw-btn{" on" if i == default else ""}" data-m="{m}">{label}</button>' for i, (m, label) in enumerate(wins))
         views = "".join(
             f'<div class="shw-view" data-m="{m}" data-log="{int(lg)}"{"" if (i == default and not lg) else " hidden"}>'
-            + strike_chart_html(strike_history(bars, strike, today, m), ticker, strike, tcfg.chart_near_pct, earnings, long, expiry, prem, today, lg, call=kind == "cds")
+            + strike_chart_html(strike_history(bars, strike, today, m), ticker, strike, tcfg.chart_near_pct, earnings, long, expiry, prem, today, lg, call=kind == "cds",
+                                  exit_price=exit if kind == "cds" else None, need_pct=need if kind == "cds" else None)
             + "</div>" for i, (m, _) in enumerate(wins) for lg in (False, True))
         alerts = service.filing_alert_map().get(norm_ticker(ticker), [])
         box = ('<div class="banner warn"><b>⚠ Presentaciones recientes ante la SEC</b><ul style="margin:4px 0 0 18px;padding:0">'

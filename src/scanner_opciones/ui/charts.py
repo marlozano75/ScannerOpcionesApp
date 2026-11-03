@@ -19,6 +19,7 @@ _MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct",
 BLUE, RED, YELLOW, ORANGE = "#2f6fd1", "#d64545", "#d9a400", "#e87a1e"
 MAX_EARNINGS_AHEAD = 120          # días: unos resultados más lejanos no alargan el eje
 MA50, MA200 = "#8a5cd0", "#1f9d8a"
+EXIT = "#1f9d55"                 # precio de salida del CDS (el del subyacente al que se alcanza el objetivo)
 LONG = "#2f7de1"                  # put comprada de un spread (la vendida va en rojo)
 
 
@@ -107,7 +108,8 @@ def _side_tags(tags: list[tuple[float, str, str, str]], x: float, top: float, bo
 
 def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: float, earnings: Optional[date] = None,
                       long_strike: Optional[float] = None, expiry: Optional[date] = None, premium: Optional[float] = None,
-                      today: Optional[date] = None, log: bool = False, call: bool = False) -> str:
+                      today: Optional[date] = None, log: bool = False, call: bool = False,
+                      exit_price: Optional[float] = None, need_pct: Optional[float] = None) -> str:
     """Resumen + gráfico (fragmento HTML). Con menos de 2 cierres mensuales devuelve solo un aviso.
     `long_strike`: strike de la put comprada si es un spread; se dibuja en azul (el vendido, `strike`, en rojo).
     `expiry`: vencimiento del contrato; se escribe («dic 18 · 23 d», con los días hasta él si se da `today`) bajo el precio de cada strike,
@@ -115,7 +117,7 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     `premium`: prima por acción que se cobra (put) o crédito neto (spread); se escribe en un recuadro y sobre la línea del strike vendido,
     con el yield (prima / strike) en una put o la razón prima / ancho en un spread.
     `call`: Call Debit Spread (perfil MTO CDS): `strike` es la call vendida (arriba, en rojo), `long_strike` la comprada (azul) y `premium` el débito
-    pagado; sin «toques» ni colores de «por debajo del strike» (son de la put vendida): se resume cuánto debe subir el precio hasta cada strike."""
+    pagado; `exit_price` y `need_pct` (solo CDS): precio del subyacente al que se alcanza el objetivo y subida necesaria (%), se marcan con una línea verde; sin «toques» ni colores de «por debajo del strike» (son de la put vendida): se resume cuánto debe subir el precio hasta cada strike."""
     if len(h.months) < 2:
         return '<p class="muted">Sin histórico de cierres suficiente para dibujar el gráfico.</p>'
     if call and h.touch is not None:       # el «último toque» es de la put vendida
@@ -144,6 +146,9 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
         need = lambda k: (k / current - 1) * 100
         summary = prem_box + (f'<div class="sh-banner ok"><b>Precio {_usd(current)}</b> · call comprada {_usd(bought)} ({need(bought):+.1f}% sobre el precio) · '
                               f'vendida {_usd(strike)} ({need(strike):+.1f}%)</div>')
+        if exit_price:
+            summary += (f'<div class="sh-banner ok"><b>Precio de salida {_usd(exit_price)}</b>'
+                        + (f' · necesario {need_pct:+.1f}% sobre el precio' if need_pct is not None else '') + '</div>')
         touch_line = ""
     else:
         summary = prem_box + (f'<div class="sh-banner {"ok" if ok else "warn"}"><b>{"✓" if ok else "⚠"} {h.above} de {n} meses por encima del strike '
@@ -168,6 +173,8 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     hi = max(strike, max(p for _, p in h.months))
     if long_strike is not None:
         lo, hi = min(lo, long_strike), max(hi, long_strike)
+    if call and exit_price:
+        lo, hi = min(lo, exit_price), max(hi, exit_price)
     for _, _, _, s in mas:
         lo, hi = min(lo, min(v for _, v in s)), max(hi, max(v for _, v in s))
     if log:                                                            # escala logarítmica: lo/hi son logaritmos, margen del 5 % en proporción
@@ -226,6 +233,13 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
         g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{ly:.1f}" y2="{ly:.1f}" stroke="{LONG}" stroke-width="1.6" stroke-dasharray="6 4"/>')
         g.append(f'<text x="{LEFT - 8}" y="{ly + 4:.1f}" text-anchor="end" font-size="11" font-weight="700" fill="{LONG}">${long_strike:,.0f}</text>')
         tags.append((ly, _strike_tag(long_strike, current, expiry, today), LONG, ""))
+    if call and exit_price:                                            # precio de salida: el del subyacente al que se alcanza el objetivo
+        ey = px_y(exit_price)
+        g.append(f'<line x1="{LEFT}" x2="{W - RIGHT}" y1="{ey:.1f}" y2="{ey:.1f}" stroke="{EXIT}" stroke-width="1.6" stroke-dasharray="2 4"/>')
+        g.append(f'<text x="{LEFT - 8}" y="{ey + 4:.1f}" text-anchor="end" font-size="11" font-weight="700" fill="{EXIT}">${exit_price:,.0f}</text>')
+        g.append(f'<text x="{LEFT + 8}" y="{ey - 6 if ey - 6 > TOP + 10 else ey + 16:.1f}" font-size="12.5" font-weight="700" fill="{EXIT}" stroke="var(--panel)" '
+                 f'stroke-width="4" paint-order="stroke">Salida {_usd(exit_price)}' + (f' · necesario {need_pct:+.1f}%' if need_pct is not None else '') + '</text>')
+        tags.append((ey, f"Salida {_usd(exit_price)}", EXIT, ""))
     if h.touch:                                                        # último toque: aro naranja con su etiqueta
         d, p, days = h.touch
         if d.toordinal() >= t0:
@@ -246,12 +260,13 @@ def strike_chart_html(h: StrikeHistory, ticker: str, strike: float, near_pct: fl
     tags.append((pts[-1][1], _usd(current), BLUE, ""))
     g.append(_side_tags(tags, W - RIGHT + 12, TOP, base_y))
 
+    exit_legend = f'<span style="--c:{EXIT}" class="dash">Precio de salida {_usd(exit_price)}</span>' if call and exit_price else ""
     sold_label = ("Call vendida" if call else "Strike vendido") if long_strike is not None else "Strike"
     near_legend = "" if call else (f'<span style="--c:{YELLOW}">A menos de {near_pct:g}% del strike</span><span style="--c:{RED}">En o bajo el strike</span>'
                                    f'<span style="--c:{ORANGE}" class="ring">Último toque (cierre diario)</span>')
     legend = (f'<div class="sh-legend"><span style="--c:{BLUE}">Cierre mensual (actual)</span><span style="--c:{RED}" class="dash">{sold_label} {_usd(strike)}</span>'
               + (f'<span style="--c:{LONG}" class="dash">{"Call comprada" if call else "Comprada"} {_usd(long_strike)}</span>' if long_strike is not None else "")
-              + near_legend
+              + exit_legend + near_legend
               + (f'<span style="--c:{ORANGE}" class="dash">Resultados {earnings.day} {_MONTHS[earnings.month - 1]}</span>' if earnings is not None else "")
               + "".join(f'<label class="sh-tog" style="--c:{c}"><input type="checkbox" data-ma="{k}" checked> {lb}</label>' for lb, k, c, _ in mas)
               + '</div>')
