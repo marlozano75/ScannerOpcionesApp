@@ -347,7 +347,7 @@ class TechnicalSettings(_Model):
     support_cluster_gap_days: int = Field(20, ge=1)       # separación mínima entre dos toques de episodios distintos
     support_pivot_width: int = Field(3, ge=1)
     ma_slope_candles: int = Field(5, ge=1)                # pendiente de una media: se compara con su valor de hace N velas (de las elegidas: días, semanas o meses)
-    chart_months: int = Field(24, ge=3, le=48)            # meses de cierres del gráfico del strike
+    chart_months: int = Field(6, ge=3, le=48)            # meses de cierres del gráfico del strike
     chart_near_pct: float = Field(5, ge=0)                # un cierre mensual a menos de este % por encima del strike se marca en amarillo
     rsi_period: int = Field(14, ge=2)                      # RSI de Wilder
     rsi_lookback_days: int = Field(10, ge=2)               # sesiones en las que el RSI debe haber tocado el nivel («rebote»)
