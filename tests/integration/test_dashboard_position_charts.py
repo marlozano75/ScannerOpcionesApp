@@ -13,8 +13,11 @@ def test_dashboard_shows_a_thumbnail_next_to_each_ticker_that_opens_the_full_cha
     svc.bars.upsert("AAPL", [(TODAY - timedelta(days=40 - i), 100.0 + i * 0.1) for i in range(41)])
     refresh(client)
     page = client.get("/").text
-    assert 'class="pos-mini"' in page and 'data-pc="1"' in page and "pos-mini-svg" in page          # miniatura junto al ticker
-    assert 'id="pc-1"' in page and 'aria-label="Evolución diaria, strikes y vencimientos"' in page   # gráfico grande que se abre al pulsarla
+    assert 'class="pos-mini"' in page and 'data-key="AAPL|' in page and "pos-mini-svg" in page      # miniatura junto al ticker
+    assert 'class="pcw-view"' not in page and len(page) < 400_000                                          # el gráfico grande ya no se incrusta: se pide al pulsar
+    key = page.split('data-key="', 1)[1].split('"', 1)[0]
+    page = client.get("/management/chart", params={"key": key}).text                              # gráfico grande que se abre al pulsarla
+    assert 'aria-label="Evolución diaria, strikes y vencimientos"' in page and 'class="pcw-view"' in page
     assert "strike 90" in page and "venc. " in page
     assert "revisar " in page or "21 DTE " in page          # según el perfil con el que se reconozca la put, «revisar» (Tastytrade) o la referencia (TPC)
 
@@ -40,3 +43,8 @@ def test_dashboard_gives_non_put_positions_zone_alert_and_row_urgency(client_and
     page = client.get("/").text
     assert 'class="u1"' not in page and "En pérdida" not in page    # MTO es TPC aquí (mantiene hasta el vencimiento): sin stop ni aviso de pérdida
     assert 'class="chip z-' in page and "Δ" in page         # chip de zona con la delta (estimada o real)
+
+
+def test_management_chart_of_an_unknown_position_is_404(client_and_service):
+    client, *_ = client_and_service
+    assert client.get("/management/chart", params={"key": "ZZZ|2030-01-01|1|None"}).status_code == 404

@@ -145,6 +145,11 @@ LIGHT_LABEL = {
 }
 
 
+def _put_key(s) -> str:
+    """Clave de una put o spread del Panel (un gráfico por put o spread)."""
+    return f"{s.ticker}|{s.expiry.isoformat()}|{s.strike}|{s.long_strike}"
+
+
 def _pct(v: Optional[float], digits: int = 1) -> str:
     return "—" if v is None else f"{v:.{digits}f}%"
 
@@ -258,19 +263,15 @@ def create_app(
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 
     # ---- panel -----------------------------------------------------------------------------
-    @app.get("/", response_class=HTMLResponse)
-    async def dashboard(request: Request):
-        sectors, weeks = service.diversification()
-        assignment, risk, vix = service.assignment(), service.state.risk, service.state.vix
-        thresholds = service.settings.risk.cushion_thresholds
-        curve, shape = dash.vix_curve(vix, service.now().date()) if vix else (viz.empty(), None)
-        vix_note = vix_advice(vix, service.settings.scanner.strategy)
+    def panel_positions():
+        """Puts vendidas gestionadas y demás posiciones del Panel (con su gestión), comunes a la página y a sus gráficos ampliados."""
         nlv = service.nlv_usd() or (service.state.account.net_liquidation if service.state.account else None)   # strikes y posiciones en USD
-        mgmt = manage_puts(service.state.positions, nlv, service.now().date(),
-                           {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
-                           service.put_management(), service.put_assignments(), service.put_open_dates(), service.put_margins(),
-                           service.put_assignment_notes(), service.put_exit_rules(), service.defense_context(), service.usable_position_deltas(),
-                           commission_model(service.settings))
+        mgmt = manage_puts(
+            service.state.positions, nlv, service.now().date(),
+            {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
+            service.put_management(), service.put_assignments(), service.put_open_dates(), service.put_margins(),
+            service.put_assignment_notes(), service.put_exit_rules(), service.defense_context(), service.usable_position_deltas(),
+            commission_model(service.settings))
         today = service.now().date()
         others = other_positions(service.state.positions, today, nlv,
                                  {t: i.underlying_price for t, i in service.ticker_info.all().items()},
@@ -278,30 +279,52 @@ def create_app(
         rules_by_name, leg_deltas, dctx = service.other_exit_rules(), service.usable_leg_deltas(), service.defense_context()
         others = [other_mgmt.assess(x, rules_by_name.get(x.profile), service.settings.management, today, leg_deltas, (dctx.get(x.ticker) or {}).get("iv30"))
                   for x in others]
+        return mgmt, others, today
+
+    @app.get("/management/chart", response_class=HTMLResponse)
+    async def management_chart(key: str = ""):
+        """Gráfico ampliado de una posición del Panel (ficha de la empresa, cierres con ventanas y plan de salida), cargado al pulsar su miniatura."""
+        mgmt, others, today = panel_positions()
+        mgmt_cfg, weeks_cfg = service.settings.management, service.settings.management.chart_weeks
+        key_of = lambda t: t.replace(" ", "-")      # noqa: E731
+        for s in mgmt.puts:
+            if _put_key(s) == key:
+                closes = sorted(service.bars.closes(key_of(s.ticker)).items())
+                chart = windowed(lambda w, log: position_chart(closes, [s], mgmt_cfg, today, w, s.underlying_price, service.next_earnings(s.ticker), log), weeks_cfg)
+                plan = exit_plan(s, mgmt_cfg, today)
+                lines = f"{s.contracts} × {_num(s.strike)}{'/' + _num(s.long_strike) if s.long_strike is not None else ''} · venc. {s.expiry.strftime('%d/%m')} ({s.dte} d) · {plan.text}"
+                return HTMLResponse(str(Markup(service.company_card(s.ticker)) + chart + Markup('<ul class="vs" style="margin:6px 0 0;padding-left:16px"><li>') + lines + Markup("</li></ul>")))
+        for x in others:
+            if x.key == key:
+                closes = sorted(service.bars.closes(key_of(x.ticker)).items())
+                chart = windowed(lambda w, log: other_chart(closes, x, today, w, x.underlying, service.next_earnings(x.ticker), log), weeks_cfg)
+                return HTMLResponse(str(Markup(service.company_card(x.ticker)) + chart))
+        return HTMLResponse("La posición ya no está en la cartera.", status_code=404)
+
+    @app.get("/", response_class=HTMLResponse)
+    async def dashboard(request: Request):
+        sectors, weeks = service.diversification()
+        assignment, risk, vix = service.assignment(), service.state.risk, service.state.vix
+        thresholds = service.settings.risk.cushion_thresholds
+        curve, shape = dash.vix_curve(vix, service.now().date()) if vix else (viz.empty(), None)
+        vix_note = vix_advice(vix, service.settings.scanner.strategy)
+        mgmt, others, today = panel_positions()
         status = portfolio_status(service.state.account, others, mgmt.puts)
         by_ticker: dict[str, list] = {}
         for s in mgmt.puts:
             by_ticker.setdefault(s.ticker, []).append(s)
         key_of = lambda t: t.replace(" ", "-")                      # IBKR escribe la clase con espacio (BRK B); el histórico, con guion      # noqa: E731
         closes = service.bars.all_closes({key_of(t) for t in by_ticker} | {key_of(x.ticker) for x in others}) if (by_ticker or others) else {}
-        pkey = lambda s: f"{s.ticker}|{s.expiry.isoformat()}|{s.strike}|{s.long_strike}"      # noqa: E731  (un gráfico por put o spread)
-        mgmt_cfg, weeks_cfg = service.settings.management, service.settings.management.chart_weeks
-        minis = {pkey(s): position_mini(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, MINI_WEEKS, s.underlying_price) for s in mgmt.puts}
+        mgmt_cfg = service.settings.management
+        minis = {_put_key(s): position_mini(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, MINI_WEEKS, s.underlying_price) for s in mgmt.puts}
         minis.update({x.key: other_mini(closes.get(key_of(x.ticker), []), x, today, MINI_WEEKS, x.underlying) for x in others})
-        pos_charts = [dict(ticker=s.ticker, chart=windowed(lambda w, log, s=s: position_chart(closes.get(key_of(s.ticker), []), [s], mgmt_cfg, today, w, s.underlying_price,
-                                                                                         service.next_earnings(s.ticker), log), weeks_cfg),
-                           company=Markup(service.company_card(s.ticker)), plans=[(s, exit_plan(s, mgmt_cfg, today))]) for s in mgmt.puts]
-        pos_charts += [dict(ticker=x.ticker, chart=windowed(lambda w, log, x=x: other_chart(closes.get(key_of(x.ticker), []), x, today, w, x.underlying, service.next_earnings(x.ticker), log), weeks_cfg),
-                            company=Markup(service.company_card(x.ticker)), plans=[]) for x in others]
-        pc_index = {pkey(s): n for n, s in enumerate(mgmt.puts, 1)}
-        pc_index.update({x.key: len(mgmt.puts) + n for n, x in enumerate(others, 1)})
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
             cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),
             cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks, today),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, others=others, zone_short={**defense_mod.ZONE_SHORT, **other_mgmt.LONG_SHORT}, attention=mgmt.attention + sum(1 for x in others for a in x.alerts if a.level == "warn"), wmap={w.ticker: w for w in mgmt.weights}, pos_charts=pos_charts, minis=minis, pc_index=pc_index, pkey=pkey, profile_names=service.all_profile_names(), profile_colors={**{p.name: p.color for p in get_profiles()[0]}, **{p.name: (p.color or (UNASSIGNED_COLOR if p.catchall else "")) for p in service.management_profiles()}}, trader_profiles=service.put_trader_profiles(), sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, others=others, zone_short={**defense_mod.ZONE_SHORT, **other_mgmt.LONG_SHORT}, attention=mgmt.attention + sum(1 for x in others for a in x.alerts if a.level == "warn"), wmap={w.ticker: w for w in mgmt.weights}, minis=minis, pkey=_put_key, profile_names=service.all_profile_names(), profile_colors={**{p.name: p.color for p in get_profiles()[0]}, **{p.name: (p.color or (UNASSIGNED_COLOR if p.catchall else "")) for p in service.management_profiles()}}, trader_profiles=service.put_trader_profiles(), sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds, today_date=today,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 
