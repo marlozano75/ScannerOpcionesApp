@@ -89,6 +89,7 @@ class IBKRGateway:
         self._stocks: dict[str, Stock | Index] = {}
         self._updates_account: Optional[str] = None   # cuenta suscrita con reqAccountUpdates (la de `portfolio()`)
         self._pnl_account: Optional[str] = None       # cuenta suscrita con reqPnL (cambio del día)
+        self._pnl_single: set[int] = set()            # conId de las posiciones suscritas con reqPnLSingle
         self._last_option_values: dict[int, float] = {}   # conId → último valor de mercado leído (para avisar de saltos)
         self._sector_cache: dict[str, tuple[Optional[str], Optional[str]]] = {}
         self._vix_futures_cache: Optional[tuple[date, list]] = None
@@ -249,20 +250,42 @@ class IBKRGateway:
         out: list[Position] = []
         account = self._account_id()
         await self._subscribe_portfolio(account)
-        for item in self.ib.portfolio(account):
+        items = list(self.ib.portfolio(account))
+        self._sync_pnl_single(account, [i.contract.conId for i in items if i.contract.secType in ("STK", "OPT") and getattr(i.contract, "conId", None)])
+        for item in items:
             c = item.contract
+            daily = self._daily_pnl(account, getattr(c, "conId", None))
             if c.secType == "STK":
                 sector, _ = await self.get_sector_info(c.symbol)
-                out.append(Position(c.symbol, item.position, float(item.marketValue), sector, avg_cost=m.num(getattr(item, "averageCost", None))))
+                out.append(Position(c.symbol, item.position, float(item.marketValue), sector, avg_cost=m.num(getattr(item, "averageCost", None)), daily_pnl=daily))
             elif c.secType == "OPT":
                 sector, _ = await self.get_sector_info(c.symbol)
                 oc = OptionContract(
                     c.symbol, m.parse_expiry(c.lastTradeDateOrContractMonth), float(c.strike),
                     OptionRight(c.right[0]), int(c.multiplier or 100), c.conId,
                 )
-                out.append(Position(c.symbol, item.position, float(item.marketValue), sector, oc, float(item.averageCost)))
+                out.append(Position(c.symbol, item.position, float(item.marketValue), sector, oc, float(item.averageCost), daily_pnl=daily))
                 self._log_option_value(oc, item)
         return out
+
+    def _sync_pnl_single(self, account: str, con_ids: list[int]) -> None:
+        """Mantiene una suscripción `reqPnLSingle` por posición abierta (cambio desde el último cierre); cancela las de las cerradas.
+        El valor llega unos instantes después de suscribir, así que la primera lectura de una posición nueva sale vacía."""
+        wanted = set(con_ids)
+        try:
+            for con_id in wanted - self._pnl_single:
+                self.ib.reqPnLSingle(account, "", con_id)
+            for con_id in self._pnl_single - wanted:
+                self.ib.cancelPnLSingle(account, "", con_id)
+            self._pnl_single = wanted
+        except Exception as exc:       # dobles de prueba o TWS que lo rechaza: las posiciones se muestran sin cambio diario
+            log.debug("P&L diario por posición no disponible: %s", exc)
+
+    def _daily_pnl(self, account: str, con_id: int) -> Optional[float]:
+        try:
+            return m.pnl_value(getattr(self.ib.pnlSingle(account, "", con_id)[0], "dailyPnL", None))
+        except Exception:
+            return None
 
     def _log_option_value(self, oc: OptionContract, item) -> None:
         """Deja en el log lo que TWS entrega de cada opción (valor de mercado, coste medio, precio de mercado) y avisa si el

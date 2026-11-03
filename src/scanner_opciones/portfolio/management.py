@@ -103,6 +103,7 @@ class PutStatus:
     premium_amount: Optional[float] = None    # prima cobrada en total (todos los contratos), en la moneda del contrato
     captured_amount: Optional[float] = None   # parte ya capturada en importe (cobrada − coste de recompra), en la moneda del contrato
     fx: float = 1.0                      # dólares por unidad de la moneda del contrato
+    daily_pnl: Optional[float] = None    # cambio desde el último cierre de la posición (todos los contratos), en USD
 
     @property
     def premium_usd(self) -> Optional[float]:
@@ -250,7 +251,7 @@ def put_status(p: Position, today: date, underlying: Optional[float], cfg: Manag
     amount = (entry - current - exit_ps) * per_share if entry and current is not None else None
     return PutStatus(p.ticker, o.expiry, o.strike, contracts, dte, entry, current, captured, underlying, tuple(alerts) if managed else (), p.hedge_strike,
                      profile, put_key(p), margin=committed_margin(p, entry, contracts, what_if_margin), margin_exact=spread, rules=r, defense=defense,
-                     premium_amount=premium, captured_amount=amount, fx=p.fx)
+                     premium_amount=premium, captured_amount=amount, fx=p.fx, daily_pnl=p.daily_pnl)
 
 
 def ticker_weights(positions: Sequence[Position], net_liquidation: Optional[float]) -> list[TickerWeight]:

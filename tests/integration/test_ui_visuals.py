@@ -7,7 +7,7 @@ from tests.integration.test_web import BASE, client_and_service, load_hello, loa
 def test_the_dashboard_draws_meters_the_vix_curve_and_the_weekly_bars(client_and_service):
     client, svc, gw, _ = client_and_service
     page = client.get("/").text
-    assert page.count('role="meter"') == 3                                          # los tres cushion, con sus umbrales
+    assert page.count('role="meter"') == 2                                          # los dos cushion (actual y Look Ahead), con sus umbrales
     assert 'aria-label="Cierres recientes del VIX"' in page and "Curva de futuros" in page
     assert "Contango" in page or "Backwardación" in page or "Sin futuros del VIX" in page
     assert 'class="hb"' in page and "Si te asignan todo" in page and "Ver como tabla" in page   # barras + tabla alternativa

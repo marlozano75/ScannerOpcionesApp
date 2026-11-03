@@ -32,7 +32,8 @@ class Spread:
         """La pata vendida con el valor y la prima netos del spread y `hedge_strike` puesto: su nominal es el ancho."""
         s, l = self.short, self.long
         avg = s.avg_cost - l.avg_cost if s.avg_cost is not None and l.avg_cost is not None else None
-        return replace(s, market_value=s.market_value + l.market_value, avg_cost=avg, hedge_strike=l.option.strike)
+        daily = s.daily_pnl + l.daily_pnl if s.daily_pnl is not None and l.daily_pnl is not None else None
+        return replace(s, market_value=s.market_value + l.market_value, avg_cost=avg, hedge_strike=l.option.strike, daily_pnl=daily)
 
 
 def _is_put(p: Position) -> bool:
@@ -42,7 +43,7 @@ def _is_put(p: Position) -> bool:
 def _part(p: Position, qty: float) -> Position:
     """Fracción `qty` (con el signo de p) de una posición."""
     ratio = abs(qty) / abs(p.quantity)
-    return replace(p, quantity=qty, market_value=p.market_value * ratio)
+    return replace(p, quantity=qty, market_value=p.market_value * ratio, daily_pnl=p.daily_pnl * ratio if p.daily_pnl is not None else None)
 
 
 def split_spreads(positions: Sequence[Position]) -> tuple[list[Position], list[Spread]]:

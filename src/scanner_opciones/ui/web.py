@@ -266,14 +266,15 @@ def create_app(
     def panel_positions():
         """Puts vendidas gestionadas y demás posiciones del Panel (con su gestión), comunes a la página y a sus gráficos ampliados."""
         nlv = service.nlv_usd() or (service.state.account.net_liquidation if service.state.account else None)   # strikes y posiciones en USD
+        positions = service.state.positions
         mgmt = manage_puts(
-            service.state.positions, nlv, service.now().date(),
+            positions, nlv, service.now().date(),
             {t: i.underlying_price for t, i in service.ticker_info.all().items()}, service.settings.management,
             service.put_management(), service.put_assignments(), service.put_open_dates(), service.put_margins(),
             service.put_assignment_notes(), service.put_exit_rules(), service.defense_context(), service.usable_position_deltas(),
             commission_model(service.settings))
         today = service.now().date()
-        others = other_positions(service.state.positions, today, nlv,
+        others = other_positions(positions, today, nlv,
                                  {t: i.underlying_price for t, i in service.ticker_info.all().items()},
                                  service.put_profiles(), service._mgmt_catchall(), service.other_open_dates())
         rules_by_name, leg_deltas, dctx = service.other_exit_rules(), service.usable_leg_deltas(), service.defense_context()
@@ -321,10 +322,9 @@ def create_app(
         charts = dict(
             cushion_current=dash.cushion_meter(risk.current if risk else None, thresholds),
             cushion_look_ahead=dash.cushion_meter(risk.look_ahead if risk else None, thresholds),
-            cushion_post=dash.cushion_meter(risk.post_expiration if risk else None, thresholds),
             exposure=dash.exposure_bars(assignment), sectors=dash.sector_bars(sectors), weeks=dash.week_bars(weeks, today),
             vix_history=dash.vix_history(vix) if vix else viz.empty(), vix_curve=curve, vix_shape=shape)
-        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, others=others, zone_short={**defense_mod.ZONE_SHORT, **other_mgmt.LONG_SHORT}, attention=mgmt.attention + sum(1 for x in others for a in x.alerts if a.level == "warn"), wmap={w.ticker: w for w in mgmt.weights}, minis=minis, pkey=_put_key, profile_names=service.all_profile_names(), profile_colors={**{p.name: p.color for p in get_profiles()[0]}, **{p.name: (p.color or (UNASSIGNED_COLOR if p.catchall else "")) for p in service.management_profiles()}}, trader_profiles=service.put_trader_profiles(), sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
+        return render(request, "dashboard.html", no_autorefresh=True, watch_data=True, watch_account=True, status=status, usd_per_base=service.usd_per_base(), others=others, zone_short={**defense_mod.ZONE_SHORT, **other_mgmt.LONG_SHORT}, attention=mgmt.attention + sum(1 for x in others for a in x.alerts if a.level == "warn"), wmap={w.ticker: w for w in mgmt.weights}, minis=minis, pkey=_put_key, profile_names=service.all_profile_names(), profile_colors={**{p.name: p.color for p in get_profiles()[0]}, **{p.name: (p.color or (UNASSIGNED_COLOR if p.catchall else "")) for p in service.management_profiles()}}, trader_profiles=service.put_trader_profiles(), sectors=sectors, weeks=weeks, assignment=assignment, charts=charts, vix_note=vix_note, mgmt=mgmt, mgmt_cfg=service.settings.management,
                       risk_cfg=thresholds, today_date=today,
                       all_sectors=sorted({s for w in weeks for s in w.amounts} | set(sectors.weights_pct)))
 

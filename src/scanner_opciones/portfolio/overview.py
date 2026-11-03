@@ -65,6 +65,7 @@ class OtherPosition:
     captured_note: str = ""
     opened: Optional[date] = None       # fecha de apertura (de Tortuga si es exacta, si no la primera vez que la app vio la posición: IBKR no la da)
     opened_exact: bool = False
+    daily_pnl: Optional[float] = None   # cambio desde el último cierre, en USD (todos los contratos)
 
     @property
     def is_short_option(self) -> bool:
@@ -136,7 +137,8 @@ def _combo_position(c: Combo, today: date, nlv_usd: Optional[float], underlying:
         abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=underlying, strikes=strikes,
         levels=tuple(sorted(p.option.strike for p in legs)),
         legs=tuple(sorted((p.option.strike, p.quantity < 0, "Call" if p.option.right is OptionRight.CALL else "Put", p.option.expiry) for p in legs)),
-        max_risk=max_risk, width=width)
+        max_risk=max_risk, width=width,
+        daily_pnl=sum(p.daily_pnl for p in legs) if all(p.daily_pnl is not None for p in legs) else None)
 
 
 def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optional[float],
@@ -175,7 +177,7 @@ def other_positions(positions: Sequence[Position], today: date, nlv_usd: Optiona
             abs(value) / nlv_usd * 100 if nlv_usd and nlv_usd > 0 else None, underlying=(prices or {}).get(p.ticker),
             levels=(o.strike,) if o else (),
             legs=((o.strike, p.quantity < 0, "Call" if o.right is OptionRight.CALL else "Put", o.expiry),) if o else (),
-            max_risk=cost if o is not None and not short_option else None))
+            max_risk=cost if o is not None and not short_option else None, daily_pnl=p.daily_pnl))
     out = [replace(op, key=other_key(op), profile=assigned.get(other_key(op), default_profile), opened=opened.get(other_key(op), (None, False))[0], opened_exact=opened.get(other_key(op), (None, False))[1]) for op in out]
     return sorted(out, key=lambda x: -abs(x.value))
 

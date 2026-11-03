@@ -28,7 +28,7 @@ def test_dashboard_shows_portfolio_status_others_and_captured_premium(client_and
                     Position("MSFT", 10, 4_000.0, "Technology", avg_cost=350.0)]
     refresh(client)
     page = client.get("/").text
-    assert "Estado de la cartera" in page and "Riesgo total abierto" in page and "Margen comprometido" in page
+    assert "Estado de la cartera" in page and "Riesgo total abierto" in page and "Margen comprometido" not in page and "Variación desde el último cierre" in page
     assert "Cambio diario" not in page and "P&amp;L latente" not in page
     assert 'id="gestion"' in page and "Gestión de posiciones" in page and "Otras posiciones" not in page
     assert "MSFT" in page and "Acción" in page                 # la acción convive con la put en la misma tabla

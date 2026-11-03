@@ -98,6 +98,7 @@ class Position:
     avg_cost: Optional[float] = None   # coste medio por contrato en $ (precio de entrada × multiplicador); en una venta, la prima cobrada. En una acción, por acción
     hedge_strike: Optional[float] = None   # put vendida que forma parte de un spread: strike de la put comprada que la cubre (`portfolio/spreads.py`)
     fx: float = 1.0                        # dólares por unidad de la moneda del contrato (1 = USD; ESTX50 en euros): los nominales y riesgos que se suman o comparan con el NLV lo aplican
+    daily_pnl: Optional[float] = None      # cambio desde el último cierre (reqPnLSingle de IBKR) en USD (la moneda del contrato; medido con IB Gateway 2026-11-03: la suma de las líneas / usd_per_base = el cambio del día de la cuenta, que sí va en moneda base). None = aún no llegó
 
 
 @dataclass(frozen=True)

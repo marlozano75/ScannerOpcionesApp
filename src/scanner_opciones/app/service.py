@@ -3447,10 +3447,21 @@ class AppService:
         rates = self.usd_rates()
         return [replace(p, fx=rates[p.ticker]) if p.ticker in rates and p.fx != rates[p.ticker] else p for p in positions]
 
+    @staticmethod
+    def _pos_id(p: Position) -> tuple:
+        o = p.option
+        return (p.ticker, o.expiry, o.strike, o.right) if o else (p.ticker,)
+
     async def _refresh_portfolio(self) -> None:
         try:
-            self.state.account = await asyncio.wait_for(self.gateway.get_account_summary(), timeout=STEP_TIMEOUT_SECONDS)
-            self.state.positions = self._with_fx(await asyncio.wait_for(self.gateway.get_positions(), timeout=STEP_TIMEOUT_SECONDS))
+            account = await asyncio.wait_for(self.gateway.get_account_summary(), timeout=STEP_TIMEOUT_SECONDS)
+            before = self.state.account
+            if before is not None and before.account_id == account.account_id:      # el cambio del día tarda en llegar: mientras tanto, el último valor
+                account = replace(account, **{f: getattr(before, f) for f in ("daily_pnl", "unrealized_pnl", "realized_pnl") if getattr(account, f) is None})
+            self.state.account = account
+            fresh = self._with_fx(await asyncio.wait_for(self.gateway.get_positions(), timeout=STEP_TIMEOUT_SECONDS))
+            last = {self._pos_id(p): p.daily_pnl for p in self.state.positions if p.daily_pnl is not None}
+            self.state.positions = [replace(p, daily_pnl=last[self._pos_id(p)]) if p.daily_pnl is None and self._pos_id(p) in last else p for p in fresh]
             self._note_put_opened()
             self._note_other_opened()
             self._history_for_positions()
@@ -4101,6 +4112,17 @@ class AppService:
                 return None
             value = acc.net_liquidation * manual
         return Nlv(value, self.usd_rates())
+
+    def usd_per_base(self) -> Optional[float]:
+        """Dólares por unidad de la moneda base de la cuenta (1 si es USD); None si no se conoce."""
+        acc = self.state.account
+        if acc is None:
+            return None
+        if acc.usd_per_base:
+            return acc.usd_per_base
+        if acc.base_currency in (None, "USD"):
+            return 1.0
+        return self.settings.scanner.spreads.usd_per_base or self._fallback_rate(acc.base_currency)
 
     def usd_rates(self) -> dict[str, float]:
         """Dólares por unidad de la moneda de cada instrumento de TWS que no cotiza en USD (ticker -> tipo de cambio). Solo se conoce el de la moneda
