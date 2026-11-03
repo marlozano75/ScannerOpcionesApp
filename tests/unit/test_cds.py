@@ -87,9 +87,26 @@ def test_width_percent_window_and_best_width():
     assert {r.width for r in build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0)), TODAY)} == {10.0, 20.0}
     assert {r.width for r in build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0), width_pct_min=10), TODAY)} == {20.0}
     assert {r.width for r in build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0), width_pct_max=10), TODAY)} == {10.0}
-    every = build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0)), TODAY)
-    best = build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0), best_width=True), TODAY)
-    # una fila por call comprada (130 y 140): la de menor movimiento necesario de sus anchos
+    every = build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0), top_per_ticker=0), TODAY)
+    best = build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0, 20.0), best_width=True, top_per_ticker=0), TODAY)
+    # una fila por call comprada (130 y 140): la de mayor puntuación de sus anchos
     assert sorted(r.long.contract.strike for r in best) == [130, 140] and len(every) == 3
     for r in best:
-        assert r.required_move_mult == min(x.required_move_mult for x in every if x.long.contract.strike == r.long.contract.strike)
+        assert r.score == max(x.score for x in every if x.long.contract.strike == r.long.contract.strike)
+
+
+def test_probability_score_ranking_and_top_per_ticker():
+    # comprada 130 + vendida 140 (mult 0,53× → prob ≈ 60 %) y comprada 125 + vendida 135 (más cara, delta neta menor)
+    snaps = [call(125, 5.9, 6.0, 0.36), call(130, 3.9, 4.0, 0.30), call(135, 2.9, 3.1, 0.26), call(140, 2.2, 2.4, 0.22)]
+    every = build_call_debit_spreads(snaps, info(), cfg(min_prob_pct=None, top_per_ticker=0), TODAY)
+    assert len(every) >= 2
+    assert [r.score for r in every] == sorted((r.score for r in every), reverse=True)
+    assert all(abs(r.score - r.prob_pct * r.max_return_pct / 100) < 1e-9 for r in every)
+    assert all(0 < r.prob_pct <= 100 for r in every)
+    # la probabilidad solo depende del múltiplo (menos movimiento necesario = más probable)
+    assert all((a.required_move_mult <= b.required_move_mult) == (a.prob_pct >= b.prob_pct) for a in every for b in every)
+    # tope por ticker: se quedan los de mayor puntuación
+    one = build_call_debit_spreads(snaps, info(), cfg(min_prob_pct=None, top_per_ticker=1), TODAY)
+    assert one == every[:1]
+    # probabilidad mínima: por encima de la mejor no queda nada
+    assert build_call_debit_spreads(snaps, info(), cfg(min_prob_pct=max(r.prob_pct for r in every) + 1, top_per_ticker=0), TODAY) == []

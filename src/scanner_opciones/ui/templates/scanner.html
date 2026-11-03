@@ -24,6 +24,8 @@
 {% set chips = [('sec-debit', 'Débito ' ~ f.dmin ~ '–' ~ f.dmax ~ ' $', 'dmin dmax'), ('sec-debit', 'OI ≥ ' ~ f.oi ~ ' en cada pata', 'oi'), ('sec-debit', 'Spread ≤ ' ~ f.ls ~ ' % en cada pata', 'ls')] %}
 {% if f.best %}{% set _ = chips.append(('sec-widths', 'Solo el mejor ancho', 'best')) %}{% endif %}
 {% if f.wpct_min or f.wpct_max %}{% set _ = chips.append(('sec-widths', 'Ancho/strike ' ~ (f.wpct_min or '0') ~ '–' ~ (f.wpct_max or '∞') ~ ' %', 'wpct_min wpct_max')) %}{% endif %}
+{% if f.use_prob %}{% set _ = chips.append(('sec-move', 'Prob. objetivo ≥ ' ~ f.prob ~ ' %', 'use_prob prob')) %}{% endif %}
+{% if f.top != '0' %}{% set _ = chips.append(('sec-widths', 'Máx. ' ~ f.top ~ ' por ticker', 'top')) %}{% endif %}
 {% if f.use_ret %}{% set _ = chips.append(('sec-move', 'Retorno máx. ≥ ' ~ f.ret ~ ' %', 'use_ret ret')) %}{% endif %}
 {% if f.use_sma %}{% set _ = chips.append(('sec-sma', 'Precio ≥ ' ~ f.sma ~ ' % bajo la SMA200', 'use_sma sma')) %}{% endif %}
 {% set src_on = [] %}{% set src_off = [] %}
@@ -46,6 +48,8 @@
 {% if not f.best %}{% set _ = offs.append(('sec-widths', 'Mejor ancho', 'best')) %}{% endif %}
 {% if not (f.wpct_min or f.wpct_max) %}{% set _ = offs.append(('sec-widths', 'Ancho/strike', 'wpct_min wpct_max')) %}{% endif %}
 {% if not f.use_ret %}{% set _ = offs.append(('sec-move', 'Retorno máximo', 'use_ret')) %}{% endif %}
+{% if not f.use_prob %}{% set _ = offs.append(('sec-move', 'Probabilidad del objetivo', 'use_prob')) %}{% endif %}
+{% if f.top == '0' %}{% set _ = offs.append(('sec-widths', 'Máximo por ticker', 'top')) %}{% endif %}
 {% if not f.use_sma %}{% set _ = offs.append(('sec-sma', 'SMA200', 'use_sma')) %}{% endif %}
 {% else %}
 {# ---- estado de cada bloque (resumen y si está activo) ---- #}
@@ -320,6 +324,10 @@
         </div>
         <label class="opt opt-row" title="(ancho − débito) / débito"><span class="check"><input type="checkbox" name="use_ret" {{ 'checked' if form.use_ret }}> Retorno máx. ≥ (%)</span>
           <input name="ret" value="{{ form.ret }}" inputmode="decimal"></label>
+        <label class="opt opt-row" title="Probabilidad de que el subyacente toque el nivel que da el objetivo en esos días: 2·(1 − Φ(necesario/esperado))"><span class="check"><input type="checkbox" name="use_prob" {{ 'checked' if form.use_prob }}> Prob. objetivo ≥ (%)</span>
+          <input name="prob" value="{{ form.prob }}" inputmode="decimal"></label>
+        <label class="field full" title="Se quedan los de mayor puntuación (prob. × retorno máx.); 0 = todos">Máx. spreads por ticker (0 = todos) <input name="top" value="{{ form.top }}" inputmode="numeric"></label>
+        <p class="note">La tabla se ordena por <b>Puntuación</b> = probabilidad de alcanzar el objetivo × retorno máximo: premia lo que más rinde por $ de débito y a la vez es más probable. La probabilidad es la de tocar el nivel (principio de reflexión, sin deriva).</p>
         <p class="note"><b>Obligatorio</b>: el subyacente debe poder subir lo necesario para ganar el objetivo del débito en esos días. Necesario = objetivo × débito / delta neta; esperado = IV30 × √(días/365). Sin delta o sin IV se descarta. Valores sin calibrar (muestras pequeñas, <code>docs/mto-spreads.md</code>).</p>
       {% endcall %}
 
@@ -851,7 +859,7 @@
       averages: { sectionSelects: 'sec-ma' },
       // Call Debit Spread: cada filtro vuelve a un valor que no descarta nada
       cds_debit: { set: { dmin: '0', dmax: '1000000' } }, cds_oi: { set: { oi: '0' } }, cds_spread: { set: { ls: '1000' } },
-      cds_wpct: { set: { wpct_min: '', wpct_max: '' } }, cds_move: { set: { mult: '1000' } }, cds_return: { uncheck: ['use_ret'] }, cds_sma: { uncheck: ['use_sma'] },
+      cds_wpct: { set: { wpct_min: '', wpct_max: '' } }, cds_move: { set: { mult: '1000' } }, cds_prob: { uncheck: ['use_prob'] }, cds_return: { uncheck: ['use_ret'] }, cds_sma: { uncheck: ['use_sma'] },
       cds_profit: { uncheck: ['q_profit'] }, cds_quarters: { set: { q_quarters: '' } }, cds_fcf: { uncheck: ['q_fcf'] }, cds_lev: { set: { q_lev: '' } },
       cds_liq: { set: { q_liq: '' } }, cds_price: { set: { price_min: '', price_max: '' } }, cds_sources: { uncheck: ['use_src'] },
     };

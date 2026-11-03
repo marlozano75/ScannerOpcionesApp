@@ -38,7 +38,7 @@ def _g(v: float) -> str:
 def relaxed(cds: CdsSettings) -> CdsSettings:
     """Los mismos CDS pero sin ningún filtro opcional (queda la ventana del catálogo y la validez de las patas)."""
     return cds.model_copy(update=dict(
-        best_width=False, min_debit_usd=0.0, max_debit_usd=HUGE, min_long_oi=0, max_leg_spread_pct=HUGE, max_required_move_mult=HUGE,
+        best_width=False, top_per_ticker=0, min_prob_pct=None, min_debit_usd=0.0, max_debit_usd=HUGE, min_long_oi=0, max_leg_spread_pct=HUGE, max_required_move_mult=HUGE,
         min_max_return_pct=None, sma200_below_pct_min=None, width_pct_min=None, width_pct_max=None))
 
 
@@ -50,6 +50,8 @@ def predicates(cds: CdsSettings) -> list[tuple[str, str, str, Predicate]]:
          lambda r: cds.min_debit_usd - EPS <= r.debit * mult(r) <= cds.max_debit_usd + EPS),
         ("cds_move", "Movimiento necesario ≤ esperado", f"≤ {_g(cds.max_required_move_mult)}× (objetivo {_g(cds.target_gain_pct)} % en {cds.move_days} d)",
          lambda r: r.required_move_mult <= cds.max_required_move_mult + EPS),
+        *([("cds_prob", "Probabilidad de alcanzar el objetivo", f"≥ {_g(cds.min_prob_pct)} %", lambda r: r.prob_pct >= cds.min_prob_pct - EPS)]
+          if cds.min_prob_pct is not None else []),
         ("cds_spread", "Spread bid/ask de cada pata", f"≤ {_g(cds.max_leg_spread_pct)} %",
          lambda r: all((sp := _spread_pct(s)) is not None and sp <= cds.max_leg_spread_pct + EPS for s in (r.long, r.short))),
     ]

@@ -108,7 +108,8 @@
 <th data-col="debit" title="Débito por contrato: ask de la comprada − precio de venta de referencia de la vendida (+ comisiones), × multiplicador. Es la pérdida máxima">Débito ($)</th><th data-col="lossnlv" title="Pérdida máxima (el débito) como % del NLV">Pérd. %NLV</th>
 <th data-col="ret" title="Retorno máximo: (ancho − débito) / débito">Retorno máx. %</th><th title="Breakeven: strike comprado + débito">BrEv</th><th title="Distancia del breakeven sobre el precio actual, en %">Dist. BE</th>
 <th title="Delta neta: delta de la comprada − delta de la vendida">Δ neta</th><th title="Subida del subyacente necesaria para ganar el objetivo del débito (objetivo × débito / delta neta)">Necesario %</th><th title="Movimiento esperado en los días indicados: IV30 × √(días/365)">Esperado %</th>
-<th class="hl" data-sort-default="asc" title="Movimiento necesario / esperado: menos = más fácil de alcanzar. Es el orden por defecto">× esperado</th>
+<th title="Movimiento necesario / esperado: menos = más fácil de alcanzar">× esperado</th><th data-col="prob" title="Probabilidad de que el subyacente toque el nivel que da el objetivo en los días indicados">Prob. %</th>
+<th class="hl" data-sort-default="desc" title="Probabilidad × retorno máximo / 100: rendimiento del débito ponderado por la probabilidad de alcanzar el objetivo. Es el orden por defecto">Puntuación</th>
 <th data-col="sma" title="Distancia del precio a su media de 200 sesiones (negativo = por debajo; en verde si está al menos un 10 % por debajo)">vs SMA200 %</th>
 <th data-col="ldelta" title="Delta de la call comprada">Δ comp.</th><th data-col="delta" title="Delta de la call vendida">Δ vend.</th><th title="Volatilidad implícita de la call comprada">IV</th><th data-col="ivr" title="IV Rank del subyacente: posición de su IV actual dentro del rango de 52 semanas">IV Rank</th><th data-col="ivp" title="IV Percentile del subyacente: % de días del último año con IV menor que la actual">IV Pctl</th>
 <th data-col="lspread" title="Spread bid/ask de la call comprada, en % del mid">Spread comp.</th><th data-col="spread" title="Spread bid/ask de la call vendida, en % del mid">Spread vend.</th><th data-col="loi" title="Open interest de la call comprada">OI comp.</th><th data-col="oi" title="Open interest de la call vendida">OI vend.</th>
@@ -125,7 +126,7 @@
 <td>{{ (r.debit * c.multiplier)|num(0) }}{{ ccy(c.ticker) }}</td><td>{{ (r.max_loss * fx(nlv, c.ticker) / nlv * 100)|pct if nlv else '—' }}</td>
 <td class="cb"{% if rmax %} style="--p:{{ (100 * r.max_return_pct / rmax)|round(0)|int }}%"{% endif %}>{{ r.max_return_pct|num(0) }}</td><td>{{ r.breakeven|num }}</td><td>{{ r.breakeven_distance_pct|pct if r.breakeven_distance_pct is not none else '—' }}</td>
 <td>{{ r.net_delta|num(2) }}</td><td>{{ r.required_move_pct|pct }}</td><td>{{ r.expected_move_pct|pct }}</td>
-<td class="hl">{{ r.required_move_mult|num(2) }}</td>
+<td>{{ r.required_move_mult|num(2) }}</td><td>{{ r.prob_pct|num(0) }}</td><td class="hl">{{ r.score|num(1) }}</td>
 <td data-sort="{{ r.sma200_distance_pct if r.sma200_distance_pct is not none else '' }}"{% if r.sma200_distance_pct is not none and r.sma200_distance_pct <= -10 %} class="sma-below"{% endif %}>{{ r.sma200_distance_pct|pct if r.sma200_distance_pct is not none else '—' }}</td>
 <td>{{ lg.delta|num }}</td><td>{{ sh.delta|num }}</td><td>{{ (lg.iv * 100)|pct if lg.iv is not none else '—' }}</td>
 <td class="cb"{% if lg.iv_rank is not none %} style="--p:{{ lg.iv_rank|round(0)|int }}%"{% endif %}>{{ lg.iv_rank|pct(0) }}</td><td class="cb"{% if lg.iv_percentile is not none %} style="--p:{{ lg.iv_percentile|round(0)|int }}%"{% endif %}>{{ lg.iv_percentile|pct(0) }}</td>
