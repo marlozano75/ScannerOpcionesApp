@@ -37,7 +37,11 @@ class CdsResult:
     required_move_mult: float         # necesario / esperado (≤ max_required_move_mult)
     sma200_distance_pct: Optional[float]   # % del precio respecto a la SMA200 (negativo = por debajo)
     prob_pct: float = 0.0             # probabilidad (%) de tocar el nivel que da el objetivo en `move_days` días
-    score: float = 0.0                # prob × retorno máximo / 100: rendimiento del débito ponderado por la probabilidad (orden de la tabla)
+    score: float = 0.0                # prob × retorno neto en la salida / 100: rendimiento del débito ponderado por la probabilidad (orden de la tabla)
+    exit_value: float = 0.0           # valor del spread en la salida (por acción) = débito × (1 + objetivo)
+    exit_credit_usd: float = 0.0      # lo que se cobra al cerrar en el objetivo, en $ por contrato, ya sin la comisión de cierre
+    exit_profit_usd: float = 0.0      # ganancia neta en $ por contrato (cobrado − débito)
+    exit_return_pct: float = 0.0      # ganancia neta / débito, en % (el objetivo menos la comisión de cierre)
 
 
 def touch_probability_pct(z: float) -> float:
@@ -122,12 +126,19 @@ def build_call_debit_spreads(
             required_mult = required_pct / expected_pct
             if required_mult > cds.max_required_move_mult + EPS:
                 continue                   # filtro obligatorio: rentabilidad mínima esperada
+            exit_value = debit * (1 + cds.target_gain_pct / 100)
+            if exit_value >= width - EPS:
+                continue                   # el objetivo supera lo que puede valer el spread
+            close_cost = cost_ps(mult)
+            exit_profit = exit_value - close_cost - debit
+            exit_return = exit_profit / debit * 100
             prob = touch_probability_pct(required_mult)
             if cds.min_prob_pct is not None and prob < cds.min_prob_pct - EPS:
                 continue                   # probabilidad mínima de alcanzar el objetivo
             breakeven = strike + debit
             found.append(CdsResult(lg, sh, width, debit, debit * mult, max_return, breakeven, (breakeven / price - 1) * 100,
-                                   otm, net_delta, required_pct, expected_pct, required_mult, dist200, prob, prob * max_return / 100))
+                                   otm, net_delta, required_pct, expected_pct, required_mult, dist200, prob, prob * exit_return / 100,
+                                   exit_value, (exit_value - close_cost) * mult, exit_profit * mult, exit_return))
         if cds.best_width and found:
             found = [max(found, key=lambda r: r.score)]
         out.extend(found)

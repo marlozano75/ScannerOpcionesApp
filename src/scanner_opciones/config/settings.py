@@ -566,7 +566,7 @@ class CdsSettings(_Model):
     move_days: int = Field(10, ge=1)
     max_required_move_mult: float = Field(1.0, gt=0)
     # Probabilidad de que el subyacente TOQUE el nivel que da el objetivo dentro de `move_days` días: 2·(1 − Φ(necesario/esperado)) (principio de
-    # reflexión, sin deriva). Es monótona en el múltiplo, pero se muestra y se filtra en %. La puntuación = probabilidad × retorno máximo mide
+    # reflexión, sin deriva). Es monótona en el múltiplo, pero se muestra y se filtra en %. La puntuación = probabilidad × retorno neto en la salida (objetivo menos comisión de cierre) mide
     # cuánto rinde el débito empleado ponderado por lo probable que es el objetivo; ordena la tabla.
     min_prob_pct: Optional[float] = Field(40, gt=0, le=100)    # probabilidad mínima (%) de alcanzar el objetivo (None = sin filtro)
     top_per_ticker: int = Field(2, ge=0)                       # como mucho N spreads por ticker (los de mayor puntuación); 0 = todos

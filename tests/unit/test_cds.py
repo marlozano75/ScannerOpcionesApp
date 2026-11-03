@@ -101,7 +101,7 @@ def test_probability_score_ranking_and_top_per_ticker():
     every = build_call_debit_spreads(snaps, info(), cfg(min_prob_pct=None, top_per_ticker=0), TODAY)
     assert len(every) >= 2
     assert [r.score for r in every] == sorted((r.score for r in every), reverse=True)
-    assert all(abs(r.score - r.prob_pct * r.max_return_pct / 100) < 1e-9 for r in every)
+    assert all(abs(r.score - r.prob_pct * r.exit_return_pct / 100) < 1e-9 for r in every)
     assert all(0 < r.prob_pct <= 100 for r in every)
     # la probabilidad solo depende del múltiplo (menos movimiento necesario = más probable)
     assert all((a.required_move_mult <= b.required_move_mult) == (a.prob_pct >= b.prob_pct) for a in every for b in every)
@@ -110,3 +110,14 @@ def test_probability_score_ranking_and_top_per_ticker():
     assert one == every[:1]
     # probabilidad mínima: por encima de la mejor no queda nada
     assert build_call_debit_spreads(snaps, info(), cfg(min_prob_pct=max(r.prob_pct for r in every) + 1, top_per_ticker=0), TODAY) == []
+
+
+def test_exit_values_at_target_with_close_commission():
+    snaps = [call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)]
+    [r] = build_call_debit_spreads(snaps, info(), cfg(target_gain_pct=20), TODAY, cost_ps=lambda m: 0.01)
+    assert abs(r.exit_value - r.debit * 1.2) < 1e-9
+    assert abs(r.exit_credit_usd - (r.debit * 1.2 - 0.01) * 100) < 1e-6
+    assert abs(r.exit_profit_usd - (r.debit * 0.2 - 0.01) * 100) < 1e-6
+    assert abs(r.exit_return_pct - (r.debit * 0.2 - 0.01) / r.debit * 100) < 1e-6
+    # un objetivo que supera el ancho no se puede cobrar: se descarta
+    assert build_call_debit_spreads(snaps, info(), cfg(target_gain_pct=500, max_required_move_mult=100, min_prob_pct=None), TODAY) == []
