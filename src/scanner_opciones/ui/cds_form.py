@@ -52,10 +52,10 @@ def parse_cds(service, qp) -> dict:
     error: Optional[str] = None
     if submitted:
         for key in ("dte_min", "dte_max", "otm_min", "otm_max", "widths", "wpct_min", "wpct_max", "dmin", "dmax", "oi", "ls", "gain", "days", "mult",
-                    "ret", "prob", "top", "sma", "ref", "ref_x"):
+                    "ret", "prob", "xp", "top", "sma", "ref", "ref_x"):
             if key in qp:
                 form[key] = str(qp.get(key, "")).strip()
-        for key in ("best", "use_ret", "use_prob", "use_sma"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
+        for key in ("best", "use_ret", "use_prob", "use_xp", "use_sma"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
             form[key] = key in qp
     try:
         dte_min = max(_num(form["dte_min"], "DTE mínimo", int), catalog.dte_min)
@@ -84,6 +84,7 @@ def parse_cds(service, qp) -> dict:
             target_gain_pct=_num(form["gain"], "Objetivo de ganancia"), move_days=_num(form["days"], "Días del movimiento", int),
             max_required_move_mult=_num(form["mult"], "Múltiplo del movimiento esperado"),
             min_prob_pct=_num(form["prob"], "Probabilidad mínima") if form["use_prob"] else None,
+            min_exit_profit_usd=_num(form["xp"], "Ganancia de salida mínima") if form["use_xp"] else None,
             top_per_ticker=_num(form["top"], "Máximo por ticker", int),
             min_max_return_pct=_num(form["ret"], "Retorno máximo mínimo") if form["use_ret"] else None,
             sma200_below_pct_min=_num(form["sma"], "SMA200") if form["use_sma"] else None))

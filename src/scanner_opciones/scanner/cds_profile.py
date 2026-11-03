@@ -28,6 +28,7 @@ def default_form(settings) -> dict:
         "oi": str(cfg.min_long_oi), "ls": _fmt(cfg.max_leg_spread_pct),
         "gain": _fmt(cfg.target_gain_pct), "days": str(cfg.move_days), "mult": _fmt(cfg.max_required_move_mult),
         "use_prob": cfg.min_prob_pct is not None, "prob": _fmt(cfg.min_prob_pct if cfg.min_prob_pct is not None else 40), "top": str(cfg.top_per_ticker),
+        "use_xp": cfg.min_exit_profit_usd is not None, "xp": _fmt(cfg.min_exit_profit_usd if cfg.min_exit_profit_usd is not None else 50),
         "use_ret": cfg.min_max_return_pct is not None, "ret": _fmt(cfg.min_max_return_pct if cfg.min_max_return_pct is not None else 100),
         "use_sma": cfg.sma200_below_pct_min is not None, "sma": _fmt(cfg.sma200_below_pct_min if cfg.sma200_below_pct_min is not None else 10),
         "ref": crit.price_reference.value, "ref_x": _fmt(crit.price_spread_pct),

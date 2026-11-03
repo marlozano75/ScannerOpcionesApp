@@ -132,6 +132,8 @@ def build_call_debit_spreads(
             close_cost = cost_ps(mult)
             exit_profit = exit_value - close_cost - debit
             exit_return = exit_profit / debit * 100
+            if cds.min_exit_profit_usd is not None and exit_profit * mult < cds.min_exit_profit_usd - EPS:
+                continue                   # ganancia de salida mínima en $
             prob = touch_probability_pct(required_mult)
             if cds.min_prob_pct is not None and prob < cds.min_prob_pct - EPS:
                 continue                   # probabilidad mínima de alcanzar el objetivo

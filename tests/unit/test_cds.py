@@ -121,3 +121,10 @@ def test_exit_values_at_target_with_close_commission():
     assert abs(r.exit_return_pct - (r.debit * 0.2 - 0.01) / r.debit * 100) < 1e-6
     # un objetivo que supera el ancho no se puede cobrar: se descarta
     assert build_call_debit_spreads(snaps, info(), cfg(target_gain_pct=500, max_required_move_mult=100, min_prob_pct=None), TODAY) == []
+
+
+def test_min_exit_profit_filter():
+    snaps = [call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)]
+    [r] = build_call_debit_spreads(snaps, info(), cfg(), TODAY)
+    assert build_call_debit_spreads(snaps, info(), cfg(min_exit_profit_usd=r.exit_profit_usd - 1), TODAY) == [r]
+    assert build_call_debit_spreads(snaps, info(), cfg(min_exit_profit_usd=r.exit_profit_usd + 1), TODAY) == []
