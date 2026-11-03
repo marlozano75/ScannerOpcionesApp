@@ -8,6 +8,7 @@ como antes, solo más lenta. No importa `ib_async` ni el SDK del proveedor.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import defaultdict
@@ -29,6 +30,7 @@ from scanner_opciones.marketdata.sectors import SectorProvider
 
 log = logging.getLogger(__name__)
 
+CALLS_SUFFIX = "|C"   # las calls de un ticker se guardan en `chain_cache` con esta marca detrás del ticker
 MULTIPLIER = 100   # el proveedor solo lista opciones estándar de 100 acciones
 
 
@@ -54,6 +56,7 @@ class HybridGateway:
         self._now = now
         self._clock = clock
         self._listings: dict[str, tuple[float, OptionListing]] = {}   # ticker -> (instante, puts existentes)
+        self._fetching: dict[str, asyncio.Future] = {}   # peticiones de cadena en curso por ticker
         self._call_listings: dict[str, tuple[float, OptionListing]] = {}   # ticker -> (instante, calls existentes); solo si hay quien las pida
         self.sectors = sectors          # sector sin TWS (EDGAR, Yahoo); TWS queda como último recurso
         self._sector_cache: dict[str, tuple[str, Optional[str]]] = {}
@@ -231,7 +234,7 @@ class HybridGateway:
 
     # ---- cadena y contratos -----------------------------------------------------------------
     async def _listing(self, ticker: str) -> OptionListing:
-        """Puts que existen de `ticker`, cacheados `listing_ttl_minutes`. Lanza OptionDataError si el proveedor falla."""
+        """Puts que existen de `ticker`, cacheados `listing_ttl_minutes` (y en disco: ver `_stored_listing`). Lanza OptionDataError si el proveedor falla."""
         cached = self._listings.get(ticker)
         if cached is not None and self._clock() - cached[0] < self.s.listing_ttl_minutes * 60:
             note_chain(False)
@@ -242,35 +245,75 @@ class HybridGateway:
             note_chain(False)
             return stored
         note_chain(True)
-        listing = await self.provider.get_put_listing(ticker)
-        self._listings[ticker] = (self._clock(), listing)
-        if self.chain_store is not None and listing:
-            try:
-                self.chain_store.put(ticker, self._now().astimezone(), listing)
-            except Exception:   # la caché en disco es un extra: un fallo no debe romper la cadena
-                log.exception("No se pudo guardar la cadena de %s", ticker)
-        return listing
+        puts, calls = await self._fetch_listings(ticker)
+        return puts
 
-    def _stored_listing(self, ticker: str) -> Optional[OptionListing]:
-        """La lista guardada en disco si es posterior al último cierre y el mercado está cerrado; si no, None."""
-        close = self.closed_since() if self.chain_store is not None else None
-        if close is None:
+    async def _fetch_listings(self, ticker: str) -> tuple[OptionListing, OptionListing]:
+        """Pide al proveedor las puts y las calls de `ticker` con UNA petición (si sabe: `get_option_listings`; la respuesta de la cadena trae las dos
+        y antes se pedía dos veces) y las guarda en memoria y en disco. Dos llamadas a la vez para el mismo ticker comparten la misma petición."""
+        running = self._fetching.get(ticker)
+        if running is not None:
+            return await running
+        task = asyncio.ensure_future(self._fetch_listings_now(ticker))
+        self._fetching[ticker] = task
+        try:
+            return await task
+        finally:
+            self._fetching.pop(ticker, None)
+
+    async def _fetch_listings_now(self, ticker: str) -> tuple[OptionListing, OptionListing]:
+        both = getattr(self.provider, "get_option_listings", None)
+        if both is not None:
+            puts, calls = await both(ticker)
+            self._call_listings[ticker] = (self._clock(), calls)
+        else:
+            puts, calls = await self.provider.get_put_listing(ticker), None
+        self._listings[ticker] = (self._clock(), puts)
+        if self.chain_store is not None:
+            for key, listing in ((ticker, puts), (ticker + CALLS_SUFFIX, calls)):
+                if listing:
+                    try:
+                        self.chain_store.put(key, self._now().astimezone(), listing)
+                    except Exception:   # la caché en disco es un extra: un fallo no debe romper la cadena
+                        log.exception("No se pudo guardar la cadena de %s", ticker)
+        return puts, calls if calls is not None else {}
+
+    def _stored_listing(self, ticker: str, suffix: str = "") -> Optional[OptionListing]:
+        """La lista guardada en disco si sigue siendo válida: con el mercado cerrado, la pedida después del último cierre (no puede haber cambiado);
+        con el mercado abierto (o si es anterior), la pedida hace menos de `chain_store_ttl_hours` (los vencimientos y strikes nuevos son raros).
+        Si no, None."""
+        if self.chain_store is None:
             return None
         try:
-            hit = self.chain_store.get(ticker)
+            hit = self.chain_store.get(ticker + suffix)
         except Exception:
             log.exception("No se pudo leer la cadena guardada de %s", ticker)
             return None
-        return hit[1] if hit is not None and hit[0].astimezone() >= close else None
+        if hit is None:
+            return None
+        when = hit[0].astimezone()
+        close = self.closed_since()
+        if close is not None and when >= close:
+            return hit[1]
+        ttl = self.s.chain_store_ttl_hours
+        return hit[1] if ttl > 0 and (self._now().astimezone() - when).total_seconds() < ttl * 3600 else None
 
     async def _call_listing(self, ticker: str) -> OptionListing:
         """Calls que existen de `ticker` (cacheadas igual que las puts). Vacío si el proveedor no las lista. Lanza OptionDataError si falla."""
+        both = getattr(self.provider, "get_option_listings", None)
         fetch = getattr(self.provider, "get_call_listing", None)
-        if fetch is None:
+        if fetch is None and both is None:
             return {}
         cached = self._call_listings.get(ticker)
         if cached is not None and self._clock() - cached[0] < self.s.listing_ttl_minutes * 60:
             return cached[1]
+        stored = self._stored_listing(ticker, CALLS_SUFFIX)
+        if stored is not None:
+            self._call_listings[ticker] = (self._clock(), stored)
+            return stored
+        if both is not None:
+            note_chain(True)
+            return (await self._fetch_listings(ticker))[1]
         listing = await fetch(ticker)
         self._call_listings[ticker] = (self._clock(), listing)
         return listing

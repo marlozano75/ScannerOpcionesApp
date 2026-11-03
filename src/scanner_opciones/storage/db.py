@@ -375,6 +375,8 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (ticker, day)
     );
     """,
+    # v36: precio del subyacente cuando se pidio el margen (what-if): permite reutilizarlo mas tiempo mientras el precio no se mueva
+    "ALTER TABLE snapshots ADD COLUMN margin_price REAL;",
 ]
 
 

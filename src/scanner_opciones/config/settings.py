@@ -195,6 +195,11 @@ class RefreshSettings(_Model):
     account_interval_minutes: float = Field(1, gt=0)  # cada cuánto se refrescan cuenta, posiciones y VIX (independiente del mercado)
     warm_caches: bool = True  # al acabar un refresco, prepara en segundo plano los mapas de nombres, notas y avisos y, una vez, los cierres de la watchlist: las páginas no los construyen al abrirse
     margin_max_age_minutes: float = Field(60, ge=0)  # reutiliza el margen (what-if) guardado hasta esta edad
+    # Pasada esa edad, el margen se sigue reutilizando hasta `margin_stale_max_hours` mientras el subyacente no se haya movido más de
+    # `margin_price_tolerance_pct` desde que se pidió (el margen de una put desnuda sigue al precio: estudio del 2026-11-03). 0 = solo la edad de arriba
+    margin_stale_max_hours: float = Field(8, ge=0)
+    margin_price_tolerance_pct: float = Field(3, ge=0)
+    tws_bid_size_retry_minutes: float = Field(60, ge=0)     # un contrato al que TWS no dio tamaño de bid no se vuelve a pedir hasta pasado este tiempo
     margin_concurrency: int = Field(8, ge=1)  # what-if que se piden a TWS a la vez (el primero de cada ciclo va solo, como sonda)
     # El bid size de tastytrade es entre 5 y 10 veces menor que el de TWS. Con el mercado abierto y TWS conectado, el refresco pide a TWS
     # el de los contratos que pasan los demás filtros pero tienen un tamaño menor que `scanner.filter_values.min_bid_size`.
@@ -644,7 +649,10 @@ class MarketDataSettings(_Model):
     quote_wait_seconds: float = Field(20, gt=0)   # espera máxima por lote de cotizaciones DXLink
     settle_seconds: float = Field(3, gt=0)        # sin datos nuevos durante tanto tiempo, el lote se da por terminado
     quote_batch_size: int = Field(2500, ge=1, le=3000)  # contratos por conexión DXLink (probado: 3000 sí, 4000 no) y por petición de cotizaciones
-    listing_ttl_minutes: float = Field(30, gt=0)  # cuánto se reutiliza la lista de contratos de un ticker
+    listing_ttl_minutes: float = Field(30, gt=0)  # cuánto se reutiliza la lista de contratos de un ticker (en memoria)
+    # Con el mercado ABIERTO la lista guardada en disco (también tras reiniciar) se reutiliza tantas horas; con el mercado cerrado vale desde el último cierre.
+    # Los vencimientos y strikes nuevos son raros: sin esto cada reinicio y cada media hora se pedían de nuevo las ~2.300 cadenas. 0 = solo con el mercado cerrado
+    chain_store_ttl_hours: float = Field(6, ge=0)
     # de dónde sale el sector antes de preguntar a TWS (lento y exige conexión), en este orden: «edgar» (código SIC; necesita `edgar.contact`) y «yahoo»
     # (yfinance, no oficial). Lista vacía = solo IBKR
     sector_sources: list[Literal["edgar", "yahoo"]] = ["edgar", "yahoo"]

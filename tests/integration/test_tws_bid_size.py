@@ -71,3 +71,17 @@ async def test_the_cap_per_cycle_keeps_the_highest_annualized_yield(env):
         bid=1.6, ask=1.8, delta=-0.1, iv=0.3, open_interest=300, bid_size=4)     # también pasa y rinde más (1,7 / 80 > 1,1 / 75)
     await env.refresh.run()
     assert [c.strike for r in env.gw.bid_size_requests for c in r] == [80.0]
+
+
+async def test_a_contract_tws_never_answered_is_not_asked_again_for_a_while(env):
+    c75, _ = await prepared(env)
+    del env.gw.bid_sizes[c75]                            # TWS no da tamaño de este contrato
+    await env.refresh.run()
+    assert len(env.gw.bid_size_requests) == 1
+    env.clock = NOW + timedelta(minutes=20)
+    await env.refresh.run()
+    assert len(env.gw.bid_size_requests) == 1            # dentro de `tws_bid_size_retry_minutes` (60): no se vuelve a pedir
+    env.clock = NOW + timedelta(minutes=90)
+    env.gw.bid_sizes[c75] = 200
+    await env.refresh.run()
+    assert len(env.gw.bid_size_requests) == 2 and sizes(env)[75.0].bid_size == 200

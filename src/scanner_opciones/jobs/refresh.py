@@ -81,6 +81,8 @@ class RefreshJob:
         self.market = market
         # `scanner.ticker_modes`: lo pone el servicio; recibe las fichas y devuelve {ticker: TickerModes} (guardados, con historial); None = sin modos
         self.mode_resolver: Optional[Callable[[dict], dict]] = None
+        self._modes: dict = {}       # modos por ticker del último ciclo (sin ellos, vacío): las puts desnudas de un ticker sin modo `put` no piden margen
+        self._no_bid_size: dict[tuple, datetime] = {}      # contratos a los que TWS no dio tamaño de bid (cuándo): no se piden de nuevo enseguida
         # mercado propio de los instrumentos de TWS (Eurex...): fuera del horario de EE. UU. también se cotizan mientras el suyo está abierto
         self._instrument_calendars: dict[str, tuple] = {}
         self.syncer = syncer or ContractSyncer(gateway, contracts, settings)
@@ -246,6 +248,7 @@ class RefreshJob:
             m = modes.get(c.ticker)
             if m is None or (m.cds if c.right is OptionRight.CALL else m.any_puts):
                 kept.append(c)
+        self._modes = modes
         report.mode_skipped = len(contracts) - len(kept)
         report.mode_tickers_off = sum(1 for m in modes.values() if not m.any)
         return kept
@@ -272,6 +275,8 @@ class RefreshJob:
         for snap in snaps:
             if snap.contract.right is not OptionRight.PUT or snap.bid_size is None or snap.bid_size >= fv.min_bid_size or self._tws_size_fresh(snap):
                 continue
+            if self._bid_size_unanswered(snap):
+                continue
             info = infos.get(snap.contract.ticker)
             price = info.underlying_price if info else None
             if any(reject_reason(snap, price, today, c, snap.iv_rank, snap.iv_percentile) is None for c in relaxed):
@@ -289,10 +294,20 @@ class RefreshJob:
                 log.warning("Bid size de TWS no disponible, se conserva el del proveedor: %s", exc)
                 return
             now = self.now()
+            for s in batch:
+                key = self._snap_key(s.contract)
+                if s.contract in sizes:
+                    self._no_bid_size.pop(key, None)
+                else:
+                    self._no_bid_size[key] = now         # TWS no dio tamaño: no se vuelve a pedir enseguida (cada petición espera hasta `quote_wait_seconds`)
             updated = [replace(s, bid_size=sizes[s.contract], bid_size_tws_at=now) for s in batch if s.contract in sizes]
             report.bid_sizes_checked += len(updated)
             report.bid_sizes_changed += sum(1 for s, n in zip((b for b in batch if b.contract in sizes), updated) if s.bid_size != n.bid_size)
             self.snapshots.upsert_many(updated)
+
+    def _bid_size_unanswered(self, snap: ContractSnapshot) -> bool:
+        asked = self._no_bid_size.get(self._snap_key(snap.contract))
+        return asked is not None and self.now() - asked < timedelta(minutes=self.settings.refresh.tws_bid_size_retry_minutes)
 
     def _offline(self) -> bool:
         """Sin TWS pero con los datos de mercado de tastytrade: se cotiza igual y los márgenes se quedan como estaban."""
@@ -449,33 +464,51 @@ class RefreshJob:
             return snap
         price = info.underlying_price if info else None
         today = self.now().date()
+        # el margen solo sirve a la put desnuda; en un ticker sin ese modo (solo spreads: su riesgo es el ancho menos el crédito, sin what-if) no se pide
+        mode = self._modes.get(snap.contract.ticker)
+        if mode is not None and not mode.put:
+            return self._keep_margin(snap, previous)
         passes = any(
             reject_reason(snap, price, today, c, snap.iv_rank, snap.iv_percentile) is None
             for c in criteria
         )
         if not passes:
             return snap
-        max_age = timedelta(minutes=self.settings.refresh.margin_max_age_minutes)
-        if (
-            previous is not None and previous.initial_margin is not None and previous.margin_at is not None
-            and self.now() - previous.margin_at < max_age
-        ):
+        if self._margin_reusable(previous, price):
             report.margins_reused += 1
-            return replace(snap, initial_margin=previous.initial_margin, margin_at=previous.margin_at)
+            return self._keep_margin(snap, previous)
         # Sin respuesta de TWS se conserva el último margen conocido (con su fecha: se volverá a pedir en cuanto
         # responda) en lugar de borrarlo: un margen antiguo es mejor que ninguno.
-        stale = snap
-        if previous is not None and previous.initial_margin is not None:
-            stale = replace(snap, initial_margin=previous.initial_margin, margin_at=previous.margin_at)
+        stale = self._keep_margin(snap, previous)
         if self._offline():
             return stale   # sin TWS: no se espera por cada contrato; se queda el margen guardado
         if report.margin_ok:
             async with self._margin_sem:
-                return await self._ask_margin(snap, stale, report)
+                return await self._ask_margin(snap, stale, report, price)
         async with self._margin_probe:   # hasta que TWS responda una vez va de uno en uno: si está caído no se lanzan cientos a la vez
-            return await self._ask_margin(snap, stale, report)
+            return await self._ask_margin(snap, stale, report, price)
 
-    async def _ask_margin(self, snap, stale, report: RefreshReport) -> ContractSnapshot:
+    @staticmethod
+    def _keep_margin(snap: ContractSnapshot, previous: Optional[ContractSnapshot]) -> ContractSnapshot:
+        """`snap` con el margen (y su fecha y precio) del snapshot anterior, si lo tenía."""
+        if previous is None or previous.initial_margin is None:
+            return snap
+        return replace(snap, initial_margin=previous.initial_margin, margin_at=previous.margin_at, margin_price=previous.margin_price)
+
+    def _margin_reusable(self, previous: Optional[ContractSnapshot], price: Optional[float]) -> bool:
+        """¿Vale el margen guardado? Sí si tiene menos de `margin_max_age_minutes`; y, pasado ese tiempo, hasta `margin_stale_max_hours` mientras el
+        subyacente no se haya movido más de `margin_price_tolerance_pct` desde que se pidió (el margen de una put desnuda sigue al precio)."""
+        if previous is None or previous.initial_margin is None or previous.margin_at is None:
+            return False
+        r = self.settings.refresh
+        age = self.now() - previous.margin_at
+        if age < timedelta(minutes=r.margin_max_age_minutes):
+            return True
+        if r.margin_stale_max_hours <= 0 or age >= timedelta(hours=r.margin_stale_max_hours) or not previous.margin_price or not price:
+            return False
+        return abs(price / previous.margin_price - 1) * 100 <= r.margin_price_tolerance_pct + 1e-9
+
+    async def _ask_margin(self, snap, stale, report: RefreshReport, price: Optional[float] = None) -> ContractSnapshot:
         if report.margin_streak >= MARGIN_MAX_FAILURES:
             return stale   # TWS no responde: no se espera por cada contrato; se queda el margen guardado
         try:
@@ -491,4 +524,5 @@ class RefreshJob:
             return stale
         report.margin_streak = 0
         report.margin_ok = True
-        return replace(snap, initial_margin=margin, margin_at=self.now() if margin is not None else None)
+        return replace(snap, initial_margin=margin, margin_at=self.now() if margin is not None else None,
+                       margin_price=price if margin is not None else None)

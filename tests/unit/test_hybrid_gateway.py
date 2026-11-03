@@ -341,7 +341,8 @@ async def test_a_listing_older_than_the_close_or_with_the_market_open_is_request
     gw2, prov2, _ = build_stored(ChainCacheRepo(db), close)
     await gw2.get_option_chain("AAPL")
     assert len([c for c in prov2.calls if c[0] == "get_put_listing"]) == 1
-    gw3, prov3, _ = build_stored(ChainCacheRepo(db), None)           # mercado abierto: nunca se reutiliza lo guardado
+    later = datetime(2026, 10, 24, 23, tzinfo=timezone.utc)            # mercado abierto y lo guardado tiene 11 h (más que `chain_store_ttl_hours`)
+    gw3, prov3, _ = build_stored(ChainCacheRepo(db), None, now=later)
     await gw3.get_option_chain("AAPL")
     assert len([c for c in prov3.calls if c[0] == "get_put_listing"]) == 1
 
@@ -354,3 +355,46 @@ async def test_chain_origin_counts_fetched_and_reused(caplog):
             await gw.get_option_chain("AAPL")
     assert (tally.fetched, tally.reused) == (1, 1)
     assert "Cadenas de opciones (prueba): 1 pedidas al proveedor, 1 reutilizadas" in caplog.text
+
+
+async def test_with_the_market_open_a_recent_stored_listing_is_reused_after_a_restart():
+    db = Database()
+    gw, prov, _ = build_stored(ChainCacheRepo(db), None)
+    await gw.get_option_chain("AAPL")
+    gw2, prov2, _ = build_stored(ChainCacheRepo(db), None, now=datetime(2026, 10, 24, 16, tzinfo=timezone.utc))      # 4 h después, < 6 h
+    await gw2.get_option_chain("AAPL")
+    assert not [c for c in prov2.calls if c[0] == "get_put_listing"]
+    gw3, prov3, _ = build_stored(ChainCacheRepo(db), None, now=datetime(2026, 10, 24, 20, tzinfo=timezone.utc))      # 8 h después, > 6 h
+    await gw3.get_option_chain("AAPL")
+    assert len([c for c in prov3.calls if c[0] == "get_put_listing"]) == 1
+
+
+class PairProvider(FakeOptionData):
+    """Proveedor que sabe dar puts y calls con una sola petición (como tastytrade)."""
+
+    async def get_option_listings(self, ticker):
+        self.calls.append(("get_option_listings", ticker))
+        return dict(self.listings.get(ticker, {})), dict(self.call_listings.get(ticker, {}))
+
+
+async def test_puts_and_calls_come_from_one_request_and_both_survive_a_restart():
+    from scanner_opciones.domain.enums import OptionRight
+    db = Database()
+    prov = PairProvider(listings={"AAPL": listing((E1, 200))}, call_listings={"AAPL": {listing_key(E1, 300): ".AAPL261016C300"}})
+    gw, _, _ = build_stored(ChainCacheRepo(db), None, provider=prov)
+    put, call = contract(200), OptionContract("AAPL", E1, 300, OptionRight.CALL)
+    assert set(await gw.get_quotes([put, call])) <= {put, call}
+    assert [c for c in prov.calls if c[0] in ("get_put_listing", "get_call_listing")] == []
+    assert len([c for c in prov.calls if c[0] == "get_option_listings"]) == 1          # antes eran dos peticiones por ticker
+    prov2 = PairProvider(listings={"AAPL": listing((E1, 200))}, call_listings={"AAPL": {listing_key(E1, 300): ".AAPL261016C300"}})
+    gw2, _, _ = build_stored(ChainCacheRepo(db), None, provider=prov2, now=datetime(2026, 10, 24, 14, tzinfo=timezone.utc))
+    await gw2.get_quotes([put, call])
+    assert prov2.calls and not [c for c in prov2.calls if c[0] == "get_option_listings"]      # reiniciada con el mercado abierto: ni una petición de cadena
+
+
+async def test_concurrent_requests_for_the_same_ticker_share_one_fetch():
+    import asyncio
+    prov = PairProvider(listings={"AAPL": listing((E1, 200))}, call_listings={"AAPL": {listing_key(E1, 300): ".AAPL261016C300"}})
+    gw, _, _ = build_stored(None, None, provider=prov)
+    await asyncio.gather(gw._listing("AAPL"), gw._call_listing("AAPL"), gw._listing("AAPL"))
+    assert len([c for c in prov.calls if c[0] == "get_option_listings"]) == 1

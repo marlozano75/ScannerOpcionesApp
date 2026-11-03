@@ -430,9 +430,38 @@ async def test_recent_margin_is_reused_and_old_one_is_requested_again(env):
     assert (r2.margins_requested, r2.margins_reused) == (0, 1)
     assert {s.contract.strike: s.initial_margin for s in env.snaps.all("AAPL")}[75.0] == 1500.0
     env.clock = NOW + timedelta(minutes=61)                 # supera margin_max_age_minutes (60)
-    r3 = await env.refresh.run()
-    assert (r3.margins_requested, r3.margins_reused) == (1, 0)
+    r3 = await env.refresh.run()                            # ...pero el precio no se movió y han pasado menos de 8 h: se reutiliza
+    assert (r3.margins_requested, r3.margins_reused) == (0, 1)
+    env.clock = NOW + timedelta(hours=9)                    # supera también margin_stale_max_hours (8)
+    r4 = await env.refresh.run()
+    assert (r4.margins_requested, r4.margins_reused) == (1, 0)
     assert {s.contract.strike: s.initial_margin for s in env.snaps.all("AAPL")}[75.0] == 9999.0
+
+
+async def test_margin_older_than_an_hour_is_requested_again_when_the_price_moved(env):
+    c75, c80 = await _prepare_refresh(env)
+    await env.refresh.run()
+    assert {s.contract.strike: s.margin_price for s in env.snaps.all("AAPL")}[75.0] == 100.0      # precio al pedir el margen
+    env.gw.margins[c75] = 7777.0
+    env.clock = NOW + timedelta(hours=2)
+    env.gw.prices["AAPL"] = 97.0                           # -3 %: dentro de la tolerancia
+    r = await env.refresh.run()
+    assert (r.margins_requested, r.margins_reused) == (0, 1)
+    env.clock = NOW + timedelta(hours=3)
+    env.gw.prices["AAPL"] = 95.0                           # -5 %: fuera
+    r = await env.refresh.run()
+    assert r.margins_requested == 1 and {s.contract.strike: s.initial_margin for s in env.snaps.all("AAPL")}[75.0] == 7777.0
+
+
+async def test_no_margin_is_requested_for_a_ticker_without_the_put_mode(env):
+    from scanner_opciones.scanner.modes import TickerModes
+    c75, c80 = await _prepare_refresh(env)
+    env.refresh.mode_resolver = lambda infos: {t: TickerModes(put=False, put_spread=True, cds=True) for t in infos}
+    r = await env.refresh.run()
+    assert r.margins_requested == 0 and r.in_scope > 0                  # se cotiza (sirve a los spreads) pero no pide el what-if de la put desnuda
+    env.refresh.mode_resolver = lambda infos: {t: TickerModes() for t in infos}
+    r = await env.refresh.run()
+    assert r.margins_requested == 1
 
 
 # ---- mercado cerrado: no se pisa la última cotización válida --------------------------------------

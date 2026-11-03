@@ -52,7 +52,8 @@ class _DropMessages(logging.Filter):
 _UNKNOWN_FILTER = _DropMessages("Error 200,", "Unknown contract")
 # 10197: se resume en un único aviso por lote de cotizaciones (ver `IBKRGateway.get_quotes`)
 # 10090: «no está suscrito a parte de los datos»; es informativo (los ticks diferidos llegan igual) y salía una vez por contrato
-_COMPETING_FILTER = _DropMessages("Error 10197,", "Error 10090,")
+# 10091: «requiere suscripciones adicionales para API; hay datos diferidos»: también informativo (miles de líneas por sesión en las peticiones de tamaño de bid)
+_COMPETING_FILTER = _DropMessages("Error 10197,", "Error 10090,", "Error 10091,")
 COMPETING_SESSION = 10197
 
 

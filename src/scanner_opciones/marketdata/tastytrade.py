@@ -35,6 +35,7 @@ CANDLE_BATCH_SIZE = 50   # suscripciones a velas por lote (con todos a la vez ta
 
 
 SUBSCRIBE_CHUNK = 400   # símbolos por mensaje de suscripción DXLink (un mensaje no puede pasar de 64 KB: ~1000 símbolos)
+VX_LIST_TTL_SECONDS = 6 * 3600     # cuánto se reutiliza la lista de futuros del VIX (cambia una vez al mes)
 VIX_FUTURES_PRODUCT = "VX"
 
 EarningsFetch = Callable[[str], Awaitable[list[tuple[date, float]]]]   # símbolo -> (fecha del informe, EPS)
@@ -149,6 +150,8 @@ class TastytradeVolatility:
         self._fetch_ohlc = self._ohlc_from(fetch_candles) if fetch_candles else self._sdk_fetch_ohlc
         self._fetch_chain = fetch_chain or self._sdk_fetch_chain
         self._fetch_call_chain = fetch_call_chain or self._sdk_fetch_call_chain
+        self._injected_chains = fetch_chain is not None or fetch_call_chain is not None   # con funciones inyectadas (pruebas) se piden por separado
+        self._vx_cache: Optional[tuple[float, list[tuple[date, str]]]] = None   # futuros VX (vencimiento, símbolo): la lista cambia una vez al mes
         self._fetch_option_quotes = fetch_option_quotes or self._sdk_fetch_option_quotes
         self._fetch_vix = fetch_vix or self._sdk_fetch_vix
         self._fetch_earnings = fetch_earnings or self._sdk_fetch_earnings
@@ -264,16 +267,23 @@ class TastytradeVolatility:
         return await self._sdk_fetch_listing(symbol, "CALL")
 
     async def _sdk_fetch_listing(self, symbol: str, kind: str) -> OptionListing:
+        puts, calls = await self._sdk_fetch_listings(symbol)
+        return puts if kind == "PUT" else calls
+
+    async def _sdk_fetch_listings(self, symbol: str) -> tuple[OptionListing, OptionListing]:
+        """Puts y calls que existen de `symbol` con UNA petición (`option-chains/<símbolo>` devuelve las dos): antes se pedía dos veces, una por lado."""
         from tastytrade.instruments import OptionType, get_option_chain
 
-        wanted = OptionType.PUT if kind == "PUT" else OptionType.CALL
-        out: OptionListing = {}
+        puts: OptionListing = {}
+        calls: OptionListing = {}
         for expiry, options in (await get_option_chain(self._open_session(), symbol)).items():
             for o in options:
                 # solo opciones estándar: las ajustadas por splits/fusiones (otra entrega) no son las de IBKR
-                if o.option_type is wanted and o.shares_per_contract == 100 and o.active:
-                    out.setdefault(listing_key(expiry, float(o.strike_price)), o.streamer_symbol)
-        return out
+                if o.shares_per_contract == 100 and o.active:
+                    side = puts if o.option_type is OptionType.PUT else calls if o.option_type is OptionType.CALL else None
+                    if side is not None:
+                        side.setdefault(listing_key(expiry, float(o.strike_price)), o.streamer_symbol)
+        return puts, calls
 
     async def _sdk_fetch_option_quotes(self, symbols: Sequence[str]) -> dict[str, OptionQuote]:
         """Quote + Greeks + Summary por DXLink, en grupos de `option_batch_size` contratos (una conexión cada uno).
@@ -353,10 +363,10 @@ class TastytradeVolatility:
         today = datetime.now().date()
         closes = (await self._fetch_candles(["VIX"], max(history_days * 2 + 4, 10), 20.0)).get("VIX", [])
         session = self._open_session()
-        upcoming = sorted(
-            ((f.expiration_date, f.streamer_symbol) for f in await Future.get(session, product_codes=[VIX_FUTURES_PRODUCT])
-             if f.active and f.expiration_date >= today),
-        )[:futures_ahead]
+        if self._vx_cache is None or time.monotonic() - self._vx_cache[0] > VX_LIST_TTL_SECONDS:     # la lista de futuros se pedía cada minuto
+            self._vx_cache = (time.monotonic(), [(f.expiration_date, f.streamer_symbol)
+                                                 for f in await Future.get(session, product_codes=[VIX_FUTURES_PRODUCT]) if f.active])
+        upcoming = sorted((exp, sym) for exp, sym in self._vx_cache[1] if exp >= today)[:futures_ahead]
         symbols = ["VIX"] + [sym for _, sym in upcoming]
         prices: dict[str, float] = {}
         async with DXLinkStreamer(session) as streamer:
@@ -471,6 +481,17 @@ class TastytradeVolatility:
         try:
             return await self._fetch_chain(tasty_symbol(ticker))
         except Exception as exc:   # el SDK lanza tipos variados (red, autenticación, formato)
+            self._session = None
+            raise OptionDataError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
+
+    async def get_option_listings(self, ticker: str) -> tuple[OptionListing, OptionListing]:
+        """(puts, calls) que existen, con una sola petición al proveedor (la respuesta trae las dos)."""
+        try:
+            symbol = tasty_symbol(ticker)
+            if self._injected_chains:
+                return await self._fetch_chain(symbol), await self._fetch_call_chain(symbol)
+            return await self._sdk_fetch_listings(symbol)
+        except Exception as exc:
             self._session = None
             raise OptionDataError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
 

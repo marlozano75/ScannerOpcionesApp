@@ -81,3 +81,77 @@ async def test_prices_of_class_share_tickers_use_the_same_translation():
     prov = TastytradeVolatility("s", "t", fetch_quotes=fetch_quotes)
     assert await prov.get_prices(["PBR-A", "KO"]) == {"PBR-A": 21.73}
     assert asked == [["PBR/A", "KO"]]
+
+
+async def test_puts_and_calls_with_injected_fetchers_are_requested_separately_and_marked():
+    calls = []
+
+    async def puts(symbol):
+        calls.append(("P", symbol))
+        return {("e", 1.0): "p"}
+
+    async def cals(symbol):
+        calls.append(("C", symbol))
+        return {("e", 2.0): "c"}
+
+    from scanner_opciones.marketdata.tastytrade import TastytradeVolatility
+    p = TastytradeVolatility("s", "t", fetch_chain=puts, fetch_call_chain=cals)
+    assert await p.get_option_listings("BRK-B") == ({("e", 1.0): "p"}, {("e", 2.0): "c"})
+    assert calls == [("P", "BRK/B"), ("C", "BRK/B")]
+
+
+async def test_vix_futures_list_is_requested_once_and_reused(monkeypatch):
+    """`instruments/futures` se pedía en cada lectura del VIX (cada minuto): la lista de futuros cambia una vez al mes."""
+    import sys
+    import types
+    from datetime import date, timedelta
+
+    from scanner_opciones.marketdata.tastytrade import TastytradeVolatility
+
+    requested = []
+    soon, later = date.today() + timedelta(days=10), date.today() + timedelta(days=40)
+
+    class Fut:
+        def __init__(self, exp, sym):
+            self.expiration_date, self.streamer_symbol, self.active = exp, sym, True
+
+    class Future:
+        @staticmethod
+        async def get(session, product_codes):
+            requested.append(product_codes)
+            return [Fut(later, "/VXZ6"), Fut(soon, "/VXX6")]
+
+    class Trade:
+        pass
+
+    class Streamer:
+        def __init__(self, session):
+            self.symbols = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def subscribe(self, kind, symbols):
+            self.symbols = list(symbols)
+
+        async def listen(self, kind):
+            for s in self.symbols:
+                yield types.SimpleNamespace(event_symbol=s, price=20.0)
+
+    for name, attrs in (("tastytrade.dxfeed", {"Trade": Trade}), ("tastytrade.instruments", {"Future": Future}), ("tastytrade.streamer", {"DXLinkStreamer": Streamer})):
+        module = types.ModuleType(name)
+        module.__dict__.update(attrs)
+        monkeypatch.setitem(sys.modules, name, module)
+
+    async def candles(symbols, days, timeout):
+        return {"VIX": []}
+
+    prov = TastytradeVolatility("s", "t", fetch_candles=candles)
+    monkeypatch.setattr(prov, "_open_session", lambda: object())
+    first = await prov.get_vix(5, 2)
+    second = await prov.get_vix(5, 1)
+    assert len(requested) == 1                                       # una sola petición de la lista para las dos lecturas
+    assert [e for e, _ in first.futures] == [soon, later] and [e for e, _ in second.futures] == [soon]
