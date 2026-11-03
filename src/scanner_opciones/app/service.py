@@ -62,6 +62,7 @@ from scanner_opciones.metrics import technical as ta
 from scanner_opciones.metrics.yields import reference_price
 from scanner_opciones.scanner.criteria import commission_model
 from scanner_opciones.scanner.cds import build_call_debit_spreads
+from scanner_opciones.scanner.cds_impact import cds_impact_report
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.currency import Nlv
 from scanner_opciones.scanner.quality import put_floor_reject, ticker_quality_reject
@@ -3520,6 +3521,13 @@ class AppService:
         cds = cds or self.settings.scanner.cds
         if not self.settings.scanner.cds.enabled:
             return []
+        criteria, infos_ok, snaps, bars = self._cds_inputs(**criteria_overrides)
+        return build_call_debit_spreads(
+            snaps, infos_ok, cds, self.now().date(), bars, criteria.price_reference, criteria.price_spread_pct,
+            lambda mult: criteria.cost_ps(mult, legs=2))
+
+    def _cds_inputs(self, **criteria_overrides):
+        """(criterio, infos que pasan la calidad de la empresa y el modo `cds`, snapshots de calls, cierres) para escanear o medir el CDS."""
         criteria = self.criteria(**criteria_overrides)
         infos = self.infos(criteria)
         if criteria.ticker_quality_active:
@@ -3531,10 +3539,16 @@ class AppService:
             ok = self.ticker_modes()
             infos_ok = {t: i for t, i in infos_ok.items() if ok.get(t, modes_mod.ALL_ON).cds}
         snaps = [s for s in self._scan_call_snapshots() if s.contract.ticker in infos_ok]
-        bars = self._scan_closes(snaps)
-        return build_call_debit_spreads(
-            snaps, infos_ok, cds, self.now().date(), bars, criteria.price_reference, criteria.price_spread_pct,
-            lambda mult: criteria.cost_ps(mult, legs=2))
+        return criteria, infos_ok, snaps, self._scan_closes(snaps)
+
+    def scan_cds_impact(self, cds: Optional[CdsSettings] = None, **criteria_overrides) -> ImpactReport:
+        """Panel «¿Cuánto descarta cada filtro?» del perfil CDS (`scanner/cds_impact.py`): mismos filtros de empresa y mismo precio de venta que `scan_cds`."""
+        cds = cds or self.settings.scanner.cds
+        if not self.settings.scanner.cds.enabled:
+            return ImpactReport(0, 0, ())
+        criteria, infos_ok, snaps, bars = self._cds_inputs(**criteria_overrides)
+        return cds_impact_report(snaps, infos_ok, cds, self.now().date(), bars, criteria.price_reference, criteria.price_spread_pct,
+                                 lambda mult: criteria.cost_ps(mult, legs=2))
 
     def scan_profiles(self, sets: list[tuple[str, str, ScanCriteria]]) -> tuple[list, dict[str, dict[str, int]]]:
         """Un solo escaneo con los filtros de varios perfiles: `sets` = (perfil, instrumento `put`|`spread`, criterios). Cada contrato (o spread)

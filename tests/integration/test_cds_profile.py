@@ -1,4 +1,4 @@
-"""Perfil «MTO CDS» (instrumento `cds` de los perfiles del Scanner): formulario editable, guardado, siembra única y página `/cds`."""
+"""Perfil «MTO CDS» (instrumento `cds` de los perfiles del Scanner): formulario editable, guardado, siembra única y redirección de `/cds`."""
 from dataclasses import replace
 
 from fastapi.testclient import TestClient
@@ -60,19 +60,19 @@ def test_page_shows_profile_form_sma_column_and_saves_a_profile():
     app = create_app(svc, lambda mode: FakeGateway(), on_startup=svc.start, on_shutdown=svc.stop)
     with TestClient(app) as client:
         client.portal.call(svc.wait_idle)
-        page = client.get("/cds")
+        page = client.get("/cds")             # dirección antigua: redirige al Scanner con el perfil CDS
         assert page.status_code == 200 and "MTO CDS" in page.text and 'name="dmax" value="2150"' in page.text
         assert 'name="widths"' in page.text and "Apagado por defecto" in page.text
         scanner = client.get("/scanner?reset=1").text
-        assert 'href="/cds?' in scanner and "MTO CDS" in scanner
-        bad = client.get("/cds?submitted=1&mode=cds&dmin=x")
+        assert 'href="/scanner?' in scanner and "mode=cds" in scanner and "MTO CDS" in scanner and 'href="/cds' not in scanner
+        bad = client.get("/scanner?submitted=1&mode=cds&dmin=x")
         assert bad.status_code == 200 and "no es un número" in bad.text
         saved = client.post("/scanner/profile/save", data={"name": "CDS barato", "query": "mode=cds&submitted=1&dmax=700&widths=50%2C+60&best=on&dmin=150&dte_min=200&dte_max=500"},
                             follow_redirects=False)
-        assert saved.status_code == 303 and saved.headers["location"].startswith("/cds?")
+        assert saved.status_code == 303 and saved.headers["location"].startswith("/scanner?") and "mode=cds" in saved.headers["location"]
         prof = next(p for p in svc.stored_profiles()[0] if p.name == "CDS barato")
         assert prof.mode == "cds" and prof.cds["dmax"] == "700" and prof.cds["best"] == "on"
-        page = client.get("/cds?profile=CDS+barato")
+        page = client.get("/scanner?mode=cds&profile=CDS+barato")
         assert 'name="dmax" value="700"' in page.text and "checked" in page.text.split('name="best"')[1][:30]
         assert client.get("/scanner/todos").status_code == 200
         assert client.get("/exits").status_code == 200 and client.get("/scanner/config").status_code == 200

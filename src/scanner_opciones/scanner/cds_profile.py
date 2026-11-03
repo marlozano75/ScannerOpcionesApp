@@ -1,6 +1,6 @@
 """Parámetros por defecto del perfil «MTO CDS» (instrumento `cds` de los perfiles del Scanner). Funciones puras sobre `Settings`.
 
-Las claves son las de los parámetros de la URL de `/cds` (`ui/cds_form.py`); los booleanos se guardan como «on» y los desmarcados no se guardan."""
+Las claves son las de los parámetros de la URL del Scanner con `mode=cds` (`ui/cds_form.py`); los booleanos se guardan como «on» y los desmarcados no se guardan."""
 from __future__ import annotations
 
 from scanner_opciones.scanner.criteria import criteria_from_settings

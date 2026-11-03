@@ -26,7 +26,7 @@ class Profile:
     instruments: tuple[str, ...] = ("put",)
     put: dict = field(default_factory=dict)       # parámetros de la URL del juego de filtros de put
     spread: dict = field(default_factory=dict)    # ... y del de spread
-    cds: dict = field(default_factory=dict)       # ... y del de Call Debit Spread (parámetros de `/cds`)
+    cds: dict = field(default_factory=dict)       # ... y del de Call Debit Spread (parámetros de `/scanner?mode=cds`)
     management: str = "tastytrade"                # reglas con las que se gestionan en el Panel las puts de este perfil: tastytrade | tpc
     color: str = ""                               # color del botón del perfil y de su etiqueta en el Panel (#rrggbb; vacío = sin color)
     exits: dict = field(default_factory=dict)     # estrategia de salida: solo lo que cambia respecto al estilo `management` (`portfolio.exits`)

@@ -13,8 +13,27 @@
   </details>
 {%- endmacro %}
 {% block content %}
+{% set is_cds = is_cds is defined and is_cds %}
+{% if is_cds %}
+{# ---- Call Debit Spread (perfil MTO CDS): chips de la base, de los filtros activados y de los desactivados ---- #}
+{% set f = form %}
+{% set ref_names = {'bid': 'Bid', 'mid': 'Mid', 'bid_plus_spread': 'Bid + ' ~ f.ref_x ~ ' % spread'} %}
+{% set base = [('sec-contract', 'DTE ' ~ f.dte_min ~ '–' ~ f.dte_max, 'dte_min dte_max'), ('sec-contract', 'Comprada ' ~ f.otm_min ~ '–' ~ f.otm_max ~ ' % OTM', 'otm_min otm_max'),
+               ('sec-widths', 'Anchos ' ~ f.widths, 'widths'), ('sec-move', 'Necesario ≤ ' ~ f.mult ~ '× esperado (+' ~ f.gain ~ ' % en ' ~ f.days ~ ' d)', 'gain days mult'),
+               ('sec-price', 'Precio de venta: ' ~ ref_names.get(f.ref, f.ref), 'ref ref_x' if f.ref == 'bid_plus_spread' else 'ref')] %}
+{% set chips = [('sec-debit', 'Débito ' ~ f.dmin ~ '–' ~ f.dmax ~ ' $', 'dmin dmax'), ('sec-debit', 'OI ≥ ' ~ f.oi ~ ' en cada pata', 'oi'), ('sec-debit', 'Spread ≤ ' ~ f.ls ~ ' % en cada pata', 'ls')] %}
+{% if f.best %}{% set _ = chips.append(('sec-widths', 'Solo el mejor ancho', 'best')) %}{% endif %}
+{% if f.wpct_min or f.wpct_max %}{% set _ = chips.append(('sec-widths', 'Ancho/strike ' ~ (f.wpct_min or '0') ~ '–' ~ (f.wpct_max or '∞') ~ ' %', 'wpct_min wpct_max')) %}{% endif %}
+{% if f.use_ret %}{% set _ = chips.append(('sec-move', 'Retorno máx. ≥ ' ~ f.ret ~ ' %', 'use_ret ret')) %}{% endif %}
+{% if f.use_sma %}{% set _ = chips.append(('sec-sma', 'Precio ≥ ' ~ f.sma ~ ' % bajo la SMA200', 'use_sma sma')) %}{% endif %}
+{% set offs = [] %}
+{% if not f.best %}{% set _ = offs.append(('sec-widths', 'Mejor ancho', 'best')) %}{% endif %}
+{% if not (f.wpct_min or f.wpct_max) %}{% set _ = offs.append(('sec-widths', 'Ancho/strike', 'wpct_min wpct_max')) %}{% endif %}
+{% if not f.use_ret %}{% set _ = offs.append(('sec-move', 'Retorno máximo', 'use_ret')) %}{% endif %}
+{% if not f.use_sma %}{% set _ = offs.append(('sec-sma', 'SMA200', 'use_sma')) %}{% endif %}
+{% else %}
 {# ---- estado de cada bloque (resumen y si está activo) ---- #}
-{% set ref_names = {'bid': 'Bid', 'mid': 'Mid', 'bid_plus_spread': 'Bid + ' ~ form.ref_x ~ ' % spread'} %}
+{% set ref_names ={'bid': 'Bid', 'mid': 'Mid', 'bid_plus_spread': 'Bid + ' ~ form.ref_x ~ ' % spread'} %}
 {% set ns = namespace(window_label=form.trend_window ~ ' meses', touch_label='', ma_count=0) %}
 {% for m, label in tech_opts.windows %}{% if form.trend_window == m|string %}{% set ns.window_label = label %}{% endif %}{% endfor %}
 {% for d, label in tech_opts.touches %}{% if form.touch == d|string %}{% set ns.touch_label = label %}{% endif %}{% endfor %}
@@ -113,8 +132,10 @@
 {% if not form.touch %}{% set _ = offs.append(('sec-levels', 'Último toque', 'touch')) %}{% endif %}
 {% if not ma_count %}{% set _ = offs.append(('sec-ma', 'Medias', ma_keys | join(' '))) %}{% endif %}
 {% if not form.signals or form.signals == '0' %}{% set _ = offs.append(('sec-entry', 'Mín. de señales', 'signals')) %}{% endif %}
+{% endif %}
 
 <style>
+  .sma-below { color:#2e7d32; font-weight:600; }
   td.mini { padding-top:2px; padding-bottom:2px; } td.mini a.chart-link { border:0; display:block; line-height:0; } td.mini img { display:block; }
   .chart-link { color:inherit; text-decoration:none; border-bottom:1px dotted var(--mute); cursor:pointer; }
   .chart-link:hover { border-bottom-style:solid; color:var(--accent); }
@@ -235,7 +256,7 @@
       <div class="presets"><span class="lbl">Perfiles</span>
         {% for p in profile_buttons %}
         <a class="preset{{ ' strategy' if p.strategy }}{{ ' active' if p.on }}" href="{{ p.href }}" style="text-decoration:none{{ ';--pc:' ~ p.color if p.color }}"
-          title="Carga el perfil «{{ p.name }}» ({{ 'put vendida' if p.mode == 'put' else 'Call Debit Spread (página CDS)' if p.mode == 'cds' else 'spread de puts' }}): reemplaza todos los filtros del formulario por los guardados en el perfil">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
+          title="Carga el perfil «{{ p.name }}» ({{ 'put vendida' if p.mode == 'put' else 'Call Debit Spread' if p.mode == 'cds' else 'spread de puts' }}): reemplaza todos los filtros del formulario por los guardados en el perfil">{{ '✓ ' if p.on }}{{ p.name }}</a>{% endfor %}
         <a class="preset all-profiles" href="/scanner/todos" style="text-decoration:none" title="Un solo escaneo con los filtros de todos los perfiles y una columna con los que cumple cada fila">Todos los perfiles</a>
         <a class="muted" href="/scanner/config" style="font-size:12px;align-self:center" title="Perfiles: nombre, instrumentos activos y perfil inicial">✎ Editar</a>
         <button type="button" class="secondary" id="save-profile" style="font-size:12px;padding:2px 8px"
@@ -243,6 +264,68 @@
       </div>
 
       <input type="hidden" name="mode" id="mode" value="{{ form.mode }}">
+      {% if is_cds %}
+      {% call section('sec-contract', 'Ventana: DTE y % OTM', 'DTE ' ~ form.dte_min ~ '–' ~ form.dte_max ~ ' · comprada ' ~ form.otm_min ~ '–' ~ form.otm_max ~ ' % OTM', true) %}
+        <div class="fgrid">
+          <label class="field">DTE mín. {{ num("dte_min", 5, form.dte_min) }}</label>
+          <label class="field">DTE máx. {{ num("dte_max", 5, form.dte_max) }}</label>
+          <label class="field" title="Distancia de la call comprada sobre el precio actual">% OTM mín. {{ num("otm_min", 5, form.otm_min) }}</label>
+          <label class="field">% OTM máx. {{ num("otm_max", 5, form.otm_max) }}</label>
+        </div>
+        <p class="note">Solo calls guardadas: DTE {{ cds_cfg.dte_min }}–{{ cds_cfg.dte_max }}, comprada {{ cds_cfg.long_otm_pct_min|num(0) }}–{{ cds_cfg.long_otm_pct_max|num(0) }} % sobre el precio. La ventana solo se puede estrechar (lo que cae fuera no se guarda ni se cotiza).</p>
+      {% endcall %}
+
+      {% call section('sec-widths', 'Ancho del spread', ('Mejor ancho · ' if form.best else '') ~ 'anchos ' ~ form.widths, true) %}
+        <label class="field" title="Anchos en dólares separados por comas; solo los que guarda el catálogo">Anchos ($)
+          <input name="widths" value="{{ form.widths }}"></label>
+        <p class="note">El catálogo guarda: {% for w in widths_all %}{{ w|num(0) }}{{ ', ' if not loop.last }}{% endfor %}.</p>
+        <label class="check" title="Deja una fila por ticker, vencimiento y call comprada: el ancho con menor movimiento necesario"><input type="checkbox" name="best" {{ 'checked' if form.best }}> Solo el mejor ancho por comprada</label>
+        <div class="fgrid">
+          <label class="field full" title="Ancho / strike de la comprada, en %: descarta anchos ridículos en acciones caras y enormes en las baratas">Ancho / strike (%)
+            <span class="pair" style="display:flex;gap:4px"><input name="wpct_min" value="{{ form.wpct_min }}" placeholder="mín." inputmode="decimal" style="width:50%"><input name="wpct_max" value="{{ form.wpct_max }}" placeholder="máx." inputmode="decimal" style="width:50%"></span></label>
+        </div>
+      {% endcall %}
+
+      {% call section('sec-debit', 'Débito y patas', 'Débito ' ~ form.dmin ~ '–' ~ form.dmax ~ ' $ · OI ≥ ' ~ form.oi ~ ' · spread ≤ ' ~ form.ls ~ ' %', true) %}
+        <div class="fgrid">
+          <label class="field" title="Débito por contrato en dólares (la pérdida máxima)">Débito mín. ($) <input name="dmin" value="{{ form.dmin }}" inputmode="decimal"></label>
+          <label class="field">Débito máx. ($) <input name="dmax" value="{{ form.dmax }}" inputmode="decimal"></label>
+          <label class="field" title="Open interest mínimo de cada pata">OI mín. de cada pata <input name="oi" value="{{ form.oi }}" inputmode="decimal"></label>
+          <label class="field" title="Spread bid/ask máximo de cada pata, en % del mid">Spread máx. de cada pata (%) <input name="ls" value="{{ form.ls }}" inputmode="decimal"></label>
+        </div>
+        <p class="note">Débito = ask de la comprada − precio de venta de la vendida + comisiones de las dos patas. Una pata sin bid/ask válido no cuenta.</p>
+      {% endcall %}
+
+      {% call section('sec-move', 'Rentabilidad mínima esperada', 'necesario ≤ ' ~ form.mult ~ '× esperado' ~ ((' · retorno ≥ ' ~ form.ret ~ ' %') if form.use_ret else ''), true) %}
+        <div class="fgrid">
+          <label class="field" title="Ganancia que se quiere alcanzar, en % del débito">Objetivo (% del débito) {{ num("gain", 5, form.gain) }}</label>
+          <label class="field" title="Plazo del movimiento esperado (IV30 × √(días/365))">En (días) {{ num("days", 5, form.days) }}</label>
+          <label class="field full" title="Movimiento necesario / movimiento esperado: obligatorio">Necesario ≤ (× esperado) <input name="mult" value="{{ form.mult }}" inputmode="decimal"></label>
+        </div>
+        <label class="opt opt-row" title="(ancho − débito) / débito"><span class="check"><input type="checkbox" name="use_ret" {{ 'checked' if form.use_ret }}> Retorno máx. ≥ (%)</span>
+          <input name="ret" value="{{ form.ret }}" inputmode="decimal"></label>
+        <p class="note"><b>Obligatorio</b>: el subyacente debe poder subir lo necesario para ganar el objetivo del débito en esos días. Necesario = objetivo × débito / delta neta; esperado = IV30 × √(días/365). Sin delta o sin IV se descarta. Valores sin calibrar (muestras pequeñas, <code>docs/mto-spreads.md</code>).</p>
+      {% endcall %}
+
+      {% call section('sec-sma', 'Tendencia: SMA200', ('Precio ≥ ' ~ form.sma ~ ' % bajo la SMA200') if form.use_sma else 'Sin filtro', form.use_sma) %}
+        <label class="opt opt-row" title="Retroceso, no ruptura: el precio debe estar al menos N % por debajo de su media de 200 sesiones"><span class="check"><input type="checkbox" name="use_sma" {{ 'checked' if form.use_sma }}> Precio ≥ N % bajo la SMA200</span>
+          <input name="sma" value="{{ form.sma }}" inputmode="decimal"></label>
+        <p class="note">Apagado por defecto; la columna «vs SMA200 %» se muestra siempre que haya 200 cierres.</p>
+      {% endcall %}
+
+      {% call section('sec-price', 'Precio de venta de la vendida', ref_names.get(form.ref, form.ref)) %}
+        <div class="fgrid">
+          <label class="field">Referencia
+            <select name="ref" id="ref">
+              <option value="bid" {{ 'selected' if form.ref == 'bid' }}>Bid</option>
+              <option value="mid" {{ 'selected' if form.ref == 'mid' }}>Mid (media bid/ask)</option>
+              <option value="bid_plus_spread" {{ 'selected' if form.ref == 'bid_plus_spread' }}>Bid + X % del spread</option>
+            </select></label>
+          <label class="field" id="ref_x_label" {{ 'hidden' if form.ref != 'bid_plus_spread' }}>X (% del spread) {{ num("ref_x", 5, form.ref_x, 100) }}</label>
+        </div>
+        <p class="note">La comprada se paga al ask. Las comisiones son las del Scanner. <b>Calidad de la empresa</b> (resultados, solvencia, liquidez…): rigen los filtros activos del perfil inicial del Scanner, no los de este formulario.</p>
+      {% endcall %}
+      {% else %}
       {% if form.set == 'spread' %}
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
         <label class="check" title="Se prueban todos los anchos y gana el de mayor retorno anualizado sobre riesgo"><input type="checkbox" name="best_width" {{ 'checked' if form.best_width }}> Solo el mejor ancho por put</label>
@@ -475,6 +558,7 @@
         <label class="check"><input type="checkbox" name="q_earn" id="q_earn" {{ 'checked' if form.q_earn }}> Evitar vencimientos con resultados</label>
         <p class="note">Descarta contratos que vencen en o después de los próximos resultados. Sin fecha, no descarta.</p>
       {% endcall %}
+      {% endif %}
 
     </form>
     </div>
@@ -483,6 +567,12 @@
   <section class="results" id="results-col" data-keep-scroll data-soft="results">
     <div id="marks-data" hidden data-marks='{{ marks | tojson }}'></div>
     <div class="summary">
+      {% if is_cds %}
+      {% if cds_ok and cds_cfg.enabled %}<div class="headline"><span class="big">{{ cds_total }}</span><span>spreads cumplen los criterios{% if cds_total > cds_rows|length %} <span class="muted">(se muestran los {{ cds_rows|length }} con menor movimiento necesario)</span>{% endif %}</span></div>{% endif %}
+      <div class="chips base"><span class="chips-lbl">Base ({{ base|length }})</span>
+        {% for sec, text, keys in base %}<button type="button" class="chip{{ sev(keys) }}" data-open="{{ sec }}" title="Ver este filtro">{{ text }}</button>{% endfor %}
+        {% if report %}<span class="muted" style="font-size:12px">última cotización: {{ report.refreshed }}/{{ report.in_scope }} contratos del rango ({{ report.stored }} guardados)</span>{% endif %}</div>
+      {% endif %}
       {% if out %}
       <div class="headline"><span class="big">{{ out.spreads|length if criteria and criteria.spread_mode else out.results|length }}</span>
         <span>{{ 'spreads' if criteria and criteria.spread_mode else 'contratos' }} cumplen los criterios <span class="muted">({{ out.rejected_count }} descartados)</span></span></div>
@@ -503,14 +593,24 @@
         {% for sec, text, keys in offs %}<button type="button" class="chip strat-off-chip{{ sev(keys) }}" data-open="{{ sec }}" title="Filtro desactivado: ver este filtro">{{ text }}</button>{% else %}<span class="muted">ninguno</span>{% endfor %}</div>
       {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
       {% for w in warnings %}<div class="banner info closable" data-warning><span>{{ w }}</span><button type="button" class="close" title="Quitar el aviso" aria-label="Quitar el aviso">×</button></div>{% endfor %}
-      {% if criteria %}
+      {% if is_cds and not cds_cfg.enabled %}<div class="banner info">El perfil CDS está apagado. Pon <code>scanner.cds.enabled: true</code> en <code>config.yaml</code> y haz una actualización diaria para que se guarden y coticen las calls (DTE largo: el ciclo de refresco será más lento).</div>{% endif %}
+      {% if criteria or (is_cds and cds_ok and cds_cfg.enabled) %}
       <details class="viz-box" id="viz-box" data-url="/scanner/impact">
         <summary>¿Cuánto descarta cada filtro? <span class="muted">(ver lo restrictiva que es la selección)</span></summary>
         <div id="impact-body" class="muted">Calculando…</div>
       </details>
       {% endif %}
     </div>
-    {% if out and criteria and criteria.spread_mode %}
+    {% if is_cds %}
+    {% if cds_ok and cds_cfg.enabled %}
+    {% set rmax = cds_rows|map(attribute='res.max_return_pct')|max if cds_rows else 0 %}
+    <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results">
+      <tr>{{ cols.cds_head() }}</tr>
+      {% for x in cds_rows %}<tr>{{ cols.cds_cells(x, rmax, nlv_usd) }}</tr>
+      {% else %}<tr><td colspan="60" class="muted empty">Ningún spread cumple los criterios (¿ya hay calls guardadas y cotizadas?).</td></tr>{% endfor %}
+    </table></div>
+    {% endif %}
+    {% elif out and criteria and criteria.spread_mode %}
     {% set rmax = out.spreads|map(attribute='return_on_risk_annualized_pct')|max if out.spreads else 0 %}
     <form method="post" action="/simulate" class="table-form">
       <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
@@ -595,10 +695,12 @@
       const a = e.target.closest('a.chart-link');
       if (!a) return;
       e.preventDefault();
-      title.textContent = a.dataset.ticker + ' · strike $' + Number(a.dataset.strike).toLocaleString('en-US') + (a.dataset.long ? ' / $' + Number(a.dataset.long).toLocaleString('en-US') : '');
+      const cds = a.dataset.kind === 'cds', usd = function (v) { return '$' + Number(v).toLocaleString('en-US'); };
+      title.textContent = cds ? a.dataset.ticker + ' · call comprada ' + usd(a.dataset.long) + ' / vendida ' + usd(a.dataset.strike)
+        : a.dataset.ticker + ' · strike ' + usd(a.dataset.strike) + (a.dataset.long ? ' / ' + usd(a.dataset.long) : '');
       body.innerHTML = '<p class="muted">Cargando…</p>';
       if (!dlg.open) dlg.showModal();
-      fetch('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike) + (a.dataset.long ? '&long=' + encodeURIComponent(a.dataset.long) : '') + (a.dataset.expiry ? '&expiry=' + encodeURIComponent(a.dataset.expiry) : '') + (a.dataset.prem ? '&prem=' + encodeURIComponent(a.dataset.prem) : ''))
+      fetch('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike) + (a.dataset.long ? '&long=' + encodeURIComponent(a.dataset.long) : '') + (a.dataset.expiry ? '&expiry=' + encodeURIComponent(a.dataset.expiry) : '') + (a.dataset.prem ? '&prem=' + encodeURIComponent(a.dataset.prem) : '') + (cds ? '&kind=cds' : ''))
         .then(function (r) { return r.text(); })
         .then(function (html) { body.innerHTML = html; applyMa(); })
         .catch(function () { body.innerHTML = '<p class="muted">No se pudo cargar el gráfico.</p>'; });
@@ -692,6 +794,9 @@
       earnings: { uncheck: ['q_earn'] }, liquidity: { set: { q_liq: '' } },
       trend: { set: { trend_dir: 'off' } }, support: { uncheck: ['support'] }, touch: { set: { touch: '' } },
       averages: { sectionSelects: 'sec-ma' },
+      // Call Debit Spread: cada filtro vuelve a un valor que no descarta nada
+      cds_debit: { set: { dmin: '0', dmax: '1000000' } }, cds_oi: { set: { oi: '0' } }, cds_spread: { set: { ls: '1000' } },
+      cds_wpct: { set: { wpct_min: '', wpct_max: '' } }, cds_move: { set: { mult: '1000' } }, cds_return: { uncheck: ['use_ret'] }, cds_sma: { uncheck: ['use_sma'] },
     };
     document.addEventListener('click', function (e) {
       const btn = e.target.closest('button.rm-filter');
@@ -767,7 +872,7 @@
   });
   ['ref_x', 'price_min', 'price_max'].forEach(function (n) {
     const el = form.querySelector('[name=' + n + ']');
-    el.addEventListener('change', function () { form.submit(); });   // editar X o el precio escanea
+    if (el) el.addEventListener('change', function () { form.submit(); });   // editar X o el precio escanea
   });
   // Panel «¿Cuánto descarta cada filtro?»: se calcula al abrirlo (cerrado por defecto, salvo que se haya abierto)
   let impactHtml = null;
@@ -832,6 +937,7 @@
   });
   // Con la tendencia en Off se atenúan sus opciones
   const techSync = function () {
+    if (!document.getElementById('trend_dir')) return;      // el perfil CDS no tiene el bloque de tendencia
     const off = document.getElementById('trend_dir').value === 'off', low = document.getElementById('trend_method').value === 'low';
     ['trend_method', 'trend_window'].forEach(function (id) { document.getElementById(id).parentElement.style.opacity = off ? .45 : 1; });
     document.getElementById('trend_days_label').style.opacity = (off || !low) ? .45 : 1;
@@ -881,6 +987,7 @@
   // Casillas con valor (OI, bid size…): la caja se atenúa mientras el filtro está desmarcado
   document.querySelectorAll('label.opt').forEach(function (l) {
     const cb = l.querySelector('input[type=checkbox]'), tx = l.querySelector('input:not([type=checkbox])');
+    if (!cb || !tx) return;      // p. ej. «Filtrar por fuentes»: casilla sin caja de valor (antes lanzaba un error y cortaba el resto del script)
     const sync = function () { tx.style.opacity = cb.checked ? 1 : .45; };
     cb.addEventListener('change', sync); sync();
   });

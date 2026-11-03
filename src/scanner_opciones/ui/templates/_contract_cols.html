@@ -10,8 +10,8 @@
 <th data-col="spread" title="Spread bid/ask{{ v }}, en % del mid">Spread{{ v }}</th><th data-col="bidsize" title="Tamaño del bid{{ v }} (contratos)">Bid size{{ v }}</th><th data-col="oi" title="Open interest{{ v }}">OI{{ v }}</th><th data-col="liq" title="Liquidez de las opciones del subyacente según tastytrade (1 = baja, 5 = alta)">Liq. opc.</th>{{ extra_head() }}
 {%- endmacro %}
 
-{% macro extra_head(pas=true) -%}
-<th title="Señales técnicas que se cumplen hoy de las medibles (informativo, no filtra): precio sobre MA200, MA50 &gt; MA200, RSI rebotando, Bollinger %B bajo, precio cerca de la MA50 o del soporte y strike en el soporte. Pasa el ratón por la celda para ver el detalle">Téc.</th>
+{% macro extra_head(pas=true, tech=true) -%}
+{% if tech %}<th title="Señales técnicas que se cumplen hoy de las medibles (informativo, no filtra): precio sobre MA200, MA50 &gt; MA200, RSI rebotando, Bollinger %B bajo, precio cerca de la MA50 o del soporte y strike en el soporte. Pasa el ratón por la celda para ver el detalle">Téc.</th>{% endif %}
 <th data-col="earn" title="Próximos resultados (día/mes); en rojo si caen antes del vencimiento">Result.</th><th title="Beneficio por acción de los últimos 12 meses">EPS 12 m</th><th title="Trimestres con beneficios de los últimos 4">Trim. +</th>{% if pas %}<th title="Pasivo / patrimonio">Pas/Pat</th>{% endif %}
 {%- endmacro %}
 
@@ -45,8 +45,8 @@
 {{ extra_cells(r) }}
 {%- endmacro %}
 
-{% macro extra_cells(r, pas=true) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
-{%- set tc = techs.get((c.ticker, c.strike)) if techs else none %}<td{% if tc and tc.total %} data-sort="{{ tc.passed / tc.total }}" title="{{ tc.detail }}"{% endif %}>{{ tc.passed ~ '/' ~ tc.total if tc and tc.total else '—' }}</td>
+{% macro extra_cells(r, pas=true, tech=true) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
+{%- set tc = techs.get((c.ticker, c.strike)) if techs else none %}{% if tech %}<td{% if tc and tc.total %} data-sort="{{ tc.passed / tc.total }}" title="{{ tc.detail }}"{% endif %}>{{ tc.passed ~ '/' ~ tc.total if tc and tc.total else '—' }}</td>{% endif %}
 <td{% if i and i.next_earnings and i.next_earnings >= s.updated_at.date() and i.next_earnings <= c.expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% elif i and i.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(i.eps_surprise_pct) }} %"{% endif %}{% if i and i.next_earnings %} data-sort="{{ i.next_earnings }}"{% endif %}>{{ i.next_earnings.strftime('%d/%m') if i and i.next_earnings else '—' }}</td>
 <td>{{ i.eps_ttm|num if i and i.eps_ttm is not none else '—' }}</td>
 <td>{{ i.positive_quarters ~ '/' ~ i.reported_quarters if i and i.positive_quarters is not none else '—' }}</td>
@@ -98,4 +98,38 @@
 {% macro mkt_cells(r, l=none) -%}{% set s = r.snapshot %}{% set i = r.info -%}
 <td>{{ s.delta|num }}</td><td>{{ l.delta|num if l else '—' }}</td><td>{{ (s.iv * 100)|pct if s.iv is not none else '—' }}</td><td class="cb"{% if s.iv_rank is not none %} style="--p:{{ s.iv_rank|round(0)|int }}%"{% endif %}>{{ s.iv_rank|pct(0) }}</td><td class="cb"{% if s.iv_percentile is not none %} style="--p:{{ s.iv_percentile|round(0)|int }}%"{% endif %}>{{ s.iv_percentile|pct(0) }}</td>
 <td>{{ s.spread_pct|pct }}</td><td>{{ l.spread_pct|pct if l else '—' }}</td><td>{{ s.open_interest if s.open_interest is not none else '—' }}</td><td>{{ l.open_interest if l and l.open_interest is not none else '—' }}</td>
+{%- endmacro %}
+
+{# ---- Call Debit Spread (perfil MTO CDS): las mismas columnas de contexto que las puts y, además, lo propio del CDS.
+   `x` es una fila de `ui/routes_cds.py::CdsRow` (spread + ficha del subyacente). Sin «Téc.» (son señales de la put vendida). ---- #}
+{% macro cds_head() -%}
+{{ lead_head() }}<th title="Strike de la call comprada / strike de la call vendida (más arriba)">Comp./Vend.</th><th title="Vencimiento (día/mes)">Venc.</th><th data-nosort title="Miniatura de los cierres mensuales con los dos strikes">Historial</th><th data-col="dte" title="Días que faltan hasta el vencimiento">DTE</th>
+<th data-col="otm" title="Distancia de la call comprada sobre el precio actual, en %">OTM %</th><th title="Strike vendido − strike comprado">Ancho</th>
+<th data-col="debit" title="Débito por contrato: ask de la comprada − precio de venta de referencia de la vendida (+ comisiones), × multiplicador. Es la pérdida máxima">Débito ($)</th><th data-col="lossnlv" title="Pérdida máxima (el débito) como % del NLV">Pérd. %NLV</th>
+<th data-col="ret" title="Retorno máximo: (ancho − débito) / débito">Retorno máx. %</th><th title="Breakeven: strike comprado + débito">BrEv</th><th title="Distancia del breakeven sobre el precio actual, en %">Dist. BE</th>
+<th title="Delta neta: delta de la comprada − delta de la vendida">Δ neta</th><th title="Subida del subyacente necesaria para ganar el objetivo del débito (objetivo × débito / delta neta)">Necesario %</th><th title="Movimiento esperado en los días indicados: IV30 × √(días/365)">Esperado %</th>
+<th class="hl" data-sort-default="asc" title="Movimiento necesario / esperado: menos = más fácil de alcanzar. Es el orden por defecto">× esperado</th>
+<th data-col="sma" title="Distancia del precio a su media de 200 sesiones (negativo = por debajo; en verde si está al menos un 10 % por debajo)">vs SMA200 %</th>
+<th data-col="ldelta" title="Delta de la call comprada">Δ comp.</th><th data-col="delta" title="Delta de la call vendida">Δ vend.</th><th title="Volatilidad implícita de la call comprada">IV</th><th data-col="ivr" title="IV Rank del subyacente: posición de su IV actual dentro del rango de 52 semanas">IV Rank</th><th data-col="ivp" title="IV Percentile del subyacente: % de días del último año con IV menor que la actual">IV Pctl</th>
+<th data-col="lspread" title="Spread bid/ask de la call comprada, en % del mid">Spread comp.</th><th data-col="spread" title="Spread bid/ask de la call vendida, en % del mid">Spread vend.</th><th data-col="loi" title="Open interest de la call comprada">OI comp.</th><th data-col="oi" title="Open interest de la call vendida">OI vend.</th>
+<th data-col="liq" title="Liquidez de las opciones del subyacente según tastytrade (1 = baja, 5 = alta)">Liq. opc.</th>
+{{ extra_head(false, false) }}
+{%- endmacro %}
+
+{% macro cds_cells(x, rmax=0, nlv=none) -%}{% set r = x.res %}{% set lg = r.long %}{% set sh = r.short %}{% set c = lg.contract %}{% set i = x.info %}{% set s = lg -%}
+<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-kind="cds" data-ticker="{{ c.ticker }}" data-strike="{{ sh.contract.strike }}" data-long="{{ c.strike }}" data-expiry="{{ c.expiry }}" data-prem="{{ r.debit }}" title="{{ tk_title(company_names, c.ticker) }}">{{ c.ticker }}</a>
+{%- set h = held_note(held, c.ticker, c.expiry, c.strike) -%}{%- if h %} <span class="own own-tk" title="{{ h[1] }}">◆ {{ h[0] }}</span>{% endif %}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ x.sector }}</td><td>{{ i.underlying_price|num if i and i.underlying_price is not none else '—' }}</td>
+<td data-sort="{{ c.strike }}"><span class="k-long">{{ c.strike|num }}</span> <span class="muted">/</span> <span class="k-sold">{{ sh.contract.strike|num }}</span></td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>
+<td class="mini"><a href="#" class="chart-link" data-kind="cds" data-ticker="{{ c.ticker }}" data-strike="{{ sh.contract.strike }}" data-long="{{ c.strike }}" data-expiry="{{ c.expiry }}" data-prem="{{ r.debit }}" title="Ver el gráfico grande"><img loading="lazy" width="80" height="24" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ sh.contract.strike }}&amp;long={{ c.strike }}&amp;kind=cds"></a></td>
+<td title="Vence el {{ c.expiry }}">{{ x.dte }}</td><td>{{ r.long_otm_pct|pct }}</td><td>{{ r.width|num }}</td>
+<td>{{ (r.debit * c.multiplier)|num(0) }}{{ ccy(c.ticker) }}</td><td>{{ (r.max_loss * fx(nlv, c.ticker) / nlv * 100)|pct if nlv else '—' }}</td>
+<td class="cb"{% if rmax %} style="--p:{{ (100 * r.max_return_pct / rmax)|round(0)|int }}%"{% endif %}>{{ r.max_return_pct|num(0) }}</td><td>{{ r.breakeven|num }}</td><td>{{ r.breakeven_distance_pct|pct if r.breakeven_distance_pct is not none else '—' }}</td>
+<td>{{ r.net_delta|num(2) }}</td><td>{{ r.required_move_pct|pct }}</td><td>{{ r.expected_move_pct|pct }}</td>
+<td class="hl">{{ r.required_move_mult|num(2) }}</td>
+<td data-sort="{{ r.sma200_distance_pct if r.sma200_distance_pct is not none else '' }}"{% if r.sma200_distance_pct is not none and r.sma200_distance_pct <= -10 %} class="sma-below"{% endif %}>{{ r.sma200_distance_pct|pct if r.sma200_distance_pct is not none else '—' }}</td>
+<td>{{ lg.delta|num }}</td><td>{{ sh.delta|num }}</td><td>{{ (lg.iv * 100)|pct if lg.iv is not none else '—' }}</td>
+<td class="cb"{% if lg.iv_rank is not none %} style="--p:{{ lg.iv_rank|round(0)|int }}%"{% endif %}>{{ lg.iv_rank|pct(0) }}</td><td class="cb"{% if lg.iv_percentile is not none %} style="--p:{{ lg.iv_percentile|round(0)|int }}%"{% endif %}>{{ lg.iv_percentile|pct(0) }}</td>
+<td>{{ lg.spread_pct|pct }}</td><td>{{ sh.spread_pct|pct }}</td><td>{{ lg.open_interest if lg.open_interest is not none else '—' }}</td><td>{{ sh.open_interest if sh.open_interest is not none else '—' }}</td>
+<td>{{ i.option_liquidity if i and i.option_liquidity is not none else '—' }}</td>
+{{ extra_cells(x, pas=false, tech=false) }}
 {%- endmacro %}

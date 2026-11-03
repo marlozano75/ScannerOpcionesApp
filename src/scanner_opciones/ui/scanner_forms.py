@@ -341,8 +341,8 @@ def profile_link(p: Profile) -> str:
 
 
 def profile_href(p: Profile) -> str:
-    """Dirección que abre el perfil: el Scanner (put y spread) o la página del CDS (`/cds`, con sus propios filtros)."""
-    return ("/cds?" if p.mode == "cds" else "/scanner?") + profile_link(p)
+    """Dirección que abre el perfil en el Scanner (put, spread o Call Debit Spread: `mode` lo distingue)."""
+    return "/scanner?" + profile_link(p)
 
 
 # parámetros de la URL que no pertenecen a ningún juego de filtros

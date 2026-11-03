@@ -356,7 +356,6 @@ def create_app(
     # ---- ideas de la comunidad ---------------------------------------------------------------
     routes_comunidad.register(app, service, render, remembered)
     routes_marketradar.register(app, service, render)
-    routes_cds.register(app, service, render)
     routes_historico.register(app, service, render, remembered)
     routes_universe.register(app, service, render, recall, remembered)
 
@@ -381,6 +380,7 @@ def create_app(
         return service.stored_profiles() or seed_profiles(service.settings)
 
     service.profile_provider = get_profiles
+    routes_cds.register(app, service, get_profiles)
 
     def get_profile_criteria() -> list[tuple]:
         """Filtros grabados AHORA en cada perfil, para comparar las ideas de la comunidad y el radar de
@@ -407,7 +407,7 @@ def create_app(
         sets, errors = [], []
         for p in chosen:
             for inst in p.instruments:
-                if inst == "cds":      # el Call Debit Spread tiene su propia página (`/cds`)
+                if inst == "cds":      # el Call Debit Spread no se mezcla con puts (otras columnas): se escanea solo en su perfil
                     continue
                 parsed = parse_scan({"submitted": "1", "mode": inst, "profile": p.name, **p.set_params(inst)}, inst)
                 if parsed["criteria"] is None:
@@ -441,7 +441,7 @@ def create_app(
                 profiles = [*profiles, saved]
             service.save_profiles(profiles, default)
         except ValueError:
-            return RedirectResponse(("/cds?" if shown == "cds" else "/scanner?") + urlencode({**qp, "submitted": "1"}), status_code=303)
+            return RedirectResponse("/scanner?" + urlencode({**qp, "submitted": "1"}), status_code=303)
         remembered.pop("scanner", None)
         return RedirectResponse(profile_href(saved), status_code=303)
 
@@ -677,18 +677,41 @@ def create_app(
     @app.get("/scanner/impact", response_class=HTMLResponse)
     async def scanner_impact(request: Request):
         """Panel «¿Cuánto descarta cada filtro?» (fragmento HTML, se carga al abrir el panel del scanner)."""
+        if request.query_params.get("mode") == "cds":
+            report, error = routes_cds.impact(service, get_profiles()[0], request.query_params)
+            return render(request, "_impact.html", error=error, report=report, unit="spreads")
         _, parsed = parse_one(request.query_params)
         if parsed["criteria"] is None:
-            return render(request, "_impact.html", error=parsed["error"] or "Parámetros no válidos", report=None)
-        return render(request, "_impact.html", error=None, report=service.scan_impact(parsed["criteria"]))
+            return render(request, "_impact.html", error=parsed["error"] or "Parámetros no válidos", report=None, unit="contratos")
+        return render(request, "_impact.html", error=None, report=service.scan_impact(parsed["criteria"]), unit="contratos")
+
+    def profile_buttons_for(profiles: list[Profile], active_name: str) -> list[dict]:
+        """Botones de la barra de perfiles del Scanner (los tres instrumentos)."""
+        return [dict(name=p.name, qs=profile_link(p), href=profile_href(p), mode=p.mode, on=p.name == active_name, instruments=p.instruments, color=p.color,
+                     strategy=p.params().get("use_delta") == "on") for p in profiles]
+
+    def default_profile_qs(profiles: list[Profile], default_profile: str) -> str:
+        scan_profiles = [p for p in profiles if p.mode != "cds"] or profiles
+        return profile_link(next((p for p in scan_profiles if p.name == default_profile), scan_profiles[0]))
+
+    def sev_of(diff: dict, keys: str) -> str:
+        """Clase CSS de un chip según lo tocado respecto al perfil guardado (`diff`): naranja = cambio pequeño, rojo = grande."""
+        worst = {diff[k] for k in keys.split() if k in diff}
+        return " chg-bad" if "bad" in worst else " chg-warn" if worst else ""
 
     @app.get("/scanner", response_class=HTMLResponse)
     async def scanner(request: Request, debug: int = 0):
         if (back := recall(request, "scanner")) is not None:
             return back
         profiles, default_profile = get_profiles()
-        if request.query_params.get("mode") == "cds":      # el CDS tiene su propia página, con sus filtros
-            return RedirectResponse("/cds?" + str(request.url.query), status_code=303)
+        if request.query_params.get("mode") == "cds":      # Call Debit Spread (perfil MTO CDS): sus propios filtros y columnas en la misma pantalla
+            cds_ctx = routes_cds.page(service, profiles, request.query_params)
+            active_cds, cds_diff = cds_ctx["active"], cds_ctx.pop("diff")
+            return render(request, "scanner.html", no_autorefresh=True, watch_data=True, owned=service.owned_options(), held=service.held_tickers(),
+                          profile_buttons=profile_buttons_for(profiles, active_cds.name if active_cds else ""), active_profile=active_cds,
+                          sev=lambda keys: sev_of(cds_diff, keys), marks={}, nlv_usd=service.nlv_usd(), techs={},
+                          default_qs=default_profile_qs(profiles, default_profile), source_names=[], report=service.state.last_refresh_report,
+                          criteria=None, out=None, **cds_ctx)
         if "submitted" not in request.query_params and "reset" not in request.query_params:    # sin consulta: se carga el perfil inicial
             first = next((p for p in profiles if p.name == default_profile), profiles[0])
             return RedirectResponse(profile_href(first), status_code=303)
@@ -731,16 +754,13 @@ def create_app(
                                 min_yield=_fmt(p.min_yield_pct), qs=qs, on=on))
         active_profile = next((p for p in profiles if p.name == request.query_params.get("profile", "") and p.mode == mode), None)   # el de otro instrumento no cuenta
         active_name = active_profile.name if active_profile else ""
-        scan_profiles = [p for p in profiles if p.mode != "cds"] or profiles
-        default_qs = profile_link(next((p for p in scan_profiles if p.name == default_profile), scan_profiles[0]))
-        profile_buttons = [dict(name=p.name, qs=profile_link(p), href=profile_href(p), mode=p.mode, on=p.name == active_name, instruments=p.instruments, color=p.color,
-                                strategy=p.params().get("use_delta") == "on") for p in profiles]
+        default_qs = default_profile_qs(profiles, default_profile)
+        profile_buttons = profile_buttons_for(profiles, active_name)
         # filtros que difieren del perfil guardado (juego visible): se marcan en naranja (cambio pequeño) o rojo
         diff = profile_diff(active_profile.set_params(mode), split_sets(request.query_params)[1]) if active_profile else {}
 
         def sev(keys: str) -> str:
-            worst = {diff[k] for k in keys.split() if k in diff}
-            return " chg-bad" if "bad" in worst else " chg-warn" if worst else ""
+            return sev_of(diff, keys)
         # celdas de los resultados que se salen de los límites guardados en el perfil (se marcan en el navegador: ver `scanner.html`)
         marks: dict = {}
         if active_profile and out is not None:
@@ -792,7 +812,7 @@ def create_app(
 
     @app.get("/chart/strike", response_class=HTMLResponse)
     async def strike_chart(ticker: str, strike: float, long: Optional[float] = None, expiry: Optional[date] = None,
-                           prem: Optional[float] = None):
+                           prem: Optional[float] = None, kind: str = ""):
         """Gráfico de cierres mensuales del ticker frente al strike, con los días desde el último toque
         (fragmento HTML que el Scanner muestra en una ventana)."""
         closes = service.bars.closes(ticker)
@@ -810,7 +830,7 @@ def create_app(
         buttons = "".join(f'<button type="button" class="shw-btn{" on" if i == default else ""}" data-m="{m}">{label}</button>' for i, (m, label) in enumerate(wins))
         views = "".join(
             f'<div class="shw-view" data-m="{m}" data-log="{int(lg)}"{"" if (i == default and not lg) else " hidden"}>'
-            + strike_chart_html(strike_history(bars, strike, today, m), ticker, strike, tcfg.chart_near_pct, earnings, long, expiry, prem, today, lg)
+            + strike_chart_html(strike_history(bars, strike, today, m), ticker, strike, tcfg.chart_near_pct, earnings, long, expiry, prem, today, lg, call=kind == "cds")
             + "</div>" for i, (m, _) in enumerate(wins) for lg in (False, True))
         alerts = service.filing_alert_map().get(norm_ticker(ticker), [])
         box = ('<div class="banner warn"><b>⚠ Presentaciones recientes ante la SEC</b><ul style="margin:4px 0 0 18px;padding:0">'
@@ -820,12 +840,12 @@ def create_app(
         return HTMLResponse(service.company_card(ticker) + box + f'<div class="shw">{bar}{views}</div>')
 
     @app.get("/chart/mini.svg")
-    async def strike_mini(ticker: str, strike: float, long: Optional[float] = None):
+    async def strike_mini(ticker: str, strike: float, long: Optional[float] = None, kind: str = ""):
         """Miniatura del gráfico del strike para las filas del Scanner (se pide al hacerse visible la fila)."""
         tcfg = service.settings.scanner.technical
         closes = service.bars.closes(ticker)
         history = strike_history(sorted(closes.items()), strike, service.now().date(), tcfg.chart_months)
-        return Response(strike_mini_svg(history, strike, tcfg.chart_near_pct, long), media_type="image/svg+xml",
+        return Response(strike_mini_svg(history, strike, tcfg.chart_near_pct, long, call=kind == "cds"), media_type="image/svg+xml",
                         headers={"Cache-Control": "max-age=300"})
 
     @app.get("/data-version")
