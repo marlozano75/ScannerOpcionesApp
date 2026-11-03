@@ -321,7 +321,7 @@
       {% call section('sec-move', 'Rentabilidad mínima esperada', 'necesario ≤ ' ~ form.mult ~ '× esperado' ~ ((' · retorno ≥ ' ~ form.ret ~ ' %') if form.use_ret else ''), true) %}
         <div class="fgrid">
           <label class="field" title="Ganancia que se quiere alcanzar, en % del débito">Objetivo (% del débito) {{ num("gain", 5, form.gain) }}</label>
-          <label class="field" title="Plazo del movimiento esperado (IV30 × √(días/365))">En (días) {{ num("days", 5, form.days) }}</label>
+          <label class="field" title="Plazo del movimiento esperado: IV a ese plazo × √(días/365)">En (días) {{ num("days", 5, form.days) }}</label>
           <label class="field full" title="Movimiento necesario / movimiento esperado: obligatorio">Necesario ≤ (× esperado) <input name="mult" value="{{ form.mult }}" inputmode="decimal"></label>
         </div>
         <label class="opt opt-row" title="(ancho − débito) / débito"><span class="check"><input type="checkbox" name="use_ret" {{ 'checked' if form.use_ret }}> Retorno máx. ≥ (%)</span>
@@ -332,7 +332,7 @@
           <input name="xp" value="{{ form.xp }}" inputmode="decimal"></label>
         <label class="field full" title="Se quedan los de mayor puntuación (prob. × retorno neto en la salida); 0 = todos">Máx. spreads por ticker (0 = todos) <input name="top" value="{{ form.top }}" inputmode="numeric"></label>
         <p class="note">La tabla se ordena por <b>Puntuación</b> = probabilidad de alcanzar el objetivo × retorno neto en la salida (objetivo menos comisión de cierre, sobre el débito): premia lo que más rinde por $ de débito y a la vez es más probable. «Cobro salida» es lo que recibirías al cerrar en el objetivo. La probabilidad es la de tocar el nivel (principio de reflexión, sin deriva).</p>
-        <p class="note"><b>Obligatorio</b>: el subyacente debe poder subir lo necesario para ganar el objetivo del débito en esos días. Necesario = objetivo × débito / delta neta; esperado = IV30 × √(días/365). Sin delta o sin IV se descarta. Valores sin calibrar (muestras pequeñas, <code>docs/mto-spreads.md</code>).</p>
+        <p class="note"><b>Obligatorio</b>: el subyacente debe poder subir lo necesario para ganar el objetivo del débito en esos días. Necesario = objetivo × débito / delta neta; esperado = IV a esos días × √(días/365), interpolada entre los vencimientos de tastytrade (IV30 si no hay). Sin delta o sin IV se descarta. Valores sin calibrar (muestras pequeñas, <code>docs/mto-spreads.md</code>).</p>
       {% endcall %}
 
       {% call section('sec-sma', 'Tendencia: SMA200', ('Precio ≥ ' ~ form.sma ~ ' % bajo la SMA200') if form.use_sma else 'Sin filtro', form.use_sma) %}
