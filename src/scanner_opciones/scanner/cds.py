@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Callable, Mapping, Optional, Sequence
 
 from scanner_opciones.config.settings import CdsSettings
@@ -74,6 +74,12 @@ def iv_at_horizon(info: Optional[TickerInfo], days: int, today: date) -> Optiona
     return (info.iv30 / 100) if info and info.iv30 else None
 
 
+def earnings_in_window(info: Optional[TickerInfo], days: int, today: date) -> bool:
+    """True si la próxima presentación de resultados cae entre hoy y dentro de `days` días (una fecha ya pasada es la última, no cuenta)."""
+    e = info.next_earnings if info else None
+    return e is not None and today <= e <= today + timedelta(days=days)
+
+
 def _spread_pct(s: ContractSnapshot) -> Optional[float]:
     """Spread bid/ask en % del mid; None si no es un mercado válido (sin bid, sin ask o ask 0)."""
     if s.bid is None or s.ask is None or s.bid <= 0 or s.ask <= 0 or mid_price(s.bid, s.ask) is None:
@@ -103,6 +109,8 @@ def build_call_debit_spreads(
         price = info.underlying_price if info else None
         if not price or price <= 0:
             continue
+        if cds.exclude_earnings and earnings_in_window(info, cds.move_days, today):
+            continue                       # resultados dentro de la ventana del movimiento esperado
         dte = (expiry - today).days
         otm = (strike / price - 1) * 100
         if not (cds.dte_min <= dte <= cds.dte_max) or not (cds.long_otm_pct_min - EPS <= otm <= cds.long_otm_pct_max + EPS):

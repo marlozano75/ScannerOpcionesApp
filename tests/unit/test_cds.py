@@ -141,3 +141,15 @@ def test_iv_at_horizon_interpolates_total_variance():
     assert iv_at_horizon(i, 2, TODAY) == 0.80              # antes del primero: el primero
     assert iv_at_horizon(TickerInfo("ZZZ", iv30=50.0), 10, TODAY) == 0.5      # sin vencimientos: IV30
     assert iv_at_horizon(TickerInfo("ZZZ"), 10, TODAY) is None
+
+
+def test_earnings_in_move_window_excluded():
+    snaps = [call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)]
+
+    def with_earn(days):
+        return {"ZZZ": TickerInfo("ZZZ", underlying_price=100.0, iv30=50.0, next_earnings=TODAY + timedelta(days=days))}
+    assert build_call_debit_spreads(snaps, with_earn(5), cfg(exclude_earnings=True), TODAY) == []
+    assert build_call_debit_spreads(snaps, with_earn(10), cfg(exclude_earnings=True), TODAY) == []      # el último día de la ventana cuenta
+    assert len(build_call_debit_spreads(snaps, with_earn(11), cfg(exclude_earnings=True), TODAY)) == 1
+    assert len(build_call_debit_spreads(snaps, with_earn(-3), cfg(exclude_earnings=True), TODAY)) == 1  # ya pasados: no cuentan
+    assert len(build_call_debit_spreads(snaps, with_earn(5), cfg(exclude_earnings=False), TODAY)) == 1

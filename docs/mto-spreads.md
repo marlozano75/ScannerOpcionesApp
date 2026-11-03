@@ -243,3 +243,5 @@ El CDS es un **tercer instrumento de los perfiles del Scanner** (`scanner/profil
 - Registrar la pata de acciones tras una asignación para medir la rueda completa con exactitud (hoy solo se estima a partir de las calls cubiertas).
 - Sustituir el CSV del logbook por `list_trades`/`get_portfolio` de la API de Tortuga y comprobar si trae las acciones asignadas.
 - Repetir el análisis cuando los CDS abiertos venzan, para sustituir las marcas del modelo por resultados reales.
+
+**Filtro «Sin resultados en la ventana de días» (2026-11-03; `scanner.cds.exclude_earnings`, casilla `use_earn`, activo por defecto).** Descarta el ticker si su próxima presentación de resultados (`TickerInfo.next_earnings`) cae entre hoy y dentro de `move_days` días (inclusive): el salto por resultados no está en la IV a ese plazo y falsea el movimiento esperado. Una fecha ya pasada (es la última, no la próxima) o desconocida no excluye. Aparece en el panel de impacto como «Sin resultados en la ventana». Distinto del filtro de resultados del Scanner de puts, que no se ofrece aquí porque con DTE 200–500 siempre hay resultados antes del vencimiento.

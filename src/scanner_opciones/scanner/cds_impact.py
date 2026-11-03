@@ -13,7 +13,7 @@ from typing import Callable, Mapping, Optional, Sequence
 from scanner_opciones.config.settings import CdsSettings
 from scanner_opciones.domain.enums import PriceReference
 from scanner_opciones.domain.models import ContractSnapshot, TickerInfo
-from scanner_opciones.scanner.cds import EPS, CdsResult, _spread_pct, build_call_debit_spreads
+from scanner_opciones.scanner.cds import EPS, CdsResult, _spread_pct, build_call_debit_spreads, earnings_in_window
 from scanner_opciones.scanner.impact import FilterImpact, ImpactReport
 
 HUGE = 1e12
@@ -38,11 +38,11 @@ def _g(v: float) -> str:
 def relaxed(cds: CdsSettings) -> CdsSettings:
     """Los mismos CDS pero sin ningún filtro opcional (queda la ventana del catálogo y la validez de las patas)."""
     return cds.model_copy(update=dict(
-        best_width=False, top_per_ticker=0, min_prob_pct=None, min_exit_profit_usd=None, min_debit_usd=0.0, max_debit_usd=HUGE, min_long_oi=0, max_leg_spread_pct=HUGE, max_required_move_mult=HUGE,
+        best_width=False, exclude_earnings=False, top_per_ticker=0, min_prob_pct=None, min_exit_profit_usd=None, min_debit_usd=0.0, max_debit_usd=HUGE, min_long_oi=0, max_leg_spread_pct=HUGE, max_required_move_mult=HUGE,
         min_max_return_pct=None, sma200_below_pct_min=None, width_pct_min=None, width_pct_max=None))
 
 
-def predicates(cds: CdsSettings) -> list[tuple[str, str, str, Predicate]]:
+def predicates(cds: CdsSettings, infos: Optional[Mapping[str, TickerInfo]] = None, today: Optional[date] = None) -> list[tuple[str, str, str, Predicate]]:
     """(clave, etiqueta, configuración en palabras, predicado) de cada filtro ACTIVO."""
     mult = lambda r: r.long.contract.multiplier
     out: list[tuple[str, str, str, Predicate]] = [
@@ -57,6 +57,9 @@ def predicates(cds: CdsSettings) -> list[tuple[str, str, str, Predicate]]:
         ("cds_spread", "Spread bid/ask de cada pata", f"≤ {_g(cds.max_leg_spread_pct)} %",
          lambda r: all((sp := _spread_pct(s)) is not None and sp <= cds.max_leg_spread_pct + EPS for s in (r.long, r.short))),
     ]
+    if cds.exclude_earnings and infos is not None and today is not None:
+        out.append(("cds_earn", "Sin resultados en la ventana", f"ninguno en los próximos {cds.move_days} d",
+                    lambda r: not earnings_in_window(infos.get(r.long.contract.ticker), cds.move_days, today)))
     if cds.min_long_oi > 0:
         out.append(("cds_oi", "OI de cada pata", f"≥ {cds.min_long_oi}",
                     lambda r: all((s.open_interest or 0) >= cds.min_long_oi for s in (r.long, r.short))))
@@ -82,7 +85,7 @@ def cds_impact_report(
     ticker_filters: Sequence[TickerFilter] = (),
 ) -> ImpactReport:
     window = build_call_debit_spreads(snapshots, infos, relaxed(cds), today, bars, price_reference, price_spread_pct, cost_ps)
-    preds = predicates(cds) + [(f.key, f.label, f.config, (lambda r, f=f: f.passes(r.long.contract.ticker))) for f in ticker_filters]
+    preds = predicates(cds, infos, today) + [(f.key, f.label, f.config, (lambda r, f=f: f.passes(r.long.contract.ticker))) for f in ticker_filters]
     final = [r for r in window if all(p(r) for _, _, _, p in preds)]
     rows = []
     for key, label, config, pred in preds:
