@@ -237,7 +237,7 @@
 <form method="post" class="card" id="rk-apply">
   <h2>{{ rows|length }} acciones{% if rows|length != total_rows %} <span class="muted">de {{ total_rows }}</span>{% endif %} <span class="muted">· <span id="rk-count">{{ rows|length }}</span> seleccionadas</span></h2>
   {% if src %}<input type="hidden" name="src" value="{{ src }}">{% endif %}
-  <p style="margin:0 0 6px"><input type="search" id="tk-filter" placeholder="Filtrar por ticker (AAPL, MS…)" autocomplete="off" aria-label="Filtrar la tabla por nombre de ticker" style="width:240px">
+  <p style="margin:0 0 6px"><input type="search" id="tk-filter" placeholder="Ticker o empresa (AAPL, bank of…)" autocomplete="off" aria-label="Filtrar la tabla por ticker o nombre de empresa" style="width:240px">
     <span class="muted" id="tk-filter-info"></span></p>
   <p class="muted" style="margin:0">La Watchlist sigue sola a las fuentes del Universo (resumen arriba la primera vez). Marca los tickers para quitarlos de la fuente.</p>
   {% if src %}
@@ -363,10 +363,11 @@
     }
     all.addEventListener('change', function () { visible().forEach(function (b) { b.checked = all.checked; }); update(); });
     boxes().forEach(function (b) { b.addEventListener('change', update); });
-    function applyFilter() {   // varios términos separados por coma o espacio; coincide con parte del ticker
-      var terms = filter.value.toUpperCase().split(/[\s,;]+/).filter(Boolean), shown = 0;
+    function applyFilter() {   // términos separados por coma; coincide con parte del ticker (solo lo anterior al primer espacio) o con el nombre de la empresa
+      var terms = filter.value.toUpperCase().split(/[,;]+/).map(function (t) { return t.trim(); }).filter(Boolean), shown = 0;
       boxes().forEach(function (b) {
-        var ok = !terms.length || terms.some(function (t) { return b.value.toUpperCase().indexOf(t) !== -1; });
+        var cells = b.closest('tr').children, name = cells[5] ? cells[5].textContent.toUpperCase() : '', tk = b.value.toUpperCase();
+        var ok = !terms.length || terms.some(function (t) { return tk.indexOf(t.split(/\s+/)[0]) !== -1 || name.indexOf(t) !== -1; });
         b.closest('tr').style.display = ok ? '' : 'none';
         if (ok) shown++;
       });
@@ -374,6 +375,7 @@
       update();
     }
     filter.addEventListener('input', applyFilter);
+    filter.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); applyFilter(); } });   // Enter no envía el formulario
     document.getElementById('rk-apply').addEventListener('submit', function () {   // lo oculto por el filtro no se quita
       boxes().forEach(function (b) { if (b.closest('tr').style.display === 'none') b.disabled = true; });
     });
