@@ -527,35 +527,37 @@ class QualityRepo:
 class BarRepo:
     """Cierres diarios de los subyacentes (para la tendencia).
 
-    `all_closes` y `last_days` salen de una copia en memoria de la tabla (~1,3 millones de cierres con 1.400 días de histórico: leerla de SQLite
-    cuesta 3-4 s y se pedía en cada cambio de perfil del Scanner). Se carga la primera vez y cada escritura de este repositorio la mantiene al
-    día; borrar o podar la descarta. Solo este repositorio escribe en `daily_bars`."""
+    `all_closes` y `closes` salen de una copia en memoria POR TICKER (la tabla tiene ~1,3 millones de cierres: leerla y limpiarla entera costaba
+    ~20 s y bloqueaba la primera página; 2026-11-03). Cada ticker se lee y limpia la primera vez que se pide y cada escritura de este
+    repositorio la mantiene al día; borrar o podar la descarta. `last_days` va por SQL. Solo este repositorio escribe en `daily_bars`."""
     def __init__(self, db: Database) -> None:
         self.db = db
-        self._cache: Optional[dict[str, list[tuple[date, float]]]] = None
-        self._provisional: set[tuple[str, date]] = set()      # cierres del día en curso que aún no son el oficial
+        self._cache: dict[str, list[tuple[date, float]]] = {}      # por ticker, limpios; se rellena al pedirlos
+        self._provisional: Optional[set[tuple[str, date]]] = None  # cierres del día en curso que aún no son el oficial
 
-    def _loaded(self) -> dict[str, list[tuple[date, float]]]:
-        if self._cache is None:
-            days: dict[str, date] = {}                          # ~1.400 fechas distintas para 1,3 millones de filas
-            raw: dict[str, list] = {}
-            provisional: set[tuple[str, date]] = set()
-            for ticker, day, close, prov, high, low in self.db.conn.execute(
-                    "SELECT ticker, day, close, provisional, high, low FROM daily_bars ORDER BY ticker, day"):
-                d = days.get(day)
-                if d is None:
-                    d = days[day] = date.fromisoformat(day)
-                raw.setdefault(ticker, []).append((d, close, high, low))
-                if prov:
-                    provisional.add((ticker, d))
-            self._cache, self._provisional = {t: clean_bars(rows) for t, rows in raw.items()}, provisional
-        return self._cache
+    def _prov(self) -> set[tuple[str, date]]:
+        """Cierres provisionales (pocos: uno por ticker como mucho); se leen una vez."""
+        if self._provisional is None:
+            self._provisional = {(t, date.fromisoformat(d)) for t, d in self.db.conn.execute(
+                "SELECT ticker, day FROM daily_bars WHERE provisional = 1")}
+        return self._provisional
+
+    def _bars(self, ticker: str) -> list[tuple[date, float]]:
+        """Cierres limpios del ticker (copia en memoria; se leen y limpian la primera vez que se piden)."""
+        bars = self._cache.get(ticker)
+        if bars is None:
+            rows = [(date.fromisoformat(r["day"]), r["close"], r["high"], r["low"]) for r in self.db.conn.execute(
+                "SELECT day, close, high, low FROM daily_bars WHERE ticker = ? ORDER BY day", (ticker,))]
+            bars = self._cache[ticker] = clean_bars(rows)
+        return bars
 
     def _put(self, ticker: str, day: date, close: float, provisional: bool) -> None:
-        """Refleja en la copia en memoria un cierre escrito (si ya está cargada)."""
-        if self._cache is None:
+        """Refleja en la copia en memoria un cierre escrito (si el ticker ya está cargado; si no, se leerá de la base al pedirlo)."""
+        if self._provisional is not None:
+            (self._provisional.add if provisional else self._provisional.discard)((ticker, day))
+        bars = self._cache.get(ticker)
+        if bars is None:
             return
-        bars = self._cache.setdefault(ticker, [])
         entry = (day, close)
         if not bars or bars[-1][0] < day:
             bars.append(entry)
@@ -565,40 +567,29 @@ class BarRepo:
                 bars[i] = entry
             else:
                 bars.insert(i, entry)
-        (self._provisional.add if provisional else self._provisional.discard)((ticker, day))
 
     def _reclean(self, ticker: str) -> None:
-        """Vuelve a limpiar de la base de datos el histórico de un ticker en la copia en memoria (un split recién llegado)."""
-        if self._cache is None:
-            return
-        rows = [(date.fromisoformat(r["day"]), r["close"], r["high"], r["low"]) for r in self.db.conn.execute(
-            "SELECT day, close, high, low FROM daily_bars WHERE ticker = ? ORDER BY day", (ticker,))]
-        self._cache[ticker] = clean_bars(rows)
+        """Descarta la copia limpia de un ticker para volver a limpiarla de la base de datos (un split recién llegado)."""
+        self._cache.pop(ticker, None)
 
     def _drop_cache(self) -> None:
-        self._cache, self._provisional = None, set()
+        self._cache, self._provisional = {}, None
 
     def last_days(self, tickers: Iterable[str]) -> dict[str, date]:
         """Último día con cierre OFICIAL guardado de cada ticker (los que no tienen histórico no aparecen).
         Los cierres provisionales del día en curso no cuentan: hay que seguir pidiendo el oficial."""
-        cache = self._loaded()
-        out: dict[str, date] = {}
-        for t in tickers:
-            for day, _ in reversed(cache.get(t, ())):
-                if (t, day) not in self._provisional:
-                    out[t] = day
-                    break
-        return out
+        wanted = set(tickers)
+        return {t: date.fromisoformat(d) for t, d in self.db.conn.execute(
+            "SELECT ticker, MAX(day) FROM daily_bars WHERE provisional = 0 GROUP BY ticker") if t in wanted}
 
     def all_closes(self, tickers: Iterable[str]) -> dict[str, list[tuple[date, float]]]:
         """Cierres de varios tickers a la vez, en orden ascendente (para el scanner). Listas nuevas: quien llama puede modificarlas."""
-        cache = self._loaded()
-        return {t: list(cache[t]) for t in set(tickers) if t in cache}
+        return {t: list(bars) for t in set(tickers) if (bars := self._bars(t))}
 
     def closes(self, ticker: str, official_only: bool = False) -> dict[date, float]:
         """Cierres del ticker. Con `official_only` se leen tal cual de la base de datos (comprueba ajustes del proveedor); si no, ya limpios."""
         if not official_only:
-            return dict(self._loaded().get(ticker, ()))
+            return dict(self._bars(ticker))
         rows = self.db.conn.execute(
             "SELECT day, close FROM daily_bars WHERE ticker = ?" + (" AND provisional = 0" if official_only else ""),
             (ticker,),
@@ -685,12 +676,15 @@ class BarRepo:
                 "ON CONFLICT(ticker, day) DO UPDATE SET close = excluded.close WHERE daily_bars.provisional = 1",
                 (ticker, day.isoformat(), price),
             )
-        if self._cache is not None:
-            bars = self._cache.get(ticker, ())
+        bars = self._cache.get(ticker)
+        if bars is not None:
             i = bisect.bisect_left(bars, day, key=lambda b: b[0])
-            if i < len(bars) and bars[i][0] == day and (ticker, day) not in self._provisional:
+            if i < len(bars) and bars[i][0] == day and (ticker, day) not in self._prov():
                 return      # ya hay un cierre oficial de ese día: no se pisa (igual que en la base)
-            self._put(ticker, day, price, True)
+        elif (ticker, day) not in self._prov() and self.db.conn.execute(
+                "SELECT 1 FROM daily_bars WHERE ticker = ? AND day = ? AND provisional = 0", (ticker, day.isoformat())).fetchone():
+            return
+        self._put(ticker, day, price, True)
 
     def delete(self, ticker: str) -> None:
         with self.db.conn:
