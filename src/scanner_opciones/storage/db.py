@@ -377,6 +377,8 @@ MIGRATIONS: list[str] = [
     """,
     # v36: precio del subyacente cuando se pidio el margen (what-if): permite reutilizarlo mas tiempo mientras el precio no se mueva
     "ALTER TABLE snapshots ADD COLUMN margin_price REAL;",
+    # v37: apertura diaria (con cierre, máximo y mínimo completa la vela). Las barras ya guardadas no la tienen: se rellena al volver a pedir el histórico
+    "ALTER TABLE daily_bars ADD COLUMN open REAL;",
 ]
 
 

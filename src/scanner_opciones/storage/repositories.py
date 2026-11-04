@@ -608,18 +608,36 @@ class BarRepo:
             self._put(ticker, d, px, False)
 
     def upsert_ohlc(self, ticker: str, bars: Iterable[tuple]) -> None:
-        """Guarda velas (día, cierre, máximo, mínimo). Un máximo o mínimo que no llega no borra el ya guardado."""
-        bars = list(bars)
+        """Guarda velas (día, cierre, máximo, mínimo[, apertura]). Un máximo, mínimo o apertura que no llega no borra el ya guardado."""
+        bars = [(b[0], b[1], b[2], b[3], b[4] if len(b) > 4 else None) for b in bars]
         with self.db.conn:
             self.db.conn.executemany(
-                "INSERT INTO daily_bars (ticker, day, close, provisional, high, low) VALUES (?,?,?,0,?,?) "
+                "INSERT INTO daily_bars (ticker, day, close, provisional, high, low, open) VALUES (?,?,?,0,?,?,?) "
                 "ON CONFLICT(ticker, day) DO UPDATE SET close = excluded.close, provisional = 0, "
-                "high = COALESCE(excluded.high, daily_bars.high), low = COALESCE(excluded.low, daily_bars.low)",
-                [(ticker, d.isoformat(), px, high, low) for d, px, high, low in bars],
+                "high = COALESCE(excluded.high, daily_bars.high), low = COALESCE(excluded.low, daily_bars.low), "
+                "open = COALESCE(excluded.open, daily_bars.open)",
+                [(ticker, d.isoformat(), px, high, low, op) for d, px, high, low, op in bars],
             )
-        for d, px, _, _ in bars:
+        for d, px, _, _, _ in bars:
             self._put(ticker, d, px, False)
         self._reclean(ticker)
+
+    def candles(self, ticker: str) -> list[tuple[date, Optional[float], Optional[float], Optional[float], float]]:
+        """Velas oficiales del ticker (día, apertura, máximo, mínimo, cierre) en orden ascendente, tal cual están guardadas
+        (sin limpiar splits); apertura, máximo o mínimo son None si no se guardaron."""
+        return [(date.fromisoformat(r["day"]), r["open"], r["high"], r["low"], r["close"]) for r in self.db.conn.execute(
+            "SELECT day, open, high, low, close FROM daily_bars WHERE ticker = ? AND provisional = 0 ORDER BY day", (ticker,))]
+
+    def missing_open(self, tickers: Iterable[str], recent: int, needed: int) -> list[str]:
+        """Tickers con histórico oficial de los que, entre las últimas `recent` sesiones, menos de `needed` tienen apertura
+        (histórico anterior a la migración v37)."""
+        out = []
+        for t in tickers:
+            rows = self.db.conn.execute(
+                "SELECT open FROM daily_bars WHERE ticker = ? AND provisional = 0 ORDER BY day DESC LIMIT ?", (t, recent)).fetchall()
+            if rows and sum(1 for r in rows if r["open"] is not None) < min(needed, len(rows)):
+                out.append(t)
+        return out
 
     def missing_ranges(self, tickers: Iterable[str], recent: int, needed: int) -> list[str]:
         """Tickers con histórico oficial de los que, entre las últimas `recent` sesiones, menos de `needed` tienen máximo y

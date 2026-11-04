@@ -75,6 +75,32 @@ def test_a_missing_high_does_not_erase_the_stored_one():
     assert repo.recent_ohlc(["AAPL"], 5)["AAPL"] == [(100.5, 102.0, 98.0)]
 
 
+async def test_portfolio_tickers_get_full_candles_with_open_and_others_do_not():
+    repo = BarRepo(Database(":memory:"))
+    cfg = TrendSettings()
+    series = bars(40)
+    ranges = {d: (px + 1, px - 1) for d, px in series}
+    opens = {d: px - 0.5 for d, px in series}
+    for t in ("AAPL", "KO"):                                              # histórico anterior a la migración v37: con máx./mín., sin apertura
+        repo.upsert_ohlc(t, [(d, px, *ranges[d]) for d, px in series])
+    candles = FakeCandles(bars={"AAPL": series, "KO": series}, ranges={"AAPL": ranges, "KO": ranges}, opens={"AAPL": opens, "KO": opens})
+    await update_history(candles, repo, ["AAPL", "KO"], TODAY, cfg, full_ohlc=["AAPL"])
+    assert candles.calls == [["AAPL"]] and candles.days == [cfg.history_days]       # solo el de cartera, y el histórico entero
+    d, px = series[-1]
+    assert repo.candles("AAPL")[-1] == (d, px - 0.5, px + 1, px - 1, px)             # (día, apertura, máximo, mínimo, cierre)
+    assert repo.missing_open(["AAPL", "KO"], 20, 15) == ["KO"]
+    await update_history(candles, repo, ["AAPL", "KO"], TODAY, cfg, full_ohlc=["AAPL"])
+    assert len(candles.calls) == 1                                                    # y no se vuelve a pedir
+
+
+def test_a_missing_open_does_not_erase_the_stored_one():
+    repo = BarRepo(Database(":memory:"))
+    d = TODAY - timedelta(days=1)
+    repo.upsert_ohlc("AAPL", [(d, 100.0, 102.0, 98.0, 99.0)])
+    repo.upsert_ohlc("AAPL", [(d, 100.5, None, None)])
+    assert repo.candles("AAPL") == [(d, 99.0, 102.0, 98.0, 100.5)]
+
+
 # ---- gestión de puts -----------------------------------------------------------------------------------------
 def short_put(ticker="AAPL", strike=90.0, days=30, qty=-2, market_value=-220.0, avg_cost=110.0):
     """2 contratos vendidos a 1,10 $ (avg_cost 110 por contrato); ahora valen 1,10 $ (market_value −220)."""

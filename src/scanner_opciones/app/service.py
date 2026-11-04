@@ -1385,7 +1385,7 @@ class AppService:
         self.state.activity = "Descargando histórico de cierres"
         self._load_no_candles()
         try:
-            await self.daily.update_history(self.history_scope())
+            await self.daily.update_history(self.history_scope(), full_ohlc=self.position_tickers())      # los de cartera, con la vela completa (apertura incluida)
             self.record_today_prices()
         except Exception:
             log.exception("No se pudo actualizar el histórico de cierres")

@@ -322,9 +322,10 @@ def ohlc_from_frame(frame) -> OhlcBars:
         close = r.get("Close")
         if close is None or close != close or close <= 0:
             continue
-        hi, lo = r.get("High"), r.get("Low")
+        hi, lo, op = r.get("High"), r.get("Low"), r.get("Open")
         out.append((stamp.date() if hasattr(stamp, "date") else stamp, float(close),
-                    float(hi) if hi is not None and hi == hi else None, float(lo) if lo is not None and lo == lo else None))
+                    float(hi) if hi is not None and hi == hi else None, float(lo) if lo is not None and lo == lo else None,
+                    float(op) if op is not None and op == op and op > 0 else None))
     return sorted(out)
 
 

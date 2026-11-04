@@ -179,7 +179,7 @@ class TastytradeVolatility:
     def _ohlc_from(fetch: CandleFetch):
         """Adapta un proveedor de cierres (p. ej. el de los tests) a velas sin máximo ni mínimo."""
         async def wrapped(symbols: Sequence[str], days: int, timeout: float) -> dict[str, OhlcBars]:
-            return {s: [(d, px, None, None) for d, px in bars] for s, bars in (await fetch(symbols, days, timeout)).items()}
+            return {s: [(d, px, None, None, None) for d, px in bars] for s, bars in (await fetch(symbols, days, timeout)).items()}
         return wrapped
 
     async def _sdk_fetch_candles(self, symbols: Sequence[str], days: int, timeout: float) -> dict[str, DailyBars]:
@@ -232,7 +232,7 @@ class TastytradeVolatility:
             for i in range(0, len(symbols), CANDLE_BATCH_SIZE):
                 batch = list(symbols[i:i + CANDLE_BATCH_SIZE])
                 pending = set(batch)
-                bars: dict[str, dict[int, tuple[float, Optional[float], Optional[float]]]] = {s: {} for s in batch}
+                bars: dict[str, dict[int, tuple[float, Optional[float], Optional[float], Optional[float]]]] = {s: {} for s in batch}
                 await streamer.subscribe_candle(batch, "1d", start_time=start)
 
                 async def read() -> None:
@@ -243,7 +243,8 @@ class TastytradeVolatility:
                         if float(c.close) > 0:
                             high, low = float(c.high), float(c.low)
                             ok = high == high and low == low and high >= low > 0   # NaN o 0 = sin dato
-                            bars[sym][c.time] = (float(c.close), high if ok else None, low if ok else None)
+                            op = float(c.open) if c.open is not None else float("nan")
+                            bars[sym][c.time] = (float(c.close), high if ok else None, low if ok else None, op if op == op and op > 0 else None)
                         if c.snapshot_end:
                             pending.discard(sym)
                             if not pending:

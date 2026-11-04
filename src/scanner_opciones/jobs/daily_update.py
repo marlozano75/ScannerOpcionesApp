@@ -7,7 +7,7 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
-from typing import Awaitable, Callable, Optional, TypeVar
+from typing import Awaitable, Callable, Iterable, Optional, TypeVar
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
@@ -494,15 +494,15 @@ class DailyUpdater:
             log.info("Ficha de empresa: %d actualizaciones en %.1f s", done, time.monotonic() - started)
         return done
 
-    async def update_history(self, tickers: list[str]) -> int:
-        """Completa el histórico de cierres diarios de `tickers` (solo los días que faltan).
+    async def update_history(self, tickers: list[str], full_ohlc: Iterable[str] = ()) -> int:
+        """Completa el histórico de cierres diarios de `tickers` (solo los días que faltan; los `full_ohlc` sin apertura se piden enteros).
         Es independiente de la actualización diaria «pendiente de hoy»: se hace siempre que falte histórico.
         Devuelve cuántos tickers tienen histórico guardado."""
         if not tickers or self.candles is None or self.bars is None:
             return 0
         started = time.monotonic()
-        await update_history(self.candles, self.bars, tickers, self.now().date(), self.settings.trend)
-        have = self.bars.last_days(tickers)
+        await update_history(self.candles, self.bars, tickers, self.now().date(), self.settings.trend, full_ohlc)
+        have =self.bars.last_days(tickers)
         missing = [t for t in tickers if t not in have]
         if missing:
             log.info("Sin cierres de tastytrade para: %s", ", ".join(missing))
