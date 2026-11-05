@@ -213,7 +213,6 @@ class RefreshSettings(_Model):
     # Cada what-if cuesta ~0,3 s (2026-11-02: el mismo ciclo de 106.000 contratos tardó 393 s con 3 márgenes y 1.467 s con 3.594). Tope de
     # márgenes NUEVOS por ciclo (0 = sin tope); dentro de cada lote se piden primero los de mayor yield anualizado y los que quedan sin
     # margen se piden en los ciclos siguientes (los ya pedidos se reutilizan).
-    margin_max_per_cycle: int = Field(800, ge=0)
 
 
 class DailyUpdateSettings(_Model):

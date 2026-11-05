@@ -11,8 +11,7 @@ la migración v40 borra sus dos tablas. Ningún ticker sale ya de la Watchlist p
 
 ## F0 – Ahorro inmediato
 
-- **Tope de márgenes por ciclo** (`refresh.margin_max_per_cycle`, 800; 0 = sin tope). Dentro de cada lote se piden primero los contratos de mayor yield anualizado
-  (`RefreshJob.run`); los que quedan sin margen se piden en los ciclos siguientes (los ya pedidos se reutilizan). El log del refresco añade «aplazados N».
+- **Tope de márgenes por ciclo: retirado (2026-11-05).** Con el margen estimado (`refresh.margin_estimate`) solo las puts vendidas en cartera piden what-if, así que el tope ya no ahorraba nada.
 - **Catálogo limitado por los modos** (`scanner.ticker_modes.gate_catalog`, true). `ContractSyncer.modes_provider` (= `AppService.ticker_modes`): un ticker sin `put` ni
   `put_spread` no estrena puts, y uno sin `cds` no estrena calls. **Los contratos ya guardados no se retiran** (salen solos al salir de la ventana): un modo que oscila
   no obliga a cualificar de nuevo. Un ticker sin modos evaluados (nuevo) no tiene límite. Solo actúa con `ticker_modes.enabled`.

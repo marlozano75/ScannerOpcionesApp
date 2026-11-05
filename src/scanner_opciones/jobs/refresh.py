@@ -42,7 +42,6 @@ class RefreshReport:
     without_quote: int = 0
     margins_requested: int = 0
     quotes_kept: int = 0      # contratos sin precio nuevo (mercado cerrado): se conserva la última cotización
-    margins_deferred: int = 0   # márgenes que tocaba pedir y quedaron para el ciclo siguiente por `margin_max_per_cycle`
     margins_reused: int = 0   # márgenes recientes reutilizados sin pedir un what-if nuevo
     margins_estimated: int = 0   # márgenes calculados con la fórmula calibrada (sin what-if)
     bid_sizes_checked: int = 0   # contratos cuyo bid size se pidió a TWS
@@ -216,8 +215,6 @@ class RefreshJob:
                     if previous is not None and snap.updated_at == previous.updated_at:   # se conservó la cotización guardada
                         report.quotes_kept += 1
                     built.append((snap, previous))
-                # con tope de márgenes por ciclo, los de mayor yield anualizado se piden primero (los demás, en los ciclos siguientes)
-                built.sort(key=lambda pair: -(pair[0].yield_annualized_pct or 0.0))
                 # los what-if de TWS (~0,25 s cada uno) van en paralelo: pedirlos de uno en uno eran 500-900 s por ciclo
                 results = await asyncio.gather(
                     *(self._maybe_add_margin(snap, infos.get(snap.contract.ticker), criteria, report, previous) for snap, previous in built),
@@ -235,10 +232,10 @@ class RefreshJob:
         await self._refresh_bid_sizes(saved, infos, criteria, today, report)
         log.info(
             "Refresco: %d contratos cotizados (de %d guardados) en %.1f s (subyacentes %.1f s); "
-            "márgenes pedidos %d, reutilizados %d, estimados %d, aplazados %d; sin precio nuevo (se conserva el anterior): %d; "
+            "márgenes pedidos %d, reutilizados %d, estimados %d; sin precio nuevo (se conserva el anterior): %d; "
             "catálogo: +%d / -%d contratos; bid size de TWS: %d pedidos, %d distintos%s",
             report.in_scope, report.stored, time.monotonic() - started, t_underlyings,
-            report.margins_requested, report.margins_reused, report.margins_estimated, report.margins_deferred, report.quotes_kept,
+            report.margins_requested, report.margins_reused, report.margins_estimated, report.quotes_kept,
             report.contracts_added, report.contracts_removed, report.bid_sizes_checked, report.bid_sizes_changed,
             (f"; modos por ticker: {report.mode_skipped} contratos sin cotizar ({report.mode_tickers_off} tickers sin ningún modo)"
              if self.mode_resolver is not None else ""),
@@ -500,10 +497,6 @@ class RefreshJob:
         stale = self._keep_margin(snap, previous)
         if self._offline():
             return stale   # sin TWS: no se espera por cada contrato; se queda el margen guardado
-        cap = self.settings.refresh.margin_max_per_cycle
-        if cap and report.margins_requested >= cap:
-            report.margins_deferred += 1
-            return stale   # tope del ciclo: este margen se pide en uno de los siguientes
         if report.margin_ok:
             async with self._margin_sem:
                 return await self._ask_margin(snap, stale, report, price)

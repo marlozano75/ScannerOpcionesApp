@@ -24,7 +24,6 @@ refresh:
   tws_bid_size: true
   tws_bid_size_max_age_minutes: 15   # un tamaño de TWS se reutiliza hasta esta edad
   tws_bid_size_max_contracts: 600    # tope por ciclo (primero los de mayor yield anualizado); ~4 s por cada 50
-  margin_max_per_cycle: 800    # tope de what-if de margen NUEVOS por ciclo (~0,3 s cada uno; 0 = sin tope): primero los de mayor yield, el resto en los ciclos siguientes
 
 daily_update:
   run_on_startup: true   # sin hora fija (Q-09); se ejecuta en segundo plano tras el primer refresco
