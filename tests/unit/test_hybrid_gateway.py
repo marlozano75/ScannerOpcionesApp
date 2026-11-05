@@ -403,12 +403,15 @@ async def test_concurrent_requests_for_the_same_ticker_share_one_fetch():
 async def test_option_bid_history_returns_what_the_sdk_answered_and_wraps_failures():
     from datetime import date
 
-    async def fake(symbols, days):
+    seen = []
+
+    async def fake(symbols, days, on_progress):
         assert days == 40
+        on_progress(len(symbols), len(symbols), 1)
         return {s: {date(2026, 9, 16): 1.1} for s in symbols}
 
-    got = await provider_with(fetch_option_history=fake).option_bid_history([".AAPL261016P250"], 40)
-    assert got == {".AAPL261016P250": {date(2026, 9, 16): 1.1}}
+    got = await provider_with(fetch_option_history=fake).option_bid_history([".AAPL261016P250"], 40, lambda *a: seen.append(a))
+    assert got == {".AAPL261016P250": {date(2026, 9, 16): 1.1}} and seen == [(1, 1, 1)]
 
     async def boom(*a):
         raise RuntimeError("sin red")

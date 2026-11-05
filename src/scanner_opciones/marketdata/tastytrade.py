@@ -45,7 +45,8 @@ EARNINGS_LOOKBACK_DAYS = 500      # para tener al menos 4 trimestres reportados
 VixFetch = Callable[[int, int], Awaitable[VixData]]   # días de cierres, futuros por delante
 ChainFetch = Callable[[str], Awaitable[OptionListing]]                            # símbolo de tastytrade -> puts existentes
 OptionQuotesFetch = Callable[[Sequence[str]], Awaitable[dict[str, OptionQuote]]]  # símbolos DXLink -> cotizaciones
-OptionHistoryFetch = Callable[[Sequence[str], int], Awaitable[dict[str, dict[date, float]]]]   # símbolos de opciones, días -> {símbolo: {día: bid}}
+ProgressFn = Callable[[int, int, int], None]      # (respondidos, total, pasada)
+OptionHistoryFetch = Callable[[Sequence[str], int, Optional[ProgressFn]], Awaitable[dict[str, dict[date, float]]]]   # símbolos, días, avance -> {símbolo: {día: bid}}
 OPTION_HISTORY_BATCH = 50         # velas de bid por lote (una conexión nueva por lote: acumular suscripciones de velas hace que tastytrade corte)
 OPTION_HISTORY_TIMEOUT = 12.0     # segundos de espera por lote
 OPTION_HISTORY_PASSES = 3         # pasadas: tastytrade a veces no responde a un lote entero y sí al repetirlo
@@ -267,15 +268,15 @@ class TastytradeVolatility:
                 unanswered.extend(sorted(pending))
         return out, unanswered
 
-    async def option_bid_history(self, symbols: Sequence[str], days: int) -> dict[str, dict[date, float]]:
+    async def option_bid_history(self, symbols: Sequence[str], days: int, on_progress: Optional[ProgressFn] = None) -> dict[str, dict[date, float]]:
         """`OptionHistoryProvider`: último bid de cada día de las opciones `symbols` (símbolos dxFeed, también de contratos ya vencidos). Solo vuelven los
         que respondieron; los que no tuvieron ninguna vela con bid vuelven con la serie vacía."""
         try:
-            return await self._fetch_option_history(list(symbols), days)
+            return await self._fetch_option_history(list(symbols), days, on_progress)
         except Exception as exc:  # noqa: BLE001
             raise OptionDataError(f"tastytrade: no se pudo leer el histórico de bids: {exc}") from exc
 
-    async def _sdk_fetch_option_bids(self, symbols: Sequence[str], days: int) -> dict[str, dict[date, float]]:
+    async def _sdk_fetch_option_bids(self, symbols: Sequence[str], days: int, on_progress: Optional[ProgressFn] = None) -> dict[str, dict[date, float]]:
         """Velas diarias `price=bid` por DXLink: lotes de `OPTION_HISTORY_BATCH`, cada uno con su conexión, y hasta `OPTION_HISTORY_PASSES` pasadas con los que
         no responden. El día de una vela es su fecha UTC."""
         from tastytrade.dxfeed import Candle
@@ -322,6 +323,8 @@ class TastytradeVolatility:
                     if sym not in pending:
                         out[sym] = series[sym]
                         answered.add(sym)
+                if on_progress is not None:
+                    on_progress(len(out), len(set(symbols)), attempt + 1)
             todo = [s for s in todo if s not in answered]
             log.info("Histórico de bids, pasada %d: %d símbolos sin respuesta", attempt + 1, len(todo))
         return out

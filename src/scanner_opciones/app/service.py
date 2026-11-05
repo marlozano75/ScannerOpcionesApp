@@ -239,6 +239,7 @@ class AppService:
         self.prices = prices                      # precios de tastytrade: también los de premercado
         self.option_history = option_history      # bid histórico de opciones (velas de tastytrade): informe «Criba teórica»
         self.yield_history_progress: Optional[str] = None   # texto de avance mientras se piden los bids históricos (None = parado)
+        self.yield_history_result: Optional[str] = None     # resultado o error de la última petición de bids históricos
         self.fx = fx                              # respaldo online (Yahoo) del tipo de cambio de la moneda base si IBKR no lo da
         self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
@@ -2126,7 +2127,7 @@ class AppService:
     # ---- Rentabilidad real a 30 días (informe «Criba teórica», paso de velas; scanner/yield_history.py, docs/seleccion-tickers.md) ------------
 
     YIELD_HISTORY_DTE = 30
-    YIELD_HISTORY_CHUNK = 1000        # símbolos por tramo: se guarda al acabar cada uno, así un corte no pierde lo ya pedido
+    YIELD_HISTORY_CHUNK = 250         # símbolos por tramo: se guarda al acabar cada uno, así un corte no pierde lo ya pedido
 
     def yield_history_universe(self, liquidity_min: Optional[int]) -> list[str]:
         """Tickers de las fuentes del Universo que se pueden consultar (sin clases de acciones) y, si se pide, con liquidez de opciones ≥ `liquidity_min`
@@ -2169,29 +2170,45 @@ class AppService:
             raise AppError("Sin proveedor de histórico de opciones (hace falta tastytrade).")
         if self.yield_history_progress is not None:
             return 0
-        self.yield_history_progress = "Preparando…"
+        self.yield_history_progress = "Preparando la lista de contratos…"
+        self.yield_history_result = None
         saved = 0
         try:
             tickers = self.yield_history_universe(liquidity_min)
             stored = self.bid_history.all()
             todo = [p for p in self._yield_history_plan(tickers, discount_pct, months) if (p[0], p[1], round(p[2], 4)) not in stored]
             if not todo:
+                self.yield_history_result = "No falta ningún contrato: todo está ya guardado."
                 return 0
             by_symbol = {}
             for t, e, k, ref, _ in todo:
                 by_symbol[yh.option_symbol(yh.dx_root(t), e, k)] = (t, e, k, ref)
             symbols = list(by_symbol)
+            log.info("Histórico de bids: %d contratos por pedir (%d tickers, descuento ≥ %.1f %%, %d meses)", len(symbols), len(tickers), discount_pct, months)
             days = (self.now().date() - min(v[3] for v in by_symbol.values())).days + yh.DAY_TOLERANCE + 2
+            started = time.monotonic()
             for i in range(0, len(symbols), self.YIELD_HISTORY_CHUNK):
                 chunk = symbols[i:i + self.YIELD_HISTORY_CHUNK]
-                self.yield_history_progress = f"Pidiendo bids a tastytrade: {i}/{len(symbols)} contratos ({len(tickers)} tickers)"
-                got = await self.option_history.option_bid_history(chunk, days)
+
+                def progress(answered: int, total: int, attempt: int, done: int = i) -> None:
+                    self.yield_history_progress = (f"Pidiendo bids a tastytrade: {done + answered}/{len(symbols)} contratos con respuesta · pasada {attempt}/3 del tramo "
+                                                   f"actual · {saved} guardados · {(time.monotonic() - started) / 60:.1f} min")
+
+                progress(0, len(chunk), 1)
+                got = await self.option_history.option_bid_history(chunk, days, progress)
                 rows = []
                 for sym, series in got.items():
                     t, e, k, ref = by_symbol[sym]
                     rows.append((t, e, k, ref, yh.pick_bid(series, ref)))
                 saved += self.bid_history.save(rows, self.now())
+                log.info("Histórico de bids: %d/%d contratos con respuesta (%.1f min)", min(i + self.YIELD_HISTORY_CHUNK, len(symbols)), len(symbols), (time.monotonic() - started) / 60)
             log.info("Histórico de bids: %d contratos guardados de %d pedidos", saved, len(symbols))
+            self.yield_history_result = (f"Terminado: {saved} contratos guardados de {len(symbols)} pedidos"
+                                         + ("" if saved == len(symbols) else " (los que no respondieron se piden otra vez al repetir)"))
+            return saved
+        except Exception as exc:  # noqa: BLE001 - una tarea en segundo plano no puede fallar en silencio
+            log.exception("Histórico de bids: la petición falló")
+            self.yield_history_result = f"Error: {exc}"
             return saved
         finally:
             self.yield_history_progress = None

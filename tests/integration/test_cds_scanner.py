@@ -132,8 +132,10 @@ class _FakeBidHistory:
     def __init__(self, bids, silent=(), empty=()):
         self.bids, self.silent, self.empty, self.requests = bids, set(silent), set(empty), []
 
-    async def option_bid_history(self, symbols, days):
+    async def option_bid_history(self, symbols, days, on_progress=None):
         self.requests.append(list(symbols))
+        if on_progress is not None:
+            on_progress(len(symbols) - len(self.silent & set(symbols)), len(symbols), 1)
         out = {}
         for s in symbols:
             if s in self.silent:
@@ -200,3 +202,41 @@ def test_criba_page_shows_the_history_section_and_the_post_starts_the_request():
         svc.option_history = None
         sent = client.post("/scanner/criba/historico", data={"hm": "3"}, follow_redirects=False)
         assert sent.status_code == 303 and "/scanner/criba" in sent.headers["location"] and "message=" in sent.headers["location"]
+
+
+def test_history_progress_is_shown_and_refreshes_itself_and_the_result_or_error_is_kept():
+    import asyncio
+    from scanner_opciones.scanner import yield_history as yh
+
+    svc = _svc()
+    expiries = yh.past_monthly_expiries(svc.now().date(), 1)
+    svc.ticker_lists = lambda: {"ZZZ": ["Fuente A"]}
+    svc.bars.upsert("ZZZ", [(svc.now().date() - timedelta(days=d), 100.0) for d in range(0, 150)])
+    seen = []
+
+    class Provider(_FakeBidHistory):
+        async def option_bid_history(self, symbols, days, on_progress=None):
+            seen.append(svc.yield_history_progress)               # durante la petición ya hay un texto de avance
+            return await super().option_bid_history(symbols, days, on_progress)
+
+    svc.option_history = Provider({yh.option_symbol("ZZZ", expiries[0], 95.0): 1.5})
+    asyncio.run(svc.fetch_yield_history(5.0, 1, None))
+    assert seen and "contratos con respuesta" in seen[0] and svc.yield_history_progress is None
+    assert svc.yield_history_result.startswith("Terminado: 1 contratos guardados")
+
+    class Broken:
+        async def option_bid_history(self, symbols, days, on_progress=None):
+            raise RuntimeError("sin red")
+
+    svc.bid_history.db.conn.execute("DELETE FROM option_bid_history")
+    svc.option_history = Broken()
+    assert asyncio.run(svc.fetch_yield_history(5.0, 1, None)) == 0
+    assert svc.yield_history_result == "Error: sin red" and svc.yield_history_progress is None      # el error queda a la vista y no bloquea la siguiente petición
+
+    with _client(svc) as client:
+        client.portal.call(svc.wait_idle)
+        page = client.get("/scanner/criba").text
+        assert "Error: sin red" in page and "window.location.reload" not in page
+        svc.yield_history_progress = "Pidiendo bids a tastytrade: 10/100 contratos con respuesta"
+        page = client.get("/scanner/criba").text
+        assert "En curso." in page and "10/100 contratos" in page and "window.location.reload" in page

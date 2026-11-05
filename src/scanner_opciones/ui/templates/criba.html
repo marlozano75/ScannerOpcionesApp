@@ -51,7 +51,9 @@
   <button>Ver</button>
   <button type="submit" formmethod="post" formaction="/scanner/criba/historico" {{ 'disabled' if h_progress }} title="Pide a tastytrade los bids que faltan (varios minutos; en segundo plano)">Pedir los bids que faltan</button>
 </form>
-{% if h_progress %}<div class="banner info">{{ h_progress }}</div>{% endif %}
+{% if h_progress %}<div class="banner info"><b>En curso.</b> {{ h_progress }} <span class="muted">(la página se actualiza sola cada 5 s)</span></div>
+<script>setTimeout(function () { window.location.reload(); }, 5000);</script>
+{% elif h_result %}<div class="banner {{ 'err' if h_result.startswith('Error') else 'ok' }}">{{ h_result }}</div>{% endif %}
 <p class="note">Descuento del perfil «{{ h.profile }}»: ≥ {{ h.discount|num(1) }} % · yield exigido {{ h.required|num(2) }} % · contratos guardados: {{ h_stored }}.</p>
 {% if h_total %}
 <div class="cr-k">

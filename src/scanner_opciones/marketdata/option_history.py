@@ -5,10 +5,12 @@ Lo implementa `TastytradeVolatility` (velas de DXLink con `price=bid`). El resul
 from __future__ import annotations
 
 from datetime import date
-from typing import Mapping, Protocol, Sequence
+from typing import Callable, Mapping, Optional, Protocol, Sequence
 
 
 class OptionHistoryProvider(Protocol):
-    async def option_bid_history(self, symbols: Sequence[str], days: int) -> Mapping[str, Mapping[date, float]]:
-        """{símbolo dxFeed de la opción (`.AAPL261016P250`): {día: último bid del día (> 0)}} de los últimos `days` días."""
+    async def option_bid_history(self, symbols: Sequence[str], days: int,
+                                 on_progress: Optional[Callable[[int, int, int], None]] = None) -> Mapping[str, Mapping[date, float]]:
+        """{símbolo dxFeed de la opción (`.AAPL261016P250`): {día: último bid del día (> 0)}} de los últimos `days` días.
+        `on_progress(respondidos, total, pasada)` se llama tras cada lote."""
         ...

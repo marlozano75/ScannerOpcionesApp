@@ -60,12 +60,14 @@ def history_params(service, qp) -> dict:
 def history_context(service, qp) -> dict:
     p = history_params(service, qp)
     if not p["profile"]:
-        return dict(h=p, h_counts={}, h_rows=[], h_total=0, h_stored=service.bid_history.count(), h_progress=service.yield_history_progress, h_limit=LIMIT)
+        return dict(h=p, h_counts={}, h_rows=[], h_total=0, h_stored=service.bid_history.count(), h_progress=service.yield_history_progress,
+                    h_result=service.yield_history_result, h_limit=LIMIT)
     verdicts = service.yield_history_report(p["discount"], p["required"], p["months"], p["hits"], p["min_months"], p["liquidity"] or None)
     counts = {s: sum(1 for v in verdicts if v.status == s) for s in (yh.OK, yh.DISCARD, yh.NO_DATA, yh.PENDING)}
     sources = service.ticker_lists()
     rows = sorted((v for v in verdicts if v.status == yh.DISCARD), key=lambda v: (v.best_pct or 0.0, v.ticker))
-    return dict(h=p, h_counts=counts, h_total=len(verdicts), h_stored=service.bid_history.count(), h_progress=service.yield_history_progress, h_limit=LIMIT,
+    return dict(h=p, h_counts=counts, h_total=len(verdicts), h_stored=service.bid_history.count(), h_progress=service.yield_history_progress,
+                h_result=service.yield_history_result, h_limit=LIMIT,
                 h_rows=[(v, tuple(sources.get(v.ticker, ()))) for v in rows[:LIMIT]])
 
 
@@ -90,6 +92,6 @@ def register(app, service, render) -> None:
             msg = "No hay perfiles de puts guardados."
         else:
             service.launch(service.fetch_yield_history(p["discount"], p["months"], p["liquidity"] or None))
-            msg = "Pidiendo los bids a tastytrade en segundo plano: recarga la página para ver el avance."
+            msg = "Pidiendo los bids a tastytrade en segundo plano: el avance se muestra aquí y se actualiza solo."
         keep = {k: v for k, v in qp.items() if k in ("hp", "hm", "hh", "hn", "hl")}
         return RedirectResponse("/scanner/criba?" + urlencode({**keep, "message": msg}) + "#historico", status_code=303)
