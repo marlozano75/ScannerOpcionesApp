@@ -18,8 +18,7 @@ from typing import Callable, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway, chain_origin
 from scanner_opciones.config.settings import (
-    ClosingSettings, InstrumentSettings, RefreshSettings, ScanLogSettings, ScannerPreset, SelectionSettings, Settings, SpreadSettings, StrategySettings,
-    TickerModesSettings,
+    InstrumentSettings, ScanLogSettings, ScannerPreset, Settings, SpreadSettings, StrategySettings,
 )
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.errors import AppError, BrokerDisconnectedError, BrokerError, PriceError, VolatilityError, WatchlistError
@@ -73,14 +72,12 @@ from scanner_opciones.scanner.engine import ScanOutput, run_scan
 from scanner_opciones.scanner.spreads import build_profile_rows
 from scanner_opciones.scanner import cds_profile as cds_profile_mod
 from scanner_opciones.scanner import modes as modes_mod
-from scanner_opciones.scanner import premium as premium_mod
-from scanner_opciones.scanner import selection as selection_mod
 from scanner_opciones.scanner.tech_summary import TechSummarizer, TechSummary
 from scanner_opciones.scanner.impact import ImpactReport, impact_report
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     QualityRepo,
-    BarRepo, ContractRepo, MetaRepo, ModeRepo, PositionDeltaRepo, PremiumRepo, SelectionRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
+    BarRepo, ContractRepo, MetaRepo, ModeRepo, PositionDeltaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 from scanner_opciones.config.settings import CdsSettings
 from scanner_opciones.domain.models import TickerInfo
@@ -152,7 +149,6 @@ PUT_ENTRY_FIT = "put_entry_fit"   # clave de `meta`: estrategia reconocida al ab
 PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido para cada put vendida (JSON {put_key: perfil})
 EXIT_STYLES = "exit_styles"   # clave de `meta`: estilos base de salida propios (JSON, `portfolio/exits.py::dump_custom`)
 MGMT_PROFILES = "mgmt_profiles"   # clave de `meta`: perfiles de GESTIÓN (JSON, `portfolio/mgmt_profiles.py`); vacío = los sembrados (Comunidad/Radar/MTO)
-SELECTION_USER_CONFIG = "selection_user_config"   # clave de `meta`: selección de tickers, liquidez de recompra, cierre y tope de márgenes editados en la aplicación (JSON)
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
 WARM_BARS_CHUNK = 40                               # tickers cuyos cierres se precalientan entre cesiones del turno (~0,2 s)
 SCAN_MEMO_SECONDS = 1800.0                          # vida de las lecturas reutilizadas entre cálculos del Scanner (`_memo`)
@@ -275,11 +271,6 @@ class AppService:
             gateway, self.contracts, self.snapshots, self.ticker_info, settings, now,
             volatility, prices, syncer, self.market,
         )
-        self.premium_repo = PremiumRepo(db)
-        self.selection_repo = SelectionRepo(db)
-        self.refresh_job.warm_tickers = self.warm_tickers      # vacío mientras la selección esté apagada (se puede encender desde la aplicación)
-        self.refresh_job.premium_repo = self.premium_repo
-        self.refresh_job.premium_profiles = self._premium_profiles
         if settings.scanner.ticker_modes.enabled:
             self.refresh_job.mode_resolver = self.resolve_modes
             syncer.modes_provider = self.ticker_modes
@@ -293,8 +284,6 @@ class AppService:
         self.profile_provider: Optional[Callable[[], tuple[list[ScannerProfile], str]]] = None   # lo pone la interfaz web (perfiles guardados o derivados)
         self._yaml_scanner = (settings.scanner.presets, settings.scanner.strategy, settings.scanner.spreads)   # los de config.yaml, para restaurarlos
         self._load_scanner_config()
-        self._yaml_selection = self.selection_config()      # los de config.yaml, para restaurarlos
-        self._load_selection_config()
         self._load_portfolio()
         self._pos_history_running = False
         self._pos_history_tried: dict[str, datetime] = {}      # ticker de una posición → última vez que se pidió su histórico (no se repite cada ciclo)
@@ -2125,198 +2114,8 @@ class AppService:
         """Qué habría que añadir y quitar para que la Watchlist sea la unión de las fuentes. Se quedan los tickers con posiciones abiertas
         (acciones u opciones) y los instrumentos propios (ESTX50...), aunque ninguna fuente los liste."""
         held = {p.ticker.replace(" ", "-") for p in self.state.positions}
-        quarantined = {clean_ticker(t) for t in self.quarantined_tickers()}
-        desired = [t for t in self.ticker_lists() if not self.is_ptp(t) and clean_ticker(t) not in quarantined]
+        desired = [t for t in self.ticker_lists() if not self.is_ptp(t)]
         return sync_plan(desired, self.watchlist.list(), held | set(self.settings.instruments))
-
-    # ---- Selección natural de tickers (`scanner/selection.py`, `scanner.selection`, docs/seleccion-tickers.md) -------------------
-
-    def ticker_selection(self) -> dict[str, dict]:
-        """{ticker: {state, since, reason...}} de la última evaluación; vacío con la selección apagada."""
-        if not self.settings.scanner.selection.enabled:
-            return {}
-        return self.selection_repo.all()
-
-    def quarantined_tickers(self) -> set[str]:
-        return {t for t, r in self.ticker_selection().items() if r["state"] == selection_mod.QUARANTINE}
-
-    def warm_tickers(self) -> set[str]:
-        if not self.settings.scanner.selection.warm_quote_once_a_day:
-            return set()
-        return {t for t, r in self.ticker_selection().items() if r["state"] == selection_mod.WARM}
-
-    def _selection_exempt(self) -> set[str]:
-        """Tickers que nunca se descartan (nombre limpio): posiciones abiertas, instrumentos propios y fuentes de contratos (Comunidad, MarketRadar)."""
-        exempt = {clean_ticker(p.ticker.replace(" ", "-")) for p in self.state.positions}
-        exempt |= {clean_ticker(t) for t in self.settings.instruments}
-        for src in self.universe_sources:
-            if src.kind == "contracts":
-                exempt |= {clean_ticker(r.ticker) for r in src.table.rows}
-        return exempt
-
-    def _selection_targets(self) -> dict:
-        """{perfil: ProfileTarget} de los perfiles cuya prima se registra (más «CDS» si está activo)."""
-        targets = {name: selection_mod.ProfileTarget(c.min_yield_pct, (c.dte_min + c.dte_max) / 2)
-                   for name, c in self.refresh_job.premium_profile_list()}
-        if self.settings.scanner.cds.enabled:
-            targets[premium_mod.CDS_PROFILE] = selection_mod.ProfileTarget(1.0, 1.0)
-        return targets
-
-    MODE_LIQUIDITY_KEYS = ("put_min_option_liquidity", "spread_min_option_liquidity", "cds_min_option_liquidity")
-    CLOSING_KEYS = ("max_spread_pct", "min_oi")
-
-    def selection_config(self) -> dict:
-        """Lo editable de la selección de tickers, tal como está ahora: {selection, ticker_modes, closing, refresh}."""
-        sc = self.settings.scanner
-        return {"selection": sc.selection.model_dump(),
-                "ticker_modes": {k: getattr(sc.ticker_modes, k) for k in self.MODE_LIQUIDITY_KEYS},
-                "closing": {k: getattr(sc.closing, k) for k in self.CLOSING_KEYS},
-                "refresh": {"margin_max_per_cycle": self.settings.refresh.margin_max_per_cycle}}
-
-    def _build_selection_config(self, values: dict) -> tuple:
-        """Valida `values` (parcial o completo) sobre lo actual y devuelve los ajustes nuevos; `ValidationError`/`ValueError` si no valen."""
-        sc = self.settings.scanner
-        return (SelectionSettings(**{**sc.selection.model_dump(), **values.get("selection", {})}),
-                TickerModesSettings(**{**sc.ticker_modes.model_dump(), **values.get("ticker_modes", {})}),
-                ClosingSettings(**{**sc.closing.model_dump(), **values.get("closing", {})}),
-                RefreshSettings(**{**self.settings.refresh.model_dump(), **values.get("refresh", {})}))
-
-    def _apply_selection_config(self, built: tuple) -> None:
-        """Escribe los ajustes en el objeto compartido (son `frozen`, como `_set_scanner_config`): los jobs los ven en la siguiente llamada."""
-        selection, modes, closing, refresh = built
-        object.__setattr__(self.settings.scanner, "selection", selection)
-        object.__setattr__(self.settings.scanner, "ticker_modes", modes)
-        object.__setattr__(self.settings.scanner, "closing", closing)
-        object.__setattr__(self.settings, "refresh", refresh)
-        self._scan_memo.clear()
-
-    def _load_selection_config(self) -> None:
-        raw = self.meta.get(SELECTION_USER_CONFIG)
-        if not raw:
-            return
-        try:
-            data = json.loads(raw)
-            self._apply_selection_config(self._build_selection_config(
-                {sec: {k: v for k, v in (data.get(sec) or {}).items() if k in self._yaml_selection[sec]} for sec in self._yaml_selection}))
-        except Exception:   # una configuración guardada que ya no es válida (cambió el modelo): se usa la de config.yaml
-            log.exception("Configuración guardada de la selección de tickers no válida; se usa la de config.yaml")
-
-    def save_selection_config(self, values: dict) -> None:
-        """Guarda y aplica la configuración (sobrevive a reinicios y manda sobre config.yaml hasta `reset_selection_config`), y reevalúa la selección. Nada se guarda si no es válida."""
-        built = self._build_selection_config(values)
-        self._apply_selection_config(built)
-        self.meta.set(SELECTION_USER_CONFIG, json.dumps(self.selection_config()))
-        self.evaluate_selection()
-
-    def reset_selection_config(self) -> None:
-        self.meta.set(SELECTION_USER_CONFIG, "")
-        self._apply_selection_config(self._build_selection_config(self._yaml_selection))
-        self.evaluate_selection()
-
-    def selection_sources_and_profiles(self) -> tuple[list[str], list[str]]:
-        """Filas (fuentes del Universo) y columnas (perfiles medidos, más CDS si está activo) de la tabla fuente → perfiles."""
-        return sorted({s.name for s in self.universe_sources}), list(self._selection_targets())
-
-    def selection_preview(self, values: dict) -> dict:
-        """Qué pasaría con esta configuración SIN aplicarla: estados de la Watchlist, quién saldría y el efecto en los modos por ticker. `ValidationError`/`ValueError` si no es válida."""
-        rules, modes_rules, _closing, _refresh = self._build_selection_config(values)
-        previous = self.selection_repo.all()
-        states = self._selection_states(rules, previous)
-        history = self.premium_repo.since(self.now().date() - timedelta(days=rules.window_days * 3 + 7))
-        counts = {selection_mod.ACTIVE: 0, selection_mod.WARM: 0, selection_mod.QUARANTINE: 0}
-        for state, _ in states.values():
-            counts[state] += 1
-        exempt = self._selection_exempt()
-        watch = list(self.watchlist.list())
-        quarantine = sorted((t, r) for t, (s, r) in states.items() if s == selection_mod.QUARANTINE)
-        sessions = len({d for days in history.values() for d in days})
-        out = {
-            "enabled": rules.enabled, "total": len(watch), "counts": counts, "sessions": sessions, "needed": rules.min_days,
-            "insufficient": sum(1 for _, r in states.values() if r.startswith("sin historial")),
-            "exempt": sum(1 for t in watch if clean_ticker(t) in exempt),
-            "quarantine": quarantine, "warm": sorted((t, r) for t, (s, r) in states.items() if s == selection_mod.WARM),
-            "sync_on": self.watchlist_sync_mode() == "on",
-            "guard": SyncPlan(remove=tuple(t for t, _ in quarantine)).exceeds_guard(len(watch)),
-            "already": sum(1 for r in previous.values() if r["state"] == selection_mod.QUARANTINE and r["ticker"] not in set(watch)),
-            "modes": None,
-        }
-        if self.settings.scanner.ticker_modes.enabled:
-            infos, cap = self.ticker_info.all(), self.put_price_cap()
-            held = set(self.held_tickers())
-            own = {norm_ticker(t) for t in self.settings.instruments}
-            old_modes = self.ticker_modes_repo.all()
-            new = {t: modes_mod.ALL_ON if norm_ticker(t) in held or norm_ticker(t) in own else modes_mod.evaluate(i, modes_rules, cap, old_modes.get(t))
-                   for t, i in infos.items()}
-            out["modes"] = {"now": tuple(sum(getattr(m, k) for m in old_modes.values()) for k in ("put", "put_spread", "cds")),
-                            "new": tuple(sum(getattr(m, k) for m in new.values()) for k in ("put", "put_spread", "cds")), "total": len(new)}
-        return out
-
-    def _selection_states(self, rules, previous: dict) -> dict[str, tuple[str, str]]:
-        """{ticker de la Watchlist: (estado, motivo)} con las reglas dadas y el historial de primas; no guarda nada (`previous` da la histéresis y `released_at`)."""
-        today = self.now().date()
-        targets = self._selection_targets()
-        history = self.premium_repo.since(today - timedelta(days=rules.window_days * 3 + 7))
-        exempt = self._selection_exempt()
-        sources = self.ticker_lists()
-        by_clean = {clean_ticker(t): t for t in sources}
-        out: dict[str, tuple[str, str]] = {}
-        for t in self.watchlist.list():
-            old = previous.get(t)
-            if clean_ticker(t) in exempt:
-                out[t] = (selection_mod.ACTIVE, "exento (posición abierta, instrumento propio o fuente de contratos)")
-                continue
-            allowed = self._allowed_profiles(sources.get(by_clean.get(clean_ticker(t), t), []), rules)
-            released = old["released_at"] if old else None
-            days = history.get(t, {})
-            ratios = [x for d in sorted(days) if (released is None or d > released)
-                      and (x := selection_mod.day_ratio(days[d], targets, allowed)) is not None]
-            out[t] = selection_mod.evaluate(ratios, rules, old["state"] if old else None)
-        return out
-
-    def evaluate_selection(self) -> dict[str, int]:
-        """Evalúa el estado de cada ticker de la Watchlist con el historial de primas, libera las cuarentenas cumplidas y, si cambia quién está en cuarentena,
-        lanza la sincronización de la Watchlist. Con menos de `min_days` sesiones con medida todo sigue ACTIVO. Devuelve el recuento por estado."""
-        rules = self.settings.scanner.selection
-        if not rules.enabled:
-            return {}
-        now = self.now()
-        today = now.date()
-        previous = self.selection_repo.all()
-        quarantined_before = {t for t, r in previous.items() if r["state"] == selection_mod.QUARANTINE}
-        watch = list(self.watchlist.list())
-        for t, r in previous.items():       # fin de cuarentena: vuelve a la Watchlist y solo cuentan las medidas nuevas
-            if r["state"] == selection_mod.QUARANTINE and (today - date.fromisoformat(r["since"])).days >= rules.quarantine_days:
-                self.selection_repo.save(t, selection_mod.ACTIVE, "fin de la cuarentena: se mide de nuevo", now, released_at=today.isoformat())
-        previous = self.selection_repo.all()
-        counts = {selection_mod.ACTIVE: 0, selection_mod.WARM: 0, selection_mod.QUARANTINE: 0}
-        for t, (state, reason) in self._selection_states(rules, previous).items():
-            old = previous.get(t)
-            counts[state] += 1
-            if old is None or old["state"] != state or old["reason"] != reason:
-                self.selection_repo.save(t, state, reason, now)
-        # los tickers en cuarentena ya no están en la Watchlist: su fila se conserva (lleva la cuenta de los días); las demás desaparecen con el ticker
-        # ... y la de los recién liberados que aún no han vuelto (lleva `released_at`: sin ella se les aplicaría el historial de antes de la cuarentena)
-        recent = (today - timedelta(days=rules.window_days * 3 + 7)).isoformat()
-        keep = set(watch) | {t for t, r in self.selection_repo.all().items()
-                             if r["state"] == selection_mod.QUARANTINE or (r["released_at"] or "") >= recent > ""}
-        self.selection_repo.delete_missing(keep)
-        quarantined_after = self.quarantined_tickers()
-        if quarantined_after != quarantined_before:
-            log.info("Selección de tickers: %d activos, %d templados, %d en cuarentena (%d nuevos, %d liberados)", counts[selection_mod.ACTIVE],
-                     counts[selection_mod.WARM], len(quarantined_after), len(quarantined_after - quarantined_before), len(quarantined_before - quarantined_after))
-            self.sync_watchlist_in_background()
-        return counts
-
-    @staticmethod
-    def _allowed_profiles(source_names, rules) -> Optional[set]:
-        """Perfiles que cuentan para un ticker: la unión de los de sus fuentes; una fuente sin entrada (o vacía) vale para todos."""
-        allowed: set = set()
-        for name in source_names:
-            profiles = rules.source_profiles.get(name)
-            if not profiles:
-                return None
-            allowed |= set(profiles)
-        return allowed or None
 
     def is_ptp(self, ticker: str) -> bool:
         """Publicly Traded Partnership de `watchlist_sync.ptp_tickers`: IBKR no deja operarla sin el permiso de PTP."""
@@ -2375,9 +2174,8 @@ class AppService:
         """Añade a la Watchlist lo que está en las fuentes y quita lo que ya no está en ninguna (salvo posiciones). Una pasada automática que
         quitaría demasiado (`SyncPlan.exceeds_guard`) no se aplica: queda en `wl_sync_held` esperando confirmación."""
         plan = self.watchlist_sync_plan()
-        quarantined = {clean_ticker(t) for t in self.quarantined_tickers()}
-        # un PTP no espera la gracia (no se puede operar) ni un ticker en cuarentena (ya se evaluó durante varias sesiones)
-        ptp = tuple(t for t in plan.remove if self.is_ptp(t) or clean_ticker(t) in quarantined)
+        # un PTP no espera la gracia (no se puede operar)
+        ptp = tuple(t for t in plan.remove if self.is_ptp(t))
         plan = replace(plan, remove=ptp + tuple(t for t in self._absent_long_enough(plan.remove) if t not in ptp))
         if automatic and plan.exceeds_guard(len(self.watchlist.list())):
             self.wl_sync_held = plan
@@ -2683,10 +2481,6 @@ class AppService:
         """Filtros GRABADOS ahora en cada perfil del Scanner: (nombre, criterios de put | None, criterios de spread | None). Son las columnas de
         «filtros cumplidos» de Comunidad y MarketRadar. Los lee la interfaz web (`profile_criteria_provider`); sin ella, lista vacía."""
         return self.profile_criteria_provider() if self.profile_criteria_provider is not None else []
-
-    def _premium_profiles(self) -> list[tuple]:
-        """[(nombre, criterios de put)] de los perfiles guardados con instrumento put, para el historial de primas."""
-        return [(name, put) for name, put, _ in self.profile_specs() if put is not None]
 
     def profile_exits_early(self, name: Optional[str]) -> bool:
         """¿Sale el perfil `name` antes del vencimiento (recoger al X %, revisar a N DTE)? Entonces su yield descuenta también la comisión de cierre.
@@ -3534,7 +3328,6 @@ class AppService:
                     self.state.last_refresh_report = await self.refresh_job.run()
                 self.record_today_prices()
                 self.meta.set(LAST_FULL_REFRESH, self.now().isoformat())
-                self.evaluate_selection()
             except BrokerDisconnectedError as exc:
                 self._disconnected(exc)
                 return False

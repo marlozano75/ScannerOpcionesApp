@@ -45,14 +45,6 @@ scanner:
     # cds_min_iv_rank: null, cds_min_iv_percentile: null (el CDS compra prima: sin mínimo de IV), iv_hysteresis_pts: 5, history: true (una fila por ticker y día)
     # Recompra fácil (liquidez de opciones de tastytrade, 1-4): put_min_option_liquidity: 2 (puts desnudas; sin dato no bloquea), spread_min_option_liquidity: 3, cds_min_option_liquidity: 3
     # gate_catalog: true (un ticker sin el modo que usa un contrato no estrena contratos de ese tipo; los ya guardados se quedan hasta salir de la ventana)
-  selection:               # F2: selección natural de tickers (docs/seleccion-tickers.md). Apagado: la cuarentena QUITA tickers de la Watchlist (con la sincronización con el Universo activa)
-    enabled: false
-    # window_days: 10, min_days: 5 (sesiones con medida mínimas para decidir; antes, todo activo), min_hits: 3 (activo = prima cerrable >= la exigida en 3 de las últimas 10 sesiones)
-    # warm_ratio: 0.6 (templado = casi: >= 60 % de lo exigido en 3 sesiones; se cotiza una vez al día si warm_quote_once_a_day: true), quarantine_days: 14 (luego vuelve y se mide de nuevo)
-    # source_profiles: {}  # {fuente del Universo: [perfiles a los que apunta]}; sin entrada = todos. Ej.: { TastyIVR: [Mensual (TPC)], Comunidad: [CDS] }
-  closing:                 # liquidez de cierre registrada cada día por ticker y perfil en ticker_premium_history (docs/seleccion-tickers.md); solo registra
-    enabled: true
-    # max_spread_pct: 20, min_oi: 50 (un contrato es «cerrable» con bid, spread <= 20 % y OI >= 50), wide_dte_max: 60 (banda ancha de DTE del yield anualizado), keep_days: 180
   spreads:                 # modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior)
     width_options: [1, 2.5, 5, 10, 15, 20]        # anchos que se prueban todos (strike vendido − comprado, en $)
     max_combo_spread_pct: 15                # spread bid/ask del combo (vendida − comprada) máximo, en % del crédito

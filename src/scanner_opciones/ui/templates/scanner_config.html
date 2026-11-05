@@ -137,67 +137,6 @@
       <div class="cfg-actions"><button>Guardar perfiles de gestión</button></div>
     </details>
   </form>
-  <form method="post" action="/scanner/selection">
-    <details class="cfg-sec" id="sel-sec" {% if sel_preview or sel.enabled %}open{% endif %}>
-      <summary>Selección de tickers
-        <span class="cfg-hint" data-tip="Selección de tickers|Decide qué tickers merecen estar en la Watchlist según la prima de contratos que se pueden recomprar, observada varias sesiones. Activo: cumple lo exigido en varias sesiones. Templado: casi (se cotiza una vez al día). Cuarentena: lejos de cumplir (sale de la Watchlist si la sincronización con el Universo está activada). Nunca se decide con menos sesiones de las mínimas." tabindex="0">Watchlist</span></summary>
-      <p class="muted" style="margin:0 0 8px;font-size:13px">La «Vista previa» calcula qué pasaría con estos valores <b>sin aplicar nada</b>.
-        Tickers con posiciones abiertas, instrumentos propios y fuentes de contratos (Comunidad, MarketRadar) nunca se descartan.</p>
-      <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px"><input type="checkbox" name="enabled" {{ 'checked' if sel.enabled }}>
-        <b>Activar la selección</b> <span class="muted">(la cuarentena saca tickers de la Watchlist)</span></label>
-      <div class="cfg-grid">
-        <label>Sesiones de la ventana<input type="text" name="f_window_days" value="{{ sel.window_days }}" inputmode="numeric"></label>
-        <label data-tip="Sesiones mínimas|Con menos sesiones con medida que estas, todos los tickers siguen activos. El historial se acumula solo, una medida por sesión." >Sesiones mínimas para decidir<input type="text" name="f_min_days" value="{{ sel.min_days }}" inputmode="numeric"></label>
-        <label data-tip="Aciertos|Sesiones de la ventana en las que el ticker cumple lo exigido por algún perfil con un contrato que se pueda recomprar.">Aciertos mínimos para ser activo<input type="text" name="f_min_hits" value="{{ sel.min_hits }}" inputmode="numeric"></label>
-        <label data-tip="Templado|Un ticker es templado si, sin llegar a activo, alcanza este % de lo exigido en tantas sesiones como aciertos mínimos.">% de lo exigido para templado<input type="text" name="f_warm_ratio" value="{{ sel.warm_ratio }}" inputmode="decimal"></label>
-        <label data-tip="Cuarentena|Pasados estos días el ticker vuelve a la Watchlist y se mide de nuevo (solo cuentan las medidas posteriores).">Días de cuarentena<input type="text" name="f_quarantine_days" value="{{ sel.quarantine_days }}" inputmode="numeric"></label>
-        <label><input type="checkbox" name="warm_once" {{ 'checked' if sel.warm_once }}> Templados: cotizar una vez al día</label>
-      </div>
-      <h4 style="margin:14px 0 6px">Recompra fácil <span class="cfg-hint">(se cierra en días o semanas)</span></h4>
-      <div class="cfg-grid">
-        <label data-tip="Liquidez|Escala de tastytrade 1–4 (liquidez de las opciones del ticker). Un ticker por debajo no tiene ese modo{{ '' if sel_modes_on else ' (los modos por ticker están apagados en config.yaml: no tiene efecto)' }}.">Liquidez mín. puts desnudas<input type="text" name="f_put_min_option_liquidity" value="{{ sel.put_min_option_liquidity }}" inputmode="numeric"></label>
-        <label>Liquidez mín. spreads de puts<input type="text" name="f_spread_min_option_liquidity" value="{{ sel.spread_min_option_liquidity }}" inputmode="numeric"></label>
-        <label>Liquidez mín. CDS<input type="text" name="f_cds_min_option_liquidity" value="{{ sel.cds_min_option_liquidity }}" inputmode="numeric"></label>
-        <label data-tip="Contrato cerrable|Un contrato se puede recomprar fácil si tiene bid, spread bid/ask hasta este máximo y OI al menos el mínimo. Solo afecta a las medidas que se registren a partir de ahora.">Spread máx. para cerrar (%)<input type="text" name="f_max_spread_pct" value="{{ sel.max_spread_pct }}" inputmode="decimal"></label>
-        <label>OI mín. para cerrar<input type="text" name="f_min_oi" value="{{ sel.min_oi }}" inputmode="numeric"></label>
-        <label data-tip="Márgenes|Cada what-if de margen cuesta ~0,3 s. Tope de márgenes nuevos por ciclo; los de mayor yield se piden primero y el resto en los ciclos siguientes. 0 = sin tope.">Márgenes nuevos por ciclo<input type="text" name="f_margin_max_per_cycle" value="{{ sel.margin_max_per_cycle }}" inputmode="numeric"></label>
-      </div>
-      <h4 style="margin:14px 0 6px">Perfiles a los que apunta cada fuente <span class="cfg-hint">(sin ninguno marcado: todos)</span></h4>
-      <div class="cfg-tbl-wrap"><table class="cfg-pre">
-        <thead><tr><th>Fuente</th>{% for p in sel_profiles %}<th class="c">{{ p }}</th>{% endfor %}</tr></thead>
-        <tbody>{% for s in sel_sources %}{% set i = loop.index0 %}
-          <tr><td>{{ s }}</td>{% for p in sel_profiles %}<td class="c"><input type="checkbox" name="sp_{{ i }}_{{ loop.index0 }}" {{ 'checked' if p in sel_map.get(s, []) }}></td>{% endfor %}</tr>
-        {% endfor %}</tbody>
-      </table></div>
-
-      {% if sel_preview %}{% set pv = sel_preview %}
-      <div class="banner info" style="margin-top:14px;width:fit-content;max-width:100%;box-sizing:border-box">
-        <b>Vista previa</b> (no se ha aplicado nada): de {{ pv.total }} tickers de la Watchlist,
-        <b>{{ pv.counts.active }} activos</b>, <b>{{ pv.counts.warm }} templados</b> y <b>{{ pv.counts.quarantine }} en cuarentena</b>
-        ({{ pv.exempt }} exentos{% if pv.already %}; {{ pv.already }} ya están fuera por una cuarentena anterior{% endif %}).
-        {% if not pv.enabled %}<br>La selección está <b>desactivada</b>: así quedaría, pero no se aplicaría.{% endif %}
-        <br>Historial: {{ pv.sessions }} sesiones con medida; hacen falta {{ pv.needed }} para decidir{% if pv.insufficient %}, y {{ pv.insufficient }} tickers siguen activos por falta de historial{% endif %}.
-        {% if pv.sessions < pv.needed %}<br><b>Todavía no hay historial suficiente: nada se descartaría.</b> El historial se acumula solo con los refrescos de mercado.{% endif %}
-        {% if pv.quarantine and pv.enabled and not pv.sync_on %}<br>La sincronización con el Universo no está activada: la cuarentena se anotaría pero no quitaría nada de la Watchlist.{% endif %}
-        {% if pv.quarantine and pv.enabled and pv.sync_on %}<br>Saldrían de la Watchlist <b>{{ pv.quarantine|length }}</b> tickers{% if pv.guard %} (más de lo permitido en una pasada automática: la sincronización pedirá confirmación en el Universo){% endif %}.{% endif %}
-        {% if pv.modes %}<br>Modos por ticker (de {{ pv.modes.total }}): puts {{ pv.modes.now[0] }} → <b>{{ pv.modes.new[0] }}</b>, spreads de puts {{ pv.modes.now[1] }} → <b>{{ pv.modes.new[1] }}</b>, CDS {{ pv.modes.now[2] }} → <b>{{ pv.modes.new[2] }}</b>.{% endif %}
-      </div>
-      {% if pv.quarantine %}<details style="margin-top:6px"><summary class="muted">En cuarentena ({{ pv.quarantine|length }})</summary>
-        <div class="cfg-tbl-wrap" style="max-height:240px;overflow:auto"><table class="cfg-pre"><tbody>{% for t, why in pv.quarantine[:300] %}<tr><td>{{ t }}</td><td class="muted">{{ why }}</td></tr>{% endfor %}</tbody></table></div>
-        {% if pv.quarantine|length > 300 %}<p class="muted">… y {{ pv.quarantine|length - 300 }} más.</p>{% endif %}</details>{% endif %}
-      {% if pv.warm %}<details style="margin-top:6px"><summary class="muted">Templados ({{ pv.warm|length }})</summary>
-        <div class="cfg-tbl-wrap" style="max-height:240px;overflow:auto"><table class="cfg-pre"><tbody>{% for t, why in pv.warm[:300] %}<tr><td>{{ t }}</td><td class="muted">{{ why }}</td></tr>{% endfor %}</tbody></table></div></details>{% endif %}
-      {% endif %}
-
-      <div class="cfg-actions">
-        {% if sel_confirm %}<input type="hidden" name="confirm" value="1">{% endif %}
-        <button type="submit" name="action" value="preview" class="secondary">Vista previa</button>
-        <button type="submit" name="action" value="save">{{ 'Confirmar y guardar' if sel_confirm else 'Guardar' }}</button>
-        <button type="submit" name="action" value="reset" formnovalidate class="secondary"
-          onclick="return confirmClick(this, '¿Volver a los valores de config.yaml?')" {{ '' if sel_edited else 'disabled' }}>Restaurar los de config.yaml</button>
-      </div>
-    </details>
-  </form>
   <form method="post" action="/scanner/config">
     <details class="cfg-sec">
       <summary>Aviso del VIX

@@ -555,39 +555,6 @@ class TickerModesSettings(_Model):
     history: bool = True                                 # una fila por ticker y día en `ticker_mode_history`
 
 
-class ClosingSettings(_Model):
-    """Liquidez de cierre (recompra fácil), registrada cada día por ticker y perfil en `ticker_premium_history` (docs/seleccion-tickers.md).
-    Un contrato es «cerrable» si tiene bid, spread bid/ask ≤ `max_spread_pct` y OI ≥ `min_oi`. Solo registra: no filtra nada por sí solo."""
-    enabled: bool = True
-    max_spread_pct: float = Field(20, gt=0)
-    min_oi: int = Field(50, ge=0)
-    wide_dte_max: int = Field(60, ge=1)      # banda ancha de DTE (1…este valor) con el mismo descuento: no depende de qué vencimientos caen en la ventana hoy
-    keep_days: int = Field(180, ge=1)
-
-
-class SelectionSettings(_Model):
-    """Selección natural de tickers (F2, docs/seleccion-tickers.md). Apagado por defecto: la cuarentena QUITA tickers de la Watchlist (si la sincronización con el
-    Universo está activada). Se decide con el historial de primas de contratos cerrables (`ticker_premium_history`) y nunca con menos de `min_days` sesiones.
-    ACTIVO cumple algún perfil en ≥ `min_hits` de las últimas `window_days` sesiones; TEMPLADO casi (≥ `warm_ratio` de lo exigido): se queda en la Watchlist y se
-    cotiza una vez al día; CUARENTENA lo demás. Exentos: posiciones abiertas, instrumentos propios y fuentes de contratos (Comunidad, MarketRadar)."""
-    enabled: bool = False
-    window_days: int = Field(10, ge=1)
-    min_days: int = Field(5, ge=1)
-    min_hits: int = Field(3, ge=1)
-    warm_ratio: float = Field(0.6, gt=0, lt=1)
-    quarantine_days: int = Field(14, ge=1)       # pasado este tiempo vuelve a la Watchlist y se mide de nuevo (hasta que F3 lo reevalúe sin cotizar el catálogo)
-    warm_quote_once_a_day: bool = True
-    # {fuente del Universo: [perfiles a los que apunta]}. Los perfiles permitidos de un ticker son la unión de los de sus fuentes; una fuente sin entrada, o con lista
-    # vacía, vale para todos los perfiles. «CDS» es el perfil de las calls del Call Debit Spread.
-    source_profiles: dict[str, list[str]] = {}
-
-    @model_validator(mode="after")
-    def _check(self) -> "SelectionSettings":
-        if self.min_days > self.window_days or self.min_hits > self.window_days:
-            raise ValueError("min_days y min_hits no pueden superar window_days")
-        return self
-
-
 class CdsSettings(_Model):
     """Call Debit Spread muy OTM (MTO; ver docs/mto-spreads.md): call comprada lejos del dinero + call vendida más arriba, DTE largo.
     Son valores del análisis del logbook (muestras pequeñas), editables."""
@@ -656,8 +623,6 @@ class ScannerSettings(_Model):
     spreads: SpreadSettings = SpreadSettings()
     cds: CdsSettings = CdsSettings()
     ticker_modes: TickerModesSettings = TickerModesSettings()
-    closing: ClosingSettings = ClosingSettings()
-    selection: SelectionSettings = SelectionSettings()
 
     @property
     def catalog(self) -> CandidateRange:

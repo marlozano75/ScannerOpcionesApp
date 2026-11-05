@@ -407,6 +407,11 @@ MIGRATIONS: list[str] = [
         released_at TEXT
     );
     """,
+    # v40: se retiran el historial de primas (F1) y el estado de selección (F2) de docs/seleccion-tickers.md: ya no se usan
+    """
+    DROP TABLE IF EXISTS ticker_premium_history;
+    DROP TABLE IF EXISTS ticker_selection;
+    """,
 ]
 
 

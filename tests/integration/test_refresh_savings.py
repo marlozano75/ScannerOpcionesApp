@@ -1,12 +1,8 @@
-"""Selección de tickers, fases F0 y F1 (docs/seleccion-tickers.md): tope de márgenes por ciclo, catálogo limitado por los modos
-y registro diario de prima y liquidez de cierre."""
-from datetime import timedelta
+"""Ahorro del refresco (F0 de docs/seleccion-tickers.md): tope de márgenes por ciclo y catálogo limitado por los modos."""
 
-import pytest
 
 from scanner_opciones.domain.models import OptionQuote
 from scanner_opciones.scanner.modes import ALL_ON, TickerModes
-from scanner_opciones.storage.repositories import PremiumRepo
 from tests.integration.test_jobs import NOW, TODAY, Env, _prepare_refresh
 
 
@@ -61,41 +57,3 @@ async def test_catalog_keeps_what_is_already_stored_when_the_mode_turns_off():
     assert len(env.contracts.list("AAPL")) == 2                              # un modo que oscila no obliga a cualificar de nuevo
 
 
-async def test_premium_history_records_best_yield_and_closing_liquidity_per_profile():
-    env = Env()
-    c75, c80 = await _prepare_refresh(env)
-    env.refresh.premium_repo = repo = PremiumRepo(env.db)
-    await env.refresh.run()
-    rows = {r["profile"]: r for r in repo.history("AAPL")}
-    assert set(rows) == {"Inicial", "Estrategia"}
-    r = rows["Inicial"]
-    assert r["day"] == TODAY.isoformat() and r["contracts"] == 2
-    assert r["closable"] == 1                                                # el de 80 $: spread 40 % y OI 50 → no se recompra fácil
-    assert r["best_yield_pct"] == pytest.approx((1.0 + 0.25 * 0.2) / 75 * 100)
-    assert r["best_closable_yield_pct"] == pytest.approx(r["best_yield_pct"])
-    assert r["max_oi"] == 300 and r["best_ann_wide_pct"] == pytest.approx(r["best_yield_pct"] * 365 / 30)
-    await env.refresh.run()
-    assert len(repo.history("AAPL", "Inicial")) == 1                         # una fila por ticker, perfil y día
-
-
-async def test_premium_history_is_skipped_for_partial_runs():
-    env = Env()
-    await _prepare_refresh(env)
-    env.refresh.premium_repo = repo = PremiumRepo(env.db)
-    await env.refresh.run(tickers={"AAPL"})
-    assert repo.history("AAPL") == []
-
-
-async def test_warm_tickers_are_quoted_once_a_day():
-    env = Env()
-    await _prepare_refresh(env)
-    env.refresh.warm_tickers = lambda: {"AAPL"}
-    first = await env.refresh.run()
-    assert first.in_scope == 2 and first.warm_skipped == 0                  # aún sin cotizar hoy: se cotiza
-    second = await env.refresh.run()
-    assert second.in_scope == 0 and second.warm_skipped == 2                # ya cotizado hoy: este ciclo se salta
-    env.clock = NOW + timedelta(days=1)
-    third = await env.refresh.run()
-    assert third.in_scope == 2                                              # al día siguiente vuelve a tocar
-    env.refresh.warm_tickers = None
-    assert (await env.refresh.run()).in_scope == 2                          # sin selección, todos los ciclos
