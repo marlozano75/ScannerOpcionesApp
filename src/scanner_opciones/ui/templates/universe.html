@@ -170,6 +170,9 @@
       <label class="qf" title="Pasivo / patrimonio máximo">Pasivo/Patr.
         <select name="q_lev" id="q_lev"><option value="">—</option>
           {% for v in quality_opts.leverage %}<option value="{{ v }}" {{ 'selected' if qform.q_lev == v }}>≤ {{ v }}</option>{% endfor %}</select></label>
+      <label class="qf" title="Liquidez de las opciones del ticker según tastytrade (1 = baja, 4 = alta). Un ticker sin dato no pasa. Los instrumentos de TWS (ESTX50…) no se miden">Liq. opc.
+        <select name="q_liq" id="q_liq"><option value="">—</option>
+          {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if qform.q_liq == n|string }}>≥ {{ n }}</option>{% endfor %}</select></label>
       <span class="qsep"></span>
       {% set short = {'q_de': 'Deuda/Patr.', 'q_cov': 'Cobertura int.', 'q_cash': 'Efectivo/Deuda CP', 'q_ocfd': 'Flujo op./Deuda', 'q_capex': 'CapEx/Flujo op.', 'q_fcfa': 'FCF/Activos', 'q_bb': 'Recompra neta', 'q_roic': 'ROIC', 'q_loss': 'Años con pérdidas', 'q_revdrop': 'Caídas de ingresos', 'q_evol': 'Volat. beneficios'} %}
       {% for f in solvency %}

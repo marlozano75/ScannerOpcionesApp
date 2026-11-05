@@ -11,7 +11,7 @@ import asyncio
 import logging
 import re
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Optional, Sequence
 
 from scanner_opciones.domain.errors import CandleError, OptionDataError, PriceError, VolatilityError
@@ -45,6 +45,10 @@ EARNINGS_LOOKBACK_DAYS = 500      # para tener al menos 4 trimestres reportados
 VixFetch = Callable[[int, int], Awaitable[VixData]]   # días de cierres, futuros por delante
 ChainFetch = Callable[[str], Awaitable[OptionListing]]                            # símbolo de tastytrade -> puts existentes
 OptionQuotesFetch = Callable[[Sequence[str]], Awaitable[dict[str, OptionQuote]]]  # símbolos DXLink -> cotizaciones
+OptionHistoryFetch = Callable[[Sequence[str], int], Awaitable[dict[str, dict[date, float]]]]   # símbolos de opciones, días -> {símbolo: {día: bid}}
+OPTION_HISTORY_BATCH = 50         # velas de bid por lote (una conexión nueva por lote: acumular suscripciones de velas hace que tastytrade corte)
+OPTION_HISTORY_TIMEOUT = 12.0     # segundos de espera por lote
+OPTION_HISTORY_PASSES = 3         # pasadas: tastytrade a veces no responde a un lote entero y sí al repetirlo
 
 
 def quiet_sdk_logging(level: int) -> None:
@@ -139,6 +143,7 @@ class TastytradeVolatility:
         fetch_chain: Optional[ChainFetch] = None, fetch_option_quotes: Optional[OptionQuotesFetch] = None,
         fetch_call_chain: Optional[ChainFetch] = None,
         fetch_vix: Optional[VixFetch] = None, fetch_earnings: Optional[EarningsFetch] = None,
+        fetch_option_history: Optional[OptionHistoryFetch] = None,
         quote_wait: float = 20.0, settle: float = 3.0, option_batch_size: int = 400,
     ) -> None:
         self._client_secret = client_secret
@@ -154,6 +159,7 @@ class TastytradeVolatility:
         self._vx_cache: Optional[tuple[float, list[tuple[date, str]]]] = None   # futuros VX (vencimiento, símbolo): la lista cambia una vez al mes
         self._fetch_option_quotes = fetch_option_quotes or self._sdk_fetch_option_quotes
         self._fetch_vix = fetch_vix or self._sdk_fetch_vix
+        self._fetch_option_history = fetch_option_history or self._sdk_fetch_option_bids
         self._fetch_earnings = fetch_earnings or self._sdk_fetch_earnings
         self._quote_wait, self._settle, self._option_batch = quote_wait, settle, option_batch_size
         self._session: Any = None
@@ -260,6 +266,65 @@ class TastytradeVolatility:
                         out[sym] = [(datetime.fromtimestamp(ms / 1000).date(), *v) for ms, v in sorted(bars[sym].items())]
                 unanswered.extend(sorted(pending))
         return out, unanswered
+
+    async def option_bid_history(self, symbols: Sequence[str], days: int) -> dict[str, dict[date, float]]:
+        """`OptionHistoryProvider`: último bid de cada día de las opciones `symbols` (símbolos dxFeed, también de contratos ya vencidos). Solo vuelven los
+        que respondieron; los que no tuvieron ninguna vela con bid vuelven con la serie vacía."""
+        try:
+            return await self._fetch_option_history(list(symbols), days)
+        except Exception as exc:  # noqa: BLE001
+            raise OptionDataError(f"tastytrade: no se pudo leer el histórico de bids: {exc}") from exc
+
+    async def _sdk_fetch_option_bids(self, symbols: Sequence[str], days: int) -> dict[str, dict[date, float]]:
+        """Velas diarias `price=bid` por DXLink: lotes de `OPTION_HISTORY_BATCH`, cada uno con su conexión, y hasta `OPTION_HISTORY_PASSES` pasadas con los que
+        no responden. El día de una vela es su fecha UTC."""
+        from tastytrade.dxfeed import Candle
+        from tastytrade.streamer import DXLinkStreamer
+
+        session = self._open_session()
+        start = datetime.now() - timedelta(days=days)
+        out: dict[str, dict[date, float]] = {}
+        todo = list(dict.fromkeys(symbols))
+        for attempt in range(OPTION_HISTORY_PASSES):
+            if not todo:
+                break
+            answered: set[str] = set()
+            for i in range(0, len(todo), OPTION_HISTORY_BATCH):
+                batch = todo[i:i + OPTION_HISTORY_BATCH]
+                pending = set(batch)
+                series: dict[str, dict[date, float]] = {s: {} for s in batch}
+                try:
+                    async with DXLinkStreamer(session) as streamer:
+                        await streamer.subscribe_candle(batch, "1d,price=bid", start_time=start)
+
+                        async def read() -> None:
+                            async for c in streamer.listen(Candle):
+                                sym = c.event_symbol.split("{")[0]
+                                if sym not in series:
+                                    continue
+                                try:
+                                    bid = float(c.close)
+                                except (TypeError, ValueError):
+                                    bid = 0.0
+                                if bid > 0 and bid == bid:
+                                    series[sym][datetime.fromtimestamp(c.time / 1000, timezone.utc).date()] = bid
+                                if c.snapshot_end:
+                                    pending.discard(sym)
+                                    if not pending:
+                                        return
+                        try:
+                            await asyncio.wait_for(read(), timeout=OPTION_HISTORY_TIMEOUT)
+                        except asyncio.TimeoutError:
+                            pass
+                except Exception as exc:  # noqa: BLE001 - una conexión caída solo deja ese lote para la pasada siguiente
+                    log.info("Histórico de bids: lote sin respuesta (%s)", type(exc).__name__)
+                for sym in batch:
+                    if sym not in pending:
+                        out[sym] = series[sym]
+                        answered.add(sym)
+            todo = [s for s in todo if s not in answered]
+            log.info("Histórico de bids, pasada %d: %d símbolos sin respuesta", attempt + 1, len(todo))
+        return out
 
     async def _sdk_fetch_chain(self, symbol: str) -> OptionListing:
         return await self._sdk_fetch_listing(symbol, "PUT")

@@ -77,7 +77,7 @@ from scanner_opciones.scanner.impact import ImpactReport, impact_report
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
     QualityRepo,
-    BarRepo, ContractRepo, MetaRepo, ModeRepo, PositionDeltaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
+    BarRepo, BidHistoryRepo, ContractRepo, MetaRepo, ModeRepo, PositionDeltaRepo, SnapshotRepo, TickerInfoRepo, WatchlistRepo,
 )
 from scanner_opciones.config.settings import CdsSettings
 from scanner_opciones.domain.models import TickerInfo
@@ -96,6 +96,8 @@ from scanner_opciones.marketdata.quality_card import quality_html, quality_text
 from scanner_opciones.marketdata.fundamentals import FundamentalsProvider
 from scanner_opciones.marketdata.names import CompanyNameProvider
 from scanner_opciones.marketdata.candles import CandleProvider
+from scanner_opciones.marketdata.option_history import OptionHistoryProvider
+from scanner_opciones.scanner import yield_history as yh
 from scanner_opciones.marketdata.prices import PriceProvider
 from scanner_opciones.marketdata.volatility import VolatilityProvider
 from scanner_opciones.marketdata.watchlists import WatchlistProvider
@@ -232,8 +234,11 @@ class AppService:
         earnings_history: Optional[EarningsHistoryProvider] = None,
         dividends: Optional[DividendProvider] = None,
         fx: Optional[FxProvider] = None,
+        option_history: Optional[OptionHistoryProvider] = None,
     ) -> None:
         self.prices = prices                      # precios de tastytrade: también los de premercado
+        self.option_history = option_history      # bid histórico de opciones (velas de tastytrade): informe «Criba teórica»
+        self.yield_history_progress: Optional[str] = None   # texto de avance mientras se piden los bids históricos (None = parado)
         self.fx = fx                              # respaldo online (Yahoo) del tipo de cambio de la moneda base si IBKR no lo da
         self._db_path = str(getattr(db, "path", ":memory:"))
         self.gateway = gateway
@@ -274,6 +279,7 @@ class AppService:
         if settings.scanner.ticker_modes.enabled:
             self.refresh_job.mode_resolver = self.resolve_modes
             syncer.modes_provider = self.ticker_modes
+        self.bid_history = BidHistoryRepo(db)
         self.refresh_job.owned_puts = self.owned_short_puts
         self.refresh_job.ratio_store = (lambda: self.meta.get("margin_ratios") or "", lambda s: self.meta.set("margin_ratios", s))
         self.state = AppState()
@@ -2116,6 +2122,103 @@ class AppService:
         held = {p.ticker.replace(" ", "-") for p in self.state.positions}
         desired = [t for t in self.ticker_lists() if not self.is_ptp(t)]
         return sync_plan(desired, self.watchlist.list(), held | set(self.settings.instruments))
+
+    # ---- Rentabilidad real a 30 días (informe «Criba teórica», paso de velas; scanner/yield_history.py, docs/seleccion-tickers.md) ------------
+
+    YIELD_HISTORY_DTE = 30
+    YIELD_HISTORY_CHUNK = 1000        # símbolos por tramo: se guarda al acabar cada uno, así un corte no pierde lo ya pedido
+
+    def yield_history_universe(self, liquidity_min: Optional[int]) -> list[str]:
+        """Tickers de las fuentes del Universo que se pueden consultar (sin clases de acciones) y, si se pide, con liquidez de opciones ≥ `liquidity_min`
+        (sin dato de liquidez no pasa)."""
+        quality = self.quality.all()
+        out = []
+        for ticker in self.ticker_lists():
+            if yh.dx_root(ticker) is None:
+                continue
+            if liquidity_min:
+                info = quality.get(ticker)
+                if info is None or info.option_liquidity is None or info.option_liquidity < liquidity_min:
+                    continue
+            out.append(ticker)
+        return out
+
+    def _yield_history_plan(self, tickers: Sequence[str], discount_pct: float, months: int) -> list[tuple]:
+        """[(ticker, vencimiento, strike, día de referencia, precio ese día)] de todos los strikes candidatos de los últimos `months` vencimientos."""
+        today = self.now().date()
+        expiries = yh.past_monthly_expiries(today, months)
+        plan = []
+        for ticker in tickers:
+            closes = self.bars.closes(norm_ticker(ticker))
+            days = sorted(closes)
+            if not days:
+                continue
+            for expiry in expiries:
+                ref = yh.reference_day(expiry, self.YIELD_HISTORY_DTE, days)
+                if ref is None:
+                    continue
+                price = closes[ref]
+                for strike in yh.candidate_strikes(price, discount_pct):
+                    plan.append((ticker, expiry, strike, ref, price))
+        return plan
+
+    async def fetch_yield_history(self, discount_pct: float, months: int, liquidity_min: Optional[int]) -> int:
+        """Pide a tastytrade el bid histórico de los strikes que aún no están guardados y los guarda. Devuelve cuántos contratos nuevos se guardaron.
+        Se puede repetir: lo ya guardado no se vuelve a pedir y lo que no respondió se intenta de nuevo."""
+        if self.option_history is None:
+            raise AppError("Sin proveedor de histórico de opciones (hace falta tastytrade).")
+        if self.yield_history_progress is not None:
+            return 0
+        self.yield_history_progress = "Preparando…"
+        saved = 0
+        try:
+            tickers = self.yield_history_universe(liquidity_min)
+            stored = self.bid_history.all()
+            todo = [p for p in self._yield_history_plan(tickers, discount_pct, months) if (p[0], p[1], round(p[2], 4)) not in stored]
+            if not todo:
+                return 0
+            by_symbol = {}
+            for t, e, k, ref, _ in todo:
+                by_symbol[yh.option_symbol(yh.dx_root(t), e, k)] = (t, e, k, ref)
+            symbols = list(by_symbol)
+            days = (self.now().date() - min(v[3] for v in by_symbol.values())).days + yh.DAY_TOLERANCE + 2
+            for i in range(0, len(symbols), self.YIELD_HISTORY_CHUNK):
+                chunk = symbols[i:i + self.YIELD_HISTORY_CHUNK]
+                self.yield_history_progress = f"Pidiendo bids a tastytrade: {i}/{len(symbols)} contratos ({len(tickers)} tickers)"
+                got = await self.option_history.option_bid_history(chunk, days)
+                rows = []
+                for sym, series in got.items():
+                    t, e, k, ref = by_symbol[sym]
+                    rows.append((t, e, k, ref, yh.pick_bid(series, ref)))
+                saved += self.bid_history.save(rows, self.now())
+            log.info("Histórico de bids: %d contratos guardados de %d pedidos", saved, len(symbols))
+            return saved
+        finally:
+            self.yield_history_progress = None
+
+    def yield_history_report(self, discount_pct: float, required_pct: float, months: int, min_hits: int, min_months: int,
+                             liquidity_min: Optional[int]) -> list:
+        """Veredicto (`yield_history.Verdict`) de cada ticker de la lista con los bids ya guardados; no pide nada."""
+        tickers = self.yield_history_universe(liquidity_min)
+        stored = self.bid_history.all()
+        expiries = yh.past_monthly_expiries(self.now().date(), months)
+        out = []
+        for ticker in tickers:
+            closes = self.bars.closes(norm_ticker(ticker))
+            days = sorted(closes)
+            built = []
+            for expiry in expiries:
+                ref = yh.reference_day(expiry, self.YIELD_HISTORY_DTE, days) if days else None
+                if ref is None:
+                    continue
+                price = closes[ref]
+                strikes = yh.candidate_strikes(price, discount_pct)
+                keys = [(ticker, expiry, round(k, 4)) for k in strikes]
+                pending = any(key not in stored for key in keys)
+                yields = [stored[key] / key[2] * 100 for key in keys if stored.get(key)]
+                built.append(yh.Month(expiry, ref, price, max(yields) if yields else None, pending))
+            out.append(yh.judge(ticker, built, required_pct, min_hits, min_months))
+        return out
 
     def is_ptp(self, ticker: str) -> bool:
         """Publicly Traded Partnership de `watchlist_sync.ptp_tickers`: IBKR no deja operarla sin el permiso de PTP."""

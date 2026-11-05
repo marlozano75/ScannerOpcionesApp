@@ -38,7 +38,7 @@
   <h2>Perfiles de escaneo y fuentes de contratos</h2>
   <p class="cfg-lead muted">
     <span data-tip="Perfiles|Cada perfil guarda todos los filtros del Scanner. Aquí solo se gestionan los perfiles: los filtros se editan en el Scanner y se guardan con «💾 Guardar en perfil». Cargar un perfil reemplaza el formulario entero." tabindex="0">ⓘ Cada perfil guarda todos los filtros</span>
-    <a href="/scanner">← Volver al Scanner</a></p>
+    <a href="/scanner">← Volver al Scanner</a> · <a href="/scanner/criba" title="Informe: tickers que, con su precio y su IV, no podrían llegar al yield mínimo de ningún perfil de puts">Criba teórica de tickers</a></p>
   {% if ok %}<div class="banner ok">{{ ok }}</div>{% endif %}
   {% if error %}<div class="banner err">{{ error }}</div>{% endif %}
   {% for g in gap %}<div class="banner info">Aviso: {{ g }}: solo se escanean los contratos guardados, amplía <code>scanner.candidates</code> en config.yaml.</div>{% endfor %}

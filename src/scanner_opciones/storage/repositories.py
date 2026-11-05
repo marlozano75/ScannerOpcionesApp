@@ -101,6 +101,29 @@ class ModeRepo:
         return len(rows)
 
 
+class BidHistoryRepo:
+    """Bid de cierre de puts ya vencidas, a ~30 días del vencimiento (`scanner/yield_history.py`). No altera lo que escanea el Scanner."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def save(self, rows: Iterable[tuple], at: datetime) -> int:
+        """Filas (ticker, vencimiento, strike, día de referencia, bid | None). Reescribe las que ya estaban."""
+        data = [(t, e.isoformat(), round(float(k), 4), d.isoformat(), b, at.isoformat(timespec="seconds")) for t, e, k, d, b in rows]
+        before = self.db.conn.total_changes
+        with self.db.conn:
+            self.db.conn.executemany("INSERT OR REPLACE INTO option_bid_history (ticker, expiry, strike, ref_day, bid, fetched_at) VALUES (?,?,?,?,?,?)", data)
+        self.db.quiet_changes += self.db.conn.total_changes - before
+        return len(data)
+
+    def all(self) -> dict[tuple[str, date, float], Optional[float]]:
+        """{(ticker, vencimiento, strike): bid o None}."""
+        return {(t, date.fromisoformat(e), k): b for t, e, k, b in self.db.conn.execute("SELECT ticker, expiry, strike, bid FROM option_bid_history")}
+
+    def count(self) -> int:
+        return self.db.conn.execute("SELECT COUNT(*) FROM option_bid_history").fetchone()[0]
+
+
 class PositionDeltaRepo:
     """Histórico de la |delta| real de las puts vendidas de la cartera. Cada medida lleva el precio del subyacente de ese momento: sin él no se
     puede saber si la delta guardada sigue valiendo. No altera lo que escanea el Scanner (sus escrituras no invalidan sus cachés)."""

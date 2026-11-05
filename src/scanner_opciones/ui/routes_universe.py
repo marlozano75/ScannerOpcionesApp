@@ -57,7 +57,7 @@ def register(app, service, render, recall, remembered) -> None:
         base = service.criteria()
         form, overrides, filter_error = quality_form(base), {}, None
         try:
-            read_quality(request.query_params, form, overrides, qcfg, earnings=False, liquidity=False, solvency=True)
+            read_quality(request.query_params, form, overrides, qcfg, earnings=False, liquidity=True, solvency=True)
         except ValueError as exc:
             form, overrides, filter_error = quality_form(base), {}, f"Filtro no válido: {exc}"
         criteria = base.with_filters(**overrides)
@@ -109,7 +109,7 @@ def register(app, service, render, recall, remembered) -> None:
                       renamable=bool(current) and service.is_renamable_source(current.name),
                       total_rows=total_rows, qform=form, filter_error=filter_error, n_active=n_active, q_presets=q_presets,
                       solvency=solvency_controls(qcfg, form), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
-                      quality_opts=dict(quarters=qcfg.positive_quarters_options,
+                      quality_opts=dict(quarters=qcfg.positive_quarters_options, liquidity=qcfg.liquidity_options,
                                         leverage=[_fmt(v) for v in qcfg.leverage_options]))
 
     @app.get("/universe/chart", response_class=HTMLResponse)

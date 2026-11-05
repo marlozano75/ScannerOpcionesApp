@@ -398,3 +398,20 @@ async def test_concurrent_requests_for_the_same_ticker_share_one_fetch():
     gw, _, _ = build_stored(None, None, provider=prov)
     await asyncio.gather(gw._listing("AAPL"), gw._call_listing("AAPL"), gw._listing("AAPL"))
     assert len([c for c in prov.calls if c[0] == "get_option_listings"]) == 1
+
+
+async def test_option_bid_history_returns_what_the_sdk_answered_and_wraps_failures():
+    from datetime import date
+
+    async def fake(symbols, days):
+        assert days == 40
+        return {s: {date(2026, 9, 16): 1.1} for s in symbols}
+
+    got = await provider_with(fetch_option_history=fake).option_bid_history([".AAPL261016P250"], 40)
+    assert got == {".AAPL261016P250": {date(2026, 9, 16): 1.1}}
+
+    async def boom(*a):
+        raise RuntimeError("sin red")
+
+    with pytest.raises(OptionDataError):
+        await provider_with(fetch_option_history=boom).option_bid_history([".AAPL261016P250"], 40)

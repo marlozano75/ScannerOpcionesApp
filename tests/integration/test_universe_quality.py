@@ -127,10 +127,14 @@ def test_invalid_filter_values_are_rejected(client_and_service):
             passing(svc, f"q_profit=on&{bad}")
 
 
-def test_option_liquidity_and_earnings_filters_stay_in_the_scanner(client_and_service):
+def test_option_liquidity_is_a_universe_filter_and_earnings_stay_in_the_scanner(client_and_service):
     client, svc = setup(client_and_service)
-    assert "<th>Liq. opc.</th>" in client.get("/universe").text and 'name="q_liq"' not in client.get("/universe").text
+    page = client.get("/universe").text
+    assert "<th>Liq. opc.</th>" in page and 'name="q_liq"' in page and 'name="q_earn"' not in page
     assert 'name="q_liq"' in client.get("/scanner").text
+    assert passing(svc, "q_liq=3") == {"DK", "KO", "ADBE", "AIG", "ACN", "ALL"}          # GCT (2) cae y PAYS (sin dato) también
+    assert passing(svc, "q_liq=2") == ALL_TICKERS - {"PAYS"}
+    assert shown(client.get("/universe?q_liq=3").text) == {"DK", "KO", "ADBE", "AIG", "ACN", "ALL"}
 
 
 def test_missing_edgar_contact_is_explained(client_and_service):

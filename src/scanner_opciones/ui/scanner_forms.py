@@ -113,7 +113,7 @@ def read_quality(qp, form: dict, overrides: dict, qcfg, earnings: bool, liquidit
                  company: bool = True) -> None:
     """Lee los filtros de calidad de la URL (scanner y Universo comparten parser). Cada valor se valida contra las
     listas permitidas de la configuración. `earnings`: el filtro de resultados es por contrato, solo existe en el scanner.
-    `liquidity`: la liquidez de las opciones solo se filtra en el scanner (en el Universo es solo un indicador).
+    `liquidity`: la liquidez de las opciones (en el scanner, el CDS y el Universo; en el Universo es un filtro previo a la Watchlist).
     `solvency`: los filtros de solvencia con grado de exigencia y el de «deuda baja o manejable» (Universo).
     `company`: los filtros de la empresa (beneficios, trimestres, apalancamiento, FCF): viven en el Universo; el
     scanner solo conserva los que dependen de las opciones (liquidez y resultados)."""

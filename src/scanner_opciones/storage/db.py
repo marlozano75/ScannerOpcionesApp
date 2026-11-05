@@ -414,6 +414,18 @@ MIGRATIONS: list[str] = [
     """,
     # v41: tamaño del ask (el CDS filtra por bid size y ask size de cada pata)
     "ALTER TABLE snapshots ADD COLUMN ask_size INTEGER;",
+    # v42: bid de cierre, 30 días antes del vencimiento, de puts ya vencidas (informe «Criba teórica», paso de velas); bid NULL = respondió sin ninguna vela con bid
+    """
+    CREATE TABLE option_bid_history (
+        ticker TEXT NOT NULL,
+        expiry TEXT NOT NULL,
+        strike REAL NOT NULL,
+        ref_day TEXT NOT NULL,
+        bid REAL,
+        fetched_at TEXT NOT NULL,
+        PRIMARY KEY (ticker, expiry, strike)
+    );
+    """,
 ]
 
 

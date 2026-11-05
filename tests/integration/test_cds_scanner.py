@@ -109,3 +109,94 @@ def test_company_and_ticker_filters_apply_show_chips_and_count_in_the_impact_pan
         assert prof.cds["q_profit"] == "on" and prof.cds["q_quarters"] == "3"
         page = client.get("/scanner?mode=cds&profile=CDS+sano").text
         assert 'name="q_profit" checked' in page
+
+
+def test_screen_report_lists_the_tickers_that_cannot_reach_any_put_profile_and_changes_nothing():
+    svc = _svc()
+    with _client(svc) as client:
+        client.portal.call(svc.wait_idle)
+        svc.watchlist.add(["LOW"], NOW)
+        svc.ticker_info.upsert(TickerInfo("LOW", sector="Utilities", underlying_price=100.0, iv30=3.0))      # IV del 3 %: no hay prima
+        svc.ticker_lists = lambda: {"LOW": ["Fuente A"]}
+        page = client.get("/scanner/criba")
+        assert page.status_code == 200
+        for needle in ("Criba teórica", "descartables", "LOW", "Fuente A", "Teórico / exigido"):
+            assert needle in page.text, needle
+        assert svc.watchlist.list() == ["LOW"] or "LOW" in svc.watchlist.list()          # solo informa
+        assert "/scanner/criba" in client.get("/scanner/config").text
+
+
+class _FakeBidHistory:
+    """Proveedor de bids históricos de prueba: bid fijo por símbolo; los de `silent` no responden y los de `empty` responden sin ninguna vela con bid."""
+
+    def __init__(self, bids, silent=(), empty=()):
+        self.bids, self.silent, self.empty, self.requests = bids, set(silent), set(empty), []
+
+    async def option_bid_history(self, symbols, days):
+        self.requests.append(list(symbols))
+        out = {}
+        for s in symbols:
+            if s in self.silent:
+                continue
+            out[s] = {} if s in self.empty else {TODAY - timedelta(days=d): self.bids.get(s, 0.0) for d in range(0, days) if self.bids.get(s, 0.0) > 0}
+        return out
+
+
+def test_bid_history_is_requested_once_stored_and_judged_by_months_that_reach_the_yield():
+    from scanner_opciones.domain.models import TickerInfo as TI
+    from scanner_opciones.scanner import yield_history as yh
+
+    svc = _svc()
+    expiries = yh.past_monthly_expiries(svc.now().date(), 3)
+    svc.ticker_lists = lambda: {"LOW": ["Fuente A"], "RICH": ["Fuente A"], "ILLQ": ["Fuente A"], "BRK-B": ["Fuente A"]}
+    svc.quality.save([TI(t, option_liquidity=liq) for t, liq in (("LOW", 3), ("RICH", 3), ("ILLQ", 1), ("BRK-B", 3))])
+    closes = [(svc.now().date() - timedelta(days=d), 100.0) for d in range(0, 150)]
+    for t in ("LOW", "RICH", "ILLQ"):
+        svc.bars.upsert(t, closes)
+    sym = lambda t, e: yh.option_symbol(t, e, 95.0)
+    bids = {sym("LOW", e): 0.3 for e in expiries} | {sym("RICH", e): 2.0 for e in expiries} | {sym("ILLQ", e): 2.0 for e in expiries}
+    provider = _FakeBidHistory(bids)
+    svc.option_history = provider
+    async def go():
+        assert await svc.fetch_yield_history(5.0, 3, 2) == 6                 # 2 tickers (liquidez >= 2, sin clase de acciones) x 3 vencimientos
+        assert await svc.fetch_yield_history(5.0, 3, 2) == 0                 # lo guardado no se vuelve a pedir
+    import asyncio
+    asyncio.run(go())
+    assert len(provider.requests) == 1 and not any("ILLQ" in s or "BRK" in s for s in provider.requests[0])
+    verdicts = {v.ticker: v for v in svc.yield_history_report(5.0, 1.0, 3, 2, 2, 2)}
+    assert set(verdicts) == {"LOW", "RICH"}                                   # ILLQ cae por la liquidez; BRK-B no se consulta
+    assert verdicts["LOW"].status == yh.DISCARD and abs(verdicts["LOW"].best_pct - 0.3 / 95 * 100) < 1e-9
+    assert verdicts["RICH"].status == yh.OK and verdicts["RICH"].hits == 3
+    assert svc.bid_history.count() == 6 and svc.yield_history_progress is None
+
+
+def test_silent_contracts_are_retried_and_empty_ones_count_as_answered_without_bid():
+    from scanner_opciones.scanner import yield_history as yh
+
+    svc = _svc()
+    expiries = yh.past_monthly_expiries(svc.now().date(), 2)
+    svc.ticker_lists = lambda: {"ZZZ": ["Fuente A"]}
+    svc.bars.upsert("ZZZ", [(svc.now().date() - timedelta(days=d), 100.0) for d in range(0, 150)])
+    s1, s2 = (yh.option_symbol("ZZZ", e, 95.0) for e in expiries)
+    provider = _FakeBidHistory({s1: 1.5}, silent=[s2])
+    svc.option_history = provider
+    import asyncio
+    assert asyncio.run(svc.fetch_yield_history(5.0, 2, None)) == 1            # solo respondió uno: el otro se pedirá otra vez
+    provider.silent = set()
+    provider.empty = {s2}
+    assert asyncio.run(svc.fetch_yield_history(5.0, 2, None)) == 1
+    [v] = svc.yield_history_report(5.0, 1.0, 2, 1, 2, None)
+    assert v.with_data == 1 and v.status == yh.OK                              # un mes llega; el otro respondió sin bid
+    assert yh.judge("ZZZ", v.months, 1.0, 2, 2).status == yh.NO_DATA
+
+
+def test_criba_page_shows_the_history_section_and_the_post_starts_the_request():
+    svc = _svc()
+    with _client(svc) as client:
+        client.portal.call(svc.wait_idle)
+        page = client.get("/scanner/criba")
+        assert page.status_code == 200 and "Histórico real de bids" in page.text and "Pedir los bids que faltan" in page.text
+        assert 'name="hp"' in page.text and 'name="hl"' in page.text
+        svc.option_history = None
+        sent = client.post("/scanner/criba/historico", data={"hm": "3"}, follow_redirects=False)
+        assert sent.status_code == 303 and "/scanner/criba" in sent.headers["location"] and "message=" in sent.headers["location"]

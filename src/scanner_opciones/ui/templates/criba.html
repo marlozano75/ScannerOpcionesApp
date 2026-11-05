@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  table.cr td, table.cr th { padding:2px 8px; font-size:12.5px; white-space:nowrap; text-align:left; }
+  table.cr td.n, table.cr th.n { text-align:right; }
+  .cr-k { display:flex; flex-wrap:wrap; gap:6px 22px; margin:8px 0; }
+  .cr-k b { font-size:20px; }
+</style>
+<h2 style="margin:6px 0">Criba teórica de tickers</h2>
+<p class="muted" style="max-width:900px">Informe, no filtro: no quita nada de las fuentes ni de la Watchlist. Con el precio y la IV de cada ficha se calcula, con Black-Scholes,
+  la <b>mejor prima posible</b> de la ventana de cada perfil de puts (strike al descuento mínimo, DTE máximo, precio mid, sin comisiones) y se compara con su yield mínimo.
+  Un ticker es <b>descartable</b> si, ni multiplicando esa prima por {{ tolerance|num(1) }}×, llega a lo exigido en ningún perfil. La prima real se aparta de la teórica
+  hasta unas 2,8× según el ticker, así que solo se descartan extremos.</p>
+<form method="get" style="margin:6px 0"><label>Tolerancia (×) <input name="tol" value="{{ tolerance|num(1) }}" size="4" inputmode="decimal"></label> <button>Recalcular</button></form>
+<div class="cr-k">
+  <span><b>{{ counts.descartable }}</b> descartables</span><span><b>{{ counts.dudoso }}</b> dudosos</span><span><b>{{ counts.ok }}</b> cumplirían</span>
+  <span><b>{{ counts["sin dato"] }}</b> sin dato</span>{% if missing %}<span class="muted"><b>{{ missing }}</b> sin ficha</span>{% endif %}
+</div>
+{% if per_profile %}
+<h3 style="margin:10px 0 4px">Por perfil</h3>
+<table class="cr"><tr><th>Perfil de puts</th><th class="n">Yield mín. %</th><th class="n">Evaluados</th><th class="n">No llegan</th><th class="n">Ni con {{ tolerance|num(1) }}×</th></tr>
+  {% for p in per_profile %}<tr><td>{{ p.profile }}</td><td class="n">{{ p.required_pct|num(2) }}</td><td class="n">{{ p.evaluated }}</td><td class="n">{{ p.short }}</td><td class="n">{{ p.hopeless }}</td></tr>{% endfor %}</table>
+<p class="note">Un perfil sin yield mínimo (0) no descarta a nadie. Un ticker solo es descartable si falla TODOS los perfiles de puts; mira esta tabla para ver lo que descartaría cada uno por separado.</p>
+{% endif %}
+{% if not profiles %}<div class="banner info">No hay perfiles de puts guardados: no hay yield mínimo con el que comparar.</div>{% endif %}
+{% if non_put %}<p class="note">Perfiles de spread no evaluados: {{ non_put|join(', ') }}. Un ticker con el modo de spread o CDS encendido se marca como «mantenido» aunque no sirva para vender puts.</p>{% endif %}
+{% if not modes_on %}<p class="note">Los modos por ticker están apagados: no se sabe qué tickers valen para spreads o CDS, y esos perfiles no se evalúan.</p>{% endif %}
+<p class="note">Perfiles de puts evaluados: {{ profiles|join(', ') or '—' }}. {% if kept_by_modes %}{{ kept_by_modes }} de los descartables tienen modo spread o CDS y se mantendrían.{% endif %}</p>
+{% if discard %}
+<table class="cr" data-sortable>
+  <tr><th>Ticker</th><th>Fuentes</th><th class="n">Precio</th><th class="n">IV usada %</th><th>Perfil más cercano</th><th class="n">Exigido %</th><th class="n">Mejor teórico %</th><th class="n">Teórico / exigido</th><th>Mantenido por</th></tr>
+  {% for r, names in discard %}{% set b = r.best %}
+  <tr><td>{{ r.ticker }}</td><td>{{ names|join(', ') }}</td><td class="n">{{ r.price|num }}</td><td class="n">{{ r.iv_pct|num(1) }}</td><td>{{ b.profile }}</td>
+    <td class="n">{{ b.required_pct|num(2) }}</td><td class="n">{{ b.best_pct|num(2) }}</td><td class="n">{{ b.margin|num(2) }}×</td><td>{{ r.protected_by|join(', ') or '—' }}</td></tr>
+  {% endfor %}
+</table>
+{% if discard_total > limit %}<p class="muted">Se muestran los {{ limit }} más claros de {{ discard_total }}.</p>{% endif %}
+{% else %}<p class="muted">Ningún ticker es descartable con esta tolerancia.</p>{% endif %}
+
+<h2 id="historico" style="margin:22px 0 4px">Histórico real de bids (velas de tastytrade)</h2>
+{% if message %}<div class="banner info">{{ message }}</div>{% endif %}
+<p class="muted" style="max-width:900px">Mide cuánta prima daba de verdad cada ticker: para los últimos vencimientos mensuales ya vencidos se toma el bid de cierre, 30 días antes, de las puts al descuento
+  mínimo del perfil (o por debajo) y se divide entre el strike. Un ticker es <b>descartable</b> si en menos de los «aciertos» pedidos de esos meses llegó al yield exigido, habiendo al menos los «meses con dato»
+  con bid. Sin esos meses con dato, o con contratos por pedir, no se decide. Solo informa: no quita nada. Los datos de tastytrade son del bid de cierre de cada día: ni el spread ni el tamaño.</p>
+<form method="get" action="/scanner/criba" style="margin:6px 0">
+  <label>Perfil <select name="hp">{% for n in h.profiles %}<option value="{{ n }}" {{ 'selected' if n == h.profile }}>{{ n }}</option>{% endfor %}</select></label>
+  <label>Meses <input name="hm" value="{{ h.months }}" size="2" inputmode="numeric"></label>
+  <label title="Meses que deben llegar al yield exigido">Aciertos <input name="hh" value="{{ h.hits }}" size="2" inputmode="numeric"></label>
+  <label title="Meses con algún bid para poder decidir">Meses con dato <input name="hn" value="{{ h.min_months }}" size="2" inputmode="numeric"></label>
+  <label title="Liquidez mínima de las opciones del ticker (0 = sin filtro)">Liquidez ≥ <input name="hl" value="{{ h.liquidity }}" size="2" inputmode="numeric"></label>
+  <button>Ver</button>
+  <button type="submit" formmethod="post" formaction="/scanner/criba/historico" {{ 'disabled' if h_progress }} title="Pide a tastytrade los bids que faltan (varios minutos; en segundo plano)">Pedir los bids que faltan</button>
+</form>
+{% if h_progress %}<div class="banner info">{{ h_progress }}</div>{% endif %}
+<p class="note">Descuento del perfil «{{ h.profile }}»: ≥ {{ h.discount|num(1) }} % · yield exigido {{ h.required|num(2) }} % · contratos guardados: {{ h_stored }}.</p>
+{% if h_total %}
+<div class="cr-k">
+  <span><b>{{ h_counts.descartable }}</b> descartables</span><span><b>{{ h_counts.ok }}</b> cumplen</span><span><b>{{ h_counts["sin dato"] }}</b> sin dato</span>
+  <span class="muted"><b>{{ h_counts["sin pedir"] }}</b> sin pedir</span><span class="muted">de {{ h_total }} tickers</span>
+</div>
+{% if h_rows %}
+<table class="cr" data-sortable>
+  <tr><th>Ticker</th><th>Fuentes</th><th class="n">Mejor yield %</th><th class="n">Meses que llegan</th><th class="n">Meses con dato</th><th>Yield por vencimiento</th></tr>
+  {% for v, names in h_rows %}<tr><td>{{ v.ticker }}</td><td>{{ names|join(', ') }}</td><td class="n">{{ v.best_pct|num(2) if v.best_pct is not none else '—' }}</td>
+    <td class="n">{{ v.hits }}</td><td class="n">{{ v.with_data }}</td>
+    <td>{% for m in v.months %}{{ m.expiry.strftime('%d/%m') }}: {{ m.best_pct|num(2) if m.best_pct is not none else '—' }}{{ ' · ' if not loop.last }}{% endfor %}</td></tr>{% endfor %}
+</table>
+{% if h_counts.descartable > h_limit %}<p class="muted">Se muestran los {{ h_limit }} con menor yield de {{ h_counts.descartable }}.</p>{% endif %}
+{% else %}<p class="muted">Ningún ticker descartable con estos parámetros (o aún faltan bids por pedir).</p>{% endif %}
+{% endif %}
+{% endblock %}
