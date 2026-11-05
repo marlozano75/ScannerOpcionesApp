@@ -31,6 +31,19 @@ def candidate_contracts(
     return out
 
 
+def is_monthly_expiry(expiry: date) -> bool:
+    """Vencimiento mensual estándar: el tercer viernes del mes (los semanales y de fin de mes tienen menos liquidez)."""
+    return expiry.weekday() == 4 and 15 <= expiry.day <= 21
+
+
+def on_strike_grid(strike: float, multiple: float) -> bool:
+    """¿Cae el strike en la rejilla de `multiple` $? Por debajo de 25 $ vale cualquiera; `multiple` 0 = sin rejilla."""
+    if multiple <= 0 or strike < 25:
+        return True
+    ratio = strike / multiple
+    return abs(ratio - round(ratio)) < 1e-6
+
+
 def call_candidate_contracts(chain: OptionChain, underlying_price: float, today: date, cds: CdsSettings) -> list[OptionContract]:
     """Calls para los Call Debit Spread: DTE en [dte_min, dte_max] y strike entre `long_otm_pct_min` y `long_otm_pct_max` por ENCIMA del precio,
     más las calls `width_options` $ por encima de cada una que existan en la cadena (patas vendidas)."""
@@ -41,11 +54,13 @@ def call_candidate_contracts(chain: OptionChain, underlying_price: float, today:
     for expiry in sorted(chain.expiries):
         if not (cds.dte_min <= (expiry - today).days <= cds.dte_max):
             continue
+        if cds.monthly_only and not is_monthly_expiry(expiry):
+            continue
         for strike in sorted(chain.strikes):
             otm = (strike / underlying_price - 1) * 100
             if not (cds.long_otm_pct_min - _EPS <= otm <= cds.long_otm_pct_max + _EPS):
                 continue
             for k in (strike, *(round(strike + w, 4) for w in cds.width_options)):
-                if round(k, 4) in known:
+                if round(k, 4) in known and on_strike_grid(k, cds.strike_multiple):
                     out[(expiry, round(k, 4))] = OptionContract(chain.ticker, expiry, k, OptionRight.CALL, chain.multiplier)
     return list(out.values())

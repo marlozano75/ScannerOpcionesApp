@@ -14,7 +14,7 @@ from tests.integration.test_service import make_service
 
 def _svc(enabled=True):
     svc, _ = make_service()
-    svc.settings = svc.settings.model_copy(update={"scanner": svc.settings.scanner.model_copy(update={"cds": CdsSettings(enabled=enabled)})})
+    svc.settings = svc.settings.model_copy(update={"scanner": svc.settings.scanner.model_copy(update={"cds": CdsSettings(enabled=enabled, monthly_only=False)})})
     return svc
 
 

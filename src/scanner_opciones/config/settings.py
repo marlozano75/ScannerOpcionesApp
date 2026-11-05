@@ -206,6 +206,10 @@ class RefreshSettings(_Model):
     tws_bid_size: bool = True
     tws_bid_size_max_age_minutes: float = Field(15, ge=0)   # un tamaño de TWS se reutiliza hasta esta edad antes de pedirlo otra vez
     tws_bid_size_max_contracts: int = Field(600, ge=1)      # tope por ciclo (los de mayor yield anualizado primero): ~4 s por cada 50
+    # Cada what-if cuesta ~0,3 s (2026-11-02: el mismo ciclo de 106.000 contratos tardó 393 s con 3 márgenes y 1.467 s con 3.594). Tope de
+    # márgenes NUEVOS por ciclo (0 = sin tope); dentro de cada lote se piden primero los de mayor yield anualizado y los que quedan sin
+    # margen se piden en los ciclos siguientes (los ya pedidos se reutilizan).
+    margin_max_per_cycle: int = Field(800, ge=0)
 
 
 class DailyUpdateSettings(_Model):
@@ -529,8 +533,14 @@ class TickerModesSettings(_Model):
     put_max_price: Optional[float] = Field(None, gt=0)   # precio fijo ($); None = derivado del NLV y de los perfiles
     put_max_price_fallback: float = Field(120, gt=0)     # si no hay NLV en USD o ningún perfil limita el capital en riesgo
     put_price_margin_pct: float = Field(5, ge=0)         # holgura sobre el precio derivado (la prima cobrada reduce el capital en riesgo)
-    # Spreads (de puts y CDS): liquidez de las opciones (tastytrade, 1–4)
-    spread_min_option_liquidity: int = Field(2, ge=0)
+    # Liquidez de las opciones (tastytrade, 1–4) = facilidad de recomprar: TastyPut, TastySpread y CDS se cierran en días o semanas.
+    # Un dato que falta apaga el modo de spreads y CDS; en las puts desnudas no bloquea (`put_min_option_liquidity`).
+    put_min_option_liquidity: int = Field(2, ge=0)       # puts desnudas (0 = no se exige)
+    spread_min_option_liquidity: int = Field(3, ge=0)    # spreads de puts
+    cds_min_option_liquidity: int = Field(3, ge=0)       # Call Debit Spread
+    # Catálogo: un ticker sin modo no estrena contratos (las puts si no tiene `put` ni `put_spread`, las calls del CDS si no tiene `cds`). Los ya
+    # guardados se quedan hasta que salen de la ventana: así un modo que oscila no obliga a cualificar de nuevo.
+    gate_catalog: bool = True
     # Spreads de puts: IV Rank o IV Percentile (basta uno, como `iv_any` de TastyPut); None desactiva ese mínimo
     put_spread_min_iv_rank: Optional[float] = Field(30, ge=0)
     put_spread_min_iv_percentile: Optional[float] = Field(50, ge=0)
@@ -539,6 +549,39 @@ class TickerModesSettings(_Model):
     cds_min_iv_percentile: Optional[float] = Field(None, ge=0)
     iv_hysteresis_pts: float = Field(5, ge=0)            # un modo ya encendido por IV no se apaga hasta bajar estos puntos del mínimo
     history: bool = True                                 # una fila por ticker y día en `ticker_mode_history`
+
+
+class ClosingSettings(_Model):
+    """Liquidez de cierre (recompra fácil), registrada cada día por ticker y perfil en `ticker_premium_history` (docs/seleccion-tickers.md).
+    Un contrato es «cerrable» si tiene bid, spread bid/ask ≤ `max_spread_pct` y OI ≥ `min_oi`. Solo registra: no filtra nada por sí solo."""
+    enabled: bool = True
+    max_spread_pct: float = Field(20, gt=0)
+    min_oi: int = Field(50, ge=0)
+    wide_dte_max: int = Field(60, ge=1)      # banda ancha de DTE (1…este valor) con el mismo descuento: no depende de qué vencimientos caen en la ventana hoy
+    keep_days: int = Field(180, ge=1)
+
+
+class SelectionSettings(_Model):
+    """Selección natural de tickers (F2, docs/seleccion-tickers.md). Apagado por defecto: la cuarentena QUITA tickers de la Watchlist (si la sincronización con el
+    Universo está activada). Se decide con el historial de primas de contratos cerrables (`ticker_premium_history`) y nunca con menos de `min_days` sesiones.
+    ACTIVO cumple algún perfil en ≥ `min_hits` de las últimas `window_days` sesiones; TEMPLADO casi (≥ `warm_ratio` de lo exigido): se queda en la Watchlist y se
+    cotiza una vez al día; CUARENTENA lo demás. Exentos: posiciones abiertas, instrumentos propios y fuentes de contratos (Comunidad, MarketRadar)."""
+    enabled: bool = False
+    window_days: int = Field(10, ge=1)
+    min_days: int = Field(5, ge=1)
+    min_hits: int = Field(3, ge=1)
+    warm_ratio: float = Field(0.6, gt=0, lt=1)
+    quarantine_days: int = Field(14, ge=1)       # pasado este tiempo vuelve a la Watchlist y se mide de nuevo (hasta que F3 lo reevalúe sin cotizar el catálogo)
+    warm_quote_once_a_day: bool = True
+    # {fuente del Universo: [perfiles a los que apunta]}. Los perfiles permitidos de un ticker son la unión de los de sus fuentes; una fuente sin entrada, o con lista
+    # vacía, vale para todos los perfiles. «CDS» es el perfil de las calls del Call Debit Spread.
+    source_profiles: dict[str, list[str]] = {}
+
+    @model_validator(mode="after")
+    def _check(self) -> "SelectionSettings":
+        if self.min_days > self.window_days or self.min_hits > self.window_days:
+            raise ValueError("min_days y min_hits no pueden superar window_days")
+        return self
 
 
 class CdsSettings(_Model):
@@ -555,6 +598,10 @@ class CdsSettings(_Model):
     width_pct_min: Optional[float] = Field(7, ge=0)      # ancho / strike de la comprada mínimo (%): el logbook tiene p10 = 8,7 %; descarta anchos ridículos en acciones caras
     width_pct_max: Optional[float] = Field(110, gt=0)    # ... y máximo (%): descarta anchos enormes en acciones baratas
     best_width: bool = False                             # una sola fila por ticker, vencimiento y call comprada: el ancho con menor movimiento necesario
+    # Recompra fácil (se cierra en días o semanas): solo vencimientos mensuales (tercer viernes) y, si `strike_multiple` > 0, strikes múltiplos suyos
+    # (a partir de 25 $; por debajo cualquier strike). Solo recorta el catálogo de calls: los ya guardados que no cumplan se retiran.
+    monthly_only: bool = True
+    strike_multiple: float = Field(0, ge=0)
     min_debit_usd: float = Field(150, ge=0)              # débito por contrato en $ (el logbook llega a 57 $)
     max_debit_usd: float = Field(2150, gt=0)             # máximo del logbook de MTO: 2.145 $ (NVDA 250/350, dic. 2028); solo 5 de 51 superan 650 $
     min_long_oi: int = Field(10, ge=0)                   # OI mínimo de cada pata
@@ -605,6 +652,8 @@ class ScannerSettings(_Model):
     spreads: SpreadSettings = SpreadSettings()
     cds: CdsSettings = CdsSettings()
     ticker_modes: TickerModesSettings = TickerModesSettings()
+    closing: ClosingSettings = ClosingSettings()
+    selection: SelectionSettings = SelectionSettings()
 
     @property
     def catalog(self) -> CandidateRange:

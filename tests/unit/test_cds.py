@@ -67,7 +67,7 @@ def test_sma200_pullback_filter():
 
 def test_call_candidates_add_short_legs():
     chain = OptionChain("ZZZ", frozenset({EXP, TODAY + timedelta(days=30)}), frozenset({100.0, 125.0, 130.0, 140.0, 150.0, 400.0}), 100)
-    got = {(c.strike, c.right) for c in call_candidate_contracts(chain, 100.0, TODAY, CdsSettings(width_options=(10.0,)))}
+    got = {(c.strike, c.right) for c in call_candidate_contracts(chain, 100.0, TODAY, CdsSettings(width_options=(10.0,), monthly_only=False))}
     # compradas 125 y 130 y 150 (25–50 % OTM) y sus vendidas +10 que existen (140, 150); el vencimiento a 30 días y el 400 quedan fuera
     assert got == {(125.0, OptionRight.CALL), (130.0, OptionRight.CALL), (140.0, OptionRight.CALL), (150.0, OptionRight.CALL)}
 

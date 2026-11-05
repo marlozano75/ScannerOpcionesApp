@@ -33,10 +33,10 @@ async def _prepare(svc, gw, liquidity):
 
 async def test_modes_decide_what_is_quoted_and_scanned():
     svc, gw = make()
-    await _prepare(svc, gw, {"LOW": 3, "BIG": 3, "ILLQ": 1})
+    await _prepare(svc, gw, {"LOW": 3, "BIG": 3, "ILLQ": 2})
     await svc.refresh_all()
     modes = svc.ticker_modes()
-    # LOW: precio bajo y spreads (liquidez 3, IV de la ficha del test); BIG: precio alto, solo spreads; ILLQ: liquidez 1 -> solo puts desnudas
+    # LOW: precio bajo y spreads (liquidez 3, IV de la ficha del test); BIG: precio alto, solo spreads; ILLQ: liquidez 2 (mín. 2 en puts, 3 en spreads) -> solo puts desnudas
     assert modes["LOW"].put and not modes["BIG"].put and modes["ILLQ"].put and not modes["ILLQ"].put_spread
     quoted = {s.contract.ticker for s in svc.snapshots.all()}
     assert "LOW" in quoted and "ILLQ" in quoted               # puts cotizadas: sirven a puts desnudas

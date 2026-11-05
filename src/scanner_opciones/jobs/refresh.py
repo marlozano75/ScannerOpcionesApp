@@ -21,7 +21,8 @@ from scanner_opciones.metrics.yields import annualized_yield_pct, gross_yield_pc
 from scanner_opciones.metrics.yields import strike_distance_pct
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings, strategy_criteria
 from scanner_opciones.scanner.filters import reject_reason
-from scanner_opciones.storage.repositories import ContractRepo, SnapshotRepo, TickerInfoRepo
+from scanner_opciones.scanner.premium import summarize_calls, summarize_puts
+from scanner_opciones.storage.repositories import ContractRepo, PremiumRepo, SnapshotRepo, TickerInfoRepo
 from typing import Callable, Optional, Sequence
 
 log = logging.getLogger(__name__)
@@ -41,6 +42,8 @@ class RefreshReport:
     without_quote: int = 0
     margins_requested: int = 0
     quotes_kept: int = 0      # contratos sin precio nuevo (mercado cerrado): se conserva la última cotización
+    warm_skipped: int = 0     # contratos de tickers templados ya cotizados hoy: no se vuelven a cotizar en este ciclo (`scanner.selection`)
+    margins_deferred: int = 0   # márgenes que tocaba pedir y quedaron para el ciclo siguiente por `margin_max_per_cycle`
     margins_reused: int = 0   # márgenes recientes reutilizados sin pedir un what-if nuevo
     bid_sizes_checked: int = 0   # contratos cuyo bid size se pidió a TWS
     bid_sizes_changed: int = 0   # de ellos, los que tenían un tamaño distinto al del proveedor
@@ -81,6 +84,12 @@ class RefreshJob:
         self.market = market
         # `scanner.ticker_modes`: lo pone el servicio; recibe las fichas y devuelve {ticker: TickerModes} (guardados, con historial); None = sin modos
         self.mode_resolver: Optional[Callable[[dict], dict]] = None
+        # F1 de la selección de tickers: prima y liquidez de cierre por ticker y perfil tras cada refresco completo (`scanner/premium.py`).
+        # `premium_profiles` devuelve [(nombre, ScanCriteria)] (la interfaz pone los perfiles guardados; sin él, los valores iniciales y la estrategia)
+        self.premium_repo: Optional[PremiumRepo] = None
+        # F2: tickers TEMPLADOS (casi cumplen): se cotizan una vez al día, no en cada ciclo. Lo pone el servicio con la selección activada
+        self.warm_tickers: Optional[Callable[[], set]] = None
+        self.premium_profiles: Optional[Callable[[], list[tuple[str, ScanCriteria]]]] = None
         self._modes: dict = {}       # modos por ticker del último ciclo (sin ellos, vacío): las puts desnudas de un ticker sin modo `put` no piden margen
         self._no_bid_size: dict[tuple, datetime] = {}      # contratos a los que TWS no dio tamaño de bid (cuándo): no se piden de nuevo enseguida
         # mercado propio de los instrumentos de TWS (Eurex...): fuera del horario de EE. UU. también se cotizan mientras el suyo está abierto
@@ -96,6 +105,44 @@ class RefreshJob:
         self.now = now
         self._margin_sem = asyncio.Semaphore(max(1, settings.refresh.margin_concurrency))
         self._margin_probe = asyncio.Lock()
+
+    def premium_profile_list(self) -> list[tuple[str, ScanCriteria]]:
+        """Perfiles cuya prima se registra: los que da `premium_profiles` o, sin ellos, los valores iniciales («Inicial») y la estrategia («Estrategia»)."""
+        profiles = self.premium_profiles() if self.premium_profiles is not None else []
+        return profiles or [("Inicial", criteria_from_settings(self.settings)), ("Estrategia", strategy_criteria(self.settings))]
+
+    def _premium_day(self):
+        """Día al que pertenece la medida: la sesión en curso o la última cerrada (no el día natural: tras la medianoche sigue siendo la misma sesión)."""
+        now = self.now()
+        if self.market is None:
+            return now.date()
+        return self.market.session_day(now) or self.market.last_close(now).date()
+
+    def _record_premium(self, snaps: list, infos: dict, today) -> None:
+        """Guarda, por ticker cotizado y perfil, la mejor prima y la liquidez de cierre de la ventana (F1; solo registra, no filtra). Un fallo no rompe el refresco."""
+        closing = self.settings.scanner.closing
+        if self.premium_repo is None or not closing.enabled or not snaps:
+            return
+        try:
+            profiles = self.premium_profile_list()
+            by_ticker: dict[str, list] = {}
+            for s in snaps:
+                by_ticker.setdefault(s.contract.ticker, []).append(s)
+            rows = []
+            for ticker, group in by_ticker.items():
+                info = infos.get(ticker)
+                price = info.underlying_price if info else None
+                if not price:
+                    continue
+                puts = [s for s in group if s.contract.right is OptionRight.PUT]
+                if puts:
+                    rows += [summarize_puts(ticker, name, puts, price, today, c, closing) for name, c in profiles]
+                if self.settings.scanner.cds.enabled and len(puts) < len(group):
+                    rows.append(summarize_calls(ticker, group, price, today, self.settings.scanner.cds, closing))
+            n = self.premium_repo.record_day(self._premium_day(), rows, closing.keep_days)
+            log.info("Historial de primas: %d filas (%d tickers, %d perfiles)", n, len(by_ticker), len(profiles))
+        except Exception:  # noqa: BLE001 - es un registro auxiliar
+            log.exception("No se pudo guardar el historial de primas")
 
     def _market_open(self, ticker: str) -> bool:
         """¿Está abierto el mercado de este subyacente? (el propio del instrumento, o el general)"""
@@ -170,6 +217,14 @@ class RefreshJob:
         prev = {self._snap_key(s.contract): s for s in self.snapshots.all()} if all_contracts else {}
         if only_unquoted:
             all_contracts = [c for c in all_contracts if self._snap_key(c) not in prev]
+        warm = self.warm_tickers() if self.warm_tickers is not None and tickers is None and not only_unquoted else set()
+        if warm and all_contracts:
+            def fresh_today(c) -> bool:
+                s = prev.get(self._snap_key(c))
+                return s is not None and s.updated_at is not None and s.updated_at.date() >= today
+            kept = [c for c in all_contracts if c.ticker not in warm or not fresh_today(c)]
+            report.warm_skipped = len(all_contracts) - len(kept)
+            all_contracts = kept
         report.stored, report.in_scope = len(stored), len(all_contracts)
         # con tastytrade el gateway fija un lote grande (una conexión DXLink admite miles de suscripciones)
         size = getattr(self.gateway, "quote_batch_size", None) or self.settings.refresh.batch_size
@@ -206,6 +261,8 @@ class RefreshJob:
                     if previous is not None and snap.updated_at == previous.updated_at:   # se conservó la cotización guardada
                         report.quotes_kept += 1
                     built.append((snap, previous))
+                # con tope de márgenes por ciclo, los de mayor yield anualizado se piden primero (los demás, en los ciclos siguientes)
+                built.sort(key=lambda pair: -(pair[0].yield_annualized_pct or 0.0))
                 # los what-if de TWS (~0,25 s cada uno) van en paralelo: pedirlos de uno en uno eran 500-900 s por ciclo
                 results = await asyncio.gather(
                     *(self._maybe_add_margin(snap, infos.get(snap.contract.ticker), criteria, report, previous) for snap, previous in built),
@@ -221,15 +278,17 @@ class RefreshJob:
             if pending is not None and not pending.done():
                 pending.cancel()
         await self._refresh_bid_sizes(saved, infos, criteria, today, report)
+        if not only_unquoted and tickers is None:
+            self._record_premium(saved, infos, today)
         log.info(
             "Refresco: %d contratos cotizados (de %d guardados) en %.1f s (subyacentes %.1f s); "
-            "márgenes pedidos %d, reutilizados %d; sin precio nuevo (se conserva el anterior): %d; "
+            "márgenes pedidos %d, reutilizados %d, aplazados %d; sin precio nuevo (se conserva el anterior): %d; "
             "catálogo: +%d / -%d contratos; bid size de TWS: %d pedidos, %d distintos%s",
             report.in_scope, report.stored, time.monotonic() - started, t_underlyings,
-            report.margins_requested, report.margins_reused, report.quotes_kept,
+            report.margins_requested, report.margins_reused, report.margins_deferred, report.quotes_kept,
             report.contracts_added, report.contracts_removed, report.bid_sizes_checked, report.bid_sizes_changed,
             (f"; modos por ticker: {report.mode_skipped} contratos sin cotizar ({report.mode_tickers_off} tickers sin ningún modo)"
-             if self.mode_resolver is not None else ""),
+             if self.mode_resolver is not None else "") + (f"; templados: {report.warm_skipped} contratos ya cotizados hoy" if report.warm_skipped else ""),
         )
         return report
 
@@ -482,6 +541,10 @@ class RefreshJob:
         stale = self._keep_margin(snap, previous)
         if self._offline():
             return stale   # sin TWS: no se espera por cada contrato; se queda el margen guardado
+        cap = self.settings.refresh.margin_max_per_cycle
+        if cap and report.margins_requested >= cap:
+            report.margins_deferred += 1
+            return stale   # tope del ciclo: este margen se pide en uno de los siguientes
         if report.margin_ok:
             async with self._margin_sem:
                 return await self._ask_margin(snap, stale, report, price)

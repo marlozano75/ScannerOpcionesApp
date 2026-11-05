@@ -4,10 +4,11 @@ from __future__ import annotations
 import logging
 import time
 from datetime import date
-from typing import Optional
+from typing import Callable, Optional
 
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.config.settings import Settings
+from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import OptionChain
 from scanner_opciones.scanner.candidates import call_candidate_contracts, candidate_contracts
 from scanner_opciones.storage.repositories import ContractRepo
@@ -26,6 +27,17 @@ class ContractSyncer:
         self.contracts = contracts
         self.settings = settings
         self._chains: dict[str, tuple[date, OptionChain]] = {}
+        # {ticker: TickerModes} de la última evaluación (lo pone el servicio); vacío o None = sin límite (ver `scanner.ticker_modes.gate_catalog`)
+        self.modes_provider: Optional[Callable[[], dict]] = None
+
+    def _gated(self, ticker: str) -> Optional[dict]:
+        """{'puts': bool, 'calls': bool} con lo que los modos del ticker permiten estrenar; None si no hay límite."""
+        if self.modes_provider is None or not self.settings.scanner.ticker_modes.gate_catalog:
+            return None
+        mode = (self.modes_provider() or {}).get(ticker)
+        if mode is None or mode.all_on:
+            return None
+        return {"puts": mode.any_puts, "calls": mode.cds}
 
     def remember_chain(self, ticker: str, chain: OptionChain, today: date) -> None:
         self._chains[ticker] = (today, chain)
@@ -52,6 +64,11 @@ class ContractSyncer:
         have = self.contracts.keys(ticker)
         missed = self.contracts.miss_keys(ticker)
         to_check = [c for c in wanted if (k := ContractRepo.key(c)) not in have and k not in missed]
+        skipped = 0
+        if self._gated(ticker):
+            allowed = self._gated(ticker)
+            kept = [c for c in to_check if (c.right is OptionRight.CALL and allowed["calls"]) or (c.right is OptionRight.PUT and allowed["puts"])]
+            skipped, to_check = len(to_check) - len(kept), kept
         validated: list = []
         if to_check:  # descarta strikes que no existen para ese vencimiento y guarda el conId
             t0 = time.monotonic()
@@ -64,6 +81,8 @@ class ContractSyncer:
                 "%s: %d de %d combinaciones nuevas existen (las demás no están listadas; es normal)",
                 ticker, len(validated), len(to_check),
             )
+        if skipped:
+            log.debug("%s: %d contratos nuevos sin cualificar (el ticker no tiene el modo que los usa)", ticker, skipped)
         removed, inserted = self.contracts.sync_for_ticker(ticker, wanted_keys, validated)
         self.contracts.purge_expired_misses(today)
         if removed:

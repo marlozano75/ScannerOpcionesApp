@@ -101,6 +101,72 @@ class ModeRepo:
         return len(rows)
 
 
+class PremiumRepo:
+    """Historial diario de prima y liquidez de cierre por ticker y perfil (`scanner/premium.py`). No altera lo que escanea el Scanner."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def record_day(self, day: date, rows: Iterable, keep_days: int) -> int:
+        """Una fila por ticker, perfil y día (la última medida del día gana). Poda de paso lo anterior a `keep_days` días."""
+        data = [(r.ticker, day.isoformat(), r.profile, r.contracts, r.closable, r.best_yield_pct, r.best_closable_yield_pct,
+                 r.best_ann_wide_pct, r.median_spread_pct, r.max_oi) for r in rows]
+        before = self.db.conn.total_changes
+        with self.db.conn:
+            self.db.conn.executemany(
+                "INSERT INTO ticker_premium_history (ticker, day, profile, contracts, closable, best_yield_pct, best_closable_yield_pct, "
+                "best_ann_wide_pct, median_spread_pct, max_oi) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(ticker, day, profile) DO UPDATE SET contracts = excluded.contracts, closable = excluded.closable, "
+                "best_yield_pct = excluded.best_yield_pct, best_closable_yield_pct = excluded.best_closable_yield_pct, "
+                "best_ann_wide_pct = excluded.best_ann_wide_pct, median_spread_pct = excluded.median_spread_pct, max_oi = excluded.max_oi", data)
+            self.db.conn.execute("DELETE FROM ticker_premium_history WHERE day < ?", ((day - timedelta(days=keep_days)).isoformat(),))
+        self.db.quiet_changes += self.db.conn.total_changes - before
+        return len(data)
+
+    def since(self, day: date) -> dict[str, dict[str, list[dict]]]:
+        """{ticker: {día: [filas por perfil]}} de los días desde `day` (incluido)."""
+        out: dict[str, dict[str, list[dict]]] = {}
+        for r in self.db.conn.execute("SELECT * FROM ticker_premium_history WHERE day >= ? ORDER BY day", (day.isoformat(),)).fetchall():
+            out.setdefault(r["ticker"], {}).setdefault(r["day"], []).append(dict(r))
+        return out
+
+    def history(self, ticker: str, profile: Optional[str] = None) -> list[dict]:
+        sql, args = "SELECT * FROM ticker_premium_history WHERE ticker = ?", [ticker]
+        if profile is not None:
+            sql, args = sql + " AND profile = ?", args + [profile]
+        return [dict(r) for r in self.db.conn.execute(sql + " ORDER BY day, profile", args).fetchall()]
+
+
+class SelectionRepo:
+    """Estado de selección por ticker (`scanner/selection.py`). No altera lo que escanea el Scanner."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def all(self) -> dict[str, dict]:
+        return {r["ticker"]: dict(r) for r in self.db.conn.execute("SELECT * FROM ticker_selection").fetchall()}
+
+    def save(self, ticker: str, state: str, reason: str, at: datetime, released_at: Optional[str] = None, keep_released: bool = True) -> None:
+        """Guarda el estado; `since` solo cambia si cambia el estado. `released_at` se conserva salvo que se indique uno nuevo."""
+        old = self.db.conn.execute("SELECT state, since, released_at FROM ticker_selection WHERE ticker = ?", (ticker,)).fetchone()
+        since = old["since"] if old is not None and old["state"] == state else at.date().isoformat()
+        released = released_at if released_at is not None else (old["released_at"] if old is not None and keep_released else None)
+        before = self.db.conn.total_changes
+        with self.db.conn:
+            self.db.conn.execute(
+                "INSERT INTO ticker_selection (ticker, state, since, reason, evaluated_at, released_at) VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(ticker) DO UPDATE SET state = excluded.state, since = excluded.since, reason = excluded.reason, "
+                "evaluated_at = excluded.evaluated_at, released_at = excluded.released_at",
+                (ticker, state, since, reason, at.isoformat(timespec="seconds"), released))
+        self.db.quiet_changes += self.db.conn.total_changes - before
+
+    def delete_missing(self, keep: Iterable[str]) -> None:
+        keep = set(keep)
+        gone = [t for t in self.all() if t not in keep]
+        with self.db.conn:
+            self.db.conn.executemany("DELETE FROM ticker_selection WHERE ticker = ?", [(t,) for t in gone])
+
+
 class PositionDeltaRepo:
     """Histórico de la |delta| real de las puts vendidas de la cartera. Cada medida lleva el precio del subyacente de ese momento: sin él no se
     puede saber si la delta guardada sigue valiendo. No altera lo que escanea el Scanner (sus escrituras no invalidan sus cachés)."""

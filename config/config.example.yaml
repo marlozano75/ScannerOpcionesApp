@@ -23,6 +23,7 @@ refresh:
   tws_bid_size: true
   tws_bid_size_max_age_minutes: 15   # un tamaño de TWS se reutiliza hasta esta edad
   tws_bid_size_max_contracts: 600    # tope por ciclo (primero los de mayor yield anualizado); ~4 s por cada 50
+  margin_max_per_cycle: 800    # tope de what-if de margen NUEVOS por ciclo (~0,3 s cada uno; 0 = sin tope): primero los de mayor yield, el resto en los ciclos siguientes
 
 daily_update:
   run_on_startup: true   # sin hora fija (Q-09); se ejecuta en segundo plano tras el primer refresco
@@ -32,6 +33,7 @@ scanner:
   cds:                     # Call Debit Spread muy OTM (MTO; docs/mto-spreads.md), pestaña CDS. Apagado: guardar y cotizar calls con DTE largo encarece el ciclo
     enabled: false
     # dte_min: 200, dte_max: 500, long_otm_pct_min: 25, long_otm_pct_max: 130 (ventana que se GUARDA y cotiza; el perfil «MTO CDS» solo puede estrecharla)
+    # monthly_only: true (solo vencimientos mensuales: tercer viernes; recompra fácil), strike_multiple: 0 (>0: solo strikes múltiplos de N $ a partir de 25 $)
     # width_options: [5, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 100] (anchos del logbook de MTO; ampliarlos casi no encarece el catálogo), width_pct_min: 7, width_pct_max: 110 (ancho / strike de la comprada, %), best_width: false
     # min_debit_usd: 150, max_debit_usd: 2150 (máximo del logbook), target_gain_pct: 20, move_days: 10, max_required_move_mult: 1.0 (rentabilidad mínima esperada, obligatoria), min_max_return_pct: 100
     # sma200_below_pct_min: null (filtro apagado; la columna «vs SMA200» se muestra siempre; pon 10 para exigir un retroceso del 10 %)
@@ -40,6 +42,16 @@ scanner:
     # put_max_price: null (precio máximo de las puts desnudas; null = derivado del NLV y del perfil de put menos restrictivo CON límite de capital en riesgo), put_max_price_fallback: 120, put_price_margin_pct: 5
     # spread_min_option_liquidity: 2 (spreads de puts y CDS; escala 1-4 de tastytrade), put_spread_min_iv_rank: 30 / put_spread_min_iv_percentile: 50 (basta uno)
     # cds_min_iv_rank: null, cds_min_iv_percentile: null (el CDS compra prima: sin mínimo de IV), iv_hysteresis_pts: 5, history: true (una fila por ticker y día)
+    # Recompra fácil (liquidez de opciones de tastytrade, 1-4): put_min_option_liquidity: 2 (puts desnudas; sin dato no bloquea), spread_min_option_liquidity: 3, cds_min_option_liquidity: 3
+    # gate_catalog: true (un ticker sin el modo que usa un contrato no estrena contratos de ese tipo; los ya guardados se quedan hasta salir de la ventana)
+  selection:               # F2: selección natural de tickers (docs/seleccion-tickers.md). Apagado: la cuarentena QUITA tickers de la Watchlist (con la sincronización con el Universo activa)
+    enabled: false
+    # window_days: 10, min_days: 5 (sesiones con medida mínimas para decidir; antes, todo activo), min_hits: 3 (activo = prima cerrable >= la exigida en 3 de las últimas 10 sesiones)
+    # warm_ratio: 0.6 (templado = casi: >= 60 % de lo exigido en 3 sesiones; se cotiza una vez al día si warm_quote_once_a_day: true), quarantine_days: 14 (luego vuelve y se mide de nuevo)
+    # source_profiles: {}  # {fuente del Universo: [perfiles a los que apunta]}; sin entrada = todos. Ej.: { TastyIVR: [Mensual (TPC)], Comunidad: [CDS] }
+  closing:                 # liquidez de cierre registrada cada día por ticker y perfil en ticker_premium_history (docs/seleccion-tickers.md); solo registra
+    enabled: true
+    # max_spread_pct: 20, min_oi: 50 (un contrato es «cerrable» con bid, spread <= 20 % y OI >= 50), wide_dte_max: 60 (banda ancha de DTE del yield anualizado), keep_days: 180
   spreads:                 # modo «Spread» del scanner (put vendida + put comprada del mismo vencimiento con strike inferior)
     width_options: [1, 2.5, 5, 10, 15, 20]        # anchos que se prueban todos (strike vendido − comprado, en $)
     max_combo_spread_pct: 15                # spread bid/ask del combo (vendida − comprada) máximo, en % del crédito

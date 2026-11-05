@@ -19,7 +19,7 @@ from markupsafe import Markup, escape
 
 from pydantic import ValidationError
 
-from scanner_opciones.app.service import SCANNER_USER_CONFIG, AppService, SelectedContract, norm_ticker
+from scanner_opciones.app.service import SCANNER_USER_CONFIG, SELECTION_USER_CONFIG, AppService, SelectedContract, norm_ticker
 from scanner_opciones.marketdata.analysts import summary
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, OptionRight, Platform, PriceReference, TrafficLight
@@ -47,7 +47,7 @@ from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.portfolio import defense as defense_mod, other_mgmt
 from scanner_opciones.portfolio.overview import other_positions, portfolio_status
 from scanner_opciones.scanner.criteria import commission_model
-from scanner_opciones.ui import dashboard_charts as dash, page_charts, routes_cds, routes_comunidad, routes_historico, routes_marketradar, routes_universe, scanner_parse, viz
+from scanner_opciones.ui import dashboard_charts as dash, page_charts, selection_form, routes_cds, routes_comunidad, routes_historico, routes_marketradar, routes_universe, scanner_parse, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 
 STRIKE_WINDOWS = ((6, "6 meses"), (12, "1 año"), (24, "2 años"))     # ventanas del gráfico del strike; la última, «Todo», usa todo el histórico
@@ -376,7 +376,7 @@ def create_app(
     async def watchlist(request: Request, message: str = ""):
         tickers, infos = service.watchlist.list(), service.ticker_info.all()
         return render(request, "watchlist.html", no_autorefresh=True, watch_data=True, tickers=tickers, infos=infos, message=message, groups=message_groups(message),
-                      ov=page_charts.watchlist_overview(tickers, infos), modes=service.put_quality(), tmodes=service.ticker_modes())
+                      ov=page_charts.watchlist_overview(tickers, infos), modes=service.put_quality(), tmodes=service.ticker_modes(), sel=service.ticker_selection())
 
     # ---- ideas de la comunidad ---------------------------------------------------------------
     routes_comunidad.register(app, service, render, remembered)
@@ -621,8 +621,10 @@ def create_app(
         return RedirectResponse("/scanner/config?" + urlencode({"ok": "Perfiles regenerados desde los presets TPC y la estrategia Tastytrade."}), status_code=303)
 
     # ---- configuraciones y estrategia editables ------------------------------------------------
-    @app.get("/scanner/config", response_class=HTMLResponse)
-    async def scanner_config_page(request: Request, ok: str = "", error: str = ""):
+    def config_page(request: Request, ok: str = "", error: str = "", selcfg: Optional[dict] = None, preview: Optional[dict] = None, confirm: bool = False):
+        """Página de /scanner/config; `selcfg` = valores de «Selección de tickers» escritos (si no, los actuales), `preview` = su vista previa."""
+        sel_sources, sel_profiles = service.selection_sources_and_profiles()
+        selcfg = selcfg if selcfg is not None else service.selection_config()
         sc = service.settings.scanner
         profiles, default_profile = get_profiles()
         vix = [(key, label, "float", getattr(sc.strategy, key)) for key, label, _ in VIX_FIELDS]
@@ -637,7 +639,44 @@ def create_app(
                       gap=gap, user_edited=bool(service.meta.get(SCANNER_USER_CONFIG)), feeds=service.contract_feeds_info(),
                       ranges={p.name: dte_range(p) for p in profiles},
                       mgmt_profiles=service.management_profiles(), catchall=service._mgmt_catchall(),
-                      styles=exits_mod.all_styles(), style_labels={st: exits_mod.style_label(st) for st in exits_mod.all_styles()})
+                      styles=exits_mod.all_styles(), style_labels={st: exits_mod.style_label(st) for st in exits_mod.all_styles()},
+                      sel=selection_form.flat(selcfg), sel_sources=sel_sources, sel_profiles=sel_profiles, sel_map=selcfg["selection"].get("source_profiles", {}),
+                      sel_preview=preview, sel_confirm=confirm, sel_edited=bool(service.meta.get(SELECTION_USER_CONFIG)),
+                      sel_modes_on=service.settings.scanner.ticker_modes.enabled, sel_cds_on=service.settings.scanner.cds.enabled)
+
+    @app.get("/scanner/config", response_class=HTMLResponse)
+    async def scanner_config_page(request: Request, ok: str = "", error: str = ""):
+        return config_page(request, ok, error)
+
+    @app.post("/scanner/selection")
+    async def scanner_selection(request: Request):
+        """Selección de tickers: `action` = preview (calcula sin aplicar), save (aplica; si saca tickers de la Watchlist exige haber visto la vista previa) o reset (config.yaml)."""
+        form = await request.form(max_fields=MAX_FORM_FIELDS)
+        action = str(form.get("action", "preview"))
+        if action == "reset":
+            service.reset_selection_config()
+            return RedirectResponse("/scanner/config?" + urlencode({"ok": "Restaurados los valores de config.yaml."}), status_code=303)
+        sources, profiles = service.selection_sources_and_profiles()
+        current = service.selection_config()
+        try:
+            values = selection_form.parse(form, current, sources, profiles)
+        except ValueError as exc:
+            return config_page(request, error=str(exc))
+        try:
+            preview = service.selection_preview(values)
+            if action == "save":
+                removes = preview["enabled"] and preview["sync_on"] and preview["quarantine"]
+                if removes and form.get("confirm") is None:
+                    return config_page(request, error="Esto sacaría tickers de la Watchlist: revisa la vista previa y pulsa «Confirmar y guardar».",
+                                       selcfg=values, preview=preview, confirm=True)
+                service.save_selection_config(values)
+                return RedirectResponse("/scanner/config?" + urlencode({"ok": "Selección de tickers guardada."}), status_code=303)
+        except ValidationError as exc:
+            msg = "; ".join(f"{'.'.join(str(x) for x in e['loc'])}: {e['msg']}" for e in exc.errors())
+            return config_page(request, error=msg, selcfg=values)
+        except ValueError as exc:
+            return config_page(request, error=str(exc), selcfg=values)
+        return config_page(request, selcfg=values, preview=preview)
 
     @app.post("/scanner/profiles/mgmt")
     async def scanner_mgmt_profiles_save(request: Request):

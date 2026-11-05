@@ -379,6 +379,34 @@ MIGRATIONS: list[str] = [
     "ALTER TABLE snapshots ADD COLUMN margin_price REAL;",
     # v37: apertura diaria (con cierre, máximo y mínimo completa la vela). Las barras ya guardadas no la tienen: se rellena al volver a pedir el histórico
     "ALTER TABLE daily_bars ADD COLUMN open REAL;",
+    # v38: prima y liquidez de cierre (recompra fácil) por ticker, perfil y día: base de la selección de tickers (docs/seleccion-tickers.md)
+    """
+    CREATE TABLE ticker_premium_history (
+        ticker TEXT NOT NULL,
+        day TEXT NOT NULL,
+        profile TEXT NOT NULL,
+        contracts INTEGER NOT NULL,
+        closable INTEGER NOT NULL,
+        best_yield_pct REAL,
+        best_closable_yield_pct REAL,
+        best_ann_wide_pct REAL,
+        median_spread_pct REAL,
+        max_oi INTEGER,
+        PRIMARY KEY (ticker, day, profile)
+    );
+    CREATE INDEX idx_premium_history_day ON ticker_premium_history (day);
+    """,
+    # v39: estado de selección por ticker (activo / templado / cuarentena); `released_at` = salida de cuarentena: solo cuentan las medidas posteriores
+    """
+    CREATE TABLE ticker_selection (
+        ticker TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        since TEXT NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        evaluated_at TEXT NOT NULL,
+        released_at TEXT
+    );
+    """,
 ]
 
 

@@ -25,7 +25,7 @@
   </div>
   {% endif %}
   <div class="scroll"><table class="sortable" id="watchlist-table">
-    <tr><th>Ticker</th><th>Sector</th><th>Categoría</th><th>Precio</th><th>Días ex-div.</th><th>IV Rank</th><th>IV Pctl</th><th title="Beneficios 12 meses, trimestres con beneficios y FCF positivo: lo mínimo para que el Scanner considere sus puts desnudas">Calidad puts</th>{% if tmodes %}<th title="Modos por ticker (scanner.ticker_modes): P = puts desnudas, S = spreads de puts, C = Call Debit Spread. Sin modo no se cotiza">Modos</th>{% endif %}<th>Actualizado</th></tr>
+    <tr><th>Ticker</th><th>Sector</th><th>Categoría</th><th>Precio</th><th>Días ex-div.</th><th>IV Rank</th><th>IV Pctl</th><th title="Beneficios 12 meses, trimestres con beneficios y FCF positivo: lo mínimo para que el Scanner considere sus puts desnudas">Calidad puts</th>{% if tmodes %}<th title="Modos por ticker (scanner.ticker_modes): P = puts desnudas, S = spreads de puts, C = Call Debit Spread. Sin modo no se cotiza">Modos</th>{% endif %}{% if sel %}<th title="Selección de tickers (scanner.selection): activo, templado (se cotiza una vez al día) o cuarentena, según la prima de contratos que se pueden recomprar en las últimas sesiones">Selección</th>{% endif %}<th>Actualizado</th></tr>
     {% for t in tickers %}{% set i = infos.get(t) %}
       <tr><td>{{ t }}</td><td>{{ i.sector if i and i.sector else '—' }}</td><td>{{ i.category if i and i.category else '—' }}</td>
         <td>{{ i.underlying_price|num if i else '—' }}</td>
@@ -35,6 +35,7 @@
         {% set m = modes.get(t) %}
         <td class="{{ 'tr-ok' if m and m.quality_ok else 'tr-ko' }}"{% if m and not m.quality_ok %} title="{{ m.put_reason }}"{% endif %}>{{ '✓' if m and m.quality_ok else '✗' }}</td>
         {% if tmodes %}{% set tm = tmodes.get(t) %}<td{% if tm and tm.reasons %} title="{% for k, v in tm.reasons.items() %}{{ {'put': 'Puts', 'put_spread': 'Spreads', 'cds': 'CDS'}.get(k, k) }}: {{ v }}&#10;{% endfor %}"{% endif %}>{% if tm %}{{ 'P' if tm.put else '·' }}{{ 'S' if tm.put_spread else '·' }}{{ 'C' if tm.cds else '·' }}{% else %}—{% endif %}</td>{% endif %}
+        {% if sel %}{% set se = sel.get(t) %}<td{% if se %} title="{{ se.reason }} (desde {{ se.since }})"{% endif %}>{{ {'active': 'Activo', 'warm': 'Templado', 'quarantine': 'Cuarentena'}.get(se.state, '—') if se else '—' }}</td>{% endif %}
         <td>{{ i.updated_daily_at.strftime('%Y-%m-%d %H:%M') if i and i.updated_daily_at else 'pendiente' }}</td>
 </tr>
     {% else %}<tr><td colspan="10" class="muted">Watchlist vacía.</td></tr>{% endfor %}

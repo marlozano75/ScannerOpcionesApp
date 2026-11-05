@@ -27,6 +27,10 @@ class TickerModes:
         return self.put or self.put_spread
 
     @property
+    def all_on(self) -> bool:
+        return self.put and self.put_spread and self.cds
+
+    @property
     def any(self) -> bool:
         return self.put or self.put_spread or self.cds
 
@@ -93,18 +97,27 @@ def evaluate(info: Optional[TickerInfo], rules: TickerModesSettings, put_price_c
     put = info.underlying_price <= cap
     if not put:
         reasons["put"] = f"precio {info.underlying_price:g} $ por encima del máximo para puts desnudas ({cap:.0f} $, por el NLV)"
-    liquid = info.option_liquidity is not None and info.option_liquidity >= rules.spread_min_option_liquidity
-    if not liquid:
-        liq_why = (f"liquidez de opciones {info.option_liquidity} (mín. {rules.spread_min_option_liquidity})" if info.option_liquidity is not None
-                   else "sin dato de liquidez de opciones")
+    liq = info.option_liquidity
+    # puts desnudas: sin dato de liquidez no se bloquea (solo un nivel conocido y bajo apaga el modo)
+    if put and liq is not None and liq < rules.put_min_option_liquidity:
+        put = False
+        reasons["put"] = f"liquidez de opciones {liq} (mín. {rules.put_min_option_liquidity}): difícil de recomprar"
+
+    def liquid_for(minimum: int) -> tuple[bool, str]:
+        if liq is None:
+            return False, "sin dato de liquidez de opciones"
+        return liq >= minimum, f"liquidez de opciones {liq} (mín. {minimum}): difícil de recomprar"
+
+    ps_liquid, ps_liq_why = liquid_for(rules.spread_min_option_liquidity)
+    cds_liquid, cds_liq_why = liquid_for(rules.cds_min_option_liquidity)
     slack_ps = rules.iv_hysteresis_pts if previous is not None and previous.put_spread else 0.0
     slack_cds = rules.iv_hysteresis_pts if previous is not None and previous.cds else 0.0
     iv_ps, iv_ps_why = _iv_ok(info, rules.put_spread_min_iv_rank, rules.put_spread_min_iv_percentile, slack_ps)
     iv_cds, iv_cds_why = _iv_ok(info, rules.cds_min_iv_rank, rules.cds_min_iv_percentile, slack_cds)
-    put_spread = liquid and iv_ps
-    cds = liquid and iv_cds
+    put_spread = ps_liquid and iv_ps
+    cds = cds_liquid and iv_cds
     if not put_spread:
-        reasons["put_spread"] = liq_why if not liquid else iv_ps_why
+        reasons["put_spread"] = ps_liq_why if not ps_liquid else iv_ps_why
     if not cds:
-        reasons["cds"] = liq_why if not liquid else iv_cds_why
+        reasons["cds"] = cds_liq_why if not cds_liquid else iv_cds_why
     return TickerModes(put, put_spread, cds, reasons)

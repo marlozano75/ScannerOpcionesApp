@@ -26,10 +26,12 @@ def test_high_price_only_turns_off_naked_puts():
 
 
 def test_liquidity_applies_to_both_spreads_and_missing_data_turns_off():
-    m = evaluate(info(liq=1), RULES, 120.0)
+    m = evaluate(info(liq=2), RULES, 120.0)              # recompra fácil: puts desde 2, spreads y CDS desde 3
     assert (m.put, m.put_spread, m.cds) == (True, False, False) and "liquidez" in m.reasons["put_spread"]
-    m = evaluate(info(liq=None), RULES, 120.0)
-    assert not m.put_spread and not m.cds and "sin dato" in m.reasons["cds"]
+    m = evaluate(info(liq=1), RULES, 120.0)
+    assert (m.put, m.put_spread, m.cds) == (False, False, False) and "recomprar" in m.reasons["put"]
+    m = evaluate(info(liq=None), RULES, 120.0)           # sin dato: apaga spreads y CDS, no las puts desnudas
+    assert m.put and not m.put_spread and not m.cds and "sin dato" in m.reasons["cds"]
 
 
 def test_iv_is_either_rank_or_percentile_and_only_for_put_spreads_by_default():

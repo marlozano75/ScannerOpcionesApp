@@ -21,7 +21,7 @@ def _call(strike, bid, ask, delta):
 
 def _svc(enabled=True):
     svc, _ = make_service()
-    cds = CdsSettings(enabled=enabled, sma200_below_pct_min=None, min_max_return_pct=None, width_options=(10.0,), min_debit_usd=0, max_debit_usd=10000)
+    cds = CdsSettings(enabled=enabled, monthly_only=False, sma200_below_pct_min=None, min_max_return_pct=None, width_options=(10.0,), min_debit_usd=0, max_debit_usd=10000)
     svc.settings = svc.settings.model_copy(update={"scanner": svc.settings.scanner.model_copy(update={"cds": cds})})
     return svc
 
