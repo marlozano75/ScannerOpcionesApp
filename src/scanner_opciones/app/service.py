@@ -283,6 +283,8 @@ class AppService:
         if settings.scanner.ticker_modes.enabled:
             self.refresh_job.mode_resolver = self.resolve_modes
             syncer.modes_provider = self.ticker_modes
+        self.refresh_job.owned_puts = self.owned_short_puts
+        self.refresh_job.ratio_store = (lambda: self.meta.get("margin_ratios") or "", lambda s: self.meta.set("margin_ratios", s))
         self.state = AppState()
         self._scan_memo: dict[tuple, tuple[float, object]] = {}
         self._openings: Optional[tuple[float, OpeningsData]] = None
@@ -4220,6 +4222,11 @@ class AppService:
                                           info.iv_rank if info else None, defense, report, len(wanted), len(rollq), today,
                                           protections, call_options, len(call_rq))
 
+    def owned_short_puts(self) -> set[tuple[str, date, float]]:
+        """(ticker de la app, vencimiento, strike) de las puts vendidas en cartera: son las únicas a las que se pide el margen real (what-if)."""
+        return {(p.option.ticker, p.option.expiry, round(float(p.option.strike), 4)) for p in self.state.positions
+                if p.option is not None and p.option.right is OptionRight.PUT and p.quantity < 0}
+
     def put_margins(self) -> dict[str, float]:
         """Margen what-if guardado (por contrato) de las puts vendidas de la cartera, por `put_key` (en un spread, de la pata vendida).
         Es el de abrir una put nueva con esos datos: sirve para saber cuánto margen libera cerrarla, no es el margen real que fija IBKR."""
@@ -4386,11 +4393,11 @@ class AppService:
                 trades.append(SimulatedTrade(snap.contract, sel.quantity, info.sector if info else None, loss * sel.quantity, sel.long_strike))
                 continue
             margin = snap.initial_margin * sel.quantity if snap.initial_margin is not None else None
-            if margin is None and self.state.connected:
+            if (margin is None or snap.margin_at is None) and self.state.connected:   # sin margen o solo estimado: la simulación pide el real
                 try:
-                    margin = await self.gateway.what_if_margin(snap.contract, sel.quantity)
+                    margin = await self.gateway.what_if_margin(snap.contract, sel.quantity) or margin
                 except BrokerError:
-                    margin = None
+                    pass   # se queda la estimación, si la hay
             info = infos.get(sel.ticker)
             trades.append(SimulatedTrade(snap.contract, sel.quantity, info.sector if info else None, margin))
         return simulate(

@@ -945,7 +945,7 @@ class SnapshotRepo:
         out = []
         for tk, expiry, strike, margin in self.db.conn.execute(
                 "SELECT c.ticker, c.expiry, c.strike, s.initial_margin FROM snapshots s JOIN contracts c ON c.id = s.contract_id "
-                "WHERE c.right = ? AND s.initial_margin IS NOT NULL", (OptionRight.PUT.value,)):
+                "WHERE c.right = ? AND s.initial_margin IS NOT NULL AND s.margin_at IS NOT NULL", (OptionRight.PUT.value,)):   # sin las estimaciones
             if (d := days.get(expiry)) is None:
                 d = days[expiry] = date.fromisoformat(expiry)
             out.append((tk, d, strike, margin))

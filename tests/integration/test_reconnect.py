@@ -96,6 +96,7 @@ def offline_service(db=None):
     inner.sectors["AAPL"] = ("Technology", "Electronics")
     gw = HybridGateway(inner, provider, MarketDataSettings(), now=lambda: NOW)
     svc = AppService(gw, db or Database(":memory:"), Settings(), lambda: NOW, market=FixedMarket(True))
+    svc.refresh_job.estimate_margins = False   # estos tests prueban el what-if
     svc.watchlist.add(["AAPL"], NOW)
     return svc, inner, provider
 

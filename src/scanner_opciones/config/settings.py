@@ -200,6 +200,10 @@ class RefreshSettings(_Model):
     margin_stale_max_hours: float = Field(8, ge=0)
     margin_price_tolerance_pct: float = Field(3, ge=0)
     tws_bid_size_retry_minutes: float = Field(60, ge=0)     # un contrato al que TWS no dio tamaño de bid no se vuelve a pedir hasta pasado este tiempo
+    # El what-if solo se pide para las puts vendidas de la cartera; el resto del Scanner usa la fórmula Reg T × el cociente real/fórmula de su
+    # ticker (calibrado con los what-if guardados). `false` = what-if para todo lo que pasa el escaneo (comportamiento anterior)
+    margin_estimate: bool = True
+    margin_estimate_default_ratio: float = Field(1.0, gt=0)   # cociente para tickers sin ningún what-if guardado (mediana medida: 1,02)
     margin_concurrency: int = Field(8, ge=1)  # what-if que se piden a TWS a la vez (el primero de cada ciclo va solo, como sonda)
     # El bid size de tastytrade es entre 5 y 10 veces menor que el de TWS. Con el mercado abierto y TWS conectado, el refresco pide a TWS
     # el de los contratos que pasan los demás filtros pero tienen un tamaño menor que `scanner.filter_values.min_bid_size`.

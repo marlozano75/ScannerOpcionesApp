@@ -36,6 +36,7 @@ class Env:
             self.gw, self.contracts, self.snaps, self.info, self.settings, lambda: self.clock, self.vol,
             syncer=self.daily.syncer,
         )
+        self.refresh.estimate_margins = False   # estos tests prueban el what-if; la estimación tiene los suyos
 
     def add_aapl(self):
         self.gw.sectors["AAPL"] = ("Technology", "Consumer Electronics")

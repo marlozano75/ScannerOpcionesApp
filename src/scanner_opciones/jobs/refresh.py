@@ -16,6 +16,7 @@ from scanner_opciones.jobs.contract_sync import ContractSyncer
 from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.marketdata.prices import PriceProvider, reconcile_quotes
 from scanner_opciones.marketdata.volatility import VolatilityProvider
+from scanner_opciones.metrics import margin_estimate
 from scanner_opciones.metrics.spread import spread_pct
 from scanner_opciones.metrics.yields import annualized_yield_pct, gross_yield_pct
 from scanner_opciones.metrics.yields import strike_distance_pct
@@ -45,6 +46,7 @@ class RefreshReport:
     warm_skipped: int = 0     # contratos de tickers templados ya cotizados hoy: no se vuelven a cotizar en este ciclo (`scanner.selection`)
     margins_deferred: int = 0   # márgenes que tocaba pedir y quedaron para el ciclo siguiente por `margin_max_per_cycle`
     margins_reused: int = 0   # márgenes recientes reutilizados sin pedir un what-if nuevo
+    margins_estimated: int = 0   # márgenes calculados con la fórmula calibrada (sin what-if)
     bid_sizes_checked: int = 0   # contratos cuyo bid size se pidió a TWS
     bid_sizes_changed: int = 0   # de ellos, los que tenían un tamaño distinto al del proveedor
     mode_skipped: int = 0     # contratos en alcance que no se cotizan porque el modo de su ticker no los necesita (`scanner.ticker_modes`)
@@ -105,6 +107,12 @@ class RefreshJob:
         self.now = now
         self._margin_sem = asyncio.Semaphore(max(1, settings.refresh.margin_concurrency))
         self._margin_probe = asyncio.Lock()
+        # `refresh.margin_estimate`: solo las puts vendidas de la cartera piden what-if; el resto se estima. `owned_puts` lo pone el servicio:
+        # {(ticker, vencimiento, strike redondeado a 4)} de las puts vendidas en cartera.
+        self.estimate_margins = settings.refresh.margin_estimate
+        self.owned_puts: Optional[Callable[[], set]] = None
+        self.ratio_store: Optional[tuple[Callable[[], str], Callable[[str], None]]] = None   # (leer, guardar) los cocientes calibrados (meta)
+        self._ratios = margin_estimate.MarginRatios({}, settings.refresh.margin_estimate_default_ratio)
 
     def premium_profile_list(self) -> list[tuple[str, ScanCriteria]]:
         """Perfiles cuya prima se registra: los que da `premium_profiles` o, sin ellos, los valores iniciales («Inicial») y la estrategia («Estrategia»)."""
@@ -215,6 +223,7 @@ class RefreshJob:
         all_contracts = self._apply_modes(all_contracts, infos, report)
         # snapshots anteriores: de ellos se reutiliza el margen mientras sea reciente
         prev = {self._snap_key(s.contract): s for s in self.snapshots.all()} if all_contracts else {}
+        self._calibrate_margins(prev.values())
         if only_unquoted:
             all_contracts = [c for c in all_contracts if self._snap_key(c) not in prev]
         warm = self.warm_tickers() if self.warm_tickers is not None and tickers is None and not only_unquoted else set()
@@ -282,10 +291,10 @@ class RefreshJob:
             self._record_premium(saved, infos, today)
         log.info(
             "Refresco: %d contratos cotizados (de %d guardados) en %.1f s (subyacentes %.1f s); "
-            "márgenes pedidos %d, reutilizados %d, aplazados %d; sin precio nuevo (se conserva el anterior): %d; "
+            "márgenes pedidos %d, reutilizados %d, estimados %d, aplazados %d; sin precio nuevo (se conserva el anterior): %d; "
             "catálogo: +%d / -%d contratos; bid size de TWS: %d pedidos, %d distintos%s",
             report.in_scope, report.stored, time.monotonic() - started, t_underlyings,
-            report.margins_requested, report.margins_reused, report.margins_deferred, report.quotes_kept,
+            report.margins_requested, report.margins_reused, report.margins_estimated, report.margins_deferred, report.quotes_kept,
             report.contracts_added, report.contracts_removed, report.bid_sizes_checked, report.bid_sizes_changed,
             (f"; modos por ticker: {report.mode_skipped} contratos sin cotizar ({report.mode_tickers_off} tickers sin ningún modo)"
              if self.mode_resolver is not None else "") + (f"; templados: {report.warm_skipped} contratos ya cotizados hoy" if report.warm_skipped else ""),
@@ -379,7 +388,9 @@ class RefreshJob:
         criteria = list(criteria) if criteria else self.default_scope()
         infos = self.ticker_info.all()
         today = self.now().date()
-        todo = [snap for snap in self.snapshots.all() if self._in_scope(snap.contract, infos.get(snap.contract.ticker), criteria, today)]
+        every = self.snapshots.all()
+        self._calibrate_margins(every)
+        todo = [snap for snap in every if self._in_scope(snap.contract, infos.get(snap.contract.ticker), criteria, today)]
         results = await asyncio.gather(
             *(self._maybe_add_margin(snap, infos.get(snap.contract.ticker), criteria, report, snap) for snap in todo), return_exceptions=True)
         ready = [new for snap, new in zip(todo, results)
@@ -527,15 +538,19 @@ class RefreshJob:
         mode = self._modes.get(snap.contract.ticker)
         if mode is not None and not mode.put:
             return self._keep_margin(snap, previous)
-        passes = any(
-            reject_reason(snap, price, today, c, snap.iv_rank, snap.iv_percentile) is None
-            for c in criteria
+        c = snap.contract
+        owned = self.estimate_margins and self.owned_puts is not None and (c.ticker, c.expiry, round(float(c.strike), 4)) in self.owned_puts()
+        passes = owned or any(
+            reject_reason(snap, price, today, cr, snap.iv_rank, snap.iv_percentile) is None
+            for cr in criteria
         )
         if not passes:
             return snap
         if self._margin_reusable(previous, price):
             report.margins_reused += 1
             return self._keep_margin(snap, previous)
+        if self.estimate_margins and not owned:   # fuera de la cartera: estimación calibrada, sin pedir nada a TWS
+            return self._estimate_margin(snap, price, previous, report)
         # Sin respuesta de TWS se conserva el último margen conocido (con su fecha: se volverá a pedir en cuanto
         # responda) en lugar de borrarlo: un margen antiguo es mejor que ninguno.
         stale = self._keep_margin(snap, previous)
@@ -550,6 +565,31 @@ class RefreshJob:
                 return await self._ask_margin(snap, stale, report, price)
         async with self._margin_probe:   # hasta que TWS responda una vez va de uno en uno: si está caído no se lanzan cientos a la vez
             return await self._ask_margin(snap, stale, report, price)
+
+    def _calibrate_margins(self, snaps) -> None:
+        if not self.estimate_margins:
+            return
+        default = self.settings.refresh.margin_estimate_default_ratio
+        if self.ratio_store is not None and not self._ratios.per_ticker:   # primera vez desde el arranque: se parte de lo guardado
+            self._ratios = margin_estimate.MarginRatios.from_json(self.ratio_store[0](), default)
+        new = self._ratios.updated_with(margin_estimate.MarginRatios.calibrate(snaps, default))
+        if self.ratio_store is not None and new.to_json() != self._ratios.to_json():
+            self.ratio_store[1](new.to_json())
+        self._ratios = new
+
+    def _estimate_margin(self, snap, price: Optional[float], previous: Optional[ContractSnapshot], report: RefreshReport) -> ContractSnapshot:
+        """Margen estimado (fórmula Reg T × cociente real/fórmula del ticker). Se guarda SIN `margin_at`: así no cuenta como real, ni para
+        calibrar ni para el Panel, y se recalcula en cada ciclo (es instantáneo). Si no se puede estimar, se conserva el último conocido."""
+        tol = self.settings.refresh.margin_price_tolerance_pct
+        if (previous is not None and previous.initial_margin is not None and previous.margin_at is None and previous.margin_price and price
+                and abs(price / previous.margin_price - 1) * 100 <= tol + 1e-9):
+            report.margins_reused += 1   # la estimación anterior sigue valiendo: el precio casi no se ha movido
+            return self._keep_margin(snap, previous)
+        value = margin_estimate.estimate(snap, price, self._ratios.for_ticker(snap.contract.ticker))
+        if value is None:
+            return self._keep_margin(snap, previous)
+        report.margins_estimated += 1
+        return replace(snap, initial_margin=value, margin_at=None, margin_price=price)
 
     @staticmethod
     def _keep_margin(snap: ContractSnapshot, previous: Optional[ContractSnapshot]) -> ContractSnapshot:
