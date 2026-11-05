@@ -21,10 +21,10 @@
 {% set base = [('sec-contract', 'DTE ' ~ f.dte_min ~ '–' ~ f.dte_max, 'dte_min dte_max'), ('sec-contract', 'Comprada ' ~ f.otm_min ~ '–' ~ f.otm_max ~ ' % OTM', 'otm_min otm_max'),
                ('sec-widths', 'Anchos ' ~ f.widths, 'widths'), ('sec-move', 'Necesario ≤ ' ~ f.mult ~ '× esperado (+' ~ f.gain ~ ' % en ' ~ f.days ~ ' d)', 'gain days mult'),
                ('sec-price', 'Precio de venta: ' ~ ref_names.get(f.ref, f.ref), 'ref ref_x' if f.ref == 'bid_plus_spread' else 'ref')] %}
-{% set chips = [('sec-debit', 'Débito ' ~ f.dmin ~ '–' ~ f.dmax ~ ' $', 'dmin dmax'), ('sec-debit', 'OI ≥ ' ~ f.oi ~ ' comprada', 'oi'), ('sec-debit', 'OI ≥ ' ~ f.oi_s ~ ' vendida', 'oi_s'),
-                ('sec-debit', 'Spread ≤ ' ~ f.ls ~ ' % comprada', 'ls'), ('sec-debit', 'Spread ≤ ' ~ f.ls_s ~ ' % vendida', 'ls_s')] %}
-{% if f.use_bsz %}{% set _ = chips.append(('sec-debit', 'Bid size ≥ ' ~ f.bsz, 'use_bsz bsz')) %}{% endif %}
-{% if f.use_asz %}{% set _ = chips.append(('sec-debit', 'Ask size ≥ ' ~ f.asz, 'use_asz asz')) %}{% endif %}
+{% set chips = [('sec-debit', 'Débito ' ~ f.dmin ~ '–' ~ f.dmax ~ ' $', 'dmin dmax'), ('sec-liq', 'OI ≥ ' ~ f.oi ~ ' comprada', 'oi'), ('sec-liq', 'OI ≥ ' ~ f.oi_s ~ ' vendida', 'oi_s'),
+                ('sec-liq', 'Spread ≤ ' ~ f.ls ~ ' % comprada', 'ls'), ('sec-liq', 'Spread ≤ ' ~ f.ls_s ~ ' % vendida', 'ls_s')] %}
+{% if f.use_bsz %}{% set _ = chips.append(('sec-liq', 'Bid size ≥ ' ~ f.bsz, 'use_bsz bsz')) %}{% endif %}
+{% if f.use_asz %}{% set _ = chips.append(('sec-liq', 'Ask size ≥ ' ~ f.asz, 'use_asz asz')) %}{% endif %}
 {% if f.best %}{% set _ = chips.append(('sec-widths', 'Solo el mejor ancho', 'best')) %}{% endif %}
 {% if f.wpct_min or f.wpct_max %}{% set _ = chips.append(('sec-widths', 'Ancho/strike ' ~ (f.wpct_min or '0') ~ '–' ~ (f.wpct_max or '∞') ~ ' %', 'wpct_min wpct_max')) %}{% endif %}
 {% if f.use_prob %}{% set _ = chips.append(('sec-move', 'Prob. objetivo ≥ ' ~ f.prob ~ ' %', 'use_prob prob')) %}{% endif %}
@@ -313,20 +313,12 @@
         </div>
       {% endcall %}
 
-      {% call section('sec-debit', 'Débito y patas', 'Débito ' ~ form.dmin ~ '–' ~ form.dmax ~ ' $ · OI ≥ ' ~ form.oi ~ '/' ~ form.oi_s ~ ' · spread ≤ ' ~ form.ls ~ '/' ~ form.ls_s ~ ' %' ~ ((' · bid size ≥ ' ~ form.bsz) if form.use_bsz else '') ~ ((' · ask size ≥ ' ~ form.asz) if form.use_asz else ''), true) %}
+      {% call section('sec-debit', 'Débito', 'Débito ' ~ form.dmin ~ '–' ~ form.dmax ~ ' $', true) %}
         <div class="fgrid">
           <label class="field" title="Débito por contrato en dólares (la pérdida máxima)">Débito mín. ($) <input name="dmin" value="{{ form.dmin }}" inputmode="decimal"></label>
           <label class="field">Débito máx. ($) <input name="dmax" value="{{ form.dmax }}" inputmode="decimal"></label>
-          <label class="field" title="Open interest mínimo de la call comprada">OI mín. comprada <input name="oi" value="{{ form.oi }}" inputmode="decimal"></label>
-          <label class="field" title="Open interest mínimo de la call vendida">OI mín. vendida <input name="oi_s" value="{{ form.oi_s }}" inputmode="decimal"></label>
-          <label class="field" title="Spread bid/ask máximo de la call comprada, en % del mid">Spread máx. comprada (%) <input name="ls" value="{{ form.ls }}" inputmode="decimal"></label>
-          <label class="field" title="Spread bid/ask máximo de la call vendida, en % del mid">Spread máx. vendida (%) <input name="ls_s" value="{{ form.ls_s }}" inputmode="decimal"></label>
         </div>
-        <label class="opt opt-row" title="Tamaño mínimo del bid (contratos) en las dos patas; una pata sin dato de tamaño no pasa"><span class="check"><input type="checkbox" name="use_bsz" {{ 'checked' if form.use_bsz }}> Bid size ≥ (cada pata)</span>
-          <input name="bsz" value="{{ form.bsz }}" inputmode="numeric"></label>
-        <label class="opt opt-row" title="Tamaño mínimo del ask (contratos) en las dos patas; una pata sin dato de tamaño no pasa"><span class="check"><input type="checkbox" name="use_asz" {{ 'checked' if form.use_asz }}> Ask size ≥ (cada pata)</span>
-          <input name="asz" value="{{ form.asz }}" inputmode="numeric"></label>
-        <p class="note">Débito = ask de la comprada − precio de venta de la vendida + comisiones de las dos patas. Una pata sin bid/ask válido no cuenta. Los tamaños son los del proveedor de datos (tastytrade): suelen ser bastante menores que los que muestra TWS.</p>
+        <p class="note">Débito = ask de la comprada − precio de venta de la vendida + comisiones de las dos patas.</p>
       {% endcall %}
 
       {% call section('sec-move', 'Rentabilidad mínima esperada', 'necesario ≤ ' ~ form.mult ~ '× esperado' ~ ((' · retorno ≥ ' ~ form.ret ~ ' %') if form.use_ret else ''), true) %}
@@ -376,10 +368,21 @@
         <p class="note">Un dato que falta cuenta como «no cumple»; los ETF no se miden y las financieras y sectores exentos no miden el FCF ni el apalancamiento. No hay filtro de «evitar resultados»: con DTE 200–500 siempre hay unos resultados antes del vencimiento.</p>
       {% endcall %}
 
-      {% call section('sec-liq', 'Liquidez de las opciones', ('≥ ' ~ form.q_liq) if form.q_liq else 'Sin filtro', form.q_liq != '') %}
-        <label class="field">Liquidez de las opciones (1-5)
+      {% call section('sec-liq', 'Liquidez de las opciones', (('Liq. ≥ ' ~ form.q_liq ~ ' · ') if form.q_liq else '') ~ 'OI ≥ ' ~ form.oi ~ '/' ~ form.oi_s ~ ' · spread ≤ ' ~ form.ls ~ '/' ~ form.ls_s ~ ' %' ~ ((' · bid size ≥ ' ~ form.bsz) if form.use_bsz else '') ~ ((' · ask size ≥ ' ~ form.asz) if form.use_asz else ''), true) %}
+        <label class="field">Liquidez de las opciones del ticker (1-5)
           <select name="q_liq" id="q_liq"><option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>{% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más</option>{% endfor %}</select></label>
-        <p class="note">Valoración de tastytrade (5 = la mejor): mide el ticker, no cada pata (el OI y el spread de cada pata están en «Débito y patas»).</p>
+        <p class="note">Valoración de tastytrade (5 = la mejor): mide el ticker. Debajo, la liquidez de cada pata.</p>
+        <div class="fgrid">
+          <label class="field" title="Open interest mínimo de la call comprada">OI mín. comprada <input name="oi" value="{{ form.oi }}" inputmode="decimal"></label>
+          <label class="field" title="Open interest mínimo de la call vendida">OI mín. vendida <input name="oi_s" value="{{ form.oi_s }}" inputmode="decimal"></label>
+          <label class="field" title="Spread bid/ask máximo de la call comprada, en % del mid">Spread máx. comprada (%) <input name="ls" value="{{ form.ls }}" inputmode="decimal"></label>
+          <label class="field" title="Spread bid/ask máximo de la call vendida, en % del mid">Spread máx. vendida (%) <input name="ls_s" value="{{ form.ls_s }}" inputmode="decimal"></label>
+        </div>
+        <label class="opt opt-row" title="Tamaño mínimo del bid (contratos) en las dos patas; una pata sin dato de tamaño no pasa"><span class="check"><input type="checkbox" name="use_bsz" {{ 'checked' if form.use_bsz }}> Bid size ≥ (cada pata)</span>
+          <input name="bsz" value="{{ form.bsz }}" inputmode="numeric"></label>
+        <label class="opt opt-row" title="Tamaño mínimo del ask (contratos) en las dos patas; una pata sin dato de tamaño no pasa"><span class="check"><input type="checkbox" name="use_asz" {{ 'checked' if form.use_asz }}> Ask size ≥ (cada pata)</span>
+          <input name="asz" value="{{ form.asz }}" inputmode="numeric"></label>
+        <p class="note">Una pata sin bid/ask válido no cuenta. Los tamaños son los del proveedor de datos (tastytrade): suelen ser bastante menores que los que muestra TWS.</p>
       {% endcall %}
 
       {% call section('sec-price-tk', 'Precio del subyacente', ((form.price_min or '0') ~ ' – ' ~ (form.price_max or '∞')) if price_on else 'Cualquiera', price_on) %}
