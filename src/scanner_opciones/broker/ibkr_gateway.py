@@ -245,6 +245,13 @@ class IBKRGateway:
                               "(otro TWS, la app móvil o un segundo usuario)?") from None
         self._updates_account = account
 
+    async def _position_sector(self, symbol: str) -> Optional[str]:
+        """Sector de una posición. Un subyacente que no es una acción (opciones del VIX, índices) no se reconoce como tal: sin sector, sin romper la cartera."""
+        try:
+            return (await self.get_sector_info(symbol))[0]
+        except UnsupportedTickerError:
+            return None
+
     async def get_positions(self) -> list[Position]:
         self._require()
         out: list[Position] = []
@@ -256,10 +263,10 @@ class IBKRGateway:
             c = item.contract
             daily = self._daily_pnl(account, getattr(c, "conId", None))
             if c.secType == "STK":
-                sector, _ = await self.get_sector_info(c.symbol)
+                sector = await self._position_sector(c.symbol)
                 out.append(Position(c.symbol, item.position, float(item.marketValue), sector, avg_cost=m.num(getattr(item, "averageCost", None)), daily_pnl=daily))
             elif c.secType == "OPT":
-                sector, _ = await self.get_sector_info(c.symbol)
+                sector = await self._position_sector(c.symbol)
                 oc = OptionContract(
                     c.symbol, m.parse_expiry(c.lastTradeDateOrContractMonth), float(c.strike),
                     OptionRight(c.right[0]), int(c.multiplier or 100), c.conId,
