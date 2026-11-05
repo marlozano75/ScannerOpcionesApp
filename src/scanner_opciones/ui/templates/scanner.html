@@ -21,7 +21,10 @@
 {% set base = [('sec-contract', 'DTE ' ~ f.dte_min ~ '–' ~ f.dte_max, 'dte_min dte_max'), ('sec-contract', 'Comprada ' ~ f.otm_min ~ '–' ~ f.otm_max ~ ' % OTM', 'otm_min otm_max'),
                ('sec-widths', 'Anchos ' ~ f.widths, 'widths'), ('sec-move', 'Necesario ≤ ' ~ f.mult ~ '× esperado (+' ~ f.gain ~ ' % en ' ~ f.days ~ ' d)', 'gain days mult'),
                ('sec-price', 'Precio de venta: ' ~ ref_names.get(f.ref, f.ref), 'ref ref_x' if f.ref == 'bid_plus_spread' else 'ref')] %}
-{% set chips = [('sec-debit', 'Débito ' ~ f.dmin ~ '–' ~ f.dmax ~ ' $', 'dmin dmax'), ('sec-debit', 'OI ≥ ' ~ f.oi ~ ' en cada pata', 'oi'), ('sec-debit', 'Spread ≤ ' ~ f.ls ~ ' % en cada pata', 'ls')] %}
+{% set chips = [('sec-debit', 'Débito ' ~ f.dmin ~ '–' ~ f.dmax ~ ' $', 'dmin dmax'), ('sec-debit', 'OI ≥ ' ~ f.oi ~ ' comprada', 'oi'), ('sec-debit', 'OI ≥ ' ~ f.oi_s ~ ' vendida', 'oi_s'),
+                ('sec-debit', 'Spread ≤ ' ~ f.ls ~ ' % comprada', 'ls'), ('sec-debit', 'Spread ≤ ' ~ f.ls_s ~ ' % vendida', 'ls_s')] %}
+{% if f.use_bsz %}{% set _ = chips.append(('sec-debit', 'Bid size ≥ ' ~ f.bsz, 'use_bsz bsz')) %}{% endif %}
+{% if f.use_asz %}{% set _ = chips.append(('sec-debit', 'Ask size ≥ ' ~ f.asz, 'use_asz asz')) %}{% endif %}
 {% if f.best %}{% set _ = chips.append(('sec-widths', 'Solo el mejor ancho', 'best')) %}{% endif %}
 {% if f.wpct_min or f.wpct_max %}{% set _ = chips.append(('sec-widths', 'Ancho/strike ' ~ (f.wpct_min or '0') ~ '–' ~ (f.wpct_max or '∞') ~ ' %', 'wpct_min wpct_max')) %}{% endif %}
 {% if f.use_prob %}{% set _ = chips.append(('sec-move', 'Prob. objetivo ≥ ' ~ f.prob ~ ' %', 'use_prob prob')) %}{% endif %}
@@ -310,14 +313,20 @@
         </div>
       {% endcall %}
 
-      {% call section('sec-debit', 'Débito y patas', 'Débito ' ~ form.dmin ~ '–' ~ form.dmax ~ ' $ · OI ≥ ' ~ form.oi ~ ' · spread ≤ ' ~ form.ls ~ ' %', true) %}
+      {% call section('sec-debit', 'Débito y patas', 'Débito ' ~ form.dmin ~ '–' ~ form.dmax ~ ' $ · OI ≥ ' ~ form.oi ~ '/' ~ form.oi_s ~ ' · spread ≤ ' ~ form.ls ~ '/' ~ form.ls_s ~ ' %' ~ ((' · bid size ≥ ' ~ form.bsz) if form.use_bsz else '') ~ ((' · ask size ≥ ' ~ form.asz) if form.use_asz else ''), true) %}
         <div class="fgrid">
           <label class="field" title="Débito por contrato en dólares (la pérdida máxima)">Débito mín. ($) <input name="dmin" value="{{ form.dmin }}" inputmode="decimal"></label>
           <label class="field">Débito máx. ($) <input name="dmax" value="{{ form.dmax }}" inputmode="decimal"></label>
-          <label class="field" title="Open interest mínimo de cada pata">OI mín. de cada pata <input name="oi" value="{{ form.oi }}" inputmode="decimal"></label>
-          <label class="field" title="Spread bid/ask máximo de cada pata, en % del mid">Spread máx. de cada pata (%) <input name="ls" value="{{ form.ls }}" inputmode="decimal"></label>
+          <label class="field" title="Open interest mínimo de la call comprada">OI mín. comprada <input name="oi" value="{{ form.oi }}" inputmode="decimal"></label>
+          <label class="field" title="Open interest mínimo de la call vendida">OI mín. vendida <input name="oi_s" value="{{ form.oi_s }}" inputmode="decimal"></label>
+          <label class="field" title="Spread bid/ask máximo de la call comprada, en % del mid">Spread máx. comprada (%) <input name="ls" value="{{ form.ls }}" inputmode="decimal"></label>
+          <label class="field" title="Spread bid/ask máximo de la call vendida, en % del mid">Spread máx. vendida (%) <input name="ls_s" value="{{ form.ls_s }}" inputmode="decimal"></label>
         </div>
-        <p class="note">Débito = ask de la comprada − precio de venta de la vendida + comisiones de las dos patas. Una pata sin bid/ask válido no cuenta.</p>
+        <label class="opt opt-row" title="Tamaño mínimo del bid (contratos) en las dos patas; una pata sin dato de tamaño no pasa"><span class="check"><input type="checkbox" name="use_bsz" {{ 'checked' if form.use_bsz }}> Bid size ≥ (cada pata)</span>
+          <input name="bsz" value="{{ form.bsz }}" inputmode="numeric"></label>
+        <label class="opt opt-row" title="Tamaño mínimo del ask (contratos) en las dos patas; una pata sin dato de tamaño no pasa"><span class="check"><input type="checkbox" name="use_asz" {{ 'checked' if form.use_asz }}> Ask size ≥ (cada pata)</span>
+          <input name="asz" value="{{ form.asz }}" inputmode="numeric"></label>
+        <p class="note">Débito = ask de la comprada − precio de venta de la vendida + comisiones de las dos patas. Una pata sin bid/ask válido no cuenta. Los tamaños son los del proveedor de datos (tastytrade): suelen ser bastante menores que los que muestra TWS.</p>
       {% endcall %}
 
       {% call section('sec-move', 'Rentabilidad mínima esperada', 'necesario ≤ ' ~ form.mult ~ '× esperado' ~ ((' · retorno ≥ ' ~ form.ret ~ ' %') if form.use_ret else ''), true) %}
@@ -865,7 +874,8 @@
       trend: { set: { trend_dir: 'off' } }, support: { uncheck: ['support'] }, touch: { set: { touch: '' } },
       averages: { sectionSelects: 'sec-ma' },
       // Call Debit Spread: cada filtro vuelve a un valor que no descarta nada
-      cds_debit: { set: { dmin: '0', dmax: '1000000' } }, cds_oi: { set: { oi: '0' } }, cds_spread: { set: { ls: '1000' } },
+      cds_debit: { set: { dmin: '0', dmax: '1000000' } }, cds_oi: { set: { oi: '0' } }, cds_oi_s: { set: { oi_s: '0' } }, cds_spread: { set: { ls: '1000' } }, cds_spread_s: { set: { ls_s: '1000' } },
+      cds_bsz: { uncheck: ['use_bsz'] }, cds_asz: { uncheck: ['use_asz'] },
       cds_wpct: { set: { wpct_min: '', wpct_max: '' } }, cds_move: { set: { mult: '1000' } }, cds_prob: { uncheck: ['use_prob'] }, cds_xprofit: { uncheck: ['use_xp'] }, cds_earn: { uncheck: ['use_earn'] }, cds_return: { uncheck: ['use_ret'] }, cds_sma: { uncheck: ['use_sma'] },
       cds_profit: { uncheck: ['q_profit'] }, cds_quarters: { set: { q_quarters: '' } }, cds_fcf: { uncheck: ['q_fcf'] }, cds_lev: { set: { q_lev: '' } },
       cds_liq: { set: { q_liq: '' } }, cds_price: { set: { price_min: '', price_max: '' } }, cds_sources: { uncheck: ['use_src'] },

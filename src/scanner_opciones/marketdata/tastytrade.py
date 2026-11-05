@@ -303,7 +303,7 @@ class TastytradeVolatility:
             return v if v == v and abs(v) != float("inf") else None
 
         def fill_quote(d: dict, e: Any) -> None:
-            d.update(bid=num(e.bid_price), ask=num(e.ask_price), bid_size=num(e.bid_size), quoted=True)
+            d.update(bid=num(e.bid_price), ask=num(e.ask_price), bid_size=num(e.bid_size), ask_size=num(e.ask_size), quoted=True)
 
         def fill_greeks(d: dict, e: Any) -> None:
             d.update(iv=num(e.volatility), delta=num(e.delta), greeks=True)
@@ -347,10 +347,11 @@ class TastytradeVolatility:
         for s, d in got.items():
             if not (d.get("quoted") or d.get("greeks")):
                 continue
-            oi, bs = d.get("oi"), d.get("bid_size")
+            oi, bs, az = d.get("oi"), d.get("bid_size"), d.get("ask_size")
             out[s] = OptionQuote(
                 bid=d.get("bid"), ask=d.get("ask"), last=None, delta=d.get("delta"), iv=d.get("iv"),
                 open_interest=int(oi) if oi is not None else None, bid_size=int(bs) if bs is not None else None,
+                ask_size=int(az) if az is not None else None,
             )
         return out
 

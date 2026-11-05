@@ -82,6 +82,7 @@ class ContractSnapshot:
     iv_percentile: Optional[float] = None
     initial_margin: Optional[float] = None
     bid_size: Optional[int] = None
+    ask_size: Optional[int] = None    # tamaño del ask del proveedor de datos (el de TWS solo se pide para el bid)
     margin_at: Optional[datetime] = None  # cuándo se pidió el margen (para reutilizarlo)
     bid_size_tws_at: Optional[datetime] = None   # cuándo se sustituyó `bid_size` por el de TWS (None: es el del proveedor de datos)
     margin_price: Optional[float] = None         # precio del subyacente cuando se pidió el margen (para reutilizarlo mientras el precio no se mueva)
@@ -170,6 +171,7 @@ class OptionQuote:
     iv: Optional[float] = None
     open_interest: Optional[int] = None
     bid_size: Optional[int] = None
+    ask_size: Optional[int] = None
 
 
 @dataclass(frozen=True)

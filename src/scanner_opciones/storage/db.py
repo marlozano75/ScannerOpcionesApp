@@ -412,6 +412,8 @@ MIGRATIONS: list[str] = [
     DROP TABLE IF EXISTS ticker_premium_history;
     DROP TABLE IF EXISTS ticker_selection;
     """,
+    # v41: tamaño del ask (el CDS filtra por bid size y ask size de cada pata)
+    "ALTER TABLE snapshots ADD COLUMN ask_size INTEGER;",
 ]
 
 

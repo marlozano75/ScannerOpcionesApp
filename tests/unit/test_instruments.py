@@ -72,7 +72,7 @@ class FakeIB:
         self.requested.append((contract, generic))
         nan = float("nan")
         quoted = self.frozen or not self.closed
-        return NS(bid=10.0 if quoted else -1, ask=11.0 if quoted else -1, last=None, bidSize=5 if quoted else nan,
+        return NS(bid=10.0 if quoted else -1, ask=11.0 if quoted else -1, last=None, bidSize=5 if quoted else nan, askSize=6 if quoted else nan,
                   modelGreeks=NS(delta=-0.09, impliedVol=0.29), putOpenInterest=nan if self.frozen else 900, callOpenInterest=None,
                   marketPrice=lambda: 6068.22, impliedVolatility=nan, close=6087.0)
 

@@ -829,7 +829,7 @@ class SnapshotRepo:
     _UPSERT = (
         "INSERT OR REPLACE INTO snapshots (contract_id, updated_at, bid, ask, last, delta, iv, "
         "open_interest, spread_pct, yield_pct, yield_annualized_pct, iv_rank, iv_percentile, "
-        "initial_margin, bid_size, margin_at, bid_size_tws_at, margin_price) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+        "initial_margin, bid_size, margin_at, bid_size_tws_at, margin_price, ask_size) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
     )
 
     @staticmethod
@@ -839,7 +839,7 @@ class SnapshotRepo:
             snap.iv, snap.open_interest, snap.spread_pct, snap.yield_pct,
             snap.yield_annualized_pct, snap.iv_rank, snap.iv_percentile, snap.initial_margin, snap.bid_size,
             snap.margin_at.isoformat() if snap.margin_at else None,
-            snap.bid_size_tws_at.isoformat() if snap.bid_size_tws_at else None, snap.margin_price,
+            snap.bid_size_tws_at.isoformat() if snap.bid_size_tws_at else None, snap.margin_price, snap.ask_size,
         )
 
     def upsert(self, snap: ContractSnapshot) -> bool:
@@ -890,7 +890,7 @@ class SnapshotRepo:
         sql = (
             "SELECT c.ticker, c.expiry, c.strike, c.right, c.multiplier, c.con_id, s.updated_at, s.bid, s.ask, s.last, s.delta, s.iv, "
             "s.open_interest, s.spread_pct, s.yield_pct, s.yield_annualized_pct, s.iv_rank, s.iv_percentile, s.initial_margin, s.bid_size, "
-            "s.margin_at, s.bid_size_tws_at, s.margin_price FROM snapshots s JOIN contracts c ON c.id = s.contract_id"
+            "s.margin_at, s.bid_size_tws_at, s.margin_price, s.ask_size FROM snapshots s JOIN contracts c ON c.id = s.contract_id"
         )
         params: tuple = ()
         if ticker:
@@ -900,7 +900,7 @@ class SnapshotRepo:
         rights: dict[str, OptionRight] = {}
         out: list[ContractSnapshot] = []
         for (tk, expiry, strike, right, mult, con_id, updated, bid, ask, last, delta, iv, oi, sp, yp, yap, ivr, ivp, margin, bsize, margin_at,
-             tws_at, margin_price) in self.db.conn.execute(sql + " ORDER BY c.ticker, c.expiry, c.strike", params):
+             tws_at, margin_price, asize) in self.db.conn.execute(sql + " ORDER BY c.ticker, c.expiry, c.strike", params):
             if (d := days.get(expiry)) is None:
                 d = days[expiry] = date.fromisoformat(expiry)
             if (rt := rights.get(right)) is None:
@@ -909,7 +909,7 @@ class SnapshotRepo:
                 contract=OptionContract(ticker=tk, expiry=d, strike=strike, right=rt, multiplier=mult, con_id=con_id),
                 updated_at=datetime.fromisoformat(updated), bid=bid, ask=ask, last=last, delta=delta, iv=iv, open_interest=oi, spread_pct=sp,
                 yield_pct=yp, yield_annualized_pct=yap, iv_rank=ivr, iv_percentile=ivp, initial_margin=margin, bid_size=bsize,
-                margin_at=_dt(margin_at), bid_size_tws_at=_dt(tws_at), margin_price=margin_price,
+                margin_at=_dt(margin_at), bid_size_tws_at=_dt(tws_at), margin_price=margin_price, ask_size=asize,
             ))
         return out
 

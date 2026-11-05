@@ -51,11 +51,14 @@ def parse_cds(service, qp) -> dict:
     ticker_filters: dict = {}
     error: Optional[str] = None
     if submitted:
-        for key in ("dte_min", "dte_max", "otm_min", "otm_max", "widths", "wpct_min", "wpct_max", "dmin", "dmax", "oi", "ls", "gain", "days", "mult",
+        for key in ("dte_min", "dte_max", "otm_min", "otm_max", "widths", "wpct_min", "wpct_max", "dmin", "dmax", "oi", "oi_s", "ls", "ls_s", "bsz", "asz", "gain", "days", "mult",
                     "ret", "prob", "xp", "top", "sma", "ref", "ref_x"):
             if key in qp:
                 form[key] = str(qp.get(key, "")).strip()
-        for key in ("best", "use_ret", "use_prob", "use_xp", "use_sma", "use_earn"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
+        for new, old in (("oi_s", "oi"), ("ls_s", "ls")):        # perfil guardado antes de separar las patas: el valor único valía para las dos
+            if new not in qp and old in qp:
+                form[new] = form[old]
+        for key in ("best", "use_ret", "use_prob", "use_xp", "use_sma", "use_earn", "use_bsz", "use_asz"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
             form[key] = key in qp
     try:
         dte_min = max(_num(form["dte_min"], "DTE mínimo", int), catalog.dte_min)
@@ -80,7 +83,10 @@ def parse_cds(service, qp) -> dict:
             width_pct_min=_num(form["wpct_min"], "Ancho mínimo (%)", allow_empty=True), width_pct_max=_num(form["wpct_max"], "Ancho máximo (%)", allow_empty=True),
             best_width=bool(form["best"]),
             min_debit_usd=_num(form["dmin"], "Débito mínimo"), max_debit_usd=_num(form["dmax"], "Débito máximo"),
-            min_long_oi=_num(form["oi"], "OI mínimo", int), max_leg_spread_pct=_num(form["ls"], "Spread máximo de las patas"),
+            min_long_oi=_num(form["oi"], "OI mínimo de la comprada", int), min_short_oi=_num(form["oi_s"], "OI mínimo de la vendida", int),
+            max_long_spread_pct=_num(form["ls"], "Spread máximo de la comprada"), max_short_spread_pct=_num(form["ls_s"], "Spread máximo de la vendida"),
+            min_bid_size=_num(form["bsz"], "Bid size mínimo", int) if form["use_bsz"] else None,
+            min_ask_size=_num(form["asz"], "Ask size mínimo", int) if form["use_asz"] else None,
             target_gain_pct=_num(form["gain"], "Objetivo de ganancia"), move_days=_num(form["days"], "Días del movimiento", int),
             max_required_move_mult=_num(form["mult"], "Múltiplo del movimiento esperado"),
             min_prob_pct=_num(form["prob"], "Probabilidad mínima") if form["use_prob"] else None,

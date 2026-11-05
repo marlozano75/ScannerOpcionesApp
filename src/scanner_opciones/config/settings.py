@@ -574,8 +574,12 @@ class CdsSettings(_Model):
     strike_multiple: float = Field(0, ge=0)
     min_debit_usd: float = Field(150, ge=0)              # débito por contrato en $ (el logbook llega a 57 $)
     max_debit_usd: float = Field(2150, gt=0)             # máximo del logbook de MTO: 2.145 $ (NVDA 250/350, dic. 2028); solo 5 de 51 superan 650 $
-    min_long_oi: int = Field(10, ge=0)                   # OI mínimo de cada pata
-    max_leg_spread_pct: float = Field(25, gt=0)          # spread bid/ask máximo de cada pata (%)
+    min_long_oi: int = Field(10, ge=0)                   # OI mínimo de la call comprada
+    min_short_oi: int = Field(10, ge=0)                  # OI mínimo de la call vendida
+    max_long_spread_pct: float = Field(25, gt=0)         # spread bid/ask máximo de la call comprada (%)
+    max_short_spread_pct: float = Field(25, gt=0)        # ... y de la vendida (%)
+    min_bid_size: Optional[int] = Field(None, ge=0)      # tamaño mínimo del bid de cada pata (None = sin filtro; un dato que falta no pasa)
+    min_ask_size: Optional[int] = Field(None, ge=0)      # tamaño mínimo del ask de cada pata (None = sin filtro)
     # Rentabilidad mínima esperada (obligatoria): el subyacente debe poder mover lo necesario para ganar `target_gain_pct` del débito
     # (objetivo de salida del perfil MTO) en `move_days` días. Movimiento necesario = objetivo × débito / delta neta; se compara con el
     # movimiento esperado a `move_days` días (precio × IV a `move_days` días × √(días/365); la IV sale de interpolar la IV por vencimiento de tastytrade en varianza total, con el IV30 de respaldo).

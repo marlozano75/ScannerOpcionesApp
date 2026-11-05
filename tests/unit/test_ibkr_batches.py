@@ -15,7 +15,7 @@ TODAY = date(2026, 9, 29)
 
 
 def _tick(**kw):
-    base = dict(bid=1.0, ask=1.2, last=1.1, bidSize=10, modelGreeks=NS(delta=-0.1, impliedVol=0.3),
+    base = dict(bid=1.0, ask=1.2, last=1.1, bidSize=10, askSize=12, modelGreeks=NS(delta=-0.1, impliedVol=0.3),
                 putOpenInterest=100, callOpenInterest=None, dividends=None, marketPrice=lambda: 10.0)
     base.update(kw)
     return NS(**base)

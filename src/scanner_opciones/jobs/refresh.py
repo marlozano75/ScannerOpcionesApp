@@ -434,18 +434,18 @@ class RefreshJob:
         `updated_at` sigue siendo el de esa cotización, para que se vea su antigüedad. Lo mismo con
         las griegas (delta, IV) y, campo a campo, con el open interest."""
         updated_at = self.now()
-        bid, ask, last, bid_size = q.bid, q.ask, q.last, q.bid_size
+        bid, ask, last, bid_size, ask_size = q.bid, q.ask, q.last, q.bid_size, q.ask_size
         delta, iv, oi = q.delta, q.iv, q.open_interest
         tws_at, kept = None, False
         if previous is not None:
             if bid is None and ask is None and (previous.bid is not None or previous.ask is not None):
-                bid, ask, last, bid_size = previous.bid, previous.ask, previous.last, previous.bid_size
+                bid, ask, last, bid_size, ask_size = previous.bid, previous.ask, previous.last, previous.bid_size, previous.ask_size
                 updated_at = previous.updated_at or updated_at
                 kept = True
             elif (bid == 0 and ask is not None and ask > 0 and previous.bid is not None and previous.bid > 0
                   and not self._market_open(contract.ticker)):
                 # fuera de horario tastytrade devuelve bid 0 con un ask inflado: no pisa la cotización de la sesión
-                bid, ask, last, bid_size = previous.bid, previous.ask, previous.last, previous.bid_size
+                bid, ask, last, bid_size, ask_size = previous.bid, previous.ask, previous.last, previous.bid_size, previous.ask_size
                 updated_at = previous.updated_at or updated_at
                 kept = True
             if previous.bid_size_tws_at is not None and previous.bid_size is not None and (kept or self._tws_size_fresh(previous)):
@@ -459,7 +459,7 @@ class RefreshJob:
         return ContractSnapshot(
             contract=contract, updated_at=updated_at,
             bid=bid, ask=ask, last=last, delta=delta, iv=iv, open_interest=oi,
-            bid_size=bid_size, bid_size_tws_at=tws_at,
+            bid_size=bid_size, ask_size=ask_size, bid_size_tws_at=tws_at,
             spread_pct=spread_pct(bid, ask), yield_pct=y,
             yield_annualized_pct=annualized_yield_pct(y, dte),
             iv_rank=info.iv_rank if info else None,

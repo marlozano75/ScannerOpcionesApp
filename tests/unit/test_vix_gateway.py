@@ -116,7 +116,7 @@ class QuoteIB:
             iv = self.ivs.get(symbol, float("nan"))
             return NS(marketPrice=lambda px=px: px, impliedVolatility=iv)
         return NS(
-            bid=1.0, ask=1.2, last=1.1, bidSize=37.0, putOpenInterest=500.0, callOpenInterest=float("nan"),
+            bid=1.0, ask=1.2, last=1.1, bidSize=37.0, askSize=41.0, putOpenInterest=500.0, callOpenInterest=float("nan"),
             modelGreeks=NS(delta=-0.12, impliedVol=0.31),
         )
 

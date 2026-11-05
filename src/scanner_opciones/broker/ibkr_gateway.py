@@ -569,6 +569,7 @@ class IBKRGateway:
             q1 = out[c]
             out[c] = replace(q1, bid=q2.bid, ask=q2.ask, last=q1.last if q1.last is not None else q2.last,
                              bid_size=q1.bid_size if q1.bid_size is not None else q2.bid_size,
+                             ask_size=q1.ask_size if q1.ask_size is not None else q2.ask_size,
                              delta=q1.delta if q1.delta is not None else q2.delta, iv=q1.iv if q1.iv is not None else q2.iv,
                              open_interest=q1.open_interest if q1.open_interest is not None else q2.open_interest)
         return out
@@ -618,9 +619,11 @@ class IBKRGateway:
             oi = t.putOpenInterest if c.right.value == "P" else t.callOpenInterest
             oi = m.num(oi)
             bid_size = m.num(t.bidSize)
+            ask_size = m.num(t.askSize)
             out[c] = OptionQuote(
                 bid=m.num(t.bid), ask=m.num(t.ask), last=m.num(t.last),
                 bid_size=int(bid_size) if bid_size is not None else None,
+                ask_size=int(ask_size) if ask_size is not None else None,
                 delta=m.num(g.delta) if g else None,
                 iv=m.num(g.impliedVol) if g else None,
                 open_interest=int(oi) if oi is not None else None,

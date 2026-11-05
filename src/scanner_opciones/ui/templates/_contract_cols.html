@@ -114,6 +114,7 @@
 <th data-col="sma" title="Distancia del precio a su media de 200 sesiones (negativo = por debajo; en verde si está al menos un 10 % por debajo)">vs SMA200 %</th>
 <th data-col="ldelta" title="Delta de la call comprada">Δ comp.</th><th data-col="delta" title="Delta de la call vendida">Δ vend.</th><th title="Volatilidad implícita de la call comprada">IV</th><th data-col="ivr" title="IV Rank del subyacente: posición de su IV actual dentro del rango de 52 semanas">IV Rank</th><th data-col="ivp" title="IV Percentile del subyacente: % de días del último año con IV menor que la actual">IV Pctl</th>
 <th data-col="lspread" title="Spread bid/ask de la call comprada, en % del mid">Spread comp.</th><th data-col="spread" title="Spread bid/ask de la call vendida, en % del mid">Spread vend.</th><th data-col="loi" title="Open interest de la call comprada">OI comp.</th><th data-col="oi" title="Open interest de la call vendida">OI vend.</th>
+<th data-col="lbsize" title="Tamaño del bid de la call comprada (contratos; del proveedor de datos)">Bid size comp.</th><th data-col="lasize" title="Tamaño del ask de la call comprada (contratos)">Ask size comp.</th><th data-col="bsize" title="Tamaño del bid de la call vendida (contratos)">Bid size vend.</th><th data-col="asize" title="Tamaño del ask de la call vendida (contratos)">Ask size vend.</th>
 <th data-col="liq" title="Liquidez de las opciones del subyacente según tastytrade (1 = baja, 5 = alta)">Liq. opc.</th>
 {{ extra_head(false, false) }}
 {%- endmacro %}
@@ -132,6 +133,7 @@
 <td>{{ lg.delta|num }}</td><td>{{ sh.delta|num }}</td><td>{{ (lg.iv * 100)|pct if lg.iv is not none else '—' }}</td>
 <td class="cb"{% if lg.iv_rank is not none %} style="--p:{{ lg.iv_rank|round(0)|int }}%"{% endif %}>{{ lg.iv_rank|pct(0) }}</td><td class="cb"{% if lg.iv_percentile is not none %} style="--p:{{ lg.iv_percentile|round(0)|int }}%"{% endif %}>{{ lg.iv_percentile|pct(0) }}</td>
 <td>{{ lg.spread_pct|pct }}</td><td>{{ sh.spread_pct|pct }}</td><td>{{ lg.open_interest if lg.open_interest is not none else '—' }}</td><td>{{ sh.open_interest if sh.open_interest is not none else '—' }}</td>
+<td>{{ lg.bid_size if lg.bid_size is not none else '—' }}</td><td>{{ lg.ask_size if lg.ask_size is not none else '—' }}</td><td>{{ sh.bid_size if sh.bid_size is not none else '—' }}</td><td>{{ sh.ask_size if sh.ask_size is not none else '—' }}</td>
 <td>{{ i.option_liquidity if i and i.option_liquidity is not none else '—' }}</td>
 {{ extra_cells(x, pas=false, tech=false) }}
 {%- endmacro %}

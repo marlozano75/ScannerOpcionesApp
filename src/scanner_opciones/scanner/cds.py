@@ -87,9 +87,16 @@ def _spread_pct(s: ContractSnapshot) -> Optional[float]:
     return (s.ask - s.bid) / mid_price(s.bid, s.ask) * 100
 
 
-def _leg_ok(s: ContractSnapshot, cds: CdsSettings) -> bool:
+def _size_ok(size: Optional[int], minimum: Optional[int]) -> bool:
+    return minimum is None or (size is not None and size >= minimum)
+
+
+def _leg_ok(s: ContractSnapshot, cds: CdsSettings, long: bool) -> bool:
+    """Liquidez de una pata: spread bid/ask, OI, y tamaño del bid y del ask si se exigen (la comprada y la vendida tienen límites propios de spread y OI)."""
     sp = _spread_pct(s)
-    return sp is not None and sp <= cds.max_leg_spread_pct + EPS and (s.open_interest or 0) >= cds.min_long_oi
+    max_sp, min_oi = (cds.max_long_spread_pct, cds.min_long_oi) if long else (cds.max_short_spread_pct, cds.min_short_oi)
+    return (sp is not None and sp <= max_sp + EPS and (s.open_interest or 0) >= min_oi
+            and _size_ok(s.bid_size, cds.min_bid_size) and _size_ok(s.ask_size, cds.min_ask_size))
 
 
 def build_call_debit_spreads(
@@ -126,7 +133,7 @@ def build_call_debit_spreads(
                 continue                   # sin 200 sesiones no se puede comprobar el retroceso
             if dist200 > -cds.sma200_below_pct_min + EPS:
                 continue
-        if not _leg_ok(lg, cds) or lg.delta is None:
+        if not _leg_ok(lg, cds, True) or lg.delta is None:
             continue
         iv = iv_at_horizon(info, cds.move_days, today) or lg.iv
         if not iv or iv <= 0:
@@ -139,7 +146,7 @@ def build_call_debit_spreads(
             if (cds.width_pct_min is not None and width_pct < cds.width_pct_min - EPS) or (cds.width_pct_max is not None and width_pct > cds.width_pct_max + EPS):
                 continue
             sh = calls.get((ticker, expiry, round(strike + width, 4)))
-            if sh is None or sh.delta is None or sh.contract.multiplier != mult or not _leg_ok(sh, cds):
+            if sh is None or sh.delta is None or sh.contract.multiplier != mult or not _leg_ok(sh, cds, False):
                 continue
             sell = reference_price(sh.bid, sh.ask, price_reference, price_spread_pct)
             if sell is None:

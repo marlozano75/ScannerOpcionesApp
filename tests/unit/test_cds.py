@@ -153,3 +153,31 @@ def test_earnings_in_move_window_excluded():
     assert len(build_call_debit_spreads(snaps, with_earn(11), cfg(exclude_earnings=True), TODAY)) == 1
     assert len(build_call_debit_spreads(snaps, with_earn(-3), cfg(exclude_earnings=True), TODAY)) == 1  # ya pasados: no cuentan
     assert len(build_call_debit_spreads(snaps, with_earn(5), cfg(exclude_earnings=False), TODAY)) == 1
+
+
+def test_each_leg_has_its_own_oi_and_spread_limits():
+    ok = [call(130, 3.9, 4.0, 0.30, oi=100), call(140, 2.2, 2.4, 0.22, oi=100)]
+    assert len(build_call_debit_spreads(ok, info(), cfg(), TODAY)) == 1
+    # OI de la vendida por debajo del suyo: la comprada, con el suyo cumplido, no basta
+    low_short = [call(130, 3.9, 4.0, 0.30, oi=100), call(140, 2.2, 2.4, 0.22, oi=5)]
+    assert build_call_debit_spreads(low_short, info(), cfg(min_long_oi=50, min_short_oi=50), TODAY) == []
+    assert len(build_call_debit_spreads(low_short, info(), cfg(min_long_oi=50, min_short_oi=5), TODAY)) == 1
+    # lo mismo con el OI de la comprada
+    low_long = [call(130, 3.9, 4.0, 0.30, oi=5), call(140, 2.2, 2.4, 0.22, oi=100)]
+    assert build_call_debit_spreads(low_long, info(), cfg(min_long_oi=50, min_short_oi=5), TODAY) == []
+    assert len(build_call_debit_spreads(low_long, info(), cfg(min_long_oi=5, min_short_oi=50), TODAY)) == 1
+    # spread: la vendida (2,2/2,4 = 8,7 %) pasa con 10 y no con 5; la comprada (3,9/4,0 = 2,5 %) pasa con 5
+    assert len(build_call_debit_spreads(ok, info(), cfg(max_long_spread_pct=5, max_short_spread_pct=10), TODAY)) == 1
+    assert build_call_debit_spreads(ok, info(), cfg(max_long_spread_pct=5, max_short_spread_pct=5), TODAY) == []
+    assert build_call_debit_spreads(ok, info(), cfg(max_long_spread_pct=2, max_short_spread_pct=10), TODAY) == []
+
+
+def test_bid_and_ask_size_filters_apply_to_both_legs_and_missing_data_fails():
+    from dataclasses import replace
+    a, b = call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)
+    sized = [replace(a, bid_size=50, ask_size=40), replace(b, bid_size=30, ask_size=20)]
+    assert len(build_call_debit_spreads(sized, info(), cfg(), TODAY)) == 1                       # sin filtro no importa el tamaño
+    assert len(build_call_debit_spreads(sized, info(), cfg(min_bid_size=30, min_ask_size=20), TODAY)) == 1
+    assert build_call_debit_spreads(sized, info(), cfg(min_bid_size=31), TODAY) == []            # la vendida tiene bid size 30
+    assert build_call_debit_spreads(sized, info(), cfg(min_ask_size=21), TODAY) == []            # la vendida tiene ask size 20
+    assert build_call_debit_spreads([a, b], info(), cfg(min_bid_size=1), TODAY) == []            # sin dato de tamaño no pasa
