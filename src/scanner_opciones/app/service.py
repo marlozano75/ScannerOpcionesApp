@@ -398,8 +398,11 @@ class AppService:
                 kind = "contracts"
                 mine = self._others(self.feeds[published[name]].contracts())
                 raw = [["Ticker", SOURCE_COLUMN, "Contratos", "Traders"]]
+                by_ticker: dict[str, list] = {}      # una sola pasada: antes cada ticker recorría todos los contratos (coste cuadrático)
+                for c in mine:
+                    by_ticker.setdefault(clean_ticker(c.ticker), []).append(c)
                 for t in tickers:
-                    here = [c for c in mine if clean_ticker(c.ticker) == clean_ticker(t)]
+                    here = by_ticker.get(clean_ticker(t), [])
                     raw.append([t, name, str(len(here)), ", ".join(sorted({c.trader for c in here if c.trader}, key=str.casefold))])
             elif name == self.settings.super_investors.source_name:     # lleva además los gestores que la tienen y su peso máximo
                 info = self.investors_info()
