@@ -55,7 +55,7 @@ async def update_history(
     candles: CandleProvider, repo: BarRepo, tickers: list[str], today: date, cfg: TrendSettings, full_ohlc: Iterable[str] = ()
 ) -> None:
     """Completa el histórico de cierres de `tickers`. Si el proveedor falla se conserva lo ya guardado.
-    `full_ohlc` (los tickers en cartera): si su histórico guardado no tiene la apertura, se vuelve a pedir entero (`trend.history_days`) para
+    `full_ohlc` (los tickers a los que se quiere la vela completa): si su histórico guardado no tiene la apertura, se vuelve a pedir entero (`trend.history_days`) para
     tener la vela completa (apertura, máximo, mínimo y cierre)."""
     last = repo.last_days(tickers)
     in_portfolio = set(full_ohlc)
@@ -93,7 +93,7 @@ async def update_history(
                 else:
                     repo.upsert_ohlc(t, series)
                     stats_note["incremental"] += 1
-            log.info("Velas completas (con apertura) de %d tickers en cartera", len(no_open))
+            log.info("Velas completas (con apertura) de %d tickers", len(no_open))
         if full:
             fetched = await _fetch(candles, full, cfg.history_days)
             for t in full:
