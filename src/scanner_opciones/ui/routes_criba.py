@@ -46,6 +46,11 @@ def _int(value, default: int, low: int, high: int) -> int:
         return default
 
 
+def _criba_spread(service, profile_spread):
+    """Spread máximo del informe de bids: el del perfil, o `scanner.criba_max_spread_pct` si es mayor (el spread de cierre es más ancho que el de media sesión). Sin filtro de spread en el perfil, ninguno."""
+    return None if profile_spread is None else max(profile_spread, service.settings.scanner.criba_max_spread_pct)
+
+
 def history_params(service, qp) -> dict:
     """Parámetros del paso de velas leídos de la URL o del formulario: perfil de puts (da el descuento y el yield exigido), meses, aciertos, meses con dato y liquidez."""
     puts = [(name, c) for name, c, _ in service.profile_specs() if c is not None]
@@ -53,7 +58,7 @@ def history_params(service, qp) -> dict:
     chosen = next((p for p in puts if p[0] == wanted), None) or next((p for p in puts if p[1].min_yield_pct > 0), puts[0] if puts else None)
     months = _int(qp.get("hm", 3), 3, 1, 12)
     return dict(profile=chosen[0] if chosen else "", discount=chosen[1].strike_below_pct_min if chosen else 5.0,
-                required=chosen[1].min_yield_pct if chosen else 1.0, max_spread=chosen[1].max_spread_pct if chosen else None,
+                required=chosen[1].min_yield_pct if chosen else 1.0, max_spread=_criba_spread(service, chosen[1].max_spread_pct) if chosen else None,
                 min_oi=chosen[1].min_oi if chosen else None, months=months, hits=_int(qp.get("hh", 2), 2, 1, months),
                 min_months=_int(qp.get("hn", 2), 2, 1, months), liquidity=_int(qp.get("hl", 2), 2, 0, 4), profiles=[n for n, _ in puts])
 

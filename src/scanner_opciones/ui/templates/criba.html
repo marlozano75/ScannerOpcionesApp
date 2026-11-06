@@ -54,7 +54,7 @@
 {% if h_progress %}<div class="banner info"><b>En curso.</b> {{ h_progress }} <span class="muted">(la página se actualiza sola cada 5 s)</span></div>
 <script>setTimeout(function () { window.location.reload(); }, 5000);</script>
 {% elif h_result %}<div class="banner {{ 'err' if h_result.startswith('Error') else 'ok' }}">{{ h_result }}</div>{% endif %}
-<p class="note">Descuento del perfil «{{ h.profile }}»: ≥ {{ h.discount|num(1) }} % · yield exigido {{ h.required|num(2) }} % · {% if h.max_spread is not none %}spread ≤ {{ h.max_spread|num(0) }} %{% else %}sin filtro de spread{% endif %} · {% if h.min_oi is not none %}OI ≥ {{ h.min_oi }}{% else %}sin filtro de OI{% endif %} · contratos guardados: {{ h_stored }}.</p>
+<p class="note">Descuento del perfil «{{ h.profile }}»: ≥ {{ h.discount|num(1) }} % · yield exigido {{ h.required|num(2) }} % · {% if h.max_spread is not none %}spread ≤ {{ h.max_spread|num(0) }} % (de cierre){% else %}sin filtro de spread{% endif %} · {% if h.min_oi is not none %}OI ≥ {{ h.min_oi }}{% else %}sin filtro de OI{% endif %} · contratos guardados: {{ h_stored }}.</p>
 {% if h_total %}
 <div class="cr-k">
   <span><b>{{ h_counts.descartable }}</b> descartables</span><span><b>{{ h_counts.ok }}</b> cumplen</span><span><b>{{ h_counts["sin dato"] }}</b> sin dato</span>

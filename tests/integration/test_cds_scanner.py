@@ -328,3 +328,13 @@ def test_migration_v43_keeps_the_stored_bids_and_marks_them_as_missing_detail():
     repo.save_detail([("AAA", date(2026, 7, 17), 10.0, 0.6, 300, 0.4, 12)], datetime(2026, 11, 6))
     repo.save([("AAA", date(2026, 7, 17), 10.0, date(2026, 6, 17), 0.55)], datetime(2026, 11, 6))          # volver a guardar el bid no pierde el detalle
     assert repo.all_details()[("AAA", date(2026, 7, 17), 10.0)] == (0.55, 0.6, 300, 0.4, 12, True) and repo.missing_detail() == []
+
+
+def test_criba_spread_is_the_profiles_or_the_configured_minimum_whichever_is_larger():
+    from scanner_opciones.ui import routes_criba
+
+    svc = _svc()
+    floor = svc.settings.scanner.criba_max_spread_pct
+    assert routes_criba._criba_spread(svc, None) is None                         # el perfil no filtra por spread: la criba tampoco
+    assert routes_criba._criba_spread(svc, 20.0) == floor                        # el de cierre es más ancho: se sube al mínimo configurado
+    assert routes_criba._criba_spread(svc, floor + 30) == floor + 30             # un perfil más permisivo manda

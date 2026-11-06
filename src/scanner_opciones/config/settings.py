@@ -619,6 +619,9 @@ class ScannerSettings(_Model):
     initial: InitialFilterSettings = InitialFilterSettings()
     filters: FilterSettings = FilterSettings()
     filter_values: FilterValues = FilterValues()
+    # spread máximo (%) que el informe «Histórico real de bids» de la criba tolera como mínimo: el spread sale del bid y el ask de CIERRE, que miden una
+    # mediana de ~20 puntos más ancho que a media sesión; se usa el del perfil si es mayor (medido 2026-11-06, docs/seleccion-tickers.md)
+    criba_max_spread_pct: float = Field(50, gt=0)
     presets: tuple[ScannerPreset, ...] = DEFAULT_PRESETS
     strategy: StrategySettings = StrategySettings()
     technical: TechnicalSettings = TechnicalSettings()
