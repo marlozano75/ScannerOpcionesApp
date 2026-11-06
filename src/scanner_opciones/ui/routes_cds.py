@@ -15,6 +15,7 @@ from fastapi.responses import RedirectResponse
 
 from scanner_opciones.domain.models import TickerInfo
 from scanner_opciones.scanner.cds import CdsResult
+from scanner_opciones.scanner.criteria import unavailable_ma_fields
 from scanner_opciones.scanner.profiles import Profile, profile_diff
 from scanner_opciones.ui import cds_form
 from scanner_opciones.ui.scanner_forms import profile_href
@@ -73,6 +74,8 @@ def page(service, profiles: list[Profile], qp) -> dict:
                 cds_max_rows=MAX_ROWS, form=form, error=parsed["error"], warnings=list(parsed["notices"]), active=active, diff=diff,
                 widths_all=catalog.width_options, cds_ok=parsed["cds"] is not None, source_names=[src.name for src in service.universe_sources],
                 quality_opts=dict(liquidity=qcfg.liquidity_options, quarters=qcfg.positive_quarters_options, leverage=qcfg.leverage_options),
+                ma_hidden=unavailable_ma_fields(parsed["form"]["ma_frame"], service.settings.trend.history_days, service.settings.scanner.technical.ma_slope_candles),
+                tech_opts=dict(slope_candles=service.settings.scanner.technical.ma_slope_candles, rsi_lookback=service.settings.scanner.technical.rsi_lookback_days),
                 count_text=lambda *_: "")
 
 

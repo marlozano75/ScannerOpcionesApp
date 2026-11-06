@@ -12,6 +12,64 @@
     <div class="fx-body">{{ caller() }}</div>
   </details>
 {%- endmacro %}
+{# cuerpo de «Técnicos de entrada» y «Medias móviles / EMA»: el Scanner de puts y el CDS los comparten #}
+{% macro entry_body() -%}
+    <label class="field">Señales de entrada: cumplir al menos
+      <select name="signals" id="signals"><option value="0" {{ 'selected' if form.signals in ('', '0') }}>Todas las marcadas</option>
+        {% for n in (1, 2, 3, 4, 5) %}<option value="{{ n }}" {{ 'selected' if form.signals == n|string }}>{{ n }} de las marcadas</option>{% endfor %}</select></label>
+    {% set sigs = [] %}
+    {% for use, name in (('use_near', 'MA50/soporte'), ('use_rsi', 'RSI'), ('use_boll', 'Bollinger %B')) %}{% if form[use] %}{% set _ = sigs.append(name) %}{% endif %}{% endfor %}
+    <p class="note" id="signals-marked" style="display:block"><b>Señales marcadas ({{ sigs|length }}):</b> {{ sigs|join(', ') or 'ninguna' }}.{% if form.mode != 'cds' %} IV/HV y cambio de IV ya no son señales: son filtros obligatorios de «Volatilidad (IV) y prima».{% endif %}</p>
+    <p class="note">Son <b>señales</b> MA50/soporte, RSI y Bollinger %B: con «al menos N» basta cumplir N de las marcadas; el resto de filtros son obligatorios.</p>
+    <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_near" {{ 'checked' if form.use_near }}> Precio a ≤ X % de MA50 o soporte</span>
+      <input name="near_pct" value="{{ form.near_pct }}" inputmode="decimal"></label>
+    <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_rsi" {{ 'checked' if form.use_rsi }}> RSI(14) rebota desde ≤</span>
+      <input name="rsi_max" value="{{ form.rsi_max }}" inputmode="decimal"></label>
+    <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_boll" {{ 'checked' if form.use_boll }}> Bollinger: %B ≤</span>
+      <input name="boll_pctb" value="{{ form.boll_pctb }}" inputmode="decimal"></label>
+    <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_bw" {{ 'checked' if form.use_bw }}> Bollinger: ancho ≥ (%)</span>
+      <input name="boll_width" value="{{ form.boll_width }}" inputmode="decimal"></label>
+    <p class="note"><b>RSI</b>: tocó ese nivel en las últimas {{ tech_opts.rsi_lookback }} sesiones y hoy sube. <b>Bollinger</b>: %B 0 = banda inferior, 1 = superior; el ancho descarta bandas estrechas.</p>
+    <p class="note">Precio a menos de X % de su MA50 <b>o</b> del borde superior de un soporte probado. Para exigir precio sobre la MA200, usa <b>Medias</b>.</p>
+{%- endmacro %}
+{% macro ma_body() -%}
+    <label class="field">Velas de las medias
+      <select name="ma_frame" id="ma_frame">
+        <option value="daily" {{ 'selected' if form.ma_frame == 'daily' }}>Diarias (días)</option>
+        <option value="weekly" {{ 'selected' if form.ma_frame == 'weekly' }}>Semanales (semanas)</option>
+        <option value="monthly" {{ 'selected' if form.ma_frame == 'monthly' }}>Mensuales (meses)</option></select></label>
+    <div class="fx-sub">Precio frente a la media</div>
+    <div class="fgrid">
+      {% for key, label in (('ma50', 'MA 50'), ('ma100', 'MA 100'), ('ma200', 'MA 200'), ('ema9', 'EMA 9'), ('ema20', 'EMA 20')) if key not in ma_hidden %}
+      <label class="field">{{ label }}
+        <select name="{{ key }}">
+          <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
+          <option value="above" {{ 'selected' if form[key] == 'above' }}>Precio por encima</option>
+          <option value="below" {{ 'selected' if form[key] == 'below' }}>Precio por debajo</option></select></label>
+      {% endfor %}
+    </div>
+    <div class="fx-sub">Entre medias</div>
+    <div class="fgrid">
+      {% for key, short, long in (('cmp_ema9_ema20', 'EMA9', 'EMA20'), ('cmp_ema20_ma50', 'EMA20', 'MA50'), ('cmp_ma50_ma100', 'MA50', 'MA100'), ('cmp_ma100_ma200', 'MA100', 'MA200')) if key not in ma_hidden %}
+      <label class="field">{{ short }} frente a {{ long }}
+        <select name="{{ key }}">
+          <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
+          <option value="gte" {{ 'selected' if form[key] == 'gte' }}>{{ short }} ≥ {{ long }}</option>
+          <option value="lte" {{ 'selected' if form[key] == 'lte' }}>{{ short }} ≤ {{ long }}</option></select></label>
+      {% endfor %}
+    </div>
+    <div class="fx-sub">Pendiente de la media</div>
+    <div class="fgrid">
+      {% for key, label in (('slope_ma50', 'MA 50'), ('slope_ma100', 'MA 100'), ('slope_ma200', 'MA 200'), ('slope_ema9', 'EMA 9'), ('slope_ema20', 'EMA 20')) if key not in ma_hidden %}
+      <label class="field">{{ label }}
+        <select name="{{ key }}">
+          <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
+          <option value="up" {{ 'selected' if form[key] == 'up' }}>Ascendente</option>
+          <option value="down" {{ 'selected' if form[key] == 'down' }}>Descendente</option></select></label>
+      {% endfor %}
+    </div>
+    <p class="note">Por encima/por debajo exige ese lado; «Cualquiera» la ignora y todas las activas deben cumplirse. Sin histórico suficiente (~3,8 años) se ocultan las medias que no caben. Pendiente: media de hoy frente a la de hace {{ tech_opts.slope_candles }} velas.</p>
+{%- endmacro %}
 {% block content %}
 {% set is_cds = is_cds is defined and is_cds %}
 {% if is_cds %}
@@ -33,6 +91,26 @@
 {% if f.top != '0' %}{% set _ = chips.append(('sec-widths', 'Máx. ' ~ f.top ~ ' por ticker', 'top')) %}{% endif %}
 {% if f.use_ret %}{% set _ = chips.append(('sec-move', 'Retorno máx. ≥ ' ~ f.ret ~ ' %', 'use_ret ret')) %}{% endif %}
 {% if f.use_sma %}{% set _ = chips.append(('sec-sma', 'Precio ≥ ' ~ f.sma ~ ' % bajo la SMA200', 'use_sma sma')) %}{% endif %}
+{# técnicos de entrada y medias (mismos nombres y textos que en el Scanner de puts) #}
+{% set entry = [] %}
+{% if f.signals and f.signals != '0' %}{% set _ = entry.append(('≥ ' ~ f.signals ~ ' señales de entrada', 'signals')) %}{% endif %}
+{% if f.use_near %}{% set _ = entry.append(('A ≤ ' ~ f.near_pct ~ ' % de MA50 o soporte', 'use_near near_pct')) %}{% endif %}
+{% if f.use_rsi %}{% set _ = entry.append(('RSI rebota desde ≤ ' ~ f.rsi_max, 'use_rsi rsi_max')) %}{% endif %}
+{% if f.use_boll %}{% set _ = entry.append(('Bollinger %B ≤ ' ~ f.boll_pctb, 'use_boll boll_pctb')) %}{% endif %}
+{% if f.use_bw %}{% set _ = entry.append(('Bandas ≥ ' ~ f.boll_width ~ ' %', 'use_bw boll_width')) %}{% endif %}
+{% for o, k in entry %}{% set _ = chips.append(('sec-entry', o, k)) %}{% endfor %}
+{% set ma_keys = ('ma50', 'ma100', 'ma200', 'ema9', 'ema20', 'cmp_ema9_ema20', 'cmp_ema20_ma50', 'cmp_ma50_ma100', 'cmp_ma100_ma200', 'slope_ma50', 'slope_ma100', 'slope_ma200', 'slope_ema9', 'slope_ema20') %}
+{% set ma_names = {'ma50': 'MA50', 'ma100': 'MA100', 'ma200': 'MA200', 'ema9': 'EMA9', 'ema20': 'EMA20'} %}
+{% set frame_names = {'daily': 'diarias', 'weekly': 'semanales', 'monthly': 'mensuales'} %}
+{% set ns = namespace(ma_count=0) %}
+{% for k in ma_keys if f[k] and f[k] != 'any' %}
+  {% set ns.ma_count = ns.ma_count + 1 %}
+  {% if k in ma_names %}{% set text = ('▲ ' if f[k] == 'above' else '▼ ') ~ ma_names[k] %}
+  {% elif k.startswith('cmp_') %}{% set a, b = k[4:].split('_') %}{% set text = a|upper ~ (' ≥ ' if f[k] == 'gte' else ' ≤ ') ~ b|upper %}
+  {% else %}{% set text = ma_names[k[6:]] ~ (' ↗' if f[k] == 'up' else ' ↘') %}{% endif %}
+  {% set _ = chips.append(('sec-ma', text ~ ' ' ~ {'daily': 'D', 'weekly': 'S', 'monthly': 'M'}[f.ma_frame], k ~ ' ma_frame')) %}
+{% endfor %}
+{% set ma_count = ns.ma_count %}
 {% set src_on = [] %}{% set src_off = [] %}
 {% for s in source_names or [] %}{% if s in f.fsrc %}{% set _ = src_on.append(s) %}{% else %}{% set _ = src_off.append(s) %}{% endif %}{% endfor %}
 {% if not src_on %}{% set src_txt = 'Ninguna' %}{% elif not src_off %}{% set src_txt = 'Todas' %}{% elif src_off | length < src_on | length %}{% set src_txt = 'Todas menos ' ~ (src_off | join(', ')) %}{% else %}{% set src_txt = src_on | join(', ') %}{% endif %}
@@ -58,6 +136,9 @@
 {% if not f.use_earn %}{% set _ = offs.append(('sec-move', 'Resultados en la ventana', 'use_earn')) %}{% endif %}
 {% if f.top == '0' %}{% set _ = offs.append(('sec-widths', 'Máximo por ticker', 'top')) %}{% endif %}
 {% if not f.use_sma %}{% set _ = offs.append(('sec-sma', 'SMA200', 'use_sma')) %}{% endif %}
+{% for use, label in (('use_near', 'Cerca de MA50/soporte'), ('use_rsi', 'RSI'), ('use_boll', 'Bollinger %B'), ('use_bw', 'Ancho de bandas')) %}{% if not f[use] %}{% set _ = offs.append(('sec-entry', label, use)) %}{% endif %}{% endfor %}
+{% if not f.signals or f.signals == '0' %}{% set _ = offs.append(('sec-entry', 'Mín. de señales', 'signals')) %}{% endif %}
+{% if not ma_count %}{% set _ = offs.append(('sec-ma', 'Medias', ma_keys | join(' '))) %}{% endif %}
 {% else %}
 {# ---- estado de cada bloque (resumen y si está activo) ---- #}
 {% set ref_names ={'bid': 'Bid', 'mid': 'Mid', 'bid_plus_spread': 'Bid + ' ~ form.ref_x ~ ' % spread'} %}
@@ -345,6 +426,14 @@
         <p class="note">Apagado por defecto; la columna «vs SMA200 %» se muestra siempre que haya 200 cierres.</p>
       {% endcall %}
 
+      {% call section('sec-entry', 'Técnicos de entrada', (entry | join(' · ')) or 'Sin filtros', entry|length > 0) %}
+        {{ entry_body() }}
+      {% endcall %}
+
+      {% call section('sec-ma', 'Medias móviles / EMA', ((ma_count ~ ' condici' ~ ('ón' if ma_count == 1 else 'ones') ~ ' · ' ~ frame_names[form.ma_frame]) if ma_count else 'Sin condiciones'), ma_count > 0) %}
+        {{ ma_body() }}
+      {% endcall %}
+
       {% call section('sec-price', 'Precio de venta de la vendida', ref_names.get(form.ref, form.ref)) %}
         <div class="fgrid">
           <label class="field">Referencia
@@ -543,23 +632,7 @@
       {% endcall %}
 
       {% call section('sec-entry', 'Técnicos de entrada', (entry | join(' · ')) or 'Sin filtros', entry|length > 0) %}
-        <label class="field">Señales de entrada: cumplir al menos
-          <select name="signals" id="signals"><option value="0" {{ 'selected' if form.signals in ('', '0') }}>Todas las marcadas</option>
-            {% for n in (1, 2, 3, 4, 5) %}<option value="{{ n }}" {{ 'selected' if form.signals == n|string }}>{{ n }} de las marcadas</option>{% endfor %}</select></label>
-        {% set sigs = [] %}
-        {% for use, name in (('use_near', 'MA50/soporte'), ('use_rsi', 'RSI'), ('use_boll', 'Bollinger %B')) %}{% if form[use] %}{% set _ = sigs.append(name) %}{% endif %}{% endfor %}
-        <p class="note" id="signals-marked" style="display:block"><b>Señales marcadas ({{ sigs|length }}):</b> {{ sigs|join(', ') or 'ninguna' }}. IV/HV y cambio de IV ya no son señales: son filtros obligatorios de «Volatilidad (IV) y prima».</p>
-        <p class="note">Son <b>señales</b> MA50/soporte, RSI y Bollinger %B: con «al menos N» basta cumplir N de las marcadas; el resto de filtros son obligatorios.</p>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_near" {{ 'checked' if form.use_near }}> Precio a ≤ X % de MA50 o soporte</span>
-          <input name="near_pct" value="{{ form.near_pct }}" inputmode="decimal"></label>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_rsi" {{ 'checked' if form.use_rsi }}> RSI(14) rebota desde ≤</span>
-          <input name="rsi_max" value="{{ form.rsi_max }}" inputmode="decimal"></label>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_boll" {{ 'checked' if form.use_boll }}> Bollinger: %B ≤</span>
-          <input name="boll_pctb" value="{{ form.boll_pctb }}" inputmode="decimal"></label>
-        <label class="opt opt-row"><span class="check"><input type="checkbox" name="use_bw" {{ 'checked' if form.use_bw }}> Bollinger: ancho ≥ (%)</span>
-          <input name="boll_width" value="{{ form.boll_width }}" inputmode="decimal"></label>
-        <p class="note"><b>RSI</b>: tocó ese nivel en las últimas {{ tech_opts.rsi_lookback }} sesiones y hoy sube. <b>Bollinger</b>: %B 0 = banda inferior, 1 = superior; el ancho descarta bandas estrechas.</p>
-        <p class="note">Precio a menos de X % de su MA50 <b>o</b> del borde superior de un soporte probado. Para exigir precio sobre la MA200, usa <b>Medias</b>.</p>
+        {{ entry_body() }}
       {% endcall %}
 
       {% call section('sec-trend', 'Tendencia', ((('Alcista' if form.trend_dir == 'up' else 'Bajista') ~ ' · ' ~ window_label) if trend_on else 'Off'), trend_on) %}
@@ -597,42 +670,7 @@
 
 
       {% call section('sec-ma', 'Medias móviles / EMA', ((ma_count ~ ' condici' ~ ('ón' if ma_count == 1 else 'ones') ~ ' · ' ~ frame_names[form.ma_frame]) if ma_count else 'Sin condiciones'), ma_count > 0) %}
-        <label class="field">Velas de las medias
-          <select name="ma_frame" id="ma_frame">
-            <option value="daily" {{ 'selected' if form.ma_frame == 'daily' }}>Diarias (días)</option>
-            <option value="weekly" {{ 'selected' if form.ma_frame == 'weekly' }}>Semanales (semanas)</option>
-            <option value="monthly" {{ 'selected' if form.ma_frame == 'monthly' }}>Mensuales (meses)</option></select></label>
-        <div class="fx-sub">Precio frente a la media</div>
-        <div class="fgrid">
-          {% for key, label in (('ma50', 'MA 50'), ('ma100', 'MA 100'), ('ma200', 'MA 200'), ('ema9', 'EMA 9'), ('ema20', 'EMA 20')) if key not in ma_hidden %}
-          <label class="field">{{ label }}
-            <select name="{{ key }}">
-              <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
-              <option value="above" {{ 'selected' if form[key] == 'above' }}>Precio por encima</option>
-              <option value="below" {{ 'selected' if form[key] == 'below' }}>Precio por debajo</option></select></label>
-          {% endfor %}
-        </div>
-        <div class="fx-sub">Entre medias</div>
-        <div class="fgrid">
-          {% for key, short, long in (('cmp_ema9_ema20', 'EMA9', 'EMA20'), ('cmp_ema20_ma50', 'EMA20', 'MA50'), ('cmp_ma50_ma100', 'MA50', 'MA100'), ('cmp_ma100_ma200', 'MA100', 'MA200')) if key not in ma_hidden %}
-          <label class="field">{{ short }} frente a {{ long }}
-            <select name="{{ key }}">
-              <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
-              <option value="gte" {{ 'selected' if form[key] == 'gte' }}>{{ short }} ≥ {{ long }}</option>
-              <option value="lte" {{ 'selected' if form[key] == 'lte' }}>{{ short }} ≤ {{ long }}</option></select></label>
-          {% endfor %}
-        </div>
-        <div class="fx-sub">Pendiente de la media</div>
-        <div class="fgrid">
-          {% for key, label in (('slope_ma50', 'MA 50'), ('slope_ma100', 'MA 100'), ('slope_ma200', 'MA 200'), ('slope_ema9', 'EMA 9'), ('slope_ema20', 'EMA 20')) if key not in ma_hidden %}
-          <label class="field">{{ label }}
-            <select name="{{ key }}">
-              <option value="any" {{ 'selected' if form[key] == 'any' }}>Cualquiera</option>
-              <option value="up" {{ 'selected' if form[key] == 'up' }}>Ascendente</option>
-              <option value="down" {{ 'selected' if form[key] == 'down' }}>Descendente</option></select></label>
-          {% endfor %}
-        </div>
-        <p class="note">Por encima/por debajo exige ese lado; «Cualquiera» la ignora y todas las activas deben cumplirse. Sin histórico suficiente (~3,8 años) se ocultan las medias que no caben. Pendiente: media de hoy frente a la de hace {{ tech_opts.slope_candles }} velas.</p>
+        {{ ma_body() }}
       {% endcall %}
 
       {% call section('sec-quality', 'Evitar vencimientos con resultados', (quality | join(' · ')) or 'Sin filtros', quality|length > 0) %}
@@ -880,6 +918,7 @@
       cds_debit: { set: { dmin: '0', dmax: '1000000' } }, cds_oi: { set: { oi: '0' } }, cds_oi_s: { set: { oi_s: '0' } }, cds_spread: { set: { ls: '1000' } }, cds_spread_s: { set: { ls_s: '1000' } },
       cds_bsz: { uncheck: ['use_bsz'] }, cds_asz: { uncheck: ['use_asz'] },
       cds_wpct: { set: { wpct_min: '', wpct_max: '' } }, cds_move: { set: { mult: '1000' } }, cds_prob: { uncheck: ['use_prob'] }, cds_xprofit: { uncheck: ['use_xp'] }, cds_earn: { uncheck: ['use_earn'] }, cds_return: { uncheck: ['use_ret'] }, cds_sma: { uncheck: ['use_sma'] },
+      cds_entry: { uncheck: ['use_near', 'use_rsi', 'use_boll', 'use_bw'] }, cds_ma: { sectionSelects: 'sec-ma' },
       cds_profit: { uncheck: ['q_profit'] }, cds_quarters: { set: { q_quarters: '' } }, cds_fcf: { uncheck: ['q_fcf'] }, cds_lev: { set: { q_lev: '' } },
       cds_liq: { set: { q_liq: '' } }, cds_price: { set: { price_min: '', price_max: '' } }, cds_sources: { uncheck: ['use_src'] },
     };

@@ -3,7 +3,7 @@
 Las claves son las de los parámetros de la URL del Scanner con `mode=cds` (`ui/cds_form.py`); los booleanos se guardan como «on» y los desmarcados no se guardan."""
 from __future__ import annotations
 
-from scanner_opciones.scanner.criteria import criteria_from_settings
+from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, criteria_from_settings
 
 MTO_CDS = "MTO CDS"
 MTO_CDS_COLOR = "#b4532a"
@@ -13,9 +13,15 @@ def _fmt(v) -> str:
     return f"{v:g}"
 
 
+# filtros técnicos del CDS (mismos nombres que en el Scanner de puts): señales de entrada y medias móviles / EMA. Empiezan sin filtrar nada.
+ENTRY_KEYS = ("signals", "use_near", "near_pct", "use_rsi", "rsi_max", "use_boll", "boll_pctb", "use_bw", "boll_width")
+MA_KEYS = ("ma_frame", *MA_LINES, *MA_CROSSES, *MA_SLOPES)
+
+
 def default_form(settings) -> dict:
     """Valores iniciales del formulario CDS: los de `scanner.cds` (config.yaml) y el precio de venta de referencia del Scanner."""
     cfg = settings.scanner.cds
+    st = settings.scanner.strategy
     crit = criteria_from_settings(settings)
     return {
         "dte_min": str(cfg.dte_min), "dte_max": str(cfg.dte_max),
@@ -35,6 +41,10 @@ def default_form(settings) -> dict:
         "use_ret": cfg.min_max_return_pct is not None, "ret": _fmt(cfg.min_max_return_pct if cfg.min_max_return_pct is not None else 100),
         "use_sma": cfg.sma200_below_pct_min is not None, "sma": _fmt(cfg.sma200_below_pct_min if cfg.sma200_below_pct_min is not None else 10),
         "ref": crit.price_reference.value, "ref_x": _fmt(crit.price_spread_pct),
+        # técnicos de entrada y medias: desmarcados, con los valores de `scanner.strategy` en las cajas
+        "signals": "0", "use_near": False, "near_pct": _fmt(st.near_level_pct), "use_rsi": False, "rsi_max": _fmt(st.max_rsi_level),
+        "use_boll": False, "boll_pctb": _fmt(st.max_bollinger_pctb), "use_bw": False, "boll_width": _fmt(st.min_bollinger_width_pct),
+        "ma_frame": "daily", **{k: "any" for k in (*MA_LINES, *MA_CROSSES, *MA_SLOPES)},
         # empresa y ticker: sin filtros por defecto (el perfil guarda los que elijas)
         "q_profit": False, "q_fcf": False, "q_quarters": "", "q_liq": "", "q_lev": "", "price_min": "", "price_max": "", "fsrc": [], "use_src": False,
     }

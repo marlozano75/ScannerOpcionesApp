@@ -73,6 +73,8 @@ from scanner_opciones.scanner.spreads import build_profile_rows
 from scanner_opciones.scanner import cds_profile as cds_profile_mod
 from scanner_opciones.scanner import modes as modes_mod
 from scanner_opciones.scanner.tech_summary import TechSummarizer, TechSummary
+from scanner_opciones.scanner.technical import TechnicalFilter
+from scanner_opciones.scanner.signals import signals_reject
 from scanner_opciones.scanner.impact import ImpactReport, impact_report
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import (
@@ -3766,10 +3768,45 @@ class AppService:
                 px = info.underlying_price if info else None
                 return px is not None and (lo is None or px >= lo) and (hi is None or px <= hi)
             out.append(TickerFilter("cds_price", "Precio del subyacente", f"{lo:g}–{'∞' if hi is None else f'{hi:g}'} $" if lo is not None else f"≤ {hi:g} $", price_ok))
+        self._cds_technical_filters(criteria, infos, out)
         if criteria.source_tickers is not None:
             wanted = criteria.source_tickers
             out.append(TickerFilter("cds_sources", "Fuentes del Universo", ", ".join(criteria.source_names) or "ninguna", lambda t: clean_ticker(t) in wanted))
         return out
+
+    def _cds_technical_filters(self, criteria: ScanCriteria, infos, out: list) -> None:
+        """Técnicos de entrada (señales: cercanía a la MA50/soporte, RSI y Bollinger) y medias móviles / EMA del CDS, como filtros de ticker con su propia
+        fila en el panel de impacto. Mismos cálculos que el Scanner de puts (`scanner/technical.py`), sobre los cierres diarios guardados."""
+        from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES
+        ma_fields = (*MA_LINES, *MA_CROSSES, *MA_SLOPES)
+        entry = [(f, getattr(criteria, f)) for f in ("near_level_pct", "rsi_rebound_max", "max_bollinger_pctb", "min_bollinger_width_pct") if getattr(criteria, f) is not None]
+        ma = [(f, getattr(criteria, f)) for f in ma_fields if getattr(criteria, f) != "any"]
+        if not entry and not ma:
+            return
+        today = self.now().date()
+        tcfg = self.settings.scanner.technical
+        neutral = self.criteria().with_filters(trend_direction="off", require_support=False, min_days_since_touch=None, near_level_pct=None, rsi_rebound_max=None,
+                                               max_bollinger_pctb=None, min_bollinger_width_pct=None, signals_required=0, ma_frame=criteria.ma_frame,
+                                               **{f: "any" for f in ma_fields})
+        closes = self._memo("cds_tech_closes", lambda: self.bars.all_closes(set(infos)))
+
+        def make(key: str, label: str, config: str, c: ScanCriteria, signals: bool) -> None:
+            tech = TechnicalFilter(c, tcfg, closes, today)
+
+            def passes(t: str) -> bool:
+                info = infos.get(t)
+                price = info.underlying_price if info else None
+                if not price or price <= 0:
+                    return False
+                return tech.reject(t, price, 0.0) is None and (not signals or signals_reject(c, info, tech, t, price) is None)
+            out.append(TickerFilter(key, label, config, passes))
+        if entry:
+            names = {"near_level_pct": "cerca de MA50/soporte", "rsi_rebound_max": "RSI", "max_bollinger_pctb": "Bollinger %B", "min_bollinger_width_pct": "ancho de bandas"}
+            text = ", ".join(names[f] for f, _ in entry) + (f" (al menos {criteria.signals_required} señales)" if criteria.signals_required else "")
+            make("cds_entry", "Técnicos de entrada", text, neutral.with_filters(signals_required=criteria.signals_required, **dict(entry)), True)
+        if ma:
+            frame = {"daily": "diarias", "weekly": "semanales", "monthly": "mensuales"}[criteria.ma_frame]
+            make("cds_ma", "Medias móviles / EMA", f"{len(ma)} condicion{'es' if len(ma) != 1 else ''} · {frame}", neutral.with_filters(**dict(ma)), False)
 
     def scan_cds_impact(self, cds: Optional[CdsSettings] = None, **criteria_overrides) -> ImpactReport:
         """Panel «¿Cuánto descarta cada filtro?» del perfil CDS (`scanner/cds_impact.py`): mismos filtros de ticker y mismo precio de venta que `scan_cds`."""

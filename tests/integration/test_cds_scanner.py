@@ -338,3 +338,45 @@ def test_criba_spread_is_the_profiles_or_the_configured_minimum_whichever_is_lar
     assert routes_criba._criba_spread(svc, None) is None                         # el perfil no filtra por spread: la criba tampoco
     assert routes_criba._criba_spread(svc, 20.0) == floor                        # el de cierre es más ancho: se sube al mínimo configurado
     assert routes_criba._criba_spread(svc, floor + 30) == floor + 30             # un perfil más permisivo manda
+
+
+def _bars(svc, closes):
+    """Cierres diarios de ZZZ que acaban ayer: `closes` en orden cronológico."""
+    n = len(closes)
+    svc.bars.upsert("ZZZ", [(TODAY - timedelta(days=n - i), px) for i, px in enumerate(closes)])
+
+
+def test_technical_entry_and_moving_average_filters_apply_in_the_cds_show_chips_count_in_the_impact_and_are_saved():
+    svc = _svc()
+    with _client(svc) as client:
+        client.portal.call(svc.wait_idle)
+        _seed(svc)                                              # ZZZ cotiza a 100
+        _bars(svc, [70 + i * 0.5 for i in range(60)])           # sube sin parar hasta ~100: precio sobre la MA50 y la MA50 asciende
+        base = cds_profile_query(svc)
+        text = client.get("/scanner?" + base).text
+        for needle in ('id="sec-entry"', 'id="sec-ma"', 'name="use_rsi"', 'name="boll_pctb"', 'name="ma50"', 'name="ema20"', 'name="slope_ma50"', 'name="ma_frame"'):
+            assert needle in text, needle
+        assert '<td class="tk"' in text                         # sin filtros técnicos no cambia nada
+        # precio sobre la EMA20 y la EMA20 sobre la MA50 en una tendencia alcista: pasa y sale el chip
+        ok = client.get("/scanner?" + base + "&ema20=above&cmp_ema20_ma50=gte").text
+        assert '<td class="tk"' in ok and "▲ EMA20 D" in ok and "EMA20 ≥ MA50 D" in ok
+        # precio bajo la MA50: no pasa ningún spread
+        bad = client.get("/scanner?" + base + "&ma50=below").text
+        assert '<td class="tk"' not in bad and "▼ MA50 D" in bad
+        # RSI que rebota (desde ≤ 35) en una subida continua: no hay rebote
+        rsi = client.get("/scanner?" + base + "&use_rsi=on&rsi_max=35").text
+        assert '<td class="tk"' not in rsi and "RSI rebota desde ≤ 35" in rsi
+        # con 1 señal exigida de dos marcadas (RSI y precio cerca de la MA50 a ≤ 50 %) el ticker pasa
+        near = client.get("/scanner?" + base + "&use_rsi=on&rsi_max=35&use_near=on&near_pct=50&signals=1").text
+        assert '<td class="tk"' in near and "≥ 1 señales de entrada" in near
+        # el panel de impacto cuenta cada grupo como un filtro más
+        impact = client.get("/scanner/impact?" + base + "&ma50=below&use_rsi=on").text
+        assert "Medias móviles / EMA" in impact and "Técnicos de entrada" in impact
+        # valores fuera de rango o desconocidos son un error del formulario
+        assert "Parámetro" in client.get("/scanner?" + base + "&ma50=sideways").text or "desconocido" in client.get("/scanner?" + base + "&ma50=sideways").text
+        # se guardan en el perfil y vuelven al cargarlo
+        client.post("/scanner/profile/save", data={"name": "CDS tecnico", "query": base + "&ema20=above&use_near=on&near_pct=8"})
+        prof = next(p for p in svc.stored_profiles()[0] if p.name == "CDS tecnico")
+        assert prof.cds["ema20"] == "above" and prof.cds["use_near"] == "on" and prof.cds["near_pct"] == "8"
+        page = client.get("/scanner?mode=cds&profile=CDS+tecnico").text
+        assert 'name="use_near" checked' in page and "▲ EMA20 D" in page

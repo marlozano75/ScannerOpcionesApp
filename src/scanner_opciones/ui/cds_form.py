@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from scanner_opciones.config.settings import CdsSettings
 from scanner_opciones.domain.enums import PriceReference
 from scanner_opciones.scanner import cds_profile
+from scanner_opciones.scanner.criteria import MA_CROSSES, MA_LINES, MA_SLOPES, unavailable_ma_fields
 from scanner_opciones.rankedstocks.loader import clean_ticker
 from scanner_opciones.ui.scanner_forms import _fmt, quality_form, read_quality
 
@@ -101,10 +102,48 @@ def parse_cds(service, qp) -> dict:
         ref = dict(price_reference=PriceReference(form["ref"]), price_spread_pct=_num(form["ref_x"], "X del precio de referencia"))
         ticker_filters = _read_ticker_filters(service, qp, form, submitted)
         ref.update(ticker_filters)
+        ref.update(_read_technical(service, qp, form))
     except (ValueError, ValidationError) as exc:
         error = str(exc).replace("\n", " ")
         cds = None
     return dict(form=form, cds=cds, ref=ref, notices=notices, error=error, submitted=submitted)
+
+
+def _read_technical(service, qp, form: dict) -> dict:
+    """Técnicos de entrada (señales: cercanía a la MA50/soporte, RSI, Bollinger) y medias móviles / EMA: como en el Scanner de puts. Devuelve los campos del
+    criterio (`ScanCriteria`) que fijan; todos van siempre, así los valores de la configuración de las puts no se cuelan en el CDS."""
+    tcfg = service.settings.scanner.technical
+    out: dict = dict(trend_direction="off", require_support=False, min_days_since_touch=None, near_level_pct=None, rsi_rebound_max=None,
+                     max_bollinger_pctb=None, min_bollinger_width_pct=None, signals_required=0)
+    for key in ("use_near", "use_rsi", "use_boll", "use_bw"):
+        form[key] = key in qp
+    for key in ("signals", "near_pct", "rsi_max", "boll_pctb", "boll_width"):
+        if key in qp:
+            form[key] = str(qp.get(key, "")).strip()
+    if str(form["signals"]) not in ("", "0", "1", "2", "3", "4", "5"):
+        raise ValueError("número de señales de entrada no permitido")
+    marked = sum(1 for k in ("use_rsi", "use_boll", "use_near") if form[k])      # con menos señales marcadas que las exigidas, se exigen las marcadas
+    form["signals"] = str(min(int(form["signals"] or 0), marked))
+    out["signals_required"] = int(form["signals"])
+    for use, key, field_name, label, lo, hi in (
+            ("use_near", "near_pct", "near_level_pct", "Distancia a la media de 50 o al soporte (%)", 0, 50),
+            ("use_rsi", "rsi_max", "rsi_rebound_max", "Nivel del RSI", 0, 100),
+            ("use_boll", "boll_pctb", "max_bollinger_pctb", "%B de Bollinger", -1, 2),
+            ("use_bw", "boll_width", "min_bollinger_width_pct", "Ancho de bandas (%)", 0, 100)):
+        if form[use]:
+            out[field_name] = _num(form[key], label)
+            below = out[field_name] < lo if lo < 0 else out[field_name] <= lo
+            if below or out[field_name] > hi or (field_name == "rsi_rebound_max" and out[field_name] >= 100):
+                raise ValueError(f"{label}: fuera de rango")
+    for key, allowed in (("ma_frame", ("daily", "weekly", "monthly")), *((k, ("any", "above", "below")) for k in MA_LINES),
+                         *((k, ("any", "gte", "lte")) for k in MA_CROSSES), *((k, ("any", "up", "down")) for k in MA_SLOPES)):
+        form[key] = qp.get(key, form[key])
+        if form[key] not in allowed:
+            raise ValueError(f"valor desconocido en «{key}»")
+        out[key] = form[key]
+    for key in unavailable_ma_fields(form["ma_frame"], service.settings.trend.history_days, tcfg.ma_slope_candles):     # medias que no caben en el histórico
+        form[key] = out[key] = "any"
+    return out
 
 
 def _read_ticker_filters(service, qp, form: dict, submitted: bool) -> dict:
