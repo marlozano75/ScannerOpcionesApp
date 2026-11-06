@@ -98,3 +98,20 @@ Con ≥ 4 puntos en t y D+1 confirmado, P(t es el suelo) = 23 % (índices SPY/QQ
 
 ### 5/6-nov-2026 con datos intradía
 El 5-nov SPY, QQQ, SMH, NVDA, AMD, INTC y XOM hicieron su mínimo a las 15:55 y cerraron en él (rebote ≤ 0,04 ATR; TSLA, PLTR y MU rebotaron 0,15-0,24 ATR, ninguno llegó a 1 ATR): el perfil «sin rebote», que por sí solo no distingue suelo. El 6-nov a las 11:30 la confirmación se cumplió en 9 de 11 (todos salvo IWM y XOM, que perdieron el mínimo del 5-nov), por lo que el modelo daba ~30 % de que el 5-nov fuera el suelo en esos nueve y ~50 % de conservar el mínimo.
+
+## Conclusión (2026-11-06): no hay ventaja para vender puts — no implementar como filtro
+Las señales localizan zonas de suelo (lift 3-6x sobre la base del 8 %), pero **no mejoran la venta de puts**:
+- Parte del acierto es estructural: «mínimo de 20 días ayer + cierre al alza hoy», sin indicador, ya acierta 35 %. El ~50 % solo se alcanza con combinaciones de pocos casos que se degradan fuera de muestra.
+- El retorno a 10 días tras la señal (+0,5 % a +1,4 %) es el de cualquier día (+0,8 %).
+- Prueba directa (entrada al cierre de D+1, vencimiento a 30 sesiones, 27 tickers, 2004-2026, `scripts/suelos`): probabilidad de vencer por debajo del strike / de tocarlo antes.
+
+| Strike | Todos los días | Puntuación ≥ 3 y D+1 confirmado | Puntuación ≥ 4 y D+1 confirmado |
+|---|---|---|---|
+| −5 % | 21,8 % / 49,4 % | 21,7 % / 52,3 % | 19,9 % / 51,3 % |
+| −8 % | 14,6 % / 32,9 % | 15,2 % / 35,9 % | 13,9 % / 34,6 % |
+| −12 % | 8,5 % / 19,7 % | 9,2 % / 22,3 % | 8,5 % / 21,2 % |
+
+  Solo 2019-2026: −8 % → 16,5 % / 37,3 % (base) frente a 17,1 % / 40,8 % (señal confirmada). Con la señal el riesgo es igual o algo peor: indica que ya cayó, no que vaya a dejar de caer. Que el mínimo del día de la señal se conserve más veces (~50 % frente a 26 %) no sirve con strikes a −8 % o más, muy por debajo de ese mínimo.
+- **Sin medir:** tras una caída la IV está más alta y la prima es mejor; podría ser la ventaja real, pero no hay precios históricos de opciones. El Scanner ya lo capta con IV Rank y yield.
+
+**Lo que queda útil:** el volumen diario guardado (v44) y la regla de descarte: una caída fuerte que no se confirma al día siguiente (mínimo de D+1 por debajo del de t, o precio bajo el cierre de t a las 11:30) casi siempre sigue cayendo (conserva el mínimo el 11 % de las veces).
