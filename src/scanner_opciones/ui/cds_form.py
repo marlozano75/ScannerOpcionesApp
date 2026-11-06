@@ -40,6 +40,11 @@ def default_form(service) -> dict:
     return cds_profile.default_form(service.settings)
 
 
+def with_allw(params: dict) -> dict:
+    """Parámetros de un perfil guardado antes de la casilla «Todos los anchos»: se leen con ella marcada (el valor por defecto)."""
+    return params if "allw_set" in params else {**params, "allw": "on", "allw_set": "on"}
+
+
 def parse_cds(service, qp) -> dict:
     """Lee el formulario CDS. Devuelve `form` (valores para pintar), `cds` (`CdsSettings` o None si hay error), `ref` (precio de venta de referencia:
     `price_reference`, `price_spread_pct`), `notices` (valores recortados a la ventana guardada) y `error`."""
@@ -59,8 +64,10 @@ def parse_cds(service, qp) -> dict:
         for new, old in (("oi_s", "oi"), ("ls_s", "ls")):        # perfil guardado antes de separar las patas: el valor único valía para las dos
             if new not in qp and old in qp:
                 form[new] = form[old]
-        for key in ("best", "allw", "use_ret", "use_prob", "use_xp", "use_sma", "use_earn", "use_bsz", "use_asz"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
+        for key in ("best", "use_ret", "use_prob", "use_xp", "use_sma", "use_earn", "use_bsz", "use_asz"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
             form[key] = key in qp
+        form["allw"] = "allw" in qp or "allw_set" not in qp      # `allw_set` marca que el formulario trae la casilla: sin él (perfil o enlace anterior a la casilla) vale «marcada»
+        form["allw_set"] = True
     try:
         dte_min = max(_num(form["dte_min"], "DTE mínimo", int), catalog.dte_min)
         dte_max = min(_num(form["dte_max"], "DTE máximo", int), catalog.dte_max)

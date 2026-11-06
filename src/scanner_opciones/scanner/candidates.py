@@ -46,10 +46,11 @@ def on_strike_grid(strike: float, multiple: float) -> bool:
 
 def call_candidate_contracts(chain: OptionChain, underlying_price: float, today: date, cds: CdsSettings) -> list[OptionContract]:
     """Calls para los Call Debit Spread: DTE en [dte_min, dte_max] y strike entre `long_otm_pct_min` y `long_otm_pct_max` por ENCIMA del precio,
-    más las calls `width_options` $ por encima de cada una que existan en la cadena (patas vendidas)."""
+    más las calls por encima de cada una que existan en la cadena (patas vendidas): a `width_options` $ o, con `all_short_strikes`, todas hasta `width_pct_max` %."""
     if underlying_price is None or underlying_price <= 0:
         return []
     known = {round(k, 4) for k in chain.strikes}
+    sorted_strikes = sorted(chain.strikes)
     out: dict[tuple, OptionContract] = {}
     for expiry in sorted(chain.expiries):
         if not (cds.dte_min <= (expiry - today).days <= cds.dte_max):
@@ -60,7 +61,11 @@ def call_candidate_contracts(chain: OptionChain, underlying_price: float, today:
             otm = (strike / underlying_price - 1) * 100
             if not (cds.long_otm_pct_min - _EPS <= otm <= cds.long_otm_pct_max + _EPS):
                 continue
-            for k in (strike, *(round(strike + w, 4) for w in cds.width_options)):
+            shorts = (round(strike + w, 4) for w in cds.width_options)
+            if cds.all_short_strikes:       # cualquier strike hasta el ancho/strike máximo (sin tope si no hay), para poder probar todos los anchos
+                cap = None if cds.width_pct_max is None else strike * (1 + cds.width_pct_max / 100) + _EPS
+                shorts = (k for k in sorted_strikes if k > strike + _EPS and (cap is None or k <= cap))
+            for k in (strike, *shorts):
                 if round(k, 4) in known and on_strike_grid(k, cds.strike_multiple):
                     out[(expiry, round(k, 4))] = OptionContract(chain.ticker, expiry, k, OptionRight.CALL, chain.multiplier)
     return list(out.values())

@@ -21,7 +21,7 @@ def info(price=100.0, iv30=50.0):
 
 # sin SMA200 ni mínimo de retorno máximo: aísla cada prueba
 def cfg(**kw):
-    base = dict(sma200_below_pct_min=None, min_max_return_pct=None, width_options=(10.0,), min_debit_usd=0, max_debit_usd=10000)
+    base = dict(sma200_below_pct_min=None, min_max_return_pct=None, width_options=(10.0,), min_debit_usd=0, max_debit_usd=10000, all_widths=False)
     base.update(kw)
     return CdsSettings(**base)
 
@@ -193,3 +193,12 @@ def test_all_widths_uses_any_saved_strike_above_the_long():
     # el ancho / strike y el resto de filtros siguen mandando
     capped = build_call_debit_spreads(snaps, info(), cfg(all_widths=True, width_pct_min=7, top_per_ticker=0), TODAY)
     assert {r.width for r in capped if r.long.contract.strike == 130} == {10.0, 20.0}
+
+
+def test_all_short_strikes_saves_any_strike_above_the_long_up_to_width_pct_max():
+    chain = OptionChain("ZZZ", frozenset({EXP}), frozenset({100.0, 130.0, 137.0, 150.0, 163.0, 400.0}), 100)
+    base = dict(width_options=(10.0,), monthly_only=False, width_pct_max=20, long_otm_pct_max=50)
+    on = {c.strike for c in call_candidate_contracts(chain, 100.0, TODAY, CdsSettings(**base))}
+    off = {c.strike for c in call_candidate_contracts(chain, 100.0, TODAY, CdsSettings(all_short_strikes=False, **base))}
+    # compradas 130, 137 y 150 (25–50 % OTM): con la opción, sus vendidas hasta +20 % del strike (137, 150, 163; el 400 no); sin ella, solo +10 $
+    assert on == {130.0, 137.0, 150.0, 163.0} and off == {130.0, 137.0, 150.0}

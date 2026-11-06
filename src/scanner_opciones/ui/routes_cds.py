@@ -53,7 +53,7 @@ def read(service, profiles: list[Profile], qp) -> tuple[Optional[Profile], dict]
     """(perfil activo, formulario leído). Sin `submitted` se cargan los filtros del perfil (o los de config.yaml si no hay ninguno)."""
     active = active_profile(profiles, qp)
     if "submitted" not in qp:
-        params = {**(active.set_params("cds") if active else {}), "submitted": "1", "profile": active.name if active else ""}
+        params = {**(cds_form.with_allw(active.set_params("cds")) if active else {}), "submitted": "1", "profile": active.name if active else ""}
     else:
         params = dict(qp)
     return active, cds_form.parse_cds(service, params)
@@ -68,7 +68,7 @@ def page(service, profiles: list[Profile], qp) -> dict:
         rows = service.scan_cds(parsed["cds"], **parsed["ref"])
     infos, today = service.infos(), service.now().date()
     form = {**parsed["form"], "mode": "cds", "set": "cds"}
-    saved = {k: v for k, v in active.set_params("cds").items()} if active else {}
+    saved = dict(cds_form.with_allw(active.set_params("cds"))) if active else {}
     diff = profile_diff(saved, cds_form.form_query(parsed["form"])) if active else {}
     return dict(is_cds=True, cds_cfg=catalog, cds_rows=[CdsRow(r, infos.get(r.long.contract.ticker), (r.long.contract.expiry - today).days) for r in rows[:MAX_ROWS]], cds_total=len(rows),
                 cds_max_rows=MAX_ROWS, form=form, error=parsed["error"], warnings=list(parsed["notices"]), active=active, diff=diff,

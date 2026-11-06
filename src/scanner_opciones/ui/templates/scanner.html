@@ -387,7 +387,7 @@
         <label class="field" title="Anchos en dólares separados por comas; solo los que guarda el catálogo">Anchos ($)
           <input name="widths" value="{{ form.widths }}"></label>
         <p class="note">El catálogo guarda: {% for w in widths_all %}{{ w|num(0) }}{{ ', ' if not loop.last }}{% endfor %}.</p>
-        <label class="check" title="La vendida puede ser cualquier strike guardado por encima de la comprada, no solo los anchos de la lista (sigue mandando Ancho / strike). Ignora la lista de anchos"><input type="checkbox" name="allw" {{ 'checked' if form.allw }}> Todos los anchos (cualquier strike guardado)</label>
+        <label class="check" title="La vendida puede ser cualquier strike guardado por encima de la comprada, no solo los anchos de la lista (sigue mandando Ancho / strike). Ignora la lista de anchos"><input type="hidden" name="allw_set" value="1"><input type="checkbox" name="allw" {{ 'checked' if form.allw }}> Todos los anchos (cualquier strike guardado)</label>
         <label class="check" title="Deja una fila por ticker, vencimiento y call comprada: el ancho con menor movimiento necesario"><input type="checkbox" name="best" {{ 'checked' if form.best }}> Solo el mejor ancho por comprada</label>
         <div class="fgrid">
           <label class="field full" title="Ancho / strike de la comprada, en %: descarta anchos ridículos en acciones caras y enormes en las baratas">Ancho / strike (%)

@@ -568,7 +568,9 @@ class CdsSettings(_Model):
     width_pct_min: Optional[float] = Field(7, ge=0)      # ancho / strike de la comprada mínimo (%): el logbook tiene p10 = 8,7 %; descarta anchos ridículos en acciones caras
     width_pct_max: Optional[float] = Field(110, gt=0)    # ... y máximo (%): descarta anchos enormes en acciones baratas
     best_width: bool = False                             # una sola fila por ticker, vencimiento y call comprada: el ancho con menor movimiento necesario
-    all_widths: bool = False                             # vendida = cualquier strike guardado por encima de la comprada (2026-11-06), no solo los `width_options`; sigue mandando `width_pct_min/max`
+    # Catálogo: además de los `width_options`, guardar como vendida CUALQUIER strike por encima de la comprada hasta `width_pct_max` % (2026-11-06: +5 % de calls)
+    all_short_strikes: bool = True
+    all_widths: bool = True                              # vendida = cualquier strike guardado por encima de la comprada (2026-11-06), no solo los `width_options`; sigue mandando `width_pct_min/max`
     # Recompra fácil (se cierra en días o semanas): solo vencimientos mensuales (tercer viernes) y, si `strike_multiple` > 0, strikes múltiplos suyos
     # (a partir de 25 $; por debajo cualquier strike). Solo recorta el catálogo de calls: los ya guardados que no cumplan se retiran.
     monthly_only: bool = True
