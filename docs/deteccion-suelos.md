@@ -134,3 +134,30 @@ Misma muestra y métrica que la cuarta ronda (`win` = sube +1,5 ATR antes de baj
 **Para localizar suelos sí hay algo, pero no se traduce en subidas:** reclamar el VAL del perfil de 60 sesiones acierta el suelo 21 % (lift 2,6x; VP120 19 %), tocarlo y aguantar 18 % (2,1x), estar bajo VAL 15 % (1,9x), cerrar dentro de una FVG alcista 9 % (1,1x), retest de FVG alcista 11-15 % (1,4-1,8x). Es del orden de las bandas de volatilidad (Keltner 30 %) o menos, y como en las rondas anteriores el precio después no sube más que cualquier otro día.
 
 **Límites:** el FVG de LuxAlgo es una herramienta visual para elegir zonas a mano; el backtest solo mide la regla mecánica. El Volume Profile está aproximado con velas diarias (el real usa ticks/intradía); con 1 h de Yahoo solo hay 2 años y los resultados de VP120/FVG por mitades ya muestran inestabilidad (p. ej. retest con tendencia 50,7 % → 45,4 %).
+
+## Sexta ronda (2026-11-06): ¿alguna combinación con más del 65 % de que el precio se recupere en 10 días?
+Búsqueda exhaustiva de pares (22.578) sobre 212 señales (todas las anteriores, VIX/VVIX/estructura de plazos, amplitud, FVG, Volume Profile…), descubriendo con 2004-2018 y exigiendo n ≥ 300 (150 en 2019-2026). Dos definiciones de «recuperarse»: **A** = cierra por encima del precio de entrada a los 10 días (base 55,9 %); **B** = toca +1,5 ATR en algún momento de las 10 sesiones (base 51,9 %). `scripts/suelos/srch.py`.
+
+- **Con A solo 2 combinaciones superan el 65 % en las dos muestras**, y con B 6. Ninguna señal individual lo hace.
+- Todas comparten el mismo ingrediente: **estrés de mercado + sobreventa del ticker**. Estrés = VIX por encima de VIX3M (backwardation), VVIX alto o ≥ 35-50 % de la watchlist bajo su Keltner; sobreventa = MACD en su 5 % inferior del último año, o RSI2 < 10 en tendencia.
+- Mejores y su robustez (filas = ticker-día; un voto por día baja el porcentaje porque los tickers del mismo día están correlacionados):
+
+| Combinación | Definición | P (filas) | P (un voto por día) | Días / episodios | Años ≥ 60 % | Ret. 10 d medio / peor 10 % |
+|---|---|---|---|---|---|---|
+| Pullback RSI2<10 en tendencia + VIX>VIX3M | B | **68,6 %** (2004-18 69,5 / 2019-26 66,4) | 67,8 % | 246 / 82 | 16 de 20 | +1,95 % / −7,7 % |
+| MACD(5,35,5) en extremo + ≥ 35 % de la watchlist bajo Keltner | B | 66,2 % | 61,8 % | 161 / 57 | 16 de 21 | +2,0 % / −10,0 % |
+| MACD(12,26,9) en extremo + VIX>VIX3M | A | 65,4 % | 60,0 % | 452 / 61 | 15 de 19 | +2,5 % / −8,6 % |
+| MACD(12,26,9) en extremo + VVIX alto | A | 64,9 % | 60,5 % | 692 / 82 | 15 de 19 | +2,0 % / −7,6 % |
+| MACD(12,26,9) divergencia alcista + VVIX alto | A | 65,9 % | 61,2 % | 414 / 101 | 11 de 19 | +2,8 % / −6,3 % |
+
+- Solo la primera supera el 65 % con un voto por día y la mayoría de los años. En esa misma muestra la carrera «sube +1,5 ATR antes de bajar −1,5 ATR» da 60,0 % (pierde 35,0 %) y el 63,5 % cierra por encima a los 10 días.
+- **Cautelas:** (1) la mayor parte de la ventaja viene del régimen: el VIX en backwardation ya da 59,8 % (A) y 55,3 % (B) por sí solo; (2) se probaron 22.578 pares por definición, así que el azar produce candidatos; la validación en 2019-2026 reduce pero no elimina ese riesgo; (3) «toca +1,5 ATR» no es el beneficio del CDS (necesita llegar al strike/objetivo y a tiempo); (4) el peor 10 % de los casos pierde un 7-10 % a 10 días, precisamente en los momentos de más estrés; (5) son pocos episodios independientes (48-82), concentrados en crisis y rebotes.
+- Estado el 2026-11-06: VIX/VIX3M = 1,031 (backwardation), 26 % de la watchlist bajo Keltner, MACD(12,26,9) en extremo + backwardation en AMD, GOOGL, INTC, MU, NVDA, QQQ y SMH; el pullback RSI2<10 en tendencia + backwardation no estaba activo en ningún ticker ese día (sí PLTR y XOM el 5-nov).
+
+## Séptima ronda (2026-11-06): The Strat completo para CDS
+Patrones sobre velas diarias (1 interior, 2U, 2D, 3 exterior): 2D-2U, 2D-2D-2U, 3-2U, 3-1-2U, 2D-1-2U, 2U-1-2U, 1-2U, 1-1-2U, 2U-2U, 2U-2U-2U, 2D fallido (con 2U siguiente), martillo y el control bajista 2U-2D; continuidad entre temporalidades (FTFC: vela diaria, semana y mes en curso todas verdes o todas rojas) y barra semanal/mensual 2U, 2D o 3. Misma muestra (128.000 ticker-día, 2004-2026). `scripts/suelos/strat*.py`.
+
+- **Al cierre de la vela de señal ningún patrón mejora la base** (P cierra por encima a 10 d 55,9 %; toca +1,5 ATR 51,9 %): todos entre 49,9 % (3-1-2U con FTFC) y 57,8 % (2D-1-2U con semana 2U), sin consistencia entre mitades. El control bajista 2U-2D da 56,5 %, igual que los alcistas. FTFC alcista 56,3 % (57,0 % con tendencia) y FTFC bajista 55,1 %. Con estrés (VIX>VIX3M): 2D-2U 57,8 %, 3-2U 60,4 % (n 280), cualquier 2U de giro 58,1 % (66,1 % solo después de 2019): no es una mejora fiable.
+- **Para localizar suelos** (no para subir): 2D-2U 19,8 %, 2D-2D-2U 30,5 %, 2D-2U tras Bollinger 47,3 %, como en la primera ronda.
+- **Entrada como se opera en Strat** (stop de compra en el máximo de la vela interior; entra el día siguiente si rompe arriba sin romper abajo; resultado medido desde el precio de entrada): base «cualquier día con ruptura del máximo de ayer» 57,4 % cierra por encima a 10 días, win (+1,5 ATR antes que −1,5 ATR) 50,2 %. **2D-1 (vela interior tras una 2D) 58,5 % y win 54,0 %** (n 2.763; 2004-18 58,3 % / 2019-26 58,7 %; pierde 34,2 % frente a 37,0 %); 2D-2D-1 58,5 % y 52,5 %; 2U-1 58,0 % y 49,4 %; 3-1 55,0 %. Mejora real pero pequeña (+1 punto en cierre, +3-4 puntos en la carrera), muy lejos del 65 %.
+- Conclusión: The Strat no aporta una ventaja de entrada para el CDS; lo más cercano es 2D-1 con disparo alcista.
