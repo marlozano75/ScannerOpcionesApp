@@ -47,9 +47,29 @@ ChainFetch = Callable[[str], Awaitable[OptionListing]]                          
 OptionQuotesFetch = Callable[[Sequence[str]], Awaitable[dict[str, OptionQuote]]]  # símbolos DXLink -> cotizaciones
 ProgressFn = Callable[[int, int, int], None]      # (respondidos, total, pasada)
 OptionHistoryFetch = Callable[[Sequence[str], int, Optional[ProgressFn]], Awaitable[dict[str, dict[date, float]]]]   # símbolos, días, avance -> {símbolo: {día: bid}}
-OPTION_HISTORY_BATCH = 50         # velas de bid por lote (una conexión nueva por lote: acumular suscripciones de velas hace que tastytrade corte)
+OptionSeriesFetch = Callable[[Sequence[str], int, str, Optional[ProgressFn]], Awaitable[dict[str, dict[date, Any]]]]   # símbolos, días, bid|ask|last, avance
+OPTION_HISTORY_BATCH = 50        # velas de bid por lote (una conexión nueva por lote: acumular suscripciones de velas hace que tastytrade corte)
 OPTION_HISTORY_TIMEOUT = 12.0     # segundos de espera por lote
 OPTION_HISTORY_PASSES = 3         # pasadas: tastytrade a veces no responde a un lote entero y sí al repetirlo
+
+
+def _num(x: Any) -> Optional[float]:
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if v == v else None
+
+
+def candle_value(c: Any, price: str) -> Any:
+    """Dato útil de una vela diaria de opción, o None si no trae ninguno. bid/ask: el cierre si es > 0. last: (OI, IV, volumen), cada uno None si falta."""
+    if price != "last":
+        v = _num(getattr(c, "close", None))
+        return v if v is not None and v > 0 else None
+    oi, iv, vol = (_num(getattr(c, f, None)) for f in ("open_interest", "imp_volatility", "volume"))
+    if oi is None and iv is None and vol is None:
+        return None
+    return (None if oi is None else int(oi), iv, None if vol is None else int(vol))
 
 
 def quiet_sdk_logging(level: int) -> None:
@@ -144,7 +164,7 @@ class TastytradeVolatility:
         fetch_chain: Optional[ChainFetch] = None, fetch_option_quotes: Optional[OptionQuotesFetch] = None,
         fetch_call_chain: Optional[ChainFetch] = None,
         fetch_vix: Optional[VixFetch] = None, fetch_earnings: Optional[EarningsFetch] = None,
-        fetch_option_history: Optional[OptionHistoryFetch] = None,
+        fetch_option_history: Optional[OptionHistoryFetch] = None, fetch_option_series: Optional[OptionSeriesFetch] = None,
         quote_wait: float = 20.0, settle: float = 3.0, option_batch_size: int = 400,
     ) -> None:
         self._client_secret = client_secret
@@ -161,6 +181,7 @@ class TastytradeVolatility:
         self._fetch_option_quotes = fetch_option_quotes or self._sdk_fetch_option_quotes
         self._fetch_vix = fetch_vix or self._sdk_fetch_vix
         self._fetch_option_history = fetch_option_history or self._sdk_fetch_option_bids
+        self._fetch_option_series = fetch_option_series or self._sdk_fetch_option_series
         self._fetch_earnings = fetch_earnings or self._sdk_fetch_earnings
         self._quote_wait, self._settle, self._option_batch = quote_wait, settle, option_batch_size
         self._session: Any = None
@@ -276,15 +297,29 @@ class TastytradeVolatility:
         except Exception as exc:  # noqa: BLE001
             raise OptionDataError(f"tastytrade: no se pudo leer el histórico de bids: {exc}") from exc
 
+    async def option_detail_history(self, symbols: Sequence[str], days: int, on_progress: Optional[ProgressFn] = None) -> dict[str, dict[str, dict]]:
+        """Ask de cierre y OI/IV/volumen de cada día de las opciones `symbols` (símbolos dxFeed, también ya vencidos): {símbolo: {"ask": {día: ask},
+        "last": {día: (OI, IV, volumen)}}}. Son dos peticiones de velas (`price=ask` y `price=last`: OI, IV y volumen solo vienen en las de `last`, que
+        existen solo los días con operaciones). Solo vuelve un símbolo si respondió a las dos."""
+        try:
+            asks = await self._fetch_option_series(list(symbols), days, "ask", on_progress)
+            lasts = await self._fetch_option_series(list(symbols), days, "last", on_progress)
+        except Exception as exc:  # noqa: BLE001
+            raise OptionDataError(f"tastytrade: no se pudo leer el histórico de ask/OI/IV: {exc}") from exc
+        return {s: {"ask": asks[s], "last": lasts[s]} for s in asks if s in lasts}
+
     async def _sdk_fetch_option_bids(self, symbols: Sequence[str], days: int, on_progress: Optional[ProgressFn] = None) -> dict[str, dict[date, float]]:
-        """Velas diarias `price=bid` por DXLink: lotes de `OPTION_HISTORY_BATCH`, cada uno con su conexión, y hasta `OPTION_HISTORY_PASSES` pasadas con los que
-        no responden. El día de una vela es su fecha UTC."""
+        return await self._sdk_fetch_option_series(symbols, days, "bid", on_progress)
+
+    async def _sdk_fetch_option_series(self, symbols: Sequence[str], days: int, price: str, on_progress: Optional[ProgressFn] = None) -> dict[str, dict[date, Any]]:
+        """Velas diarias `price=<bid|ask|last>` por DXLink: lotes de `OPTION_HISTORY_BATCH`, cada uno con su conexión, y hasta `OPTION_HISTORY_PASSES` pasadas
+        con los que no responden. El día de una vela es su fecha UTC. bid/ask: {día: cierre > 0}; last: {día: (OI, IV, volumen)} de las velas con algún dato."""
         from tastytrade.dxfeed import Candle
         from tastytrade.streamer import DXLinkStreamer
 
         session = self._open_session()
         start = datetime.now() - timedelta(days=days)
-        out: dict[str, dict[date, float]] = {}
+        out: dict[str, dict[date, Any]] = {}
         todo = list(dict.fromkeys(symbols))
         for attempt in range(OPTION_HISTORY_PASSES):
             if not todo:
@@ -293,22 +328,19 @@ class TastytradeVolatility:
             for i in range(0, len(todo), OPTION_HISTORY_BATCH):
                 batch = todo[i:i + OPTION_HISTORY_BATCH]
                 pending = set(batch)
-                series: dict[str, dict[date, float]] = {s: {} for s in batch}
+                series: dict[str, dict[date, Any]] = {s: {} for s in batch}
                 try:
                     async with DXLinkStreamer(session) as streamer:
-                        await streamer.subscribe_candle(batch, "1d,price=bid", start_time=start)
+                        await streamer.subscribe_candle(batch, f"1d,price={price}", start_time=start)
 
                         async def read() -> None:
                             async for c in streamer.listen(Candle):
                                 sym = c.event_symbol.split("{")[0]
                                 if sym not in series:
                                     continue
-                                try:
-                                    bid = float(c.close)
-                                except (TypeError, ValueError):
-                                    bid = 0.0
-                                if bid > 0 and bid == bid:
-                                    series[sym][datetime.fromtimestamp(c.time / 1000, timezone.utc).date()] = bid
+                                value = candle_value(c, price)
+                                if value is not None:
+                                    series[sym][datetime.fromtimestamp(c.time / 1000, timezone.utc).date()] = value
                                 if c.snapshot_end:
                                     pending.discard(sym)
                                     if not pending:

@@ -2163,48 +2163,76 @@ class AppService:
                     plan.append((ticker, expiry, strike, ref, price))
         return plan
 
-    async def fetch_yield_history(self, discount_pct: float, months: int, liquidity_min: Optional[int]) -> int:
+    async def fetch_yield_history(self, discount_pct: float, months: int, liquidity_min: Optional[int], detail: bool = False) -> int:
         """Pide a tastytrade el bid histórico de los strikes que aún no están guardados y los guarda. Devuelve cuántos contratos nuevos se guardaron.
-        Se puede repetir: lo ya guardado no se vuelve a pedir y lo que no respondió se intenta de nuevo."""
+        Con `detail` pide además el ask, OI, IV y volumen de los contratos con bid que aún no los tienen (el perfil exige spread u OI: dos peticiones de velas más
+        por contrato). Se puede repetir: lo ya guardado no se vuelve a pedir y lo que no respondió se intenta de nuevo."""
         if self.option_history is None:
             raise AppError("Sin proveedor de histórico de opciones (hace falta tastytrade).")
         if self.yield_history_progress is not None:
             return 0
         self.yield_history_progress = "Preparando la lista de contratos…"
         self.yield_history_result = None
-        saved = 0
+        saved = detailed = asked = 0
+        fetch_detail = getattr(self.option_history, "option_detail_history", None) if detail else None
+        started = time.monotonic()
         try:
             tickers = self.yield_history_universe(liquidity_min)
+            plan = self._yield_history_plan(tickers, discount_pct, months)
             stored = self.bid_history.all()
-            todo = [p for p in self._yield_history_plan(tickers, discount_pct, months) if (p[0], p[1], round(p[2], 4)) not in stored]
-            if not todo:
-                self.yield_history_result = "No falta ningún contrato: todo está ya guardado."
-                return 0
-            by_symbol = {}
-            for t, e, k, ref, _ in todo:
-                by_symbol[yh.option_symbol(yh.dx_root(t), e, k)] = (t, e, k, ref)
+            todo = [p for p in plan if (p[0], p[1], round(p[2], 4)) not in stored]
+            by_symbol = {yh.option_symbol(yh.dx_root(t), e, k): (t, e, k, ref) for t, e, k, ref, _ in todo}
             symbols = list(by_symbol)
             log.info("Histórico de bids: %d contratos por pedir (%d tickers, descuento ≥ %.1f %%, %d meses)", len(symbols), len(tickers), discount_pct, months)
-            days = (self.now().date() - min(v[3] for v in by_symbol.values())).days + yh.DAY_TOLERANCE + 2
-            started = time.monotonic()
-            for i in range(0, len(symbols), self.YIELD_HISTORY_CHUNK):
-                chunk = symbols[i:i + self.YIELD_HISTORY_CHUNK]
+            if symbols:
+                days = (self.now().date() - min(v[3] for v in by_symbol.values())).days + yh.DAY_TOLERANCE + 2
+                for i in range(0, len(symbols), self.YIELD_HISTORY_CHUNK):
+                    chunk = symbols[i:i + self.YIELD_HISTORY_CHUNK]
 
-                def progress(answered: int, total: int, attempt: int, done: int = i) -> None:
-                    self.yield_history_progress = (f"Pidiendo bids a tastytrade: {done + answered}/{len(symbols)} contratos con respuesta · pasada {attempt}/3 del tramo "
-                                                   f"actual · {saved} guardados · {(time.monotonic() - started) / 60:.1f} min")
+                    def progress(answered: int, total: int, attempt: int, done: int = i) -> None:
+                        self.yield_history_progress = (f"Pidiendo bids a tastytrade: {done + answered}/{len(symbols)} contratos con respuesta · pasada {attempt}/3 del tramo "
+                                                       f"actual · {saved} guardados · {(time.monotonic() - started) / 60:.1f} min")
 
-                progress(0, len(chunk), 1)
-                got = await self.option_history.option_bid_history(chunk, days, progress)
-                rows = []
-                for sym, series in got.items():
-                    t, e, k, ref = by_symbol[sym]
-                    rows.append((t, e, k, ref, yh.pick_bid(series, ref)))
-                saved += self.bid_history.save(rows, self.now())
-                log.info("Histórico de bids: %d/%d contratos con respuesta (%.1f min)", min(i + self.YIELD_HISTORY_CHUNK, len(symbols)), len(symbols), (time.monotonic() - started) / 60)
-            log.info("Histórico de bids: %d contratos guardados de %d pedidos", saved, len(symbols))
-            self.yield_history_result = (f"Terminado: {saved} contratos guardados de {len(symbols)} pedidos"
-                                         + ("" if saved == len(symbols) else " (los que no respondieron se piden otra vez al repetir)"))
+                    progress(0, len(chunk), 1)
+                    got = await self.option_history.option_bid_history(chunk, days, progress)
+                    rows = []
+                    for sym, series in got.items():
+                        t, e, k, ref = by_symbol[sym]
+                        rows.append((t, e, k, ref, yh.pick_bid(series, ref)))
+                    saved += self.bid_history.save(rows, self.now())
+                    log.info("Histórico de bids: %d/%d contratos con respuesta (%.1f min)", min(i + self.YIELD_HISTORY_CHUNK, len(symbols)), len(symbols), (time.monotonic() - started) / 60)
+                log.info("Histórico de bids: %d contratos guardados de %d pedidos", saved, len(symbols))
+            if fetch_detail is not None:
+                wanted = {(t, e, round(k, 4)) for t, e, k, _, _ in plan}
+                detail_symbols = {yh.option_symbol(yh.dx_root(t), e, k): (t, e, k, ref) for t, e, k, ref in self.bid_history.missing_detail() if (t, e, round(k, 4)) in wanted}
+                dsyms = list(detail_symbols)
+                asked = len(dsyms)
+                log.info("Histórico de ask/OI/IV: %d contratos por pedir", asked)
+                if dsyms:
+                    days = (self.now().date() - min(v[3] for v in detail_symbols.values())).days + yh.DAY_TOLERANCE + 2
+                for i in range(0, len(dsyms), self.YIELD_HISTORY_CHUNK):
+                    chunk = dsyms[i:i + self.YIELD_HISTORY_CHUNK]
+
+                    def progress(answered: int, total: int, attempt: int, done: int = i) -> None:
+                        self.yield_history_progress = (f"Pidiendo ask, OI e IV a tastytrade: contratos {done + 1}–{done + len(chunk)} de {asked} (en la petición actual "
+                                                       f"{answered}/{total} con respuesta, pasada {attempt}/3) · {detailed} guardados · {(time.monotonic() - started) / 60:.1f} min")
+
+                    progress(0, len(chunk), 1)
+                    got = await fetch_detail(chunk, days, progress)
+                    rows = []
+                    for sym, d in got.items():
+                        t, e, k, ref = detail_symbols[sym]
+                        oi, iv, vol = yh.pick_last(d.get("last", {}), ref) or (None, None, None)
+                        rows.append((t, e, k, yh.pick_bid(d.get("ask", {}), ref), oi, iv, vol))
+                    detailed += self.bid_history.save_detail(rows, self.now())
+                    log.info("Histórico de ask/OI/IV: %d/%d contratos con respuesta (%.1f min)", min(i + self.YIELD_HISTORY_CHUNK, asked), asked, (time.monotonic() - started) / 60)
+            if not todo and not asked:
+                self.yield_history_result = ("No falta ningún contrato: todo está ya guardado." if fetch_detail is not None or not detail
+                                             else "Los bids están guardados, pero el proveedor no sabe pedir ask/OI/IV.")
+            else:
+                parts = [f"{saved} contratos guardados"] + ([f"ask/OI/IV de {detailed}/{asked}"] if fetch_detail is not None else [])
+                pending = len(todo) - saved + asked - detailed
+                self.yield_history_result = "Terminado: " + " · ".join(parts) + ("" if pending <= 0 else " (los que no respondieron se piden otra vez al repetir)")
             return saved
         except Exception as exc:  # noqa: BLE001 - una tarea en segundo plano no puede fallar en silencio
             log.exception("Histórico de bids: la petición falló")
@@ -2214,10 +2242,11 @@ class AppService:
             self.yield_history_progress = None
 
     def yield_history_report(self, discount_pct: float, required_pct: float, months: int, min_hits: int, min_months: int,
-                             liquidity_min: Optional[int]) -> list:
-        """Veredicto (`yield_history.Verdict`) de cada ticker de la lista con los bids ya guardados; no pide nada."""
+                             liquidity_min: Optional[int], max_spread_pct: Optional[float] = None, min_oi: Optional[int] = None) -> list:
+        """Veredicto (`yield_history.Verdict`) de cada ticker de la lista con los bids ya guardados; no pide nada. Con `max_spread_pct` / `min_oi` (los del
+        perfil) un strike solo cuenta si su spread y OI de ese día los cumplen (hacen falta ask/OI/IV guardados: si no, el strike queda «sin pedir»)."""
         tickers = self.yield_history_universe(liquidity_min)
-        stored = self.bid_history.all()
+        stored = self.bid_history.all_details()
         expiries = yh.past_monthly_expiries(self.now().date(), months)
         out = []
         for ticker in tickers:
@@ -2229,11 +2258,11 @@ class AppService:
                 if ref is None:
                     continue
                 price = closes[ref]
-                strikes = yh.candidate_strikes(price, discount_pct)
-                keys = [(ticker, expiry, round(k, 4)) for k in strikes]
-                pending = any(key not in stored for key in keys)
-                yields = [stored[key] / key[2] * 100 for key in keys if stored.get(key)]
-                built.append(yh.Month(expiry, ref, price, max(yields) if yields else None, pending))
+                results = [yh.strike_yield(k, stored.get((ticker, expiry, round(k, 4))), max_spread_pct, min_oi) for k in yh.candidate_strikes(price, discount_pct)]
+                yields = [y for y, _, _ in results if y is not None]
+                illiquid = sum(1 for _, _, x in results if x)
+                # con bid pero sin ningún strike líquido el mes cuenta como mes con dato y sin prima operable (0 %), no como «sin dato»
+                built.append(yh.Month(expiry, ref, price, max(yields) if yields else (0.0 if illiquid else None), any(p for _, p, _ in results), illiquid))
             out.append(yh.judge(ticker, built, required_pct, min_hits, min_months))
         return out
 

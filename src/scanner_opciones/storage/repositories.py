@@ -112,13 +112,35 @@ class BidHistoryRepo:
         data = [(t, e.isoformat(), round(float(k), 4), d.isoformat(), b, at.isoformat(timespec="seconds")) for t, e, k, d, b in rows]
         before = self.db.conn.total_changes
         with self.db.conn:
-            self.db.conn.executemany("INSERT OR REPLACE INTO option_bid_history (ticker, expiry, strike, ref_day, bid, fetched_at) VALUES (?,?,?,?,?,?)", data)
+            # un upsert (no REPLACE): conserva el ask, OI, IV y volumen ya guardados de ese contrato
+            self.db.conn.executemany(
+                "INSERT INTO option_bid_history (ticker, expiry, strike, ref_day, bid, fetched_at) VALUES (?,?,?,?,?,?) "
+                "ON CONFLICT(ticker, expiry, strike) DO UPDATE SET ref_day = excluded.ref_day, bid = excluded.bid, fetched_at = excluded.fetched_at", data)
+        self.db.quiet_changes += self.db.conn.total_changes - before
+        return len(data)
+
+    def save_detail(self, rows: Iterable[tuple], at: datetime) -> int:
+        """Filas (ticker, vencimiento, strike, ask, OI, IV, volumen) de contratos ya guardados; cualquier valor puede ser None (sin vela). Marca `detail_at`."""
+        data = [(a, oi, iv, vol, at.isoformat(timespec="seconds"), t, e.isoformat(), round(float(k), 4)) for t, e, k, a, oi, iv, vol in rows]
+        before = self.db.conn.total_changes
+        with self.db.conn:
+            self.db.conn.executemany("UPDATE option_bid_history SET ask = ?, open_interest = ?, iv = ?, volume = ?, detail_at = ? WHERE ticker = ? AND expiry = ? AND strike = ?", data)
         self.db.quiet_changes += self.db.conn.total_changes - before
         return len(data)
 
     def all(self) -> dict[tuple[str, date, float], Optional[float]]:
         """{(ticker, vencimiento, strike): bid o None}."""
         return {(t, date.fromisoformat(e), k): b for t, e, k, b in self.db.conn.execute("SELECT ticker, expiry, strike, bid FROM option_bid_history")}
+
+    def all_details(self) -> dict[tuple[str, date, float], tuple]:
+        """{(ticker, vencimiento, strike): (bid, ask, OI, IV, volumen, detalle pedido)}; el último es False mientras no se hayan pedido ask/OI/IV."""
+        return {(t, date.fromisoformat(e), k): (b, a, oi, iv, vol, d is not None) for t, e, k, b, a, oi, iv, vol, d in self.db.conn.execute(
+            "SELECT ticker, expiry, strike, bid, ask, open_interest, iv, volume, detail_at FROM option_bid_history")}
+
+    def missing_detail(self) -> list[tuple[str, date, float, date]]:
+        """Contratos con bid cuyo ask/OI/IV aún no se pidieron: [(ticker, vencimiento, strike, día de referencia)]. Sin bid no hay mercado que medir."""
+        return [(t, date.fromisoformat(e), k, date.fromisoformat(d)) for t, e, k, d in self.db.conn.execute(
+            "SELECT ticker, expiry, strike, ref_day FROM option_bid_history WHERE bid IS NOT NULL AND detail_at IS NULL")]
 
     def count(self) -> int:
         return self.db.conn.execute("SELECT COUNT(*) FROM option_bid_history").fetchone()[0]

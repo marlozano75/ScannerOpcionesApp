@@ -4,14 +4,19 @@ Para cada tercer viernes ya vencido se toma el día en que faltaban `dte` días 
 mínimo del perfil o por debajo (los más cercanos de la rejilla habitual de strikes). El bid de cierre de cada uno entre su strike es el yield del periodo; de
 los strikes de un vencimiento cuenta el mejor. Un ticker cuyo mejor yield no llega al exigido en suficientes meses «apenas da prima».
 
+Si el perfil exige spread máximo u OI mínimo, un strike solo cuenta si su ask y OI de ese día (velas `price=ask` y `price=last`) los cumplen.
+
 Límites conocidos: la rejilla de strikes es una suposición (un strike que no existe no tiene velas y solo se pierde esa opción); el bid de cierre de un contrato
-sin mercado es nulo; con pocos meses con dato no se decide nada."""
+sin mercado es nulo; con pocos meses con dato no se decide nada; el spread sale de dos cierres diarios (puede no ser simultáneo) y el OI/IV de la última vela
+con operaciones (hasta 3 días antes); el tamaño del bid no existe en las velas."""
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Mapping, Optional, Sequence
+
+from scanner_opciones.metrics.spread import spread_pct
 
 OK, DISCARD, NO_DATA, PENDING = "ok", "descartable", "sin dato", "sin pedir"
 DAY_TOLERANCE = 3        # días hacia atrás en los que se acepta el bid si el del día de referencia no tiene vela
@@ -73,13 +78,45 @@ def pick_bid(series: Mapping[date, float], ref_day: date, tolerance: int = DAY_T
     return None
 
 
+def pick_last(series: Mapping[date, tuple], ref_day: date, tolerance: int = DAY_TOLERANCE) -> Optional[tuple]:
+    """(OI, IV, volumen) del día de referencia o, si ese día no hubo operaciones, del anterior más cercano dentro de `tolerance` días."""
+    for back in range(tolerance + 1):
+        v = series.get(ref_day - timedelta(days=back))
+        if v is not None:
+            return v
+    return None
+
+
+def strike_yield(strike: float, row: Optional[tuple], max_spread_pct: Optional[float], min_oi: Optional[int]) -> tuple[Optional[float], bool, bool]:
+    """(yield %, pendiente, descartado por liquidez) de un strike. `row` = (bid, ask, OI, IV, volumen, detalle pedido) de `BidHistoryRepo.all_details`; None = aún no
+    pedido. Con `max_spread_pct` / `min_oi` (los del perfil) un strike cuenta solo si su spread de cierre y su OI los cumplen; como en el Scanner, un dato que
+    falta no pasa. Sin esos filtros solo importa el bid. Si faltan ask/OI/IV por pedir y hay filtros, el strike queda pendiente."""
+    if row is None:
+        return None, True, False
+    bid, ask, oi, _iv, _vol, detail = row
+    if not bid:
+        return None, False, False
+    if max_spread_pct is None and min_oi is None:
+        return bid / strike * 100, False, False
+    if not detail:
+        return None, True, False
+    if max_spread_pct is not None:
+        spread = spread_pct(bid, ask)
+        if spread is None or spread > max_spread_pct:
+            return None, False, True
+    if min_oi is not None and (oi is None or oi < min_oi):
+        return None, False, True
+    return bid / strike * 100, False, False
+
+
 @dataclass(frozen=True)
 class Month:
     expiry: date
     ref_day: date
     price: float
-    best_pct: Optional[float]        # mejor yield entre los strikes con bid; None = ninguno tuvo bid
+    best_pct: Optional[float]        # mejor yield entre los strikes con bid (y liquidez, si el perfil la exige); None = ninguno
     pending: bool = False            # algún strike aún no se ha pedido a tastytrade
+    illiquid: int = 0                # strikes con bid descartados por spread u OI del perfil
 
 
 @dataclass(frozen=True)

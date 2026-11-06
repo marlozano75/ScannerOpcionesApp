@@ -53,7 +53,8 @@ def history_params(service, qp) -> dict:
     chosen = next((p for p in puts if p[0] == wanted), None) or next((p for p in puts if p[1].min_yield_pct > 0), puts[0] if puts else None)
     months = _int(qp.get("hm", 3), 3, 1, 12)
     return dict(profile=chosen[0] if chosen else "", discount=chosen[1].strike_below_pct_min if chosen else 5.0,
-                required=chosen[1].min_yield_pct if chosen else 1.0, months=months, hits=_int(qp.get("hh", 2), 2, 1, months),
+                required=chosen[1].min_yield_pct if chosen else 1.0, max_spread=chosen[1].max_spread_pct if chosen else None,
+                min_oi=chosen[1].min_oi if chosen else None, months=months, hits=_int(qp.get("hh", 2), 2, 1, months),
                 min_months=_int(qp.get("hn", 2), 2, 1, months), liquidity=_int(qp.get("hl", 2), 2, 0, 4), profiles=[n for n, _ in puts])
 
 
@@ -62,7 +63,8 @@ def history_context(service, qp) -> dict:
     if not p["profile"]:
         return dict(h=p, h_counts={}, h_rows=[], h_total=0, h_stored=service.bid_history.count(), h_progress=service.yield_history_progress,
                     h_result=service.yield_history_result, h_limit=LIMIT)
-    verdicts = service.yield_history_report(p["discount"], p["required"], p["months"], p["hits"], p["min_months"], p["liquidity"] or None)
+    verdicts = service.yield_history_report(p["discount"], p["required"], p["months"], p["hits"], p["min_months"], p["liquidity"] or None,
+                                             p["max_spread"], p["min_oi"])
     counts = {s: sum(1 for v in verdicts if v.status == s) for s in (yh.OK, yh.DISCARD, yh.NO_DATA, yh.PENDING)}
     sources = service.ticker_lists()
     rows = sorted((v for v in verdicts if v.status == yh.DISCARD), key=lambda v: (v.best_pct or 0.0, v.ticker))
@@ -91,7 +93,8 @@ def register(app, service, render) -> None:
         elif not p["profile"]:
             msg = "No hay perfiles de puts guardados."
         else:
-            service.launch(service.fetch_yield_history(p["discount"], p["months"], p["liquidity"] or None))
-            msg = "Pidiendo los bids a tastytrade en segundo plano: el avance se muestra aquí y se actualiza solo."
+            detail = p["max_spread"] is not None or p["min_oi"] is not None      # solo si el perfil exige spread u OI: son dos peticiones de velas más por contrato
+            service.launch(service.fetch_yield_history(p["discount"], p["months"], p["liquidity"] or None, detail))
+            msg = "Pidiendo " + ("los bids, ask, OI e IV" if detail else "los bids") + " a tastytrade en segundo plano: el avance se muestra aquí y se actualiza solo."
         keep = {k: v for k, v in qp.items() if k in ("hp", "hm", "hh", "hn", "hl")}
         return RedirectResponse("/scanner/criba?" + urlencode({**keep, "message": msg}) + "#historico", status_code=303)

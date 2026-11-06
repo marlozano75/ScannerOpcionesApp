@@ -426,6 +426,14 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (ticker, expiry, strike)
     );
     """,
+    # v43: ask de cierre y, de las velas `price=last`, OI, IV y volumen del mismo día; `detail_at` NULL = aún no se pidieron (los bid ya guardados quedan por completar)
+    """
+    ALTER TABLE option_bid_history ADD COLUMN ask REAL;
+    ALTER TABLE option_bid_history ADD COLUMN open_interest INTEGER;
+    ALTER TABLE option_bid_history ADD COLUMN iv REAL;
+    ALTER TABLE option_bid_history ADD COLUMN volume INTEGER;
+    ALTER TABLE option_bid_history ADD COLUMN detail_at TEXT;
+    """,
 ]
 
 

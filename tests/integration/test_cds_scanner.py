@@ -197,7 +197,7 @@ def test_criba_page_shows_the_history_section_and_the_post_starts_the_request():
     with _client(svc) as client:
         client.portal.call(svc.wait_idle)
         page = client.get("/scanner/criba")
-        assert page.status_code == 200 and "Histórico real de bids" in page.text and "Pedir los bids que faltan" in page.text
+        assert page.status_code == 200 and "Histórico real de bids" in page.text and "Pedir los datos que faltan" in page.text
         assert 'name="hp"' in page.text and 'name="hl"' in page.text
         svc.option_history = None
         sent = client.post("/scanner/criba/historico", data={"hm": "3"}, follow_redirects=False)
@@ -240,3 +240,91 @@ def test_history_progress_is_shown_and_refreshes_itself_and_the_result_or_error_
         svc.yield_history_progress = "Pidiendo bids a tastytrade: 10/100 contratos con respuesta"
         page = client.get("/scanner/criba").text
         assert "En curso." in page and "10/100 contratos" in page and "window.location.reload" in page
+
+
+class _FakeDetailHistory(_FakeBidHistory):
+    """Además del bid, ask/OI de un símbolo (`detail`: {símbolo: (ask, OI)}); los símbolos sin entrada responden sin ninguna vela."""
+
+    def __init__(self, bids, detail):
+        super().__init__(bids)
+        self.detail, self.detail_requests = detail, []
+
+    async def option_detail_history(self, symbols, days, on_progress=None):
+        self.detail_requests.append(list(symbols))
+        out = {}
+        for s in symbols:
+            ask, oi = self.detail.get(s, (None, None))
+            day = TODAY - timedelta(days=40)
+            out[s] = {"ask": {d: ask for d in (TODAY - timedelta(days=n) for n in range(0, days)) if ask}, "last": {d: (oi, 0.4, 10) for d in (TODAY - timedelta(days=n) for n in range(0, days)) if oi is not None}}
+        return out
+
+
+def test_detail_is_requested_only_for_contracts_with_bid_and_filters_the_strikes_by_spread_and_oi():
+    import asyncio
+    from scanner_opciones.domain.models import TickerInfo as TI
+    from scanner_opciones.scanner import yield_history as yh
+
+    svc = _svc()
+    expiries = yh.past_monthly_expiries(svc.now().date(), 2)
+    svc.ticker_lists = lambda: {"WIDE": ["Fuente A"], "GOOD": ["Fuente A"], "NOBID": ["Fuente A"]}
+    svc.quality.save([TI(t, option_liquidity=3) for t in ("WIDE", "GOOD", "NOBID")])
+    for t in ("WIDE", "GOOD", "NOBID"):
+        svc.bars.upsert(t, [(svc.now().date() - timedelta(days=d), 100.0) for d in range(0, 150)])
+    sym = lambda t, e: yh.option_symbol(t, e, 95.0)
+    bids = {sym(t, e): 2.0 for t in ("WIDE", "GOOD") for e in expiries}
+    detail = {sym("WIDE", e): (4.0, 900) for e in expiries} | {sym("GOOD", e): (2.1, 900) for e in expiries}   # WIDE: spread 67 %; GOOD: 5 %
+    provider = _FakeDetailHistory(bids, detail)
+    svc.option_history = provider
+
+    # sin filtros del perfil no se piden las velas de ask/last y el bid basta
+    asyncio.run(svc.fetch_yield_history(5.0, 2, None))
+    assert provider.detail_requests == []
+    assert {v.ticker: v.status for v in svc.yield_history_report(5.0, 1.0, 2, 2, 2, None)} == {"WIDE": yh.OK, "GOOD": yh.OK, "NOBID": yh.NO_DATA}
+    # con filtros y sin detalle pedido, el strike queda pendiente en vez de contar
+    verdicts = {v.ticker: v for v in svc.yield_history_report(5.0, 1.0, 2, 2, 2, None, 25.0, 100)}
+    assert verdicts["GOOD"].status == yh.PENDING
+
+    asyncio.run(svc.fetch_yield_history(5.0, 2, None, True))
+    assert len(provider.detail_requests) == 1 and not any("NOBID" in s for s in provider.detail_requests[0])    # sin bid no hay nada que medir
+    assert len(provider.detail_requests[0]) == 4 and svc.yield_history_result.startswith("Terminado: 0 contratos guardados · ask/OI/IV de 4/4")
+    asyncio.run(svc.fetch_yield_history(5.0, 2, None, True))
+    assert len(provider.detail_requests) == 1 and svc.yield_history_result.startswith("No falta")                # lo ya guardado no se repite
+    assert svc.bid_history.count() == 6                                                                         # el upsert no borró nada
+
+    verdicts = {v.ticker: v for v in svc.yield_history_report(5.0, 1.0, 2, 2, 2, None, 25.0, 100)}
+    assert verdicts["GOOD"].status == yh.OK and verdicts["GOOD"].months[0].illiquid == 0
+    assert verdicts["WIDE"].status == yh.DISCARD and verdicts["WIDE"].best_pct == 0.0 and verdicts["WIDE"].months[0].illiquid == 1   # spread de 67 % > 25 %
+    assert {v.ticker: v.status for v in svc.yield_history_report(5.0, 1.0, 2, 2, 2, None, None, 1000)}["GOOD"] == yh.DISCARD         # OI 900 < 1000
+
+
+def test_strike_yield_treats_missing_data_like_the_scanner():
+    from scanner_opciones.scanner import yield_history as yh
+
+    ok = (2.0, 2.1, 500, 0.4, 10, True)
+    assert yh.strike_yield(100, ok, None, None) == (2.0, False, False)
+    assert yh.strike_yield(100, ok, 10.0, 100) == (2.0, False, False)
+    assert yh.strike_yield(100, (2.0, None, 500, None, None, True), 10.0, None) == (None, False, True)        # sin ask no se conoce el spread
+    assert yh.strike_yield(100, (2.0, 2.1, None, None, None, True), None, 100) == (None, False, True)         # sin OI no pasa
+    assert yh.strike_yield(100, (2.0, 2.1, None, None, None, False), None, 100) == (None, True, False)        # detalle sin pedir: pendiente
+    assert yh.strike_yield(100, (None, None, None, None, None, False), None, 100) == (None, False, False)     # sin bid: no hay mercado
+    assert yh.strike_yield(100, None, None, None) == (None, True, False)
+    assert yh.pick_last({}, __import__("datetime").date(2026, 1, 5)) is None
+
+
+def test_migration_v43_keeps_the_stored_bids_and_marks_them_as_missing_detail():
+    import sqlite3
+    from datetime import date, datetime
+
+    from scanner_opciones.storage import db as dbm
+
+    d = dbm.Database(":memory:")
+    d.conn.execute("DROP TABLE option_bid_history")
+    d.conn.execute("CREATE TABLE option_bid_history (ticker TEXT NOT NULL, expiry TEXT NOT NULL, strike REAL NOT NULL, ref_day TEXT NOT NULL, bid REAL, fetched_at TEXT NOT NULL, PRIMARY KEY (ticker, expiry, strike))")
+    d.conn.execute("INSERT INTO option_bid_history VALUES ('AAA','2026-07-17',10.0,'2026-06-17',0.5,'x'), ('BBB','2026-07-17',10.0,'2026-06-17',NULL,'x')")
+    d.conn.execute(f"PRAGMA user_version = {len(dbm.MIGRATIONS) - 1}")
+    d.migrate()
+    repo = __import__("scanner_opciones.storage.repositories", fromlist=["BidHistoryRepo"]).BidHistoryRepo(d)
+    assert repo.count() == 2 and repo.missing_detail() == [("AAA", date(2026, 7, 17), 10.0, date(2026, 6, 17))]
+    repo.save_detail([("AAA", date(2026, 7, 17), 10.0, 0.6, 300, 0.4, 12)], datetime(2026, 11, 6))
+    repo.save([("AAA", date(2026, 7, 17), 10.0, date(2026, 6, 17), 0.55)], datetime(2026, 11, 6))          # volver a guardar el bid no pierde el detalle
+    assert repo.all_details()[("AAA", date(2026, 7, 17), 10.0)] == (0.55, 0.6, 300, 0.4, 12, True) and repo.missing_detail() == []

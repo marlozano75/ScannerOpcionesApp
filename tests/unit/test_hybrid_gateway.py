@@ -418,3 +418,35 @@ async def test_option_bid_history_returns_what_the_sdk_answered_and_wraps_failur
 
     with pytest.raises(OptionDataError):
         await provider_with(fetch_option_history=boom).option_bid_history([".AAPL261016P250"], 40)
+
+
+async def test_option_detail_history_asks_ask_and_last_and_only_returns_symbols_that_answered_both():
+    from datetime import date
+
+    from scanner_opciones.marketdata.tastytrade import candle_value
+
+    day = date(2026, 9, 16)
+    asked = []
+
+    async def series(symbols, days, price, on_progress):
+        asked.append(price)
+        if price == "ask":
+            return {s: {day: 1.3} for s in symbols}
+        return {s: {day: (500, 0.4, 12)} for s in symbols if s != ".SILENT261016P1"}
+
+    got = await provider_with(fetch_option_series=series).option_detail_history([".AAPL261016P250", ".SILENT261016P1"], 40)
+    assert asked == ["ask", "last"]
+    assert got == {".AAPL261016P250": {"ask": {day: 1.3}, "last": {day: (500, 0.4, 12)}}}
+
+    async def boom(*a):
+        raise RuntimeError("sin red")
+
+    with pytest.raises(OptionDataError):
+        await provider_with(fetch_option_series=boom).option_detail_history([".AAPL261016P250"], 40)
+
+    class C:
+        close, open_interest, imp_volatility, volume = 0.0, None, None, None
+
+    assert candle_value(C, "bid") is None and candle_value(C, "last") is None
+    C.close, C.open_interest, C.imp_volatility, C.volume = 1.5, 700, 0.35, 20
+    assert candle_value(C, "ask") == 1.5 and candle_value(C, "last") == (700, 0.35, 20)
