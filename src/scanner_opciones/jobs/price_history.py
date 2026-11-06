@@ -60,7 +60,7 @@ async def update_history(
     last = repo.last_days(tickers)
     in_portfolio = set(full_ohlc)
     wanted_open = [t for t in tickers if t in last and t in in_portfolio]
-    no_open = set(repo.missing_open(wanted_open, RANGE_DAYS, RANGE_NEEDED))
+    no_open = set(repo.missing_open(wanted_open, RANGE_DAYS, RANGE_NEEDED)) | set(repo.missing_volume(wanted_open, RANGE_DAYS, RANGE_NEEDED))   # sin apertura o sin volumen (v37/v44)
     # al día (ya está el último cierre laborable, p. ej. el del viernes en fin de semana): no hay nada que pedir
     expected = _last_expected_close(today)
     # al día pero sin máximos ni mínimos en las últimas sesiones (histórico anterior a la migración v20): se vuelven a pedir

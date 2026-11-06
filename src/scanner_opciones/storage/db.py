@@ -434,6 +434,8 @@ MIGRATIONS: list[str] = [
     ALTER TABLE option_bid_history ADD COLUMN volume INTEGER;
     ALTER TABLE option_bid_history ADD COLUMN detail_at TEXT;
     """,
+    # v44: volumen diario del subyacente (acciones/ETF), base de la detección de suelos (docs/deteccion-suelos.md). NULL = aún no se pidió; el histórico se completa solo
+    "ALTER TABLE daily_bars ADD COLUMN volume REAL;",
 ]
 
 

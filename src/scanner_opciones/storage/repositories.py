@@ -653,17 +653,17 @@ class BarRepo:
             self._put(ticker, d, px, False)
 
     def upsert_ohlc(self, ticker: str, bars: Iterable[tuple]) -> None:
-        """Guarda velas (día, cierre, máximo, mínimo[, apertura]). Un máximo, mínimo o apertura que no llega no borra el ya guardado."""
-        bars = [(b[0], b[1], b[2], b[3], b[4] if len(b) > 4 else None) for b in bars]
+        """Guarda velas (día, cierre, máximo, mínimo[, apertura[, volumen]]). Un máximo, mínimo, apertura o volumen que no llega no borra el ya guardado."""
+        bars = [(b[0], b[1], b[2], b[3], b[4] if len(b) > 4 else None, b[5] if len(b) > 5 else None) for b in bars]
         with self.db.conn:
             self.db.conn.executemany(
-                "INSERT INTO daily_bars (ticker, day, close, provisional, high, low, open) VALUES (?,?,?,0,?,?,?) "
+                "INSERT INTO daily_bars (ticker, day, close, provisional, high, low, open, volume) VALUES (?,?,?,0,?,?,?,?) "
                 "ON CONFLICT(ticker, day) DO UPDATE SET close = excluded.close, provisional = 0, "
                 "high = COALESCE(excluded.high, daily_bars.high), low = COALESCE(excluded.low, daily_bars.low), "
-                "open = COALESCE(excluded.open, daily_bars.open)",
-                [(ticker, d.isoformat(), px, high, low, op) for d, px, high, low, op in bars],
+                "open = COALESCE(excluded.open, daily_bars.open), volume = COALESCE(excluded.volume, daily_bars.volume)",
+                [(ticker, d.isoformat(), px, high, low, op, vol) for d, px, high, low, op, vol in bars],
             )
-        for d, px, _, _, _ in bars:
+        for d, px, *_ in bars:
             self._put(ticker, d, px, False)
         self._reclean(ticker)
 
@@ -681,6 +681,22 @@ class BarRepo:
             rows = self.db.conn.execute(
                 "SELECT open FROM daily_bars WHERE ticker = ? AND provisional = 0 ORDER BY day DESC LIMIT ?", (t, recent)).fetchall()
             if rows and sum(1 for r in rows if r["open"] is not None) < min(needed, len(rows)):
+                out.append(t)
+        return out
+
+    def volumes(self, ticker: str) -> dict[date, float]:
+        """Volumen diario oficial del ticker (solo los días que lo tienen guardado)."""
+        return {date.fromisoformat(r["day"]): r["volume"] for r in self.db.conn.execute(
+            "SELECT day, volume FROM daily_bars WHERE ticker = ? AND provisional = 0 AND volume IS NOT NULL ORDER BY day", (ticker,))}
+
+    def missing_volume(self, tickers: Iterable[str], recent: int, needed: int) -> list[str]:
+        """Tickers con histórico oficial de los que, entre las últimas `recent` sesiones, menos de `needed` tienen volumen
+        (histórico anterior a la migración v44)."""
+        out = []
+        for t in tickers:
+            rows = self.db.conn.execute(
+                "SELECT volume FROM daily_bars WHERE ticker = ? AND provisional = 0 ORDER BY day DESC LIMIT ?", (t, recent)).fetchall()
+            if rows and sum(1 for r in rows if r["volume"] is not None) < min(needed, len(rows)):
                 out.append(t)
         return out
 

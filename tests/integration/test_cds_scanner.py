@@ -321,7 +321,8 @@ def test_migration_v43_keeps_the_stored_bids_and_marks_them_as_missing_detail():
     d.conn.execute("DROP TABLE option_bid_history")
     d.conn.execute("CREATE TABLE option_bid_history (ticker TEXT NOT NULL, expiry TEXT NOT NULL, strike REAL NOT NULL, ref_day TEXT NOT NULL, bid REAL, fetched_at TEXT NOT NULL, PRIMARY KEY (ticker, expiry, strike))")
     d.conn.execute("INSERT INTO option_bid_history VALUES ('AAA','2026-07-17',10.0,'2026-06-17',0.5,'x'), ('BBB','2026-07-17',10.0,'2026-06-17',NULL,'x')")
-    d.conn.execute(f"PRAGMA user_version = {len(dbm.MIGRATIONS) - 1}")
+    d.conn.execute("ALTER TABLE daily_bars DROP COLUMN volume")      # la v44 (volumen diario) se vuelve a aplicar al migrar
+    d.conn.execute("PRAGMA user_version = 42")
     d.migrate()
     repo = __import__("scanner_opciones.storage.repositories", fromlist=["BidHistoryRepo"]).BidHistoryRepo(d)
     assert repo.count() == 2 and repo.missing_detail() == [("AAA", date(2026, 7, 17), 10.0, date(2026, 6, 17))]

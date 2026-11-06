@@ -7,7 +7,7 @@ from datetime import date
 from typing import Optional, Protocol
 
 DailyBars = list[tuple[date, float]]   # (día, cierre), orden ascendente
-OhlcBars = list[tuple]   # (día, cierre, máximo, mínimo[, apertura]); máx./mín./apertura None si el proveedor no los da (la apertura puede faltar del todo)
+OhlcBars = list[tuple]   # (día, cierre, máximo, mínimo[, apertura[, volumen]]); máx./mín./apertura None si el proveedor no los da (apertura y volumen pueden faltar del todo)
 
 
 class CandleProvider(Protocol):
@@ -27,6 +27,7 @@ class FakeCandles:
     bars: dict[str, DailyBars] = field(default_factory=dict)
     ranges: dict[str, dict[date, tuple[float, float]]] = field(default_factory=dict)   # ticker -> día -> (máximo, mínimo)
     opens: dict[str, dict[date, float]] = field(default_factory=dict)                  # ticker -> día -> apertura
+    volumes: dict[str, dict[date, float]] = field(default_factory=dict)                # ticker -> día -> volumen (0 si no se indica)
     error: Optional[Exception] = None
     calls: list[list[str]] = field(default_factory=list)
     days: list[int] = field(default_factory=list)       # `days` pedido en cada llamada
@@ -40,7 +41,7 @@ class FakeCandles:
 
     async def get_daily_ohlc(self, tickers: list[str], days: int) -> dict[str, OhlcBars]:
         closes = await self.get_daily_closes(tickers, days)
-        return {t: [(d, px, *self.ranges.get(t, {}).get(d, (px, px)), self.opens.get(t, {}).get(d, px)) for d, px in bars]
+        return {t: [(d, px, *self.ranges.get(t, {}).get(d, (px, px)), self.opens.get(t, {}).get(d, px), self.volumes.get(t, {}).get(d, 0.0)) for d, px in bars]
                 for t, bars in closes.items()}   # sin rangos: máx. = mín. = cierre; sin apertura: = cierre
 
 

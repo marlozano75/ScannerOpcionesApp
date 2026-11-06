@@ -173,7 +173,7 @@ def test_yahoo_frame_becomes_ohlc_and_skips_empty_rows():
     rows = [(datetime(2026, 10, 22), _Row(Close=6087.0, High=6100.0, Low=6050.0, Open=6060.0)),
             (datetime(2026, 10, 23), _Row(Close=float("nan"), High=1.0, Low=1.0)),
             (datetime(2026, 10, 21), _Row(Close=6000.0, High=float("nan"), Low=5990.0))]
-    assert ohlc_from_frame(_Frame(rows)) == [(date(2026, 10, 21), 6000.0, None, 5990.0, None), (date(2026, 10, 22), 6087.0, 6100.0, 6050.0, 6060.0)]
+    assert ohlc_from_frame(_Frame(rows)) == [(date(2026, 10, 21), 6000.0, None, 5990.0, None, 0.0), (date(2026, 10, 22), 6087.0, 6100.0, 6050.0, 6060.0, 0.0)]
     assert ohlc_from_frame(None) == []
 
 

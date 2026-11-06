@@ -244,3 +244,19 @@ def test_total_open_risk_adds_spread_max_loss_and_naked_put_capital():
     rep = manage_puts([spread, naked], 20_000.0, TODAY, {"AAPL": 95.0, "MSFT": 60.0}, CFG)
     assert rep.total_risk == pytest.approx(10_360.0) and rep.risk_pct == pytest.approx(51.8) and rep.risk_level == "warn"
     assert manage_puts([spread, naked], 100_000.0, TODAY, {}, CFG).risk_level is None
+
+
+async def test_volume_is_stored_kept_and_backfilled_once():
+    repo = BarRepo(Database(":memory:"))
+    d = TODAY - timedelta(days=1)
+    repo.upsert_ohlc("AAPL", [(d, 100.0, 102.0, 98.0, 99.0, 5_000_000.0)])
+    repo.upsert_ohlc("AAPL", [(d, 100.5, 102.0, 98.0, 99.0)])                  # un volumen que no llega no borra el guardado
+    assert repo.volumes("AAPL") == {d: 5_000_000.0}
+    assert repo.missing_volume(["AAPL"], 20, 15) == []
+    old = BarRepo(Database(":memory:"))
+    old.upsert_ohlc("MSFT", [(TODAY - timedelta(days=i), 100.0, 101.0, 99.0, 100.0) for i in range(1, 30)])   # histórico anterior a la v44
+    assert old.missing_volume(["MSFT"], 20, 15) == ["MSFT"]
+    series = [(TODAY - timedelta(days=i), 100.0) for i in range(29, 0, -1)]
+    candles = FakeCandles(bars={"MSFT": series}, volumes={"MSFT": {TODAY - timedelta(days=i): 1e6 for i in range(1, 30)}})
+    await update_history(candles, old, ["MSFT"], TODAY, TrendSettings(), full_ohlc=["MSFT"])
+    assert old.missing_volume(["MSFT"], 20, 15) == [] and len(old.volumes("MSFT")) == 29
