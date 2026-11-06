@@ -109,6 +109,12 @@ def build_call_debit_spreads(
     acción de las dos patas (y del cierre, si procede). Sin delta o sin IV no hay movimiento esperado: el spread se descarta."""
     calls = {(s.contract.ticker, s.contract.expiry, round(s.contract.strike, 4)): s
              for s in snapshots if s.contract.right is OptionRight.CALL}
+    strikes: dict[tuple, list[float]] = {}         # solo con `all_widths`: strikes guardados de cada (ticker, vencimiento)
+    if cds.all_widths:
+        for t, e, k in calls:
+            strikes.setdefault((t, e), []).append(k)
+        for ks in strikes.values():
+            ks.sort()
     out: list[CdsResult] = []
     sma_cache: dict[str, Optional[float]] = {}
     for (ticker, expiry, strike), lg in calls.items():
@@ -141,7 +147,7 @@ def build_call_debit_spreads(
         expected_pct = iv * math.sqrt(cds.move_days / 365) * 100
         mult = lg.contract.multiplier
         found: list[CdsResult] = []
-        for width in cds.width_options:
+        for width in ([round(k - strike, 4) for k in strikes[(ticker, expiry)] if k > strike + EPS] if cds.all_widths else cds.width_options):
             width_pct = width / strike * 100
             if (cds.width_pct_min is not None and width_pct < cds.width_pct_min - EPS) or (cds.width_pct_max is not None and width_pct > cds.width_pct_max + EPS):
                 continue

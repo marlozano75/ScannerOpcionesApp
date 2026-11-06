@@ -77,7 +77,7 @@
 {% set f = form %}
 {% set ref_names = {'bid': 'Bid', 'mid': 'Mid', 'bid_plus_spread': 'Bid + ' ~ f.ref_x ~ ' % spread'} %}
 {% set base = [('sec-contract', 'DTE ' ~ f.dte_min ~ '–' ~ f.dte_max, 'dte_min dte_max'), ('sec-contract', 'Comprada ' ~ f.otm_min ~ '–' ~ f.otm_max ~ ' % OTM', 'otm_min otm_max'),
-               ('sec-widths', 'Anchos ' ~ f.widths, 'widths'), ('sec-move', 'Necesario ≤ ' ~ f.mult ~ '× esperado (+' ~ f.gain ~ ' % en ' ~ f.days ~ ' d)', 'gain days mult'),
+               ('sec-widths', 'Todos los anchos' if f.allw else 'Anchos ' ~ f.widths, 'widths allw'), ('sec-move', 'Necesario ≤ ' ~ f.mult ~ '× esperado (+' ~ f.gain ~ ' % en ' ~ f.days ~ ' d)', 'gain days mult'),
                ('sec-price', 'Precio de venta: ' ~ ref_names.get(f.ref, f.ref), 'ref ref_x' if f.ref == 'bid_plus_spread' else 'ref')] %}
 {% set chips = [('sec-debit', 'Débito ' ~ f.dmin ~ '–' ~ f.dmax ~ ' $', 'dmin dmax'), ('sec-liq', 'OI ≥ ' ~ f.oi ~ ' comprada', 'oi'), ('sec-liq', 'OI ≥ ' ~ f.oi_s ~ ' vendida', 'oi_s'),
                 ('sec-liq', 'Spread ≤ ' ~ f.ls ~ ' % comprada', 'ls'), ('sec-liq', 'Spread ≤ ' ~ f.ls_s ~ ' % vendida', 'ls_s')] %}
@@ -383,10 +383,11 @@
         <p class="note">Solo calls guardadas: DTE {{ cds_cfg.dte_min }}–{{ cds_cfg.dte_max }}, comprada {{ cds_cfg.long_otm_pct_min|num(0) }}–{{ cds_cfg.long_otm_pct_max|num(0) }} % sobre el precio. La ventana solo se puede estrechar (lo que cae fuera no se guarda ni se cotiza).</p>
       {% endcall %}
 
-      {% call section('sec-widths', 'Ancho del spread', ('Mejor ancho · ' if form.best else '') ~ 'anchos ' ~ form.widths, true) %}
+      {% call section('sec-widths', 'Ancho del spread', ('Mejor ancho · ' if form.best else '') ~ ('todos los anchos' if form.allw else 'anchos ' ~ form.widths), true) %}
         <label class="field" title="Anchos en dólares separados por comas; solo los que guarda el catálogo">Anchos ($)
           <input name="widths" value="{{ form.widths }}"></label>
         <p class="note">El catálogo guarda: {% for w in widths_all %}{{ w|num(0) }}{{ ', ' if not loop.last }}{% endfor %}.</p>
+        <label class="check" title="La vendida puede ser cualquier strike guardado por encima de la comprada, no solo los anchos de la lista (sigue mandando Ancho / strike). Ignora la lista de anchos"><input type="checkbox" name="allw" {{ 'checked' if form.allw }}> Todos los anchos (cualquier strike guardado)</label>
         <label class="check" title="Deja una fila por ticker, vencimiento y call comprada: el ancho con menor movimiento necesario"><input type="checkbox" name="best" {{ 'checked' if form.best }}> Solo el mejor ancho por comprada</label>
         <div class="fgrid">
           <label class="field full" title="Ancho / strike de la comprada, en %: descarta anchos ridículos en acciones caras y enormes en las baratas">Ancho / strike (%)

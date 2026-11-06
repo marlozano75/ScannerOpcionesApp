@@ -181,3 +181,15 @@ def test_bid_and_ask_size_filters_apply_to_both_legs_and_missing_data_fails():
     assert build_call_debit_spreads(sized, info(), cfg(min_bid_size=31), TODAY) == []            # la vendida tiene bid size 30
     assert build_call_debit_spreads(sized, info(), cfg(min_ask_size=21), TODAY) == []            # la vendida tiene ask size 20
     assert build_call_debit_spreads([a, b], info(), cfg(min_bid_size=1), TODAY) == []            # sin dato de tamaño no pasa
+
+
+def test_all_widths_uses_any_saved_strike_above_the_long():
+    # comprada 130; vendidas guardadas a 135, 140 y 150 (anchos 5, 10 y 20); la lista solo trae el 10
+    snaps = [call(130, 3.9, 4.0, 0.30), call(135, 3.0, 3.2, 0.26), call(140, 2.2, 2.4, 0.22), call(150, 1.2, 1.4, 0.15)]
+    listed = build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0,), width_pct_min=None, top_per_ticker=0), TODAY)
+    every = build_call_debit_spreads(snaps, info(), cfg(width_options=(10.0,), all_widths=True, width_pct_min=None, top_per_ticker=0), TODAY)
+    assert {r.width for r in listed if r.long.contract.strike == 130} == {10.0}
+    assert {r.width for r in every if r.long.contract.strike == 130} == {5.0, 10.0, 20.0}
+    # el ancho / strike y el resto de filtros siguen mandando
+    capped = build_call_debit_spreads(snaps, info(), cfg(all_widths=True, width_pct_min=7, top_per_ticker=0), TODAY)
+    assert {r.width for r in capped if r.long.contract.strike == 130} == {10.0, 20.0}

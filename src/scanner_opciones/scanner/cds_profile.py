@@ -29,7 +29,7 @@ def default_form(settings) -> dict:
         "widths": ", ".join(_fmt(w) for w in cfg.width_options),
         "wpct_min": "" if cfg.width_pct_min is None else _fmt(cfg.width_pct_min),
         "wpct_max": "" if cfg.width_pct_max is None else _fmt(cfg.width_pct_max),
-        "best": cfg.best_width,
+        "best": cfg.best_width, "allw": cfg.all_widths,
         "dmin": _fmt(cfg.min_debit_usd), "dmax": _fmt(cfg.max_debit_usd),
         "oi": str(cfg.min_long_oi), "oi_s": str(cfg.min_short_oi), "ls": _fmt(cfg.max_long_spread_pct), "ls_s": _fmt(cfg.max_short_spread_pct),
         "use_bsz": cfg.min_bid_size is not None, "bsz": str(cfg.min_bid_size if cfg.min_bid_size is not None else 10),

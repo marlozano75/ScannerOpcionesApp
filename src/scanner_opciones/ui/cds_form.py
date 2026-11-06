@@ -59,7 +59,7 @@ def parse_cds(service, qp) -> dict:
         for new, old in (("oi_s", "oi"), ("ls_s", "ls")):        # perfil guardado antes de separar las patas: el valor único valía para las dos
             if new not in qp and old in qp:
                 form[new] = form[old]
-        for key in ("best", "use_ret", "use_prob", "use_xp", "use_sma", "use_earn", "use_bsz", "use_asz"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
+        for key in ("best", "allw", "use_ret", "use_prob", "use_xp", "use_sma", "use_earn", "use_bsz", "use_asz"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
             form[key] = key in qp
     try:
         dte_min = max(_num(form["dte_min"], "DTE mínimo", int), catalog.dte_min)
@@ -77,12 +77,12 @@ def parse_cds(service, qp) -> dict:
         if dropped:
             notices.append("Anchos que el catálogo no guarda y se ignoran: " + ", ".join(_fmt(w) for w in dropped)
                            + " (añádelos a scanner.cds.width_options y haz una actualización diaria)")
-        if not widths:
+        if not widths and not form["allw"]:
             raise ValueError("Elige al menos un ancho de los que guarda el catálogo: " + ", ".join(_fmt(w) for w in catalog.width_options))
         cds = catalog.model_copy(update=dict(
             dte_min=dte_min, dte_max=dte_max, long_otm_pct_min=otm_min, long_otm_pct_max=otm_max, width_options=widths,
             width_pct_min=_num(form["wpct_min"], "Ancho mínimo (%)", allow_empty=True), width_pct_max=_num(form["wpct_max"], "Ancho máximo (%)", allow_empty=True),
-            best_width=bool(form["best"]),
+            best_width=bool(form["best"]), all_widths=bool(form["allw"]),
             min_debit_usd=_num(form["dmin"], "Débito mínimo"), max_debit_usd=_num(form["dmax"], "Débito máximo"),
             min_long_oi=_num(form["oi"], "OI mínimo de la comprada", int), min_short_oi=_num(form["oi_s"], "OI mínimo de la vendida", int),
             max_long_spread_pct=_num(form["ls"], "Spread máximo de la comprada"), max_short_spread_pct=_num(form["ls_s"], "Spread máximo de la vendida"),
