@@ -81,10 +81,16 @@ def test_dashboard_shows_the_market_capitulation_indicator(client_and_service):
         closes = [100.0] * 60 + [95.0, 88.0]
         svc.bars.upsert_ohlc(t, [(today - timedelta(days=len(closes) - 1 - i), c, c + 1, c - 1, c, 1000.0) for i, c in enumerate(closes)])
     svc.state.vix = VixData(30.0, [], [(today + timedelta(days=10), 27.0)], svc.now())
+    from tests.unit.test_capitulation import divergence_closes
+    closes = divergence_closes()
+    svc.bars.upsert_ohlc("ZZZ", [(today - timedelta(days=len(closes) - 1 - i), c, c + 1, c - 1, c, 1000.0) for i, c in enumerate(closes)])
+    svc.watchlist.add(["ZZZ"], svc.now())
     page = client.get("/").text
     assert 'id="capitulacion"' in page and "Capitulación de mercado" in page and "backwardation" in page
+    assert "ZZZ" in svc.div_marks() and "◆D" in client.get("/watchlist").text       # la marca sale junto al ticker en las demás vistas
     svc.state.vix = VixData(14.0, [], [(today + timedelta(days=10), 16.0)], svc.now())
     assert "Capitulación de mercado" not in client.get("/").text
+    assert svc.div_marks() == frozenset() and "◆D" not in client.get("/watchlist").text   # sin capitulación no se enseña
 
 
 BASE = "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=1"
@@ -1067,3 +1073,37 @@ def test_backtest_tab_lists_the_rounds_and_filters_by_objective(client_and_servi
     only_cds = client.get("/backtest?objetivo=cds").text
     assert "The Strat completo para CDS" in only_cds and "Señales de suelo clásicas" not in only_cds
     assert client.get("/backtest?objetivo=nada").status_code == 200       # un objetivo desconocido se ignora
+
+
+def test_scanner_has_the_macd_divergence_column_and_filter(client_and_service):
+    client, svc, *_ = client_and_service
+    page = client.get(BASE).text
+    assert "Div. MACD" in page and 'name="use_div"' in page            # columna (cabecera) y casilla del filtro
+    only = client.get(BASE + "&use_div=on").text
+    assert "Solo ◆D" in only and "no está en capitulación completa" in only      # sin capitulación el filtro avisa en vez de callar
+    assert 'name="use_div" checked' in only
+
+
+def test_cds_view_div_filter_notice_and_column(client_and_service):
+    client, svc, *_ = client_and_service
+    page = client.get("/scanner?mode=cds&use_div=on").text
+    assert "Solo ◆D" in page and "no está en capitulación completa" in page and 'name="use_div" checked' in page
+
+
+def test_div_filter_keeps_only_marked_tickers(client_and_service):
+    from datetime import timedelta
+    from scanner_opciones.domain.models import VixData
+    from tests.unit.test_capitulation import divergence_closes
+    client, svc, *_ = client_and_service
+    refresh(client)
+    today = svc.now().date()
+    shape = lambda cl: [(today - timedelta(days=len(cl) - 1 - i), c, c + 1, c - 1, c, 1000.0) for i, c in enumerate(cl)]
+    for t in svc.settings.scanner.capitulation.tickers[:10]:
+        svc.bars.upsert_ohlc(t, shape([100.0] * 60 + [95.0, 88.0]))
+    svc.bars.upsert_ohlc("AAPL", shape(divergence_closes()))
+    svc.state.vix = VixData(30.0, [], [(today + timedelta(days=10), 27.0)], svc.now())
+    assert "contratos cumplen" in client.get(BASE).text
+    marked = client.get(BASE + "&use_div=on").text
+    assert "contratos cumplen" in marked and "no está en capitulación completa" not in marked and "◆D" in marked
+    svc.bars.upsert_ohlc("AAPL", shape([100.0] * 120))                      # sin divergencia: el filtro lo quita
+    assert "Ningún contrato cumple" in client.get(BASE + "&use_div=on").text

@@ -23,3 +23,4 @@ Sexta ronda (búsqueda de combinaciones con P > 65 %): `srch.py $D` (todos los p
 Séptima ronda (The Strat completo): `strat.py $D` (tipos de vela 1/2U/2D/3, patrones, barra semanal y mensual en curso y FTFC -> `$D/STRAT.pkl`), `strat_ev.py $D` (métrica de CDS al cierre de la señal) y `strat_trig.py $D` (entrada en la ruptura del máximo de la vela interior, como se opera en Strat).
 Octava ronda (patrones de Bulkowski): `patrones.py $D` (doble suelo e HCH invertido con cierre sobre la clavícula, gap, contexto SPY y suma a las mejores señales).
 Novena ronda (cruce MACD 6-20-9 + EMA10): `macd620.py $D`.
+Marca por ticker (R11): `cap_ticker.py $D` (señales del ticker dentro de los días de capitulación).

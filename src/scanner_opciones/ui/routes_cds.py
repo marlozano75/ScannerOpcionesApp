@@ -18,6 +18,7 @@ from scanner_opciones.scanner.cds import CdsResult
 from scanner_opciones.scanner.criteria import unavailable_ma_fields
 from scanner_opciones.scanner.profiles import Profile, profile_diff
 from scanner_opciones.ui import cds_form
+from scanner_opciones.ui.common import NO_DIV_NOTICE
 from scanner_opciones.ui.scanner_forms import profile_href
 
 MAX_ROWS = 300
@@ -67,11 +68,17 @@ def page(service, profiles: list[Profile], qp) -> dict:
     if catalog.enabled and parsed["cds"] is not None:
         rows = service.scan_cds(parsed["cds"], **parsed["ref"])
     infos, today = service.infos(), service.now().date()
+    notices = list(parsed["notices"])
+    if "use_div" in qp:
+        marks = service.div_marks()
+        rows = [r for r in rows if r.long.contract.ticker.replace(" ", "-") in marks]
+        if not marks:
+            notices.append(NO_DIV_NOTICE)
     form = {**parsed["form"], "mode": "cds", "set": "cds"}
     saved = dict(cds_form.with_allw(active.set_params("cds"))) if active else {}
     diff = profile_diff(saved, cds_form.form_query(parsed["form"])) if active else {}
     return dict(is_cds=True, cds_cfg=catalog, cds_rows=[CdsRow(r, infos.get(r.long.contract.ticker), (r.long.contract.expiry - today).days) for r in rows[:MAX_ROWS]], cds_total=len(rows),
-                cds_max_rows=MAX_ROWS, form=form, error=parsed["error"], warnings=list(parsed["notices"]), active=active, diff=diff,
+                cds_max_rows=MAX_ROWS, form=form, error=parsed["error"], warnings=notices, active=active, diff=diff,
                 widths_all=catalog.width_options, cds_ok=parsed["cds"] is not None, source_names=[src.name for src in service.universe_sources],
                 quality_opts=dict(liquidity=qcfg.liquidity_options, quarters=qcfg.positive_quarters_options, leverage=qcfg.leverage_options),
                 ma_hidden=unavailable_ma_fields(parsed["form"]["ma_frame"], service.settings.trend.history_days, service.settings.scanner.technical.ma_slope_candles),

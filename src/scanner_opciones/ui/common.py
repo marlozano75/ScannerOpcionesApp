@@ -53,3 +53,7 @@ def _load_groups(raw: dict[str, list[str]], loaded, before: dict[str, list[str]]
     if no_opts:
         out.append(_grp("warn", "Sin opciones (descartados)", no_opts[:60], f"{len(no_opts)} tickers" + (" · se muestran 60" if len(no_opts) > 60 else "")))
     return out
+
+
+NO_DIV_NOTICE = ("El filtro «Solo con ◆D» está activo pero el mercado no está en capitulación completa (VIX por encima de VIX3M y ≥ 20 % de la cesta "
+                 "bajo Keltner): ningún ticker lleva la marca y no sale nada.")

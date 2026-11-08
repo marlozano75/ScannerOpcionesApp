@@ -11,6 +11,7 @@
 {%- endmacro %}
 
 {% macro extra_head(pas=true, tech=true) -%}
+<th data-col="div" title="Divergencia alcista del MACD(12,26,9) con el mercado en capitulación (◆D). Solo se marca con la capitulación completa (VIX por encima de VIX3M y ≥ 20 % de la cesta bajo Keltner); fuera de ella queda en «—». Informativo; el filtro «Solo con ◆D» está en Técnicos de entrada">Div. MACD</th>
 {% if tech %}<th title="Señales técnicas que se cumplen hoy de las medibles (informativo, no filtra): precio sobre MA200, MA50 &gt; MA200, RSI rebotando, Bollinger %B bajo, precio cerca de la MA50 o del soporte y strike en el soporte. Pasa el ratón por la celda para ver el detalle">Téc.</th>{% endif %}
 <th data-col="earn" title="Próximos resultados (día/mes); en rojo si caen antes del vencimiento">Result.</th><th title="Beneficio por acción de los últimos 12 meses">EPS 12 m</th><th title="Trimestres con beneficios de los últimos 4">Trim. +</th>{% if pas %}<th title="Pasivo / patrimonio">Pas/Pat</th>{% endif %}
 {%- endmacro %}
@@ -31,7 +32,7 @@
 {%- endmacro %}
 
 {% macro lead_cells(r, long=none, prem=none) -%}{% set c = r.snapshot.contract %}{% set prem = prem if prem is not none else r.reference_price %}{% set i = r.info -%}
-<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" data-expiry="{{ c.expiry }}"{% if long is not none %} data-long="{{ long }}"{% endif %}{% if prem is not none %} data-prem="{{ prem }}"{% endif %} title="{{ tk_title(company_names, c.ticker) }}">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
+<td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-ticker="{{ c.ticker }}" data-strike="{{ c.strike }}" data-expiry="{{ c.expiry }}"{% if long is not none %} data-long="{{ long }}"{% endif %}{% if prem is not none %} data-prem="{{ prem }}"{% endif %} title="{{ tk_title(company_names, c.ticker) }}">{{ c.ticker }}</a>{{ own_badge(c.ticker, c.expiry, c.strike) }}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}{{ div_flag(div_marks, c.ticker) }}</td><td class="txt">{{ r.impact.sector }}</td><td>{{ i.underlying_price|num if i else '—' }}</td>
 {%- endmacro %}
 
 {% macro mini_cell(r, long=none, prem=none) -%}{% set c = r.snapshot.contract %}{% set prem = prem if prem is not none else r.reference_price -%}
@@ -46,6 +47,7 @@
 {%- endmacro %}
 
 {% macro extra_cells(r, pas=true, tech=true) -%}{% set s = r.snapshot %}{% set c = s.contract %}{% set i = r.info -%}
+{%- set dv = div_marks and c.ticker.replace(" ", "-") in div_marks %}<td data-sort="{{ 1 if dv else 0 }}"{% if dv %} class="dvc"{% endif %}>{{ div_flag(div_marks, c.ticker) if dv else "—" }}</td>
 {%- set tc = techs.get((c.ticker, c.strike)) if techs else none %}{% if tech %}<td{% if tc and tc.total %} data-sort="{{ tc.passed / tc.total }}" title="{{ tc.detail }}"{% endif %}>{{ tc.passed ~ '/' ~ tc.total if tc and tc.total else '—' }}</td>{% endif %}
 <td{% if i and i.next_earnings and i.next_earnings >= s.updated_at.date() and i.next_earnings <= c.expiry %} style="color:#b3361b;font-weight:600" title="Resultados antes del vencimiento"{% elif i and i.eps_surprise_pct is not none %} title="Último EPS frente al consenso: {{ '%+.0f'|format(i.eps_surprise_pct) }} %"{% endif %}{% if i and i.next_earnings %} data-sort="{{ i.next_earnings }}"{% endif %}>{{ i.next_earnings.strftime('%d/%m') if i and i.next_earnings else '—' }}</td>
 <td>{{ i.eps_ttm|num if i and i.eps_ttm is not none else '—' }}</td>
@@ -121,7 +123,7 @@
 
 {% macro cds_cells(x, rmax=0, nlv=none) -%}{% set r = x.res %}{% set lg = r.long %}{% set sh = r.short %}{% set c = lg.contract %}{% set i = x.info %}{% set s = lg -%}
 <td class="tk" data-sort="{{ c.ticker }}"><a href="#" class="chart-link" data-kind="cds" data-ticker="{{ c.ticker }}" data-strike="{{ sh.contract.strike }}" data-long="{{ c.strike }}" data-expiry="{{ c.expiry }}" data-prem="{{ r.debit }}"{% if i and i.underlying_price is not none %} data-need="{{ r.required_move_pct }}" data-exit="{{ i.underlying_price * (1 + r.required_move_pct / 100) }}"{% endif %} title="{{ tk_title(company_names, c.ticker) }}">{{ c.ticker }}</a>
-{%- set h = held_note(held, c.ticker, c.expiry, c.strike) -%}{%- if h %} <span class="own own-tk" title="{{ h[1] }}">◆ {{ h[0] }}</span>{% endif %}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}</td><td class="txt">{{ x.sector }}</td><td>{{ i.underlying_price|num if i and i.underlying_price is not none else '—' }}</td>
+{%- set h = held_note(held, c.ticker, c.expiry, c.strike) -%}{%- if h %} <span class="own own-tk" title="{{ h[1] }}">◆ {{ h[0] }}</span>{% endif %}{{ sec_flag(sec_alerts, c.ticker) }}{{ analyst_flag(analyst_alerts, c.ticker) }}{{ div_flag(div_marks, c.ticker) }}</td><td class="txt">{{ x.sector }}</td><td>{{ i.underlying_price|num if i and i.underlying_price is not none else '—' }}</td>
 <td data-sort="{{ c.strike }}"><span class="k-long">{{ c.strike|num }}</span> <span class="muted">/</span> <span class="k-sold">{{ sh.contract.strike|num }}</span></td><td data-sort="{{ c.expiry.toordinal() }}">{{ c.expiry.strftime('%d/%m') }}</td>
 <td class="mini"><a href="#" class="chart-link" data-kind="cds" data-ticker="{{ c.ticker }}" data-strike="{{ sh.contract.strike }}" data-long="{{ c.strike }}" data-expiry="{{ c.expiry }}" data-prem="{{ r.debit }}"{% if i and i.underlying_price is not none %} data-need="{{ r.required_move_pct }}" data-exit="{{ i.underlying_price * (1 + r.required_move_pct / 100) }}"{% endif %} title="Ver el gráfico grande"><img loading="lazy" width="80" height="24" alt="" src="/chart/mini.svg?ticker={{ c.ticker|urlencode }}&amp;strike={{ sh.contract.strike }}&amp;long={{ c.strike }}&amp;kind=cds"></a></td>
 <td title="Vence el {{ c.expiry }}">{{ x.dte }}</td><td>{{ r.long_otm_pct|pct }}</td><td>{{ r.width|num }}</td>

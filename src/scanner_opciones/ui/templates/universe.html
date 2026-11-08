@@ -268,7 +268,7 @@
       {% for col in table.columns %}{% if loop.index0 not in skip %}<th{{ ' class="txt"' if col.kind != 'number' }}>{{ col.name }}</th>{% endif %}{% endfor %}</tr>
     {% for row in rows %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ row.ticker }}" checked></td>
-        <td class="tk"><b title="{{ tk_title(company_names, row.ticker) }}">{{ row.ticker }}</b>{{ sec_flag(sec_alerts, row.ticker) }}{{ analyst_flag(analyst_alerts, row.ticker) }}</td>
+        <td class="tk"><b title="{{ tk_title(company_names, row.ticker) }}">{{ row.ticker }}</b>{{ sec_flag(sec_alerts, row.ticker) }}{{ analyst_flag(analyst_alerts, row.ticker) }}{{ div_flag(div_marks, row.ticker) }}</td>
         <td class="pos-cell">{% if minis.get(row.ticker) %}<a href="#" class="pos-mini" data-ut="{{ row.ticker }}" aria-label="Ampliar el gráfico de {{ row.ticker }}">{{ minis[row.ticker] }}</a>{% else %}<span class="muted" title="Sin cierres diarios guardados de este ticker">—</span>{% endif %}</td>
         <td>{{ '✓' if row.ticker in in_watchlist else '—' }}</td>
         <td class="txt">{{ member.get(row.ticker, '') }}</td>

@@ -136,6 +136,19 @@ def analyst_flag(changes, ticker):
 
 
 TEMPLATES.env.globals["analyst_flag"] = analyst_flag
+
+
+def div_flag(marks, ticker):
+    """◆D junto al ticker con divergencia alcista del MACD(12,26,9) con el mercado en capitulación (`AppService.div_marks`). Solo informa."""
+    if not marks or ticker.replace(" ", "-") not in marks:
+        return ""
+    tip = ("Divergencia alcista del MACD(12,26,9) con el mercado en capitulación: mínimo nuevo de 20 sesiones sin nuevo mínimo del MACD (bajo cero). "
+           "Histórico 2004-2026: cierra por encima a 10 sesiones el 72 % (con solo capitulación 61 %, un día normal 56 %), toca +1,5 ATR el 70 %; "
+           "383 casos en 108 días. Informativo, no una garantía.")
+    return Markup(f' <span class="dv" title="{escape(tip)}">◆D</span>')
+
+
+TEMPLATES.env.globals["div_flag"] = div_flag
 LIGHT_LABEL = {
     TrafficLight.GREEN: "Normal / Holgado",
     TrafficLight.AMBER: "Preocupación",
@@ -186,7 +199,7 @@ def _days_label(days: int) -> str:
     return f"{days} días"
 
 
-from scanner_opciones.ui.common import IDEAS_WAIT_SECONDS, MAX_FORM_FIELDS, _grp, _load_groups, message_groups, source_initials  # noqa: F401  (los tests y las rutas que quedan)
+from scanner_opciones.ui.common import IDEAS_WAIT_SECONDS, MAX_FORM_FIELDS, NO_DIV_NOTICE, _grp, _load_groups, message_groups, source_initials  # noqa: F401  (los tests y las rutas que quedan)
 from scanner_opciones.ui.scanner_forms import (  # noqa: F401  (se vuelven a exportar: los tests importan desde web)
     QUALITY_SELECTS, SEED_COLORS, UNASSIGNED_COLOR, SOLVENCY_CORE, SOLVENCY_UI, SPREAD_FIELDS, STRATEGY_FIELDS,
     STRATEGY_KEYS, STRUCT_KEYS, VIX_FIELDS, _count_text, _fmt, _opt_float,
@@ -260,7 +273,7 @@ def create_app(
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()), path=request.url.path,
             excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(), analyst_alerts=service.analyst_map(), company_names=service.company_name_map(),
-            company_notes=service.company_notes_map(),
+            company_notes=service.company_notes_map(), div_marks=service.div_marks(), use_div="use_div" in request.query_params,
         )
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 
@@ -750,6 +763,10 @@ def create_app(
         out = c = parsed["criteria"]
         if c is not None:
             out = service.scan(c, include_rejections=bool(debug))
+            if "use_div" in request.query_params:
+                out = service.keep_div(out)
+                if not service.div_marks():
+                    parsed["warnings"].append(NO_DIV_NOTICE)
         if c is not None and c.technical_active:
             with_history, total = service.history_coverage()
             if with_history < total:

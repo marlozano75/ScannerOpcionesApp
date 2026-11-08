@@ -38,7 +38,8 @@
     "FVG de LuxAlgo, Volume Profile, The Strat, Mogalef y MACD no dan ventaja de entrada para CDS. The Strat solo mejora algo con el disparo del 2D-1 (+1 punto en el cierre, +3-4 en la carrera).",
     "Lo que sí sirve: DESCARTAR. Una caída fuerte que no se confirma al día siguiente (mínimo de D+1 por debajo del de t, o precio bajo el cierre de t a las 11:30) conserva el mínimo solo el 11 % de las veces.",
     "Los patrones clásicos de suelo (doble suelo, HCH invertido) con cierre confirmado, gap y contexto de mercado tampoco dan ventaja (R9); sumarlos a la mejor combinación la empeora.",
-    "El cruce MACD(6,20,9) con cierre sobre la EMA10 tampoco da ventaja (R10, 56,9 %); solo el pullback en tendencia con MACD<0 llega a 60 %."
+    "El cruce MACD(6,20,9) con cierre sobre la EMA10 tampoco da ventaja (R10, 56,9 %); solo el pullback en tendencia con MACD<0 llega a 60 %.",
+    "Sobre los días de capitulación, la divergencia alcista del MACD(12,26,9) en el ticker sube la recuperación a 10 sesiones de 61 % a 72 % (R11); se muestra como marca informativa «◆D»."
   ],
   "pendientes": [
     "Medir la prima de las puts tras una caída (necesita precios históricos de opciones; hoy no los hay).",
@@ -1457,6 +1458,157 @@
       ],
       "scripts": [
         "scripts/suelos/macd620.py"
+      ],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R11",
+      "fecha": "2026-11-08",
+      "titulo": "Qué señal por ticker suma sobre la capitulación de mercado",
+      "objetivo": "cds",
+      "pregunta": "Dentro de los días de capitulación (VIX > VIX3M y ≥ 20 % de la cesta bajo Keltner), ¿qué indicador del propio ticker mejora la probabilidad de recuperación a 10 sesiones?",
+      "veredicto": "parcial",
+      "veredicto_texto": "La divergencia alcista del MACD sube la capitulación de 61,3 % a 70-72 % en las cuatro configuraciones y en los dos periodos; ~100 señales probadas y ~110 días independientes",
+      "tablas": [
+        {
+          "titulo": "Señales por ticker dentro de los días de capitulación (base de la ronda: 61,3 % cierra arriba)",
+          "columnas": [
+            "Señal por ticker (dentro de capitulación)",
+            "Filas / días",
+            "Cierra > entrada a 10 d",
+            "Toca +1,5 ATR",
+            "Gana la carrera",
+            "Pierde",
+            "2004-18 / 2019-26",
+            "Misma señal fuera de capitulación"
+          ],
+          "filas": [
+            [
+              "Solo capitulación (VIX > VIX3M y ≥ 20 % de la cesta bajo Keltner)",
+              "4.007 / 174",
+              "61,3 %",
+              "64,7 %",
+              "56,0 %",
+              "37,3 %",
+              "61,8 / 60,3",
+              "—"
+            ],
+            [
+              "**Divergencia alcista MACD(12,26,9)**",
+              "383 / 108",
+              "**72,1 %**",
+              "69,5 %",
+              "60,3 %",
+              "31,9 %",
+              "70,0 / 75,7",
+              "52,4 %"
+            ],
+            [
+              "Divergencia alcista MACD(5,35,5)",
+              "382 / 116",
+              "72,3 %",
+              "67,8 %",
+              "59,2 %",
+              "31,7 %",
+              "72,2 / 72,4",
+              "53,0 %"
+            ],
+            [
+              "Divergencia alcista MACD(8,17,9)",
+              "463 / 128",
+              "70,6 %",
+              "68,0 %",
+              "57,5 %",
+              "33,3 %",
+              "72,3 / 67,7",
+              "54,1 %"
+            ],
+            [
+              "Divergencia alcista MACD(19,39,9)",
+              "301 / 98",
+              "69,1 %",
+              "67,1 %",
+              "62,1 %",
+              "30,2 %",
+              "67,9 / 72,1",
+              "52,2 %"
+            ],
+            [
+              "MACD(19,39,9) en extremo",
+              "1.352 / 168",
+              "68,7 %",
+              "70,6 %",
+              "60,7 %",
+              "32,5 %",
+              "70,9 / 65,3",
+              "56,4 %"
+            ],
+            [
+              "Keltner: vuelta a entrar en la banda",
+              "532 / 136",
+              "67,9 %",
+              "68,6 %",
+              "58,1 %",
+              "35,3 %",
+              "69,8 / 64,7",
+              "54,1 %"
+            ],
+            [
+              "MACD(12,26,9) en extremo",
+              "1.479 / 165",
+              "66,7 %",
+              "70,0 %",
+              "59,8 %",
+              "33,3 %",
+              "68,9 / 63,1",
+              "57,8 %"
+            ],
+            [
+              "Volume Profile 120 d: precio bajo el VAL",
+              "1.941 / 170",
+              "64,8 %",
+              "68,0 %",
+              "59,2 %",
+              "34,1 %",
+              "64,5 / 65,3",
+              "53,8 %"
+            ],
+            [
+              "Rebote de un día (control)",
+              "371 / 90",
+              "54,2 %",
+              "58,5 %",
+              "49,3 %",
+              "46,1 %",
+              "60,5 / 44,6",
+              "54,7 %"
+            ],
+            [
+              "Cruce de ATR dA10_5 (control)",
+              "464 / 130",
+              "49,8 %",
+              "61,6 %",
+              "54,5 %",
+              "37,3 %",
+              "48,0 / 51,9",
+              "52,7 %"
+            ]
+          ],
+          "barra": {
+            "col": 2,
+            "max": 80
+          },
+          "nota": "Divergencia = mínimo del día ≤ mínimo de las 20 sesiones anteriores, MACD por encima de su propio mínimo de esas 20 sesiones y negativo. Se probaron ~100 señales con ≥ 250 filas dentro de la capitulación; la tabla enseña las mejores y varios controles."
+        }
+      ],
+      "puntos": [
+        "Fuera de capitulación la misma divergencia da 52-54 %: lo que suma es la combinación, no la señal sola.",
+        "Las cuatro configuraciones del MACD dan 69-72 % con reparto parecido entre periodos (a favor de que no es una casualidad de una sola configuración).",
+        "Cautelas: ~100 señales probadas (alguna sale alta por azar), muestras de ~110 días porque los valores comparten el día de estrés, y el 72 % es una media histórica.",
+        "Llevado a la app como marca «◆D» junto al ticker en todas las vistas, solo con la capitulación completa (VIX3M y amplitud)."
+      ],
+      "scripts": [
+        "scripts/suelos/cap_ticker.py"
       ],
       "doc": "docs/deteccion-suelos.md"
     },

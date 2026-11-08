@@ -56,3 +56,17 @@ def test_assess_without_data():
     assert assess(None, [None, None], cfg).level == "na"
     only_vix = assess(vix(24, 22), [True], cfg)         # cesta insuficiente: solo cuenta el VIX
     assert only_vix.level == "info" and only_vix.breadth_pct is None
+
+
+def divergence_closes():
+    # caída rápida, rebote y deriva lenta hasta el mismo mínimo: el precio marca mínimo nuevo y el MACD no
+    return ([100.0] * 100 + [100.0 - 3 * i for i in range(1, 13)] + [64.0 + 2 * i for i in range(1, 7)]
+            + [76.0 - 1.5 * i for i in range(1, 9)] + [63.0])
+
+
+def test_macd_divergence_detects_a_new_low_without_a_new_macd_low():
+    from scanner_opciones.scanner.macd_divergence import macd_divergence
+    assert macd_divergence(bars(divergence_closes()), TODAY) is True
+    assert macd_divergence(bars([100.0] * 120), TODAY) is False
+    assert macd_divergence(bars(divergence_closes()[:50]), TODAY) is None                  # sin histórico suficiente
+    assert macd_divergence(bars(divergence_closes(), TODAY - timedelta(days=30)), TODAY) is None

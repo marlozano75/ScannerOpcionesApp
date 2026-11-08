@@ -46,7 +46,7 @@
       <th title="Tesis que escribió el trader al compartirla, si la hay">Tesis</th>
       <th title="Trader, su fiabilidad (escalón del ranking) y las fechas de apertura y cierre">Trader</th></tr>
     {% for t in views %}
-    <tr><td class="tk"><b title="{{ tk_title(company_names, t.ticker) }}">{{ t.ticker }}</b>{{ sec_flag(sec_alerts, t.ticker) }}{{ analyst_flag(analyst_alerts, t.ticker) }}</td>
+    <tr><td class="tk"><b title="{{ tk_title(company_names, t.ticker) }}">{{ t.ticker }}</b>{{ sec_flag(sec_alerts, t.ticker) }}{{ analyst_flag(analyst_alerts, t.ticker) }}{{ div_flag(div_marks, t.ticker) }}</td>
       <td>{{ t.strategy }}</td>
       <td class="legs"><span class="wrap">{{ t.legs_text or '—' }}</span></td>
       <td class="c"><span class="st st-{{ t.status }}">{{ 'Abierta' if t.status == 'open' else 'Cerrada' }}</span></td>

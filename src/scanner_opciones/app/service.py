@@ -58,6 +58,7 @@ from scanner_opciones.portfolio.overview import leg_key, other_key, other_positi
 from scanner_opciones.portfolio.spreads import split_combos, split_spreads, with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner import profiles as profiles_mod
+from scanner_opciones.scanner.macd_divergence import macd_divergence
 from scanner_opciones.scanner.capitulation import Capitulation, assess as assess_capitulation, below_keltner
 from scanner_opciones.scanner.profiles import UNASSIGNED, Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
@@ -156,6 +157,7 @@ EXIT_STYLES = "exit_styles"   # clave de `meta`: estilos base de salida propios 
 MGMT_PROFILES = "mgmt_profiles"   # clave de `meta`: perfiles de GESTIÓN (JSON, `portfolio/mgmt_profiles.py`); vacío = los sembrados (Comunidad/Radar/MTO)
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
 WARM_BARS_CHUNK = 40                               # tickers cuyos cierres se precalientan entre cesiones del turno (~0,2 s)
+MACD_DIV_DAYS = 260                                  # días naturales de velas que se leen para la divergencia del MACD (~180 sesiones)
 SCAN_MEMO_SECONDS = 1800.0                          # vida de las lecturas reutilizadas entre cálculos del Scanner (`_memo`)
 KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
 MAX_SOURCE_NAME = 40  # longitud máxima del nombre de una fuente manual
@@ -4377,6 +4379,26 @@ class AppService:
         today = self.now().date()
         flags = [below_keltner(self.bars.candles(t.replace(" ", "-")), today) for t in cfg.tickers]
         return assess_capitulation(self.state.vix, flags, cfg)
+
+    def keep_div(self, out):
+        """El resultado del escaneo reducido a los tickers con la marca ◆D (filtro «Solo con ◆D»; sin capitulación no queda ninguno)."""
+        marks = self.div_marks()
+        keep = lambda r: r.snapshot.contract.ticker.replace(" ", "-") in marks      # noqa: E731
+        return replace(out, results=[r for r in out.results if keep(r)], spreads=[sp for sp in out.spreads if keep(sp.short)])
+
+    def div_marks(self) -> frozenset:
+        """Tickers con divergencia alcista del MACD(12,26,9) hoy, SOLO si el mercado está en capitulación completa (fuera de ese régimen la señal
+        no tuvo ventaja en el histórico). Se enseña como marca junto al ticker en las vistas. Vacío si no hay capitulación o está apagado."""
+        cap = self.capitulation()
+        if cap is None or cap.level != "ok":
+            return frozenset()
+        today = self.now().date()
+
+        def build() -> frozenset:
+            candles = self.bars.recent_candles(today - timedelta(days=MACD_DIV_DAYS))
+            return frozenset(t for t, c in candles.items() if macd_divergence(c, today))
+
+        return self._memo("macd_div", build)
 
     def assignment(self) -> AssignmentExposure:
         return assignment_exposure(with_spreads(self.state.positions), self.state.account)

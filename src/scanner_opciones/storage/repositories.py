@@ -673,6 +673,15 @@ class BarRepo:
         return [(date.fromisoformat(r["day"]), r["open"], r["high"], r["low"], r["close"]) for r in self.db.conn.execute(
             "SELECT day, open, high, low, close FROM daily_bars WHERE ticker = ? AND provisional = 0 ORDER BY day", (ticker,))]
 
+    def recent_candles(self, since: date) -> dict[str, list[tuple]]:
+        """Velas oficiales completas (con máximo y mínimo) de TODOS los tickers desde `since`: {ticker: [(día, apertura, máximo, mínimo, cierre)]} en una sola consulta."""
+        out: dict[str, list[tuple]] = {}
+        for r in self.db.conn.execute(
+                "SELECT ticker, day, open, high, low, close FROM daily_bars WHERE provisional = 0 AND day >= ? AND high IS NOT NULL AND low IS NOT NULL "
+                "ORDER BY ticker, day", (since.isoformat(),)):
+            out.setdefault(r["ticker"], []).append((date.fromisoformat(r["day"]), r["open"], r["high"], r["low"], r["close"]))
+        return out
+
     def missing_open(self, tickers: Iterable[str], recent: int, needed: int) -> list[str]:
         """Tickers con histórico oficial de los que, entre las últimas `recent` sesiones, menos de `needed` tienen apertura
         (histórico anterior a la migración v37)."""

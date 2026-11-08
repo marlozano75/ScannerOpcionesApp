@@ -14,6 +14,7 @@
 {%- endmacro %}
 {# cuerpo de «Técnicos de entrada» y «Medias móviles / EMA»: el Scanner de puts y el CDS los comparten #}
 {% macro entry_body() -%}
+    <label class="opt opt-row" title="Deja solo los tickers con divergencia alcista del MACD(12,26,9) con el mercado en capitulación completa (la marca ◆D). Sin capitulación no hay ningún ticker marcado y no sale nada. No se guarda en los perfiles."><span class="check"><input type="checkbox" name="use_div" {{ 'checked' if use_div }}> Solo con ◆D (divergencia MACD en capitulación)</span></label>
     <label class="field">Señales de entrada: cumplir al menos
       <select name="signals" id="signals"><option value="0" {{ 'selected' if form.signals in ('', '0') }}>Todas las marcadas</option>
         {% for n in (1, 2, 3, 4, 5) %}<option value="{{ n }}" {{ 'selected' if form.signals == n|string }}>{{ n }} de las marcadas</option>{% endfor %}</select></label>
@@ -93,6 +94,7 @@
 {% if f.use_sma %}{% set _ = chips.append(('sec-sma', 'Precio ≥ ' ~ f.sma ~ ' % bajo la SMA200', 'use_sma sma')) %}{% endif %}
 {# técnicos de entrada y medias (mismos nombres y textos que en el Scanner de puts) #}
 {% set entry = [] %}
+{% if use_div %}{% set _ = entry.append(('Solo ◆D (divergencia MACD)', 'use_div')) %}{% endif %}
 {% if f.signals and f.signals != '0' %}{% set _ = entry.append(('≥ ' ~ f.signals ~ ' señales de entrada', 'signals')) %}{% endif %}
 {% if f.use_near %}{% set _ = entry.append(('A ≤ ' ~ f.near_pct ~ ' % de MA50 o soporte', 'use_near near_pct')) %}{% endif %}
 {% if f.use_rsi %}{% set _ = entry.append(('RSI rebota desde ≤ ' ~ f.rsi_max, 'use_rsi rsi_max')) %}{% endif %}
@@ -170,6 +172,7 @@
 {% if form.use_ivhv %}{% set _ = ivgroup.append(('IV/HV ≥ ' ~ form.ivhv, 'use_ivhv ivhv')) %}{% endif %}
 {% if form.use_ivchg %}{% set _ = ivgroup.append(('ΔIV 5d ≤ ' ~ form.ivchg, 'use_ivchg ivchg')) %}{% endif %}
 {% set entry = [] %}
+{% if use_div %}{% set _ = entry.append(('Solo ◆D (divergencia MACD)', 'use_div')) %}{% endif %}
 {% if form.signals and form.signals != '0' %}{% set _ = entry.append(('≥ ' ~ form.signals ~ ' señales de entrada', 'signals')) %}{% endif %}
 {% if form.use_near %}{% set _ = entry.append(('A ≤ ' ~ form.near_pct ~ ' % de MA50 o soporte', 'use_near near_pct')) %}{% endif %}
 {% set atrgroup = [] %}
