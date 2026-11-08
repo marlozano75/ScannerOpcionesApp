@@ -63,6 +63,7 @@ from scanner_opciones.scanner.capitulation import Capitulation, assess as assess
 from scanner_opciones.scanner.profiles import UNASSIGNED, Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.metrics import technical as ta
+from scanner_opciones.metrics.drop import drop_stats
 from scanner_opciones.metrics.yields import reference_price
 from scanner_opciones.scanner.criteria import commission_model
 from scanner_opciones.scanner.cds import build_call_debit_spreads
@@ -4399,6 +4400,26 @@ class AppService:
             return frozenset(t for t, c in candles.items() if macd_divergence(c, today))
 
         return self._memo("macd_div", build)
+
+    def drop_map(self) -> dict:
+        """{ticker: DropStats} con la caída reciente de cada ticker frente a lo habitual en él (columnas informativas del Scanner). Vacío si está apagado."""
+        cfg = self.settings.scanner.drop
+        if not cfg.enabled:
+            return {}
+        today = self.now().date()
+
+        def build() -> dict:
+            candles = self.bars.recent_candles(today - timedelta(days=int((cfg.history_days + cfg.window_days) * 1.5) + 10))
+            infos = self.infos()
+            out = {}
+            for t, c in candles.items():
+                i = infos.get(t)
+                st = drop_stats(c, i.underlying_price if i else None, i.iv30 if i else None, cfg)
+                if st is not None:
+                    out[t] = st
+            return out
+
+        return self._memo("drop_map", build)
 
     def assignment(self) -> AssignmentExposure:
         return assignment_exposure(with_spreads(self.state.positions), self.state.account)

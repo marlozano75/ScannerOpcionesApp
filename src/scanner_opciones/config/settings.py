@@ -564,6 +564,18 @@ class CapitulationSettings(_Model):
     min_tickers: int = Field(8, ge=1)
 
 
+class DropSettings(_Model):
+    """Columnas informativas de caída reciente frente a lo habitual del ticker (`metrics/drop.py`)."""
+    enabled: bool = True
+    window_days: int = Field(10, ge=2, le=60)            # sesiones del máximo con el que se mide la caída
+    atr_days: int = Field(14, ge=2)
+    history_days: int = Field(252, ge=60)                # sesiones de historial para el percentil
+    min_history: int = Field(60, ge=10)                  # ventanas mínimas para dar el percentil
+    hot_atr: float = Field(3.0, gt=0)                    # a partir de aquí la caída se resalta (múltiplos de ATR)
+    hot_percentile: float = Field(90, gt=0, le=100)
+    hot_iv_mult: float = Field(1.5, gt=0)
+
+
 class CdsSettings(_Model):
     """Call Debit Spread muy OTM (MTO; ver docs/mto-spreads.md): call comprada lejos del dinero + call vendida más arriba, DTE largo.
     Son valores del análisis del logbook (muestras pequeñas), editables."""
@@ -642,6 +654,7 @@ class ScannerSettings(_Model):
     spreads: SpreadSettings = SpreadSettings()
     cds: CdsSettings = CdsSettings()
     capitulation: CapitulationSettings = CapitulationSettings()
+    drop: DropSettings = DropSettings()
     ticker_modes: TickerModesSettings = TickerModesSettings()
 
     @property
