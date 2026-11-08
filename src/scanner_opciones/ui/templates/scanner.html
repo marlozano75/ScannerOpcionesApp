@@ -327,6 +327,11 @@
   table.sc-check td.sc-ok { background:rgba(26,127,55,.10); } table.sc-check td.sc-bad { background:rgba(179,54,27,.10); }
   .sc-wrap { max-height:420px; overflow:auto; }
   table.impact button.rm-filter { font-size:11px; padding:1px 8px; }
+  .ck-form { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:flex-end; margin-top:8px; }
+  .ck-form label { display:flex; flex-direction:column; gap:2px; font-size:12px; color:var(--mute); }
+  table.ck-params td.ck-bad, table.ck-checks tr.ck-bad-row td { color:#b3361b; font-weight:600; background:rgba(179,54,27,.10); }
+  table.ck-params td:nth-child(odd) { color:var(--mute); }
+  table.ck-params td:nth-child(even) { padding-right:18px; }
   .chips button.chip.strat-off-chip { background:#fbe9e9; border-color:var(--red); color:#8f2a2a; text-decoration:line-through; }
   .summary .banner { margin:10px 0 0; font-size:13px; }
   .table-form { flex:none; height:max(460px, calc(100vh - 190px)); display:flex; flex-direction:column; }
@@ -724,6 +729,19 @@
         <div id="impact-body" class="muted">Calculando…</div>
       </details>
       {% endif %}
+      {% if is_cds and cds_ok and cds_cfg.enabled %}
+      <details class="viz-box" id="ck-box">
+        <summary>Consultar un CDS <span class="muted">(ticker, vencimiento y strikes: sus parámetros y los filtros que no cumpliría)</span></summary>
+        <div class="ck-form">
+          <label>Ticker <input id="ck-ticker" type="text" size="7" autocapitalize="characters" autocomplete="off" placeholder="NVDA"></label>
+          <label>Vencimiento <input id="ck-expiry" type="date"></label>
+          <label>Strike comprada <input id="ck-long" type="text" inputmode="decimal" size="7" placeholder="150"></label>
+          <label>Strike vendida <input id="ck-short" type="text" inputmode="decimal" size="7" placeholder="200"></label>
+          <button type="button" id="ck-go">Consultar</button>
+        </div>
+        <div id="ck-body" class="muted" style="margin-top:8px">Se evalúa con los filtros del formulario tal como están aplicados ahora (los de la URL).</div>
+      </details>
+      {% endif %}
     </div>
     {% if is_cds %}
     {% if cds_ok and cds_cfg.enabled %}
@@ -1031,6 +1049,35 @@
       load();
     });
     load();
+  });
+  // «Consultar un CDS» (solo en el instrumento CDS): evalúa un spread concreto con los filtros aplicados (los de la URL); los campos se recuerdan
+  onResults(function () {
+    const box = document.getElementById('ck-box');
+    if (!box) return;
+    const ids = ['ck-ticker', 'ck-expiry', 'ck-long', 'ck-short'];
+    const field = function (id) { return document.getElementById(id); };
+    ids.forEach(function (id) {
+      try { const v = sessionStorage.getItem(id); if (v !== null) field(id).value = v; } catch (e) { /* sin almacenamiento */ }
+    });
+    function run() {
+      const q = new URLSearchParams(window.location.search);
+      ids.forEach(function (id) {
+        q.set(id.replace('-', '_'), field(id).value);
+        try { sessionStorage.setItem(id, field(id).value); } catch (e) { /* idem */ }
+      });
+      const body = document.getElementById('ck-body');
+      body.className = 'muted'; body.textContent = 'Calculando…';
+      fetch('/scanner/cds-check?' + q.toString(), { headers: { 'X-Requested-With': 'fetch' } })
+        .then(function (r) { return r.text(); })
+        .then(function (html) { body.className = ''; body.innerHTML = html; })
+        .catch(function () { body.textContent = 'No se pudo consultar.'; });
+    }
+    document.getElementById('ck-go').addEventListener('click', run);
+    ids.forEach(function (id) {
+      field(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+    });
+    const t = field('ck-ticker');
+    t.addEventListener('input', function () { t.value = t.value.toUpperCase(); });
   });
   // Botones − / + de cada caja: suman o restan 1 y escanean (varios clics seguidos se acumulan en un solo escaneo)
   let timer = null;

@@ -7,6 +7,7 @@ secciones de filtros y columnas. Aquí está lo que no es de plantilla: lectura 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -92,6 +93,26 @@ def impact(service, profiles: list[Profile], qp):
     if parsed["cds"] is None:
         return None, parsed["error"] or "Parámetros no válidos"
     return service.scan_cds_impact(parsed["cds"], **parsed["ref"]), None
+
+
+def _num(text: str) -> float:
+    return float(text.strip().replace(",", "."))
+
+
+def check(service, profiles: list[Profile], qp):
+    """(consulta, error) de un CDS concreto con los filtros de la consulta: `ck_ticker`, `ck_expiry` (AAAA-MM-DD), `ck_long` y `ck_short` (strikes)."""
+    _, parsed = read(service, profiles, qp)
+    if parsed["cds"] is None:
+        return None, parsed["error"] or "Parámetros no válidos"
+    try:
+        ticker = (qp.get("ck_ticker") or "").strip()
+        if not ticker:
+            return None, "Escribe el ticker."
+        expiry = date.fromisoformat((qp.get("ck_expiry") or "").strip())
+        long_k, short_k = _num(qp.get("ck_long") or ""), _num(qp.get("ck_short") or "")
+    except ValueError:
+        return None, "Revisa el vencimiento (fecha completa) y los dos strikes (números)."
+    return service.check_cds(ticker, expiry, long_k, short_k, parsed["cds"], **parsed["ref"]), None
 
 
 def register(app, service, get_profiles) -> None:

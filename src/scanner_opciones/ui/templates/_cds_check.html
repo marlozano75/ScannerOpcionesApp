@@ -1,0 +1,80 @@
+{# Fragmento de «Consultar un CDS»: parámetros del spread pedido y filtros que cumple / no cumple (se carga con fetch desde el panel del Scanner CDS) #}
+{% macro bad(keys) %}{% if keys.split() | select('in', ck.failed_keys) | list %} ck-bad{% endif %}{% endmacro %}
+{% if error %}<p class="banner err" style="margin:0">{{ error }}</p>
+{% else %}
+{% set r = ck.result %}
+<p style="margin:0 0 6px"><b>{{ ck.ticker }}</b>{% if company %} <span class="muted">· {{ company }}</span>{% endif %}
+  {{ ck.long_strike|num }} / {{ ck.short_strike|num }}{% if ck.expiry %} · vence el {{ ck.expiry.strftime('%d/%m/%Y') }}{% endif %}
+  {% if info and info.underlying_price is not none %}<span class="muted">· subyacente {{ info.underlying_price|num }}</span>{% endif %}</p>
+{% if not r %}
+<p class="banner info" style="margin:0 0 6px"><b>No se puede calcular este spread.</b> {{ ck.problem }}</p>
+{% for h in ck.hints %}<p class="note" style="margin:2px 0">{{ h }}</p>{% endfor %}
+{% else %}
+{% set n = ck.failed|length %}
+{% if n == 0 and ck.in_scan is not false %}<p class="banner ok ck-ok" style="margin:0 0 8px">✓ Cumple todos los filtros: <b>aparece en el escaneo</b>.</p>
+{% elif n == 0 %}<p class="banner info" style="margin:0 0 8px">Cumple todos los filtros, pero <b>no sale en la tabla</b>: «mejor ancho» o «máx. por ticker» dejan otros spreads del ticker por delante (mayor puntuación), o la tabla corta en las primeras filas.</p>
+{% else %}<p class="banner err" style="margin:0 0 8px">✗ <b>No aparecería</b>: incumple {{ n }} filtro{{ 's' if n != 1 }} ({% for c in ck.failed %}{{ c.label }}{{ ', ' if not loop.last }}{% endfor %}).</p>{% endif %}
+{% set lg = r.long %}{% set sh = r.short %}{% set c = lg.contract %}
+<table class="impact ck-params">
+  <tr><th>Parámetro</th><th>Valor</th><th>Parámetro</th><th>Valor</th><th>Parámetro</th><th>Valor</th></tr>
+  <tr>
+    <td>DTE</td><td class="{{ bad('dte') }}">{{ (c.expiry - today).days }}</td>
+    <td>OTM % (comprada)</td><td class="{{ bad('otm') }}">{{ r.long_otm_pct|pct }}</td>
+    <td>Ancho</td><td class="{{ bad('width cds_wpct') }}">{{ r.width|num }}{% if lg.contract.strike %} <span class="muted">({{ (100 * r.width / lg.contract.strike)|round(1) }} %)</span>{% endif %}</td>
+  </tr>
+  <tr>
+    <td>Débito ($)</td><td class="{{ bad('cds_debit') }}">{{ (r.debit * c.multiplier)|num(0) }}{{ ccy(c.ticker) }}</td>
+    <td>Pérd. %NLV</td><td>{{ (r.max_loss * fx(nlv_usd, c.ticker) / nlv_usd * 100)|pct if nlv_usd else '—' }}</td>
+    <td>Retorno máx. %</td><td class="{{ bad('cds_return') }}">{{ r.max_return_pct|num(0) }}</td>
+  </tr>
+  <tr>
+    <td>Δ neta</td><td>{{ r.net_delta|num(2) }}</td>
+    <td>Necesario %</td><td class="{{ bad('cds_move') }}">{{ r.required_move_pct|pct }}</td>
+    <td>Esperado %</td><td class="{{ bad('cds_move') }}">{{ r.expected_move_pct|pct }}</td>
+  </tr>
+  <tr>
+    <td>× esperado</td><td class="{{ bad('cds_move') }}">{{ r.required_move_mult|num(2) }}</td>
+    <td>Prob. %</td><td class="{{ bad('cds_prob') }}">{{ r.prob_pct|num(0) }}</td>
+    <td>Puntuación</td><td><b>{{ r.score|num(1) }}</b></td>
+  </tr>
+  <tr>
+    <td>Cobro salida ($)</td><td>{{ r.exit_credit_usd|num(0) }}{{ ccy(c.ticker) }}</td>
+    <td>Ganancia salida ($)</td><td class="{{ bad('cds_xprofit') }}">{{ r.exit_profit_usd|num(0) }}{{ ccy(c.ticker) }}</td>
+    <td>Retorno salida %</td><td>{{ r.exit_return_pct|num(1) }}</td>
+  </tr>
+  <tr>
+    <td>Precio salida</td><td>{{ (info.underlying_price * (1 + r.required_move_pct / 100))|num if info and info.underlying_price is not none else '—' }}</td>
+    <td>vs SMA200 %</td><td class="{{ bad('cds_sma') }}">{{ r.sma200_distance_pct|pct if r.sma200_distance_pct is not none else '—' }}</td>
+    <td>Liq. opc.</td><td class="{{ bad('cds_liq') }}">{{ info.option_liquidity if info and info.option_liquidity is not none else '—' }}</td>
+  </tr>
+  <tr>
+    <td>ATR ($)</td><td>{% set atr = atr_of(c.ticker) %}{{ atr|num(2) if atr is not none else '—' }}</td>
+    <td>ATR %</td><td>{% set atr = atr_of(c.ticker) %}{{ (atr / info.underlying_price * 100)|num(1) if atr is not none and info and info.underlying_price else '—' }}</td>
+    <td></td><td></td>
+  </tr>
+  <tr>
+    <td>Δ comp. / vend.</td><td>{{ lg.delta|num }} / {{ sh.delta|num }}</td>
+    <td>IV (comprada)</td><td>{{ (lg.iv * 100)|pct if lg.iv is not none else '—' }}</td>
+    <td>IV Rank / Pctl</td><td>{{ lg.iv_rank|pct(0) }} / {{ lg.iv_percentile|pct(0) }}</td>
+  </tr>
+  <tr>
+    <td>Spread comp. / vend.</td><td class="{{ bad('cds_spread cds_spread_s') }}">{{ lg.spread_pct|pct }} / {{ sh.spread_pct|pct }}</td>
+    <td>OI comp. / vend.</td><td class="{{ bad('cds_oi cds_oi_s') }}">{{ lg.open_interest if lg.open_interest is not none else '—' }} / {{ sh.open_interest if sh.open_interest is not none else '—' }}</td>
+    <td>Bid / ask size comp.</td><td class="{{ bad('cds_bsz cds_asz') }}">{{ lg.bid_size if lg.bid_size is not none else '—' }} / {{ lg.ask_size if lg.ask_size is not none else '—' }}
+      <span class="muted">· vend. {{ sh.bid_size if sh.bid_size is not none else '—' }} / {{ sh.ask_size if sh.ask_size is not none else '—' }}</span></td>
+  </tr>
+  <tr>
+    <td>Comprada (bid / ask)</td><td>{{ lg.bid|num(2) }} / {{ lg.ask|num(2) }}</td>
+    <td>Vendida (bid / ask)</td><td>{{ sh.bid|num(2) }} / {{ sh.ask|num(2) }}</td>
+    <td>Última cotización</td><td class="muted">{{ lg.updated_at.strftime('%d/%m %H:%M') if lg.updated_at else '—' }}</td>
+  </tr>
+</table>
+<table class="impact ck-checks" style="margin-top:10px">
+  <tr><th></th><th>Filtro</th><th>Exige</th><th>Tiene</th></tr>
+  {% for k in ck.checks %}
+  <tr class="{{ '' if k.ok else 'ck-bad-row' }}"><td>{{ '✓' if k.ok else '✗' }}</td><td>{{ k.label }}</td><td class="muted">{{ k.config }}</td><td>{{ k.value }}</td></tr>
+  {% else %}<tr><td colspan="4" class="muted">No hay ningún filtro activo.</td></tr>{% endfor %}
+</table>
+{% for h in ck.hints %}<p class="note" style="margin:2px 0">{{ h }}</p>{% endfor %}
+{% endif %}
+{% endif %}

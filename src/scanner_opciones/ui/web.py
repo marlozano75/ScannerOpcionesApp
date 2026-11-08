@@ -273,7 +273,7 @@ def create_app(
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()), path=request.url.path,
             excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(), analyst_alerts=service.analyst_map(), company_names=service.company_name_map(),
-            company_notes=service.company_notes_map(), div_marks=service.div_marks(), drops=service.drop_map(), drop_cfg=service.settings.scanner.drop, supports=service.support_map(), sup_cfg=service.settings.scanner.support_levels, use_div="use_div" in request.query_params,
+            company_notes=service.company_notes_map(), div_marks=service.div_marks(), drops=service.drop_map(), atr_of=service.atr_of, atr_period=service.settings.scanner.technical.atr_period, drop_cfg=service.settings.scanner.drop, supports=service.support_map(), sup_cfg=service.settings.scanner.support_levels, use_div="use_div" in request.query_params,
         )
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 
@@ -728,6 +728,14 @@ def create_app(
         if parsed["criteria"] is None:
             return render(request, "_impact.html", error=parsed["error"] or "Parámetros no válidos", report=None, unit="contratos")
         return render(request, "_impact.html", error=None, report=service.scan_impact(parsed["criteria"]), unit="contratos")
+
+    @app.get("/scanner/cds-check", response_class=HTMLResponse)
+    async def scanner_cds_check(request: Request):
+        """Consulta de un CDS concreto (ticker, vencimiento y strikes): sus parámetros y los filtros del formulario que no cumple (fragmento HTML)."""
+        found, error = routes_cds.check(service, get_profiles()[0], request.query_params)
+        company = service.company_name_map()
+        return render(request, "_cds_check.html", error=error, ck=found, nlv_usd=service.nlv_usd(), today=service.now().date(),
+                      info=service.infos().get(found.ticker) if found else None, company=company.get(found.ticker, "") if found else "")
 
     def profile_buttons_for(profiles: list[Profile], active_name: str) -> list[dict]:
         """Botones de la barra de perfiles del Scanner (los tres instrumentos)."""

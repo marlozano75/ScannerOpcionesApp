@@ -68,6 +68,7 @@ from scanner_opciones.metrics.support_levels import nearest_support, support_lev
 from scanner_opciones.metrics.yields import reference_price
 from scanner_opciones.scanner.criteria import commission_model
 from scanner_opciones.scanner.cds import build_call_debit_spreads
+from scanner_opciones.scanner.cds_check import Check, CdsCheck, check_cds
 from scanner_opciones.scanner.cds_impact import TickerFilter, cds_impact_report
 from scanner_opciones.scanner.criteria import ScanCriteria, criteria_from_settings
 from scanner_opciones.scanner.currency import Nlv
@@ -3844,6 +3845,28 @@ class AppService:
         return cds_impact_report(snaps, infos, cds, self.now().date(), bars, criteria.price_reference, criteria.price_spread_pct,
                                  lambda mult: criteria.cost_ps(mult, legs=2), filters)
 
+    def check_cds(self, ticker: str, expiry: date, long_strike: float, short_strike: float, cds: Optional[CdsSettings] = None, **criteria_overrides) -> CdsCheck:
+        """Consulta de un CDS concreto (`scanner/cds_check.py`): los parámetros que tendría en el Scanner y qué filtros de `cds` (y del ticker) no cumple.
+        Mismos filtros de ticker y mismo precio de venta que `scan_cds`; `in_scan` sale del escaneo real, con «mejor ancho» y «máx. por ticker»."""
+        cds = cds or self.settings.scanner.cds
+        criteria = self.criteria(**criteria_overrides)
+        infos = self.infos(criteria)
+        ticker = ticker.strip().upper()
+        if ticker not in infos:                                   # BRK.B / BRK B → BRK-B
+            alt = ticker.replace(" ", "-").replace(".", "-")
+            ticker = alt if alt in infos else ticker
+        filters = self._cds_ticker_filters(criteria, infos)
+        calls = [s for s in self._scan_call_snapshots() if s.contract.ticker == ticker]
+        bars = self.bars.all_closes({ticker})
+        cost = lambda mult: criteria.cost_ps(mult, legs=2)
+        rows = self.scan_cds(cds, **criteria_overrides)
+        out = check_cds(calls, infos, cds, self.now().date(), ticker, expiry, long_strike, short_strike, bars, criteria.price_reference,
+                        criteria.price_spread_pct, cost, filters, rows)
+        if out.result is not None and self.settings.scanner.ticker_modes.enabled:
+            ok = self.ticker_modes().get(ticker, modes_mod.ALL_ON).cds
+            out = replace(out, checks=out.checks + (Check("mode", "Modo CDS del ticker", "activo en los modos por ticker", "activo" if ok else "apagado", bool(ok)),))
+        return out
+
     def scan_profiles(self, sets: list[tuple[str, str, ScanCriteria]]) -> tuple[list, dict[str, dict[str, int]]]:
         """Un solo escaneo con los filtros de varios perfiles: `sets` = (perfil, instrumento `put`|`spread`, criterios). Cada contrato (o spread)
         que cumple los de algún perfil sale UNA vez, con la lista de perfiles que cumple. Devuelve (filas, {perfil: {instrumento: nº de filas}})."""
@@ -3917,6 +3940,10 @@ class AppService:
         compartido por el filtro, el aviso de datos que faltan y el panel de impacto."""
         return self._memo("atr", lambda: self.bars.atr(
             set(self.watchlist.list()) | {s.contract.ticker for s in self._scan_snapshots()}, self.settings.scanner.technical.atr_period))
+
+    def atr_of(self, ticker: str) -> Optional[float]:
+        """ATR (en $) de un ticker para las columnas informativas «ATR ($)» / «ATR %»; None si no hay datos suficientes. Se calcula al primer uso."""
+        return self._atr_map().get(ticker.replace(" ", "-"))
 
     def defense_context(self) -> dict[str, dict]:
         """Datos del subyacente para la defensa de las puts del Panel, por ticker de la posición (con el símbolo de IBKR): IV Rank, IV a 30 días en

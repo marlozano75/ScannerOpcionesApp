@@ -52,7 +52,7 @@ def test_cds_profile_renders_in_the_scanner_with_its_filters_chips_impact_and_ta
         text = client.get("/scanner?" + cds_profile_query(svc)).text
         for needle in ('id="sec-widths"', 'id="sec-debit"', 'id="sec-move"', 'name="dmax"', 'Base (', 'Activados (', 'Desactivados (', 'id="viz-box"', 'data-kind="cds"',
                        '>ZZZ</a>', 'Comp./Vend.', '× esperado', 'Technology',
-                       'name="oi_s"', 'name="ls_s"', 'name="use_bsz"', 'name="use_asz"', 'Bid size comp.', 'Ask size comp.', 'Bid size vend.', 'Ask size vend.'):
+                       'name="oi_s"', 'name="ls_s"', 'name="use_bsz"', 'name="use_asz"', 'Bid size comp.', 'Ask size comp.', 'Bid size vend.', 'Ask size vend.', '>ATR ($)</th>', '>ATR %</th>'):
             assert needle in text, needle
         assert "Simular seleccionados" not in text and "Téc." not in text
         assert text.count("<tr><td class=\"tk\"") == 1         # el único spread 130/140
@@ -60,6 +60,24 @@ def test_cds_profile_renders_in_the_scanner_with_its_filters_chips_impact_and_ta
         assert "Débito por contrato" in impact and "Movimiento necesario" in impact and "spreads" in impact
         mini = client.get("/chart/mini.svg?ticker=ZZZ&strike=140&long=130&kind=cds")
         assert mini.status_code == 200 and mini.text.startswith("<svg")
+
+
+def test_cds_check_panel_marks_the_filters_the_spread_does_not_meet():
+    svc = _svc()
+    with _client(svc) as client:
+        client.portal.call(svc.wait_idle)
+        _seed(svc)
+        page = client.get("/scanner?" + cds_profile_query(svc)).text
+        assert 'id="ck-box"' in page and 'id="ck-go"' in page
+        base = "/scanner/cds-check?mode=cds&submitted=1&profile=" + cds_profile.MTO_CDS + f"&ck_ticker=zzz&ck_expiry={EXP}&ck_long=130&ck_short=140"
+        ok = client.get(base).text
+        assert "ZZZ" in ok and "ATR ($)" in ok and "Débito ($)" in ok and "aparece en el escaneo" in ok and "ck-bad" not in ok.split("<table")[1]
+        bad = client.get(base + "&dmax=100").text                       # débito máximo 100 $: el spread (175 $) lo incumple
+        assert "No aparecería" in bad and "Débito por contrato" in bad and "ck-bad" in bad.split("<table")[1]
+        missing = client.get(base.replace("ck_short=140", "ck_short=145")).text
+        assert "No se puede calcular" in missing and "Strikes guardados" in missing
+        assert "Escribe el ticker" in client.get("/scanner/cds-check?mode=cds&submitted=1").text
+        assert "Revisa el vencimiento" in client.get(base.replace(f"ck_expiry={EXP}", "ck_expiry=x")).text
 
 
 def cds_profile_query(svc):
