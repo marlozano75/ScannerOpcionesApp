@@ -24,3 +24,5 @@ Séptima ronda (The Strat completo): `strat.py $D` (tipos de vela 1/2U/2D/3, pat
 Octava ronda (patrones de Bulkowski): `patrones.py $D` (doble suelo e HCH invertido con cierre sobre la clavícula, gap, contexto SPY y suma a las mejores señales).
 Novena ronda (cruce MACD 6-20-9 + EMA10): `macd620.py $D`.
 Marca por ticker (R11): `cap_ticker.py $D` (señales del ticker dentro de los días de capitulación).
+
+Sexta ronda (medias y soportes, 2026-11-08): `medias_soportes.py [salida] [n]` (toques y rebotes de 8 medias y soportes horizontales por ticker, con validación fuera de muestra; escribe `medias.csv`, `soportes.csv`, `valida.txt`), `medias2.py` (persistencia de la tasa de rebote por ticker y media: ventanas, bandas, confirmación y régimen; el régimen se evalúa el día anterior al toque) , `soportes2.py` (afinado de la banda del soporte 0,5-3 %) y `soportes3.py` (filtro de soporte actual frente a los de mínimos). Leen `data/app.db` en solo lectura. Resultado aplicado en la app: columnas «Soporte» y «Strike/Sop.» (`docs/scanner-estrategia-spreads.md`).

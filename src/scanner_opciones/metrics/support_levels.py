@@ -1,0 +1,61 @@
+"""Soportes horizontales validados por los mínimos de las velas (columnas «Soporte» y «Strike/Sop.» del Scanner; informativo, no filtra).
+
+Un soporte es un grupo de mínimos locales (pivotes de ±`pivot_width` velas) dentro de una banda del `band_pct` % que el precio no ha
+perdido nunca (ningún cierre por debajo de la banda tras el primer pivote). Cuantos más pivotes, más veces lo ha respetado: con la
+watchlist completa (2.050 tickers, 2023-2026, fuera de muestra) el rebote a 3 sesiones sube del 44 % (1 pivote) al 58 % (2), 67 % (3) y 69 % (4+)
+(`scripts/suelos/medias_soportes.py` y `soportes2.py`; las medias móviles, en cambio, no se respetan de forma persistente: `medias2.py`).
+Funciones puras sobre velas (día, apertura, máximo, mínimo, cierre) ascendentes."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date
+from typing import Optional, Sequence
+
+from scanner_opciones.config.settings import SupportLevelSettings
+
+
+@dataclass(frozen=True)
+class SupportLevel:
+    low: float                 # mínimo más bajo del grupo
+    high: float                # mínimo más alto del grupo (techo de la zona)
+    pivots: int                # mínimos locales del grupo (toques que ha respetado)
+    approaches: int            # veces que el mínimo volvió a llegar a la zona viniendo de arriba
+    bounces: int               # de ellas, las que cerraron sobre la zona y siguieron sobre ella `hold_sessions` después
+    last_pivot: date
+
+
+def support_levels(candles: Sequence[tuple], cfg: SupportLevelSettings) -> list[SupportLevel]:
+    """Soportes no perdidos del histórico de `candles`, de menor a mayor precio."""
+    w, band, hold = cfg.pivot_width, cfg.band_pct / 100, cfg.hold_sessions
+    n = len(candles)
+    if n < 2 * w + 2:
+        return []
+    low = [c[3] for c in candles]
+    close = [c[4] for c in candles]
+    piv = [i for i in range(w, n - w) if low[i] < min(low[i - w:i]) and low[i] <= min(low[i + 1:i + 1 + w])]
+    groups: list[list[int]] = []
+    for i in sorted(piv, key=lambda k: low[k]):
+        if groups and low[i] <= low[groups[-1][0]] * (1 + band):
+            groups[-1].append(i)
+        else:
+            groups.append([i])
+    out = []
+    for g in groups:
+        lo, hi = min(low[i] for i in g), max(low[i] for i in g)
+        first = min(g)
+        if any(x < lo * (1 - band) for x in close[first + 1:]):
+            continue                                              # perdido: ya no es soporte
+        approaches = bounces = 0
+        for t in range(first + w + 1, n - hold):
+            if low[t] <= hi * 1.003 and low[t - 1] > hi * 1.003 and close[t - 1] > hi:
+                approaches += 1
+                if close[t] >= lo and close[t + hold] > lo * (1 - band / 2):
+                    bounces += 1
+        out.append(SupportLevel(lo, hi, len(g), approaches, bounces, candles[max(g)][0]))
+    return out
+
+
+def nearest_support(levels: Sequence[SupportLevel], price: float, min_pivots: int) -> Optional[SupportLevel]:
+    """El soporte validado (≥ `min_pivots` pivotes) más alto que queda por debajo del precio."""
+    below = [lv for lv in levels if lv.pivots >= min_pivots and lv.high < price]
+    return max(below, key=lambda lv: lv.high) if below else None

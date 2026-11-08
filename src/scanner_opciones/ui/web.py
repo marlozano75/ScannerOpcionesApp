@@ -273,7 +273,7 @@ def create_app(
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()), path=request.url.path,
             excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(), analyst_alerts=service.analyst_map(), company_names=service.company_name_map(),
-            company_notes=service.company_notes_map(), div_marks=service.div_marks(), drops=service.drop_map(), drop_cfg=service.settings.scanner.drop, use_div="use_div" in request.query_params,
+            company_notes=service.company_notes_map(), div_marks=service.div_marks(), drops=service.drop_map(), drop_cfg=service.settings.scanner.drop, supports=service.support_map(), sup_cfg=service.settings.scanner.support_levels, use_div="use_div" in request.query_params,
         )
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 

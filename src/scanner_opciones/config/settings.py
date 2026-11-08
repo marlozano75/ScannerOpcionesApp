@@ -576,6 +576,16 @@ class DropSettings(_Model):
     hot_iv_mult: float = Field(1.5, gt=0)
 
 
+class SupportLevelSettings(_Model):
+    """Soportes horizontales validados por los mínimos de las velas (`metrics/support_levels.py`; columnas informativas del Scanner)."""
+    enabled: bool = True
+    band_pct: float = Field(1.5, gt=0)           # banda que agrupa los mínimos y ruptura máxima tolerada (1,5 % = compromiso medido en soportes2.py)
+    pivot_width: int = Field(5, ge=1)            # velas a cada lado de un mínimo local
+    hold_sessions: int = Field(3, ge=1)          # sesiones que debe seguir sobre la zona para contar el rebote
+    min_pivots: int = Field(3, ge=1)             # pivotes para llamarlo soporte validado (3: ~67 % de rebote fuera de muestra)
+    history_days: int = Field(1400, ge=60)       # días naturales de velas que se usan
+
+
 class CdsSettings(_Model):
     """Call Debit Spread muy OTM (MTO; ver docs/mto-spreads.md): call comprada lejos del dinero + call vendida más arriba, DTE largo.
     Son valores del análisis del logbook (muestras pequeñas), editables."""
@@ -655,6 +665,7 @@ class ScannerSettings(_Model):
     cds: CdsSettings = CdsSettings()
     capitulation: CapitulationSettings = CapitulationSettings()
     drop: DropSettings = DropSettings()
+    support_levels: SupportLevelSettings = SupportLevelSettings()
     ticker_modes: TickerModesSettings = TickerModesSettings()
 
     @property

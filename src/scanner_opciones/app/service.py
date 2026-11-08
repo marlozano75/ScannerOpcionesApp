@@ -64,6 +64,7 @@ from scanner_opciones.scanner.profiles import UNASSIGNED, Profile as ScannerProf
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.metrics import technical as ta
 from scanner_opciones.metrics.drop import drop_stats
+from scanner_opciones.metrics.support_levels import nearest_support, support_levels
 from scanner_opciones.metrics.yields import reference_price
 from scanner_opciones.scanner.criteria import commission_model
 from scanner_opciones.scanner.cds import build_call_debit_spreads
@@ -4420,6 +4421,27 @@ class AppService:
             return out
 
         return self._memo("drop_map", build)
+
+    def support_map(self) -> dict:
+        """{ticker: SupportLevel} con el soporte validado más cercano por debajo del precio de cada ticker (columnas informativas del Scanner). Vacío si está apagado."""
+        cfg = self.settings.scanner.support_levels
+        if not cfg.enabled:
+            return {}
+        today = self.now().date()
+
+        def build() -> dict:
+            candles = self.bars.recent_candles(today - timedelta(days=cfg.history_days))
+            infos = self.infos()
+            out = {}
+            for t, c in candles.items():
+                i = infos.get(t)
+                price = i.underlying_price if i and i.underlying_price else c[-1][4]
+                lv = nearest_support(support_levels(c, cfg), price, cfg.min_pivots)
+                if lv is not None:
+                    out[t] = lv
+            return out
+
+        return self._memo("support_map", build)
 
     def assignment(self) -> AssignmentExposure:
         return assignment_exposure(with_spreads(self.state.positions), self.state.account)
