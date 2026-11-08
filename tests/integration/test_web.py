@@ -1041,3 +1041,14 @@ def test_historico_comunidad_tab_shows_the_open_close_book(client_and_service):
     assert "Cerrada" in page.text and "P&amp;L" in page.text and "Coste cierre $" in page.text and "90" in page.text   # P&L y coste de cierre del libro
     assert "AAPL" not in client.get("/historico?tab=comunidad").text                                 # no mezcla el registro de escaneos
     assert "Zalo" in client.get("/historico?tab=comunidad&trader=Zalo").text
+
+
+def test_backtest_tab_lists_the_rounds_and_filters_by_objective(client_and_service):
+    client, *_ = client_and_service
+    page = client.get("/backtest")
+    assert page.status_code == 200 and "Backtest" in page.text
+    assert "Señales de suelo clásicas" in page.text and "The Strat completo para CDS" in page.text
+    assert 'data-sort="47' in page.text            # los números de las celdas se ordenan por su valor, no por el texto con coma
+    only_cds = client.get("/backtest?objetivo=cds").text
+    assert "The Strat completo para CDS" in only_cds and "Señales de suelo clásicas" not in only_cds
+    assert client.get("/backtest?objetivo=nada").status_code == 200       # un objetivo desconocido se ignora

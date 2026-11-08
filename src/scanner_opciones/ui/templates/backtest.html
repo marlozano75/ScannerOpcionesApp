@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .bt { max-width:1180px; }
+  .bt h2 { margin:6px 0; }
+  .bt h3 { margin:0 0 6px; font-size:16px; display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+  .bt h4 { margin:14px 0 4px; font-size:13px; color:var(--mute); text-transform:uppercase; letter-spacing:.06em; }
+  .bt-bases { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin:10px 0; }
+  .bt-base { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; }
+  .bt-base b { display:block; font-size:22px; line-height:1.2; }
+  .bt-base span { font-size:12px; color:var(--mute); }
+  .bt-chip { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid var(--line-strong); white-space:nowrap; }
+  .bt-chip.ventaja { background:#e3f3e8; border-color:#7fc59a; color:#1d6b3f; }
+  .bt-chip.parcial { background:#fbeed2; border-color:#e3b85a; color:#6b4b00; }
+  .bt-chip.sin_ventaja { background:#f1e6e4; border-color:#d9b3ad; color:#7a2e25; }
+  .bt-chip.info { background:#e8eaf3; border-color:#c5cbe0; color:#2c3a5c; }
+  .bt-chip.obj { background:var(--field); color:var(--mute); font-weight:500; }
+  .bt-scroll { overflow-x:auto; }
+  table.bt-t { border-collapse:collapse; }
+  table.bt-t th, table.bt-t td { padding:3px 10px; font-size:12.5px; text-align:left; vertical-align:top; border-bottom:1px solid var(--line); }
+  table.bt-t th { white-space:nowrap; }
+  table.bt-t td.num { white-space:nowrap; }
+  table.bt-t td:first-child { min-width:260px; }
+  table.bt-idx { width:100%; }
+  table.bt-idx td, table.bt-idx th { font-size:13px; }
+  table.bt-idx td:first-child { min-width:0; }
+  .bt ul, .bt ol { margin:6px 0; padding-left:22px; }
+  .bt li { margin:3px 0; }
+  .bt .foot { font-size:12px; color:var(--mute); margin-top:10px; }
+  .bt details > summary { cursor:pointer; font-weight:600; }
+</style>
+<div class="bt">
+<h2>Backtest</h2>
+<p class="muted" style="max-width:900px">Todo lo probado hasta ahora para decidir cuándo entrar (suelos, entrada en un CDS, venta de puts), con sus resultados. Es un registro que crece: cada ronda nueva
+  se añade a <code>backtest/resultados.json</code> (ver <code>docs/backtest.md</code>). Los números describen el movimiento del subyacente en el histórico, no el beneficio de una operación.
+  {% if data %}Actualizado el {{ data.updated }}.{% endif %}</p>
+{% if error %}
+<div class="banner err">No se pudo leer el catálogo de backtests: {{ error }}</div>
+{% else %}
+<div class="bt-bases">
+  {% for b in data.bases %}<div class="bt-base"><span>{{ b.etiqueta }}</span><b>{{ b.valor }}</b><span>{{ b.nota }}</span></div>{% endfor %}
+</div>
+<div class="card">
+  <h3>Conclusiones hasta ahora</h3>
+  <ol>{% for c in data.conclusions %}<li>{{ cell_html(c) }}</li>{% endfor %}</ol>
+  <details style="margin-top:8px"><summary>Metodología común</summary>
+    <ul>{% for m in data.methodology %}<li>{{ cell_html(m) }}</li>{% endfor %}</ul>
+  </details>
+</div>
+
+<div class="chips" style="margin:6px 0 10px">
+  <a class="chip {{ 'active' if not objetivo }}" href="/backtest">Todos <small>{{ data.rounds|length }}</small></a>
+  {% for key, label in objectives.items() %}{% if counts.get(key) %}
+  <a class="chip {{ 'active' if objetivo == key }}" href="/backtest?objetivo={{ key }}">{{ label }} <small>{{ counts[key] }}</small></a>{% endif %}{% endfor %}
+</div>
+
+<div class="card bt-scroll">
+  <table class="bt-t bt-idx" data-sortable>
+    <tr><th>Ronda</th><th>Fecha</th><th>Objetivo</th><th>Qué se probó</th><th>Veredicto</th></tr>
+    {% for r in rounds %}
+    <tr><td><a href="#{{ r.id }}">{{ r.id }}</a></td><td class="num">{{ r.date }}</td><td>{{ objectives[r.objective] }}</td><td><a href="#{{ r.id }}">{{ r.title }}</a></td>
+      <td><span class="bt-chip {{ r.verdict }}">{{ verdicts[r.verdict] }}</span> <span class="muted">{{ r.verdict_text }}</span></td></tr>
+    {% else %}<tr><td colspan="5" class="muted">No hay rondas con este objetivo.</td></tr>{% endfor %}
+  </table>
+</div>
+
+{% for r in rounds %}
+<section class="card" id="{{ r.id }}">
+  <h3>{{ r.id }} · {{ r.title }} <span class="bt-chip {{ r.verdict }}">{{ verdicts[r.verdict] }}</span> <span class="bt-chip obj">{{ objectives[r.objective] }}</span>
+    <span class="muted" style="font-weight:400;font-size:12px">{{ r.date }}</span></h3>
+  <p style="margin:4px 0"><b>Pregunta.</b> {{ cell_html(r.question) }}</p>
+  <p style="margin:4px 0"><b>Veredicto.</b> {{ cell_html(r.verdict_text) }}.</p>
+  {% for t in r.tables %}
+  <h4>{{ t.title }}</h4>
+  <div class="bt-scroll">
+  <table class="bt-t" data-sortable>
+    <tr>{% for c in t.columns %}<th>{{ c }}</th>{% endfor %}</tr>
+    {% for row in t.rows %}
+    <tr>{% for cell in row %}{% set v = first_number(cell) %}
+      {%- if t.bar and loop.index0 == t.bar.col and v is not none -%}
+      <td class="num cb" data-sort="{{ v }}" style="--p:{{ [100 * v / t.bar.max, 100]|min|round(0)|int }}%">{{ cell_html(cell) }}</td>
+      {%- else -%}
+      <td{% if v is not none %} class="num" data-sort="{{ v }}"{% endif %}>{{ cell_html(cell) }}</td>
+      {%- endif -%}
+    {% endfor %}</tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% if t.note %}<p class="note">{{ cell_html(t.note) }}</p>{% endif %}
+  {% endfor %}
+  {% if r.points %}<h4>Qué se vio</h4><ul>{% for p in r.points %}<li>{{ cell_html(p) }}</li>{% endfor %}</ul>{% endif %}
+  <p class="foot">{% if r.doc %}Detalle: <code>{{ r.doc }}</code>.{% endif %}{% if r.scripts %} Scripts: {% for s in r.scripts %}<code>{{ s }}</code>{{ ', ' if not loop.last }}{% endfor %}.{% endif %}</p>
+</section>
+{% endfor %}
+
+{% if data.pending %}
+<div class="card">
+  <h3>Pendiente de probar</h3>
+  <ul>{% for p in data.pending %}<li>{{ cell_html(p) }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+{% endif %}
+</div>
+{% endblock %}

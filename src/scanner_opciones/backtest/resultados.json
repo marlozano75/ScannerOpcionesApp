@@ -1,0 +1,374 @@
+{
+  "actualizado": "2026-11-08",
+  "metodologia": [
+    "27 tickers líquidos (SPY, QQQ, IWM, AAPL, MSFT, NVDA, AMZN, META, GOOGL, TSLA, AMD, NFLX, JPM, BAC, XOM, INTC, MU, PLTR, COIN, SOFI, UBER, DIS, BA, XLF, GLD, TLT, SMH) con velas diarias de Yahoo 2004-2026 (≈128.000 ticker-día, incluye 2008, 2020 y 2022).",
+    "Descubrimiento con 2004-2018 y validación fuera de muestra con 2019-2026 (IS / OOS). Las señales se calculan con el cierre de t, sin mirar el futuro.",
+    "Suelo = mínimo del día menor que el de los 7 días anteriores y posteriores, con rebote ≥ 2 ATR en los 10 días siguientes (≈8 % de las barras). Una señal acierta si el suelo fue t o t-1. Lift = % de aciertos / base.",
+    "Para CDS la métrica es la carrera «sube +1,5 ATR antes de bajar −1,5 ATR en 10 sesiones» (base 47,2 %), además de «cierra por encima del precio de entrada a los 10 días» (base 55,9 %) y «toca +1,5 ATR» (base 51,9 %).",
+    "Los tickers de un mismo día están correlacionados: los porcentajes por fila sobrestiman la certeza; cuando se indica, «un voto por día» y los episodios independientes son la medida honesta.",
+    "No hay precios históricos de opciones: lo medido es el movimiento del subyacente, no el beneficio de un CDS ni la prima de una put. Backtest orientativo, no asesoramiento."
+  ],
+  "bases": [
+    {"etiqueta": "Suelo (hoy o ayer)", "valor": "8,2 %", "nota": "base de todas las barras"},
+    {"etiqueta": "Carrera ±1,5 ATR en 10 d", "valor": "47,2 %", "nota": "pierde 39,6 %"},
+    {"etiqueta": "Cierra > entrada a 10 d", "valor": "55,9 %", "nota": "ret. medio +0,81 %"},
+    {"etiqueta": "Toca +1,5 ATR en 10 d", "valor": "51,9 %", "nota": ""}
+  ],
+  "conclusiones": [
+    "Se pueden localizar zonas de suelo (lift 3-6x; 47-53 % de acierto «hoy o ayer» con combinaciones), pero no se traduce en subidas posteriores ni en menos asignaciones de puts.",
+    "Parte del acierto es estructural: «mínimo de 20 días ayer + cierre al alza hoy», sin indicador, ya acierta el 35 %. La divergencia alcista del MACD añade +13-17 puntos reales sobre ese control.",
+    "Para entrar en un CDS ninguna señal por ticker mejora la base. Lo único consistente es una condición de MERCADO (≥ 20 % de la watchlist bajo su Keltner), irregular por régimen: funciona en recuperaciones en V y falla en caídas que continúan (2020, 2022).",
+    "Estrés de mercado + sobreventa del ticker llega a 60-68 % según la definición de «recuperarse» (mejor: pullback RSI2<10 en tendencia + VIX>VIX3M, 68,6 % por fila y 67,8 % con un voto por día), pero casi todo es efecto del régimen y salió de 22.578 pares probados.",
+    "FVG de LuxAlgo, Volume Profile, The Strat, Mogalef y MACD no dan ventaja de entrada para CDS. The Strat solo mejora algo con el disparo del 2D-1 (+1 punto en el cierre, +3-4 en la carrera).",
+    "Lo que sí sirve: DESCARTAR. Una caída fuerte que no se confirma al día siguiente (mínimo de D+1 por debajo del de t, o precio bajo el cierre de t a las 11:30) conserva el mínimo solo el 11 % de las veces."
+  ],
+  "pendientes": [
+    "Medir la prima de las puts tras una caída (necesita precios históricos de opciones; hoy no los hay).",
+    "Backtest del propio CDS con las reglas de salida del logbook de MTO (+20 % / −70 % / 90 DTE) en lugar del subyacente.",
+    "Horizontes distintos a 10 sesiones (5, 20, 30) y objetivos expresados como el movimiento que necesita cada CDS.",
+    "Volume Profile con ticks o velas intradía, y FVG con selección manual de zonas.",
+    "Mogalef con la fórmula exacta (las implementaciones difieren) y más variantes de MACD.",
+    "Validar las combinaciones de la ronda 7 con datos posteriores al 2026-11-06 como muestra fuera de muestra real."
+  ],
+  "rondas": [
+    {
+      "id": "R1",
+      "fecha": "2026-11-06",
+      "titulo": "Señales de suelo clásicas",
+      "objetivo": "suelos",
+      "pregunta": "¿Qué indicadores detectan el suelo del mismo día o del anterior? Keltner, RSI, Bollinger, The Strat, volumen relativo, VIX y amplitud.",
+      "veredicto": "parcial",
+      "veredicto_texto": "Localizan suelos (hasta 47 %), sin ventaja de rentabilidad posterior",
+      "tablas": [
+        {
+          "titulo": "Resultados (muestra completa 2004-2026)",
+          "columnas": ["Señal", "% suelo", "Lift IS / OOS", "Ret. 10 d", "Sin nuevo mínimo 10 d"],
+          "filas": [
+            ["Keltner (EMA20 ± 2·ATR10): mínimo fuera y cierre dentro, o reversión", "30 %", "3,6 / 3,7", "+0,8 %", "29 %"],
+            ["Keltner reversión (cierre de ayer fuera, hoy dentro)", "36 %", "4,3 / 4,5", "+0,7 %", "33 %"],
+            ["Bollinger %b<0 / RSI5<20 / RSI14<30", "19-20 %", "2,2-2,6", "+0,9-1,0 %", "17-20 %"],
+            ["Strat 2D-2U (sola)", "20 %", "2,4 / 2,4", "+0,8 %", "26 %"],
+            ["**Strat 2D-2U + Bollinger %b<0 el día anterior**", "**47 %**", "**5,7 / 5,8**", "+0,5 %", "29 %"],
+            ["Keltner + volumen relativo ≥ 1,5 (hoy)", "36 %", "4,5 / 4,3", "+0,3 %", "34 %"],
+            ["Keltner + volumen relativo máx. 3 d ≥ 2", "37 %", "4,6 / 4,5", "+0,3 %", "34 %"],
+            ["Keltner + amplitud ≥ 35 % (valores bajo su Keltner)", "34 %", "3,8 / 4,6", "**+2,0 %** (64 % ganadoras)", "32 %"],
+            ["Keltner + pico de VIX reciente", "35 %", "4,4 / 4,1", "+0,8 %", "31 %"],
+            ["Keltner + SPY sobrevendido (reciente)", "33 %", "4,3 / 3,8", "+0,9 %", "32 %"],
+            ["Keltner + volumen ≥ 2 en 3 d + pico de VIX", "44 %", "5,7 / 5,0", "+0,6 %", "40 %"],
+            ["Mogalef (regresión 3 de (O+H+L+2C)/5, σ 7, ±2σ), mínimo fuera — solo muestra 2023-2026", "13 %", "1,6", "+1,3 %", "29 %"]
+          ],
+          "barra": {"col": 1, "max": 60},
+          "nota": "Base: 8,2 % de las barras son suelo. Retorno base a 10 días +0,8 %; sin nuevo mínimo en 10 días base 22 %."
+        }
+      ],
+      "puntos": [
+        "Keltner con reversión y Strat 2D-2U tras un extremo (Bollinger/Keltner) son las mejores y se confirman fuera de muestra y en 22 años.",
+        "El volumen relativo sube la precisión del suelo (30 % → 36-38 %) pero NO el rendimiento posterior: las señales con volumen de pánico llegan en caídas fuertes (peor precio a 10 días −5,9 %).",
+        "La amplitud (% de valores bajo su Keltner) es lo único que mejora a la vez precisión y rendimiento, pero con solo 135 días distintos.",
+        "Combinar demasiado reduce la muestra y degrada fuera de muestra (Keltner + volumen + amplitud ≥ 20 %: 45 % → 34 %). Máximo recomendable: señal base + 1 filtro.",
+        "Ninguna señal evita el mínimo posterior: el peor precio de los 10 días siguientes queda de media 4-6 % por debajo del cierre de la señal."
+      ],
+      "scripts": ["scripts/suelos/fetch_yf.py", "scripts/suelos/bt2.py", "scripts/suelos/ev3.py"],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R2",
+      "fecha": "2026-11-06",
+      "titulo": "Caída en ATR, Mogalef, MACD y puntuación de suelo",
+      "objetivo": "suelos",
+      "pregunta": "¿Mejoran la caída medida en ATR, otras formas de Mogalef y el MACD? ¿Se pueden combinar en una puntuación con probabilidades?",
+      "veredicto": "parcial",
+      "veredicto_texto": "La divergencia MACD y el canal de Mogalef mejoran; la puntuación llega al 53 % con 6 puntos",
+      "tablas": [
+        {
+          "titulo": "Mejor variante de cada familia (n ≥ 300)",
+          "columnas": ["Familia", "% suelo", "Lift 2004-18 / 2019-26", "Ret. 10 d"],
+          "filas": [
+            ["Caída en ATR: cierre ≥ 3 ATR bajo el máximo de 10 d", "18 %", "2,2 / 2,2", "+0,7 %"],
+            ["Caída en ATR: mínimo ≥ 3-4 ATR bajo el máximo de 5 d", "24-25 %", "2,9 / 2,8", "−0,1 a +0,6 %"],
+            ["Mogalef original (regresión 3, σ 7, ±2σ): tocar la banda / reversión", "12 % / 23 %", "1,5 / 1,3 y 3,1 / 2,3", "+0,7 %"],
+            ["Mogalef con regresión 10, σ 7, ±2σ, reversión", "28,5 %", "3,5 / 3,5", "+1,0 %"],
+            ["Mogalef con regresión 10 y σ 14 o 20, ±2σ, reversión", "31-32 %", "3,7 / 3,8-4,2", "+0,6-0,9 %"],
+            ["**Mogalef de canal sobre cierres (regresión 20, σ de residuos, ±2σ), reversión**", "**36 %**", "**4,2 / 4,8**", "+0,7 %"],
+            ["Keltner reversión (referencia)", "30 %", "3,6 / 3,7", "+0,8 %"],
+            ["MACD 12/26/9: cruce al alza bajo cero · giro del histograma · divergencia sin confirmar", "7 % · 25 % · 24 %", "0,8 · 3,1 / 3,0 · 2,8 / 2,9", "+0,9 · +0,8 · +1,0 %"],
+            ["**MACD divergencia alcista + cierre al alza al día siguiente**", "**48-52 %**", "**5,8-6,3**", "+1,0-1,3 %"]
+          ],
+          "barra": {"col": 1, "max": 60},
+          "nota": "Control: «mínimo de 20 días ayer + cierre al alza hoy», sin MACD, ya acierta el 35 %. La divergencia añade +13-17 puntos reales sobre el control."
+        },
+        {
+          "titulo": "Puntuación de 7 familias (osc, atr, macd, strat, vol, brd, rsi): P(suelo hoy o ayer)",
+          "columnas": ["Puntos", "Probabilidad", "2004-18 / 2019-26", "n"],
+          "filas": [
+            ["0-1", "3 % - 9 %", "—", "106.000"],
+            ["2", "20 %", "19,7 / 19,6", "11.110"],
+            ["3", "27 %", "27,6 / 27,1", "6.735"],
+            ["4", "32 %", "32,9 / 31,1", "3.549"],
+            ["5", "43 %", "44,3 / 40,4", "979"],
+            ["6", "53 %", "52,9 / 52,2", "135"]
+          ],
+          "barra": {"col": 1, "max": 60},
+          "nota": "osc = reversión de banda (Mogalef de canal, Mogalef 10/14 o Keltner); atr = caída ≥ 3 ATR; macd = divergencia alcista confirmada; strat = 2D-2U; vol = volumen relativo máx. 3 d ≥ 2; brd = ≥ 20 % de la watchlist bajo su Keltner; rsi = Bollinger %b<0."
+        }
+      ],
+      "puntos": [
+        "Pares destacados: MACD + banda 53 % (n 1.464), MACD + volumen 59 % (n 288), Strat + banda 45 % (n 3.944). Probabilidad de que el suelo sea el propio día: ≈12 % con ≥ 3 puntos.",
+        "Con ≥ 4 puntos en t y confirmación de D+1 (mínimo y cierre por encima de los de t): P(t es el suelo) 23 % (índices 27 %) y 50 % de conservar el mínimo (base 26 %). Sin confirmar: 5 % y 17 %.",
+        "Semana del 5-nov-2026 (SPY 766,8 → 733,0, VIX 16,6 → 28,2): el 30-oct y 2-nov SPY ya puntuaba 4-5 y fue un falso suelo; el 5-nov SPY puntuó 4 y QQQ 5; el 6-nov se cumplió la confirmación de D+1. De las 31 señales ≥ 4 de la semana con alguna sesión posterior, el 45 % no rompió su mínimo."
+      ],
+      "scripts": ["scripts/suelos/bt3.py", "scripts/suelos/ev4.py", "scripts/suelos/ev5.py"],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R3",
+      "fecha": "2026-11-06",
+      "titulo": "Datos intradía para confirmar el suelo",
+      "objetivo": "suelos",
+      "pregunta": "¿Mejora la precisión mirar la sesión intradía del día del suelo y de la recuperación?",
+      "veredicto": "parcial",
+      "veredicto_texto": "Adelanta la confirmación y sirve para descartar; no mejora el acierto del suelo",
+      "tablas": [
+        {
+          "titulo": "Características intradía (puntuación diaria ≥ 3; velas de 1 h de Yahoo 2023-12 → 2026-10)",
+          "columnas": ["Característica", "P(t es suelo)", "Mínimo no perdido 10 d", "Observación"],
+          "filas": [
+            ["Rebote ≥ 1 ATR del mínimo al cierre (dato DIARIO, no intradía)", "30 % (n 174)", "63 %", "En 22 años: puntuación ≥ 3 → 52 % suelo hoy-o-ayer frente a 27 % sin rebote; ret. 10 d ≈ 0 %"],
+            ["Mínimo temprano (antes de las 11:30)", "14 %", "33 % (vs 20 %)", "Mejora la persistencia, no el acierto"],
+            ["Mínimo aguantado en las 3 últimas horas", "14 %", "33 % (vs 19 %)", "Idem"],
+            ["Mínimo tardío (15:30+) o cierre en el tercio inferior", "11-12 %", "20 % (vs 31-33 %)", "Cierra en el mínimo: peor persistencia"],
+            ["Volumen de la última hora / último movimiento", "sin efecto", "—", "—"],
+            ["**Confirmación de D+1 a las 11:30** (mínimo de las 3 primeras horas > mínimo de t y precio > cierre de t)", "**23 %** (vs 4,7 %)", "**49 %** (vs 11 %)", "Mismas cifras que la confirmación diaria, 4-5 horas antes"]
+          ],
+          "nota": "Base con puntuación ≥ 3: P(t es suelo) 13 %, mínimo de t no perdido 28 %."
+        }
+      ],
+      "puntos": [
+        "Profundidad disponible: tastytrade da velas de 5 y 30 min solo desde 2026-08-10 y de 1 h desde 2026-01-26; Yahoo, 1 h con 2 años y 5-15 min con 60 días. Muestra pequeña y solapada: orientativo.",
+        "Perfil del 5-nov (mínimo tardío + cierre en el tercio inferior + puntuación ≥ 3): 12,9 %; con D+1 confirmado 29,6 % (n 135, mínimo conservado 51 %); sin confirmar 0 %.",
+        "El 6-nov a las 11:30 la confirmación se cumplió en 9 de 11 valores marcados (no en IWM ni XOM).",
+        "Estable entre mitades de la muestra: confirmación D+1 24,5 % y 20,6 %."
+      ],
+      "scripts": ["scripts/suelos/fetch_intra.py", "scripts/suelos/intra1.py", "scripts/suelos/intra2.py", "scripts/suelos/intra3.py"],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R4",
+      "fecha": "2026-11-06",
+      "titulo": "¿Ayudan las señales de suelo a vender puts?",
+      "objetivo": "puts",
+      "pregunta": "Entrando al cierre de D+1 con vencimiento a 30 sesiones, ¿baja la probabilidad de que el precio acabe o toque por debajo del strike tras una señal de suelo?",
+      "veredicto": "sin_ventaja",
+      "veredicto_texto": "Con la señal el riesgo es igual o algo peor que cualquier día",
+      "tablas": [
+        {
+          "titulo": "Probabilidad de vencer por debajo del strike / de tocarlo antes (2004-2026)",
+          "columnas": ["Strike", "Todos los días", "Puntuación ≥ 3 y D+1 confirmado", "Puntuación ≥ 4 y D+1 confirmado"],
+          "filas": [
+            ["−5 %", "21,8 % / 49,4 %", "21,7 % / 52,3 %", "19,9 % / 51,3 %"],
+            ["−8 %", "14,6 % / 32,9 %", "15,2 % / 35,9 %", "13,9 % / 34,6 %"],
+            ["−12 %", "8,5 % / 19,7 %", "9,2 % / 22,3 %", "8,5 % / 21,2 %"]
+          ],
+          "nota": "Solo 2019-2026, strike −8 %: 16,5 % / 37,3 % (base) frente a 17,1 % / 40,8 % (señal confirmada)."
+        }
+      ],
+      "puntos": [
+        "La señal indica que ya cayó, no que vaya a dejar de caer. Que el mínimo del día de la señal se conserve más veces no sirve con strikes a −8 % o más, muy por debajo de ese mínimo.",
+        "Sin medir: tras una caída la IV está más alta y la prima es mejor; podría ser la ventaja real, pero no hay precios históricos de opciones. El Scanner ya lo capta con IV Rank y yield.",
+        "Regla útil que queda: una caída fuerte sin confirmación al día siguiente casi siempre sigue cayendo (conserva el mínimo el 11 % de las veces)."
+      ],
+      "scripts": [],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R5",
+      "fecha": "2026-11-06",
+      "titulo": "Señales de entrada para un CDS (que el precio suba)",
+      "objetivo": "cds",
+      "pregunta": "Para un CDS importa que el precio suba antes de caer. ¿Alguna de las 173 señales (rebote, tendencia, rupturas, cruces, MACD, gaps, velas fuertes) mejora la carrera +1,5 ATR / −1,5 ATR a 10 sesiones?",
+      "veredicto": "parcial",
+      "veredicto_texto": "Ninguna señal por ticker; solo la amplitud de mercado, irregular por régimen",
+      "tablas": [
+        {
+          "titulo": "Carrera «sube +1,5 ATR antes de bajar −1,5 ATR» en 10 sesiones",
+          "columnas": ["Señal / grupo", "n", "Gana la carrera", "Ret. 10 d", "Observación"],
+          "filas": [
+            ["Base: todos los días", "128.748", "47,2 %", "+0,8 %", "pierde 39,6 %"],
+            ["**Amplitud ≥ 20 % de la watchlist bajo Keltner**", "395 días", "**52,6 %**", "**+1,5 %**", "frente a 46,8 % y +0,75 % el resto; falla en 2020 (−4,4 %) y 2022 (−0,5 %)"],
+            ["Pullback RSI2<10 en tendencia", "6.766", "50,8 %", "+1,1 %", "52,3 % antes de 2019, 48,6 % después"],
+            ["MACD cruce al alza bajo cero", "2.672", "48,8 %", "+0,9 %", "—"],
+            ["Keltner superior (c > EMA20 + 2·ATR10)", "16.894", "47,5 %", "+1,1 %", "—"],
+            ["Cruce de EMA20 al alza", "8.308", "46,9 %", "+0,6 %", "—"],
+            ["Ruptura de máximo de 20 d (cierre)", "20.459", "46,3 %", "+0,8 %", "por debajo de la base"],
+            ["Ruptura de máximo de 55 d (cierre)", "14.092", "46,2 %", "+0,7 %", "por debajo de la base"],
+            ["Puntuación de suelo ≥ 3 con rebote ≥ 1 ATR", "1.538", "43,8 %", "+0,1 %", "la mejor para localizar suelos, de las peores para subir"],
+            ["Confirmación intradía de D+1 (11:30), puntuación ≥ 3", "692 / 780", "—", "+2,0 % / +2,5 %", "entrando a las 11:30 de D+1: confirmado / no confirmado (base +1,1 %)"]
+          ],
+          "barra": {"col": 2, "max": 60},
+          "nota": "Solo 2 de 173 señales mejoran la base ≥ 2 puntos en las dos mitades de la muestra; con 173 pruebas eso es lo esperable por azar."
+        }
+      ],
+      "puntos": [
+        "Confirmar a las 11:30 del día siguiente sirve para descartar suelos, no para elegir entradas.",
+        "Posible uso de la amplitud: informar en el CDS (no filtrar) de que el mercado está en capitulación. El 2026-11-06 estaba en 26 %. No implementado.",
+        "Valor práctico limitado: un CDS de 200-400 DTE depende más de la tesis y de la IV de entrada que de 0,7 puntos en 10 días."
+      ],
+      "scripts": ["scripts/suelos/cds1.py", "scripts/suelos/cds2.py"],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R6",
+      "fecha": "2026-11-06",
+      "titulo": "Fair Value Gap (LuxAlgo) y Volume Profile",
+      "objetivo": "cds",
+      "pregunta": "¿Dan ventaja de entrada el FVG de LuxAlgo y el Volume Profile (POC, área de valor)?",
+      "veredicto": "sin_ventaja",
+      "veredicto_texto": "Todas entre 43 % y 48 % frente a 47,2 % de base; algo útiles para localizar suelos (VP)",
+      "tablas": [
+        {
+          "titulo": "Carrera ±1,5 ATR en 10 sesiones y acierto de suelo",
+          "columnas": ["Señal", "n", "Gana la carrera", "IS / OOS", "Ret. 10 d", "% suelo (lift)"],
+          "filas": [
+            ["FVG alcista: retest de zona abierta", "13.525", "47,0 %", "48,3 / 45,6", "+0,8 %", "11,1 % (1,4x)"],
+            ["FVG alcista: retest + tendencia", "7.113", "48,2 %", "50,7 / 45,4", "+1,05 %", "—"],
+            ["FVG alcista: retest + amplitud ≥ 20 %", "1.199", "49,8 %", "48,2 / 51,8", "+1,4 %", "—"],
+            ["FVG alcista: cierre dentro de la zona", "8.646", "47,8 %", "49,8 / 45,5", "+1,0 %", "9,4 % (1,1x)"],
+            ["FVG alcista nuevo", "3.834", "44,6 %", "43,5 / 45,9", "+0,7 %", "2,5 % (0,3x)"],
+            ["FVG bajista mitigado (cierre sobre su techo)", "2.977", "43,6 %", "42,4 / 45,3", "+0,6 %", "5,1 % (0,6x)"],
+            ["VP60: apoyo en el POC", "4.332", "47,6 %", "46,7 / 49,1", "+0,9 %", "6,9 % (0,8x)"],
+            ["VP60: cruce del POC al alza", "5.519", "47,2 %", "45,8 / 49,3", "+0,7 %", "13,7 % (1,7x)"],
+            ["VP60: ruptura del VAH", "5.637", "47,1 %", "46,6 / 47,8", "+0,7 %", "6,2 % (0,8x)"],
+            ["VP60: reclama el VAL", "2.543", "45,5 %", "45,4 / 45,7", "+0,5 %", "**21,2 % (2,6x)**"],
+            ["VP60: toca el VAL y aguanta", "3.227", "45,1 %", "44,9 / 45,5", "+0,4 %", "17,6 % (2,1x)"],
+            ["VP120: reclama el VAL", "1.666", "44,1 %", "44,6 / 43,5", "+0,4 %", "19,4 % (2,4x)"],
+            ["VP60: bajo el VAL", "20.815", "47,1 %", "46,5 / 48,1", "+0,8 %", "15,3 % (1,9x)"]
+          ],
+          "barra": {"col": 2, "max": 60},
+          "nota": "Base: 47,2 % (carrera), +0,8 % (ret. 10 d), 8,2 % (suelo). VP = perfil de las últimas 60 o 120 sesiones; POC = nivel de más volumen; VAL/VAH = límites del área de valor del 70 %."
+        }
+      ],
+      "puntos": [
+        "El FVG de LuxAlgo es una herramienta visual para elegir zonas a mano; el backtest solo mide la regla mecánica (umbral automático, zona abierta hasta que un cierre la mitiga o pasan 120 sesiones).",
+        "El Volume Profile está aproximado con velas diarias (volumen repartido uniformemente en el rango de cada vela); el real usa ticks o intradía.",
+        "Reclamar el VAL con la amplitud ≥ 20 % es peor (39-42 %)."
+      ],
+      "scripts": ["scripts/suelos/fvg_vp.py", "scripts/suelos/fvg_ev.py"],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R7",
+      "fecha": "2026-11-06",
+      "titulo": "Búsqueda de combinaciones con más del 65 %",
+      "objetivo": "cds",
+      "pregunta": "¿Hay alguna combinación de señales con más del 65 % de probabilidad de que el precio se recupere en 10 días?",
+      "veredicto": "parcial",
+      "veredicto_texto": "Sí, con estrés de mercado + sobreventa (60-68 % según definición), sobre todo efecto del régimen",
+      "tablas": [
+        {
+          "titulo": "Mejores combinaciones (pares de 212 señales; descubrimiento 2004-2018, validación 2019-2026)",
+          "columnas": ["Combinación", "Def.", "P (filas)", "P (un voto por día)", "Días / episodios", "Años ≥ 60 %", "Ret. 10 d medio / peor 10 %"],
+          "filas": [
+            ["**Pullback RSI2<10 en tendencia + VIX>VIX3M**", "B", "**68,6 %** (69,5 / 66,4)", "67,8 %", "246 / 82", "16 de 20", "+1,95 % / −7,7 %"],
+            ["MACD(5,35,5) en extremo + ≥ 35 % de la watchlist bajo Keltner", "B", "66,2 %", "61,8 %", "161 / 57", "16 de 21", "+2,0 % / −10,0 %"],
+            ["MACD(12,26,9) en extremo + VIX>VIX3M", "A", "65,4 %", "60,0 %", "452 / 61", "15 de 19", "+2,5 % / −8,6 %"],
+            ["MACD(12,26,9) en extremo + VVIX alto", "A", "64,9 %", "60,5 %", "692 / 82", "15 de 19", "+2,0 % / −7,6 %"],
+            ["MACD(12,26,9) divergencia alcista + VVIX alto", "A", "65,9 %", "61,2 %", "414 / 101", "11 de 19", "+2,8 % / −6,3 %"]
+          ],
+          "barra": {"col": 2, "max": 80},
+          "nota": "Def. A = cierra por encima del precio de entrada a los 10 días (base 55,9 %). Def. B = toca +1,5 ATR en algún momento de las 10 sesiones (base 51,9 %). Con A solo 2 combinaciones superan el 65 % en las dos muestras; con B, 6."
+        }
+      ],
+      "puntos": [
+        "Todas comparten estrés de mercado (VIX por encima de VIX3M, VVIX alto o ≥ 35-50 % de la watchlist bajo Keltner) + sobreventa del ticker (MACD en su 5 % inferior del año o RSI2<10 en tendencia).",
+        "Solo la primera supera el 65 % con un voto por día; en esa muestra la carrera ±1,5 ATR da 60,0 % (pierde 35,0 %) y el 63,5 % cierra por encima a los 10 días.",
+        "Cautelas: el VIX en backwardation ya da 59,8 % (A) y 55,3 % (B) por sí solo; se probaron 22.578 pares por definición; «toca +1,5 ATR» no es el beneficio del CDS; el peor 10 % de los casos pierde un 7-10 % a 10 días; solo 48-82 episodios independientes, concentrados en crisis y rebotes.",
+        "Estado el 2026-11-06: VIX/VIX3M = 1,031 (backwardation), 26 % de la watchlist bajo Keltner, MACD(12,26,9) en extremo + backwardation en AMD, GOOGL, INTC, MU, NVDA, QQQ y SMH."
+      ],
+      "scripts": ["scripts/suelos/srch.py"],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R8",
+      "fecha": "2026-11-06",
+      "titulo": "The Strat completo para CDS",
+      "objetivo": "cds",
+      "pregunta": "¿Dan ventaja de entrada los patrones de The Strat (2D-2U, 3-1-2U, 2D-1, 1-2U…) y la continuidad entre temporalidades (FTFC)?",
+      "veredicto": "sin_ventaja",
+      "veredicto_texto": "Lo más cercano es el disparo alcista del 2D-1 (+1 punto en el cierre, +3-4 en la carrera)",
+      "tablas": [
+        {
+          "titulo": "Al cierre de la vela de señal (base: 55,9 % cierra por encima, 51,9 % toca +1,5 ATR, 47,2 % gana la carrera, +0,81 %)",
+          "columnas": ["Patrón", "n", "Cierra > entrada a 10 d", "Toca +1,5 ATR", "Gana la carrera", "Ret. 10 d"],
+          "filas": [
+            ["2D-2U", "16.883", "56,0 %", "51,6 %", "47,0 %", "+0,81 %"],
+            ["2D-2D-2U", "7.504", "54,9 %", "51,1 %", "46,3 %", "+0,73 %"],
+            ["3-2U", "4.166", "55,5 %", "51,4 %", "47,1 %", "+0,73 %"],
+            ["3-1-2U", "1.011", "53,0 %", "50,6 %", "46,0 %", "+0,71 %"],
+            ["2D-1-2U", "2.764", "56,7 %", "52,5 %", "48,8 %", "+0,86 %"],
+            ["1-2U", "6.821", "55,5 %", "50,9 %", "46,8 %", "+0,79 %"],
+            ["2U-2U", "26.524", "56,0 %", "50,8 %", "46,4 %", "+0,74 %"],
+            ["2D fallido + 2U", "9.777", "56,0 %", "51,6 %", "47,3 %", "+0,73 %"],
+            ["Martillo", "2.163", "56,5 %", "52,1 %", "47,2 %", "+0,84 %"],
+            ["Control bajista 2U-2D", "16.781", "56,5 %", "52,6 %", "47,5 %", "+0,88 %"],
+            ["FTFC alcista (día, semana y mes verdes)", "37.084", "56,3 %", "51,3 %", "46,7 %", "+0,74 %"],
+            ["FTFC bajista", "29.609", "55,1 %", "52,7 %", "47,6 %", "+0,79 %"]
+          ],
+          "barra": {"col": 4, "max": 60}
+        },
+        {
+          "titulo": "Entrada como se opera en Strat (stop de compra en el máximo de la vela interior; resultado desde el precio de entrada)",
+          "columnas": ["Patrón", "Disparan arriba", "Cierra > entrada", "Toca +1,5 ATR", "Gana la carrera", "Pierde", "Ret. 10 d"],
+          "filas": [
+            ["Base: cualquier día con ruptura del máximo de ayer", "54.384", "57,4 %", "54,5 %", "50,2 %", "37,0 %", "+1,04 %"],
+            ["Cualquier vela interior (1)", "6.818", "57,7 %", "55,3 %", "51,5 %", "35,7 %", "+1,23 %"],
+            ["**2D-1 (interior tras una 2D)**", "2.763", "**58,5 %**", "57,1 %", "**54,0 %**", "34,2 %", "+1,29 %"],
+            ["2D-2D-1", "1.208", "58,5 %", "55,4 %", "52,5 %", "34,0 %", "+1,38 %"],
+            ["2U-1", "2.635", "58,0 %", "53,7 %", "49,4 %", "36,0 %", "+1,15 %"],
+            ["3-1", "1.010", "55,0 %", "54,3 %", "50,5 %", "38,0 %", "+1,18 %"],
+            ["1-1", "410", "56,6 %", "55,9 %", "50,7 %", "38,5 %", "+1,41 %"],
+            ["2U-2U-1", "1.322", "56,6 %", "53,3 %", "49,3 %", "36,0 %", "+0,95 %"],
+            ["2D-2U (disparo = ruptura del máximo)", "8.490", "57,1 %", "54,8 %", "50,4 %", "37,1 %", "+1,01 %"],
+            ["Martillo / 2D fallido", "9.772", "57,4 %", "54,5 %", "50,1 %", "37,3 %", "+0,95 %"]
+          ],
+          "barra": {"col": 4, "max": 60},
+          "nota": "El 2D-1: 2004-18 58,3 % / 2019-26 58,7 % cierra por encima. Con estrés (VIX>VIX3M) el 3-2U da 60,4 % (n 280) y cualquier 2U de giro 58,1 % (66,1 % solo después de 2019): no es fiable."
+        }
+      ],
+      "puntos": [
+        "Al cierre de la señal ningún patrón mejora la base; el control bajista 2U-2D da lo mismo que los alcistas.",
+        "Para localizar suelos (no para subir): 2D-2U 19,8 %, 2D-2D-2U 30,5 %, 2D-2U tras Bollinger 47,3 %."
+      ],
+      "scripts": ["scripts/suelos/strat.py", "scripts/suelos/strat_ev.py", "scripts/suelos/strat_trig.py"],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "D1",
+      "fecha": "2026-11-06",
+      "titulo": "Datos disponibles para backtest",
+      "objetivo": "datos",
+      "pregunta": "¿Qué históricos se pueden traer de tastytrade u otras fuentes?",
+      "veredicto": "info",
+      "veredicto_texto": "Volumen diario ya guardado en la app (migración v44)",
+      "tablas": [
+        {
+          "titulo": "Fuentes comprobadas el 2026-11-06",
+          "columnas": ["Fuente", "Cobertura", "Contenido", "Nota"],
+          "filas": [
+            ["tastytrade DXLink, velas diarias", "desde 2022-12-29 (≈968 sesiones)", "Apertura, máx., mín., cierre, volumen, vwap, volumen bid/ask", "Volumen ≈ 30-40 % del consolidado (SPY 0,31x, AAPL 0,40x): usar solo relativo a su media (correlación 0,88-0,93)"],
+            ["tastytrade, VIX", "desde 2018-04-02", "OHLC, sin volumen", "—"],
+            ["tastytrade, intradía", "5 y 30 min desde 2026-08-10; 1 h desde 2026-01-26", "Velas", "La petición agota el tiempo con frecuencia"],
+            ["Yahoo (yfinance), diario", "2004-2026", "OHLC y volumen consolidado", "Ya es dependencia de la app"],
+            ["Yahoo, índices", "^VIX 2004, ^VIX3M 2006, ^VVIX 2007, ^VIX9D 2011, ^SKEW 2004", "Cierres", "Estructura de plazos del VIX"],
+            ["Yahoo, intradía", "1 h: 730 días; 5 y 15 min: 60 días", "Velas", "—"],
+            ["Sin cubrir", "—", "Precios, OI y volumen históricos de opciones; IV Rank histórico amplio", "Limita medir la prima de las puts y el beneficio real de un CDS"]
+          ]
+        }
+      ],
+      "puntos": [
+        "En la app: `daily_bars.volume` (migración v44), `BarRepo.volumes` y `missing_volume`. La primera actualización diaria tras el cambio vuelve a descargar el histórico de toda la watchlist."
+      ],
+      "scripts": ["scripts/suelos/fetch_tasty.py", "scripts/suelos/fetch_yf.py"],
+      "doc": "docs/deteccion-suelos.md"
+    }
+  ]
+}
