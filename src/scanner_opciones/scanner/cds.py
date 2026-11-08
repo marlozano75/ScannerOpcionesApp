@@ -37,7 +37,7 @@ class CdsResult:
     required_move_mult: float         # necesario / esperado (≤ max_required_move_mult)
     sma200_distance_pct: Optional[float]   # % del precio respecto a la SMA200 (negativo = por debajo)
     prob_pct: float = 0.0             # probabilidad (%) de tocar el nivel que da el objetivo en `move_days` días
-    score: float = 0.0                # prob × retorno neto de salida % / 100 × √(ganancia neta de salida en $ por contrato): rendimiento ponderado por la probabilidad y por la ganancia absoluta (orden de la tabla)
+    score: float = 0.0                # prob × retorno neto en la salida / 100: rendimiento del débito ponderado por la probabilidad (orden de la tabla)
     exit_value: float = 0.0           # valor del spread en la salida (por acción) = débito × (1 + objetivo)
     exit_credit_usd: float = 0.0      # lo que se cobra al cerrar en el objetivo, en $ por contrato, ya sin la comisión de cierre
     exit_profit_usd: float = 0.0      # ganancia neta en $ por contrato (cobrado − débito)
@@ -105,7 +105,7 @@ def build_call_debit_spreads(
     price_reference: PriceReference = PriceReference.BID_PLUS_SPREAD, price_spread_pct: float = 25.0,
     cost_ps: Callable[[float], float] = lambda multiplier: 0.0,
 ) -> list[CdsResult]:
-    """CDS que cumplen `cds`, ordenados por puntuación (probabilidad × retorno de salida % × √ganancia de salida en $), como mucho `top_per_ticker` por ticker. `cost_ps(multiplicador)` = comisiones por
+    """CDS que cumplen `cds`, ordenados por puntuación (probabilidad de alcanzar el objetivo × retorno máximo), como mucho `top_per_ticker` por ticker. `cost_ps(multiplicador)` = comisiones por
     acción de las dos patas (y del cierre, si procede). Sin delta o sin IV no hay movimiento esperado: el spread se descarta."""
     calls = {(s.contract.ticker, s.contract.expiry, round(s.contract.strike, 4)): s
              for s in snapshots if s.contract.right is OptionRight.CALL}
@@ -185,7 +185,7 @@ def build_call_debit_spreads(
                 continue                   # probabilidad mínima de alcanzar el objetivo
             breakeven = strike + debit
             found.append(CdsResult(lg, sh, width, debit, debit * mult, max_return, breakeven, (breakeven / price - 1) * 100,
-                                   otm, net_delta, required_pct, expected_pct, required_mult, dist200, prob, prob * exit_return / 100 * math.sqrt(max(exit_profit * mult, 0.0)),
+                                   otm, net_delta, required_pct, expected_pct, required_mult, dist200, prob, prob * exit_return / 100,
                                    exit_value, (exit_value - close_cost) * mult, exit_profit * mult, exit_return))
         if cds.best_width and found:
             found = [max(found, key=lambda r: r.score)]

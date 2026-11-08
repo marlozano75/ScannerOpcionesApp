@@ -101,7 +101,7 @@ def test_probability_score_ranking_and_top_per_ticker():
     every = build_call_debit_spreads(snaps, info(), cfg(min_prob_pct=None, top_per_ticker=0), TODAY)
     assert len(every) >= 2
     assert [r.score for r in every] == sorted((r.score for r in every), reverse=True)
-    assert all(abs(r.score - r.prob_pct * r.exit_return_pct / 100 * r.exit_profit_usd ** 0.5) < 1e-9 for r in every)
+    assert all(abs(r.score - r.prob_pct * r.exit_return_pct / 100) < 1e-9 for r in every)
     assert all(0 < r.prob_pct <= 100 for r in every)
     # la probabilidad solo depende del múltiplo (menos movimiento necesario = más probable)
     assert all((a.required_move_mult <= b.required_move_mult) == (a.prob_pct >= b.prob_pct) for a in every for b in every)
