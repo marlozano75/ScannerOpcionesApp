@@ -161,3 +161,13 @@ Patrones sobre velas diarias (1 interior, 2U, 2D, 3 exterior): 2D-2U, 2D-2D-2U, 
 - **Para localizar suelos** (no para subir): 2D-2U 19,8 %, 2D-2D-2U 30,5 %, 2D-2U tras Bollinger 47,3 %, como en la primera ronda.
 - **Entrada como se opera en Strat** (stop de compra en el máximo de la vela interior; entra el día siguiente si rompe arriba sin romper abajo; resultado medido desde el precio de entrada): base «cualquier día con ruptura del máximo de ayer» 57,4 % cierra por encima a 10 días, win (+1,5 ATR antes que −1,5 ATR) 50,2 %. **2D-1 (vela interior tras una 2D) 58,5 % y win 54,0 %** (n 2.763; 2004-18 58,3 % / 2019-26 58,7 %; pierde 34,2 % frente a 37,0 %); 2D-2D-1 58,5 % y 52,5 %; 2U-1 58,0 % y 49,4 %; 3-1 55,0 %. Mejora real pero pequeña (+1 punto en cierre, +3-4 puntos en la carrera), muy lejos del 65 %.
 - Conclusión: The Strat no aporta una ventaja de entrada para el CDS; lo más cercano es 2D-1 con disparo alcista.
+
+## Octava ronda (2026-11-08): patrones de Bulkowski (doble suelo e HCH invertido)
+Prueba de la idea «el suelo bien formado, operado solo tras el cierre sobre la clavícula, mejor con gap y a favor del mercado» (`scripts/suelos/patrones.py`; 2.405 dobles suelos y 501 HCH invertidos en 27 tickers, 2004-2026; mismas métricas de CDS a 10 sesiones).
+
+- **Sin ventaja:** doble suelo confirmado 57,5 % cierra por encima a 10 d (base 55,9 %), con gap 58,3 %; HCH invertido 55,5 % (con gap 52,3 %). Toca +1,5 ATR 52,1 % / 47,7 % (base 51,9 %). SPY>SMA200 57,3 %, SPY<SMA200 58,6 %.
+- **Combinaciones:** con VIX>VIX3M 57,3 % (2019-26: 50,0 %, n = 96); con ≥ 20 % de la watchlist bajo Keltner 62,0 % (n = 50, 2019-26: 53 %). Añadirlo al pullback RSI2<10 + backwardation lo empeora (68,6 % → 62,1 %; carrera 60,0 % → 53,6 %).
+- Las cifras de Bulkowski son subidas máximas de operaciones ideales, no la probabilidad de estar arriba a 10 sesiones. Registrado como R9 en la pestaña Backtest.
+
+## Novena ronda (2026-11-08): cruce MACD 6-20-9 con precio sobre la EMA10
+`scripts/suelos/macd620.py`. Setup «620»: MACD(6,20,9) cruza al alza su señal y el cierre está sobre la EMA10. 5.991 señales: 56,9 % cierra por encima a 10 d (base 55,9 %), toca +1,5 ATR 52,1 % (base 51,9 %). El mejor filtro es pullback en tendencia (c>SMA200, SMA50>SMA200) con MACD<0: 60,0 % (n = 1.375, 249 episodios; pierde 36,0 % frente a 39,6 %). Con estrés de mercado las muestras son pequeñas (VIX>VIX3M 60,7 %, n = 389; amplitud ≥ 20 % 63,1 %, n = 111) y no mejora la combinación pullback RSI2 + backwardation. Registrado como R10 en la pestaña Backtest.
