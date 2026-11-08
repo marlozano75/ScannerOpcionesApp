@@ -163,6 +163,24 @@ class YahooFx:
         return out
 
 
+async def fetch_vix3m() -> Optional[float]:
+    """Último valor del VIX a 3 meses (`^VIX3M` de Yahoo, ~15 min de retraso). None si Yahoo no responde: el indicador usa entonces el futuro a un mes."""
+    try:
+        import yfinance
+    except ImportError:
+        return None
+    logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+
+    def fetch():
+        return yfinance.Ticker("^VIX3M").history(period="5d", interval="1d")["Close"].dropna()
+
+    try:
+        closes = await asyncio.to_thread(fetch)
+    except Exception:
+        return None
+    return float(closes.iloc[-1]) if len(closes) and closes.iloc[-1] > 0 else None
+
+
 class YahooFinancials:
     """Implementa `FinancialsProvider` con los estados financieros de Yahoo (trimestrales y anuales: balance, flujo de caja y resultados), pensado
     como respaldo de SEC EDGAR. Siete peticiones por ticker, en hilos; las cuentas llegan en la moneda de la empresa y los importes se pasan a

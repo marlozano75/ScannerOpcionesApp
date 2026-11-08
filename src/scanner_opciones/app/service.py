@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, replace
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Awaitable, Callable, Optional, Sequence
 
 from scanner_opciones.broker.base import BrokerGateway, chain_origin
 from scanner_opciones.config.settings import (
@@ -58,6 +58,7 @@ from scanner_opciones.portfolio.overview import leg_key, other_key, other_positi
 from scanner_opciones.portfolio.spreads import split_combos, split_spreads, with_spreads
 from scanner_opciones.portfolio.simulator import SimulatedTrade, SimulationResult, simulate
 from scanner_opciones.scanner import profiles as profiles_mod
+from scanner_opciones.scanner.capitulation import Capitulation, assess as assess_capitulation, below_keltner
 from scanner_opciones.scanner.profiles import UNASSIGNED, Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.metrics import technical as ta
@@ -237,7 +238,9 @@ class AppService:
         dividends: Optional[DividendProvider] = None,
         fx: Optional[FxProvider] = None,
         option_history: Optional[OptionHistoryProvider] = None,
+        vix3m: Optional[Callable[[], Awaitable[Optional[float]]]] = None,
     ) -> None:
+        self.vix3m_source = vix3m                 # VIX a 3 meses de Yahoo (None en los tests): el indicador de capitulación lo compara con el VIX
         self.prices = prices                      # precios de tastytrade: también los de premercado
         self.option_history = option_history      # bid histórico de opciones (velas de tastytrade): informe «Criba teórica»
         self.yield_history_progress: Optional[str] = None   # texto de avance mientras se piden los bids históricos (None = parado)
@@ -3644,8 +3647,24 @@ class AppService:
             return False
         return vix.updated_at.astimezone() >= self.market.last_close(self.now())
 
+    async def _attach_vix3m(self) -> None:
+        """Añade al VIX en memoria el VIX3M de Yahoo (si falla se queda el anterior) y guarda el conjunto en la caché."""
+        vix = self.state.vix
+        if vix is None:
+            return
+        if self.vix3m_source is not None:
+            try:
+                value = await asyncio.wait_for(self.vix3m_source(), timeout=STEP_TIMEOUT_SECONDS)
+            except Exception:
+                value = None
+            if value is not None:
+                vix = self.state.vix = replace(vix, vix3m=value)
+        self.meta.set(VIX_CACHE, vix_cache.dump(vix))
+
     async def _refresh_vix(self, skip_closed: bool = False) -> None:
         if skip_closed and self._vix_is_current():
+            if self.state.vix is not None and self.state.vix.vix3m is None:
+                await self._attach_vix3m()
             return   # mercado cerrado y ya se capturó el cierre: se ahorran las conexiones a tastytrade
         try:
             self.state.vix = await asyncio.wait_for(
@@ -3653,7 +3672,7 @@ class AppService:
                 timeout=STEP_TIMEOUT_SECONDS,
             )
             self.state.errors.pop("vix", None)
-            self.meta.set(VIX_CACHE, vix_cache.dump(self.state.vix))
+            await self._attach_vix3m()
         except BrokerDisconnectedError:
             raise
         except BrokerError as exc:
@@ -4349,6 +4368,15 @@ class AppService:
             snapshots, self.infos(criteria), criteria, self.now().date(), bars, self.settings.scanner.technical,
             self.quality_exempt(), self._atr(criteria, snapshots), self.nlv_usd(),
         )
+
+    def capitulation(self) -> Optional[Capitulation]:
+        """Indicador informativo de capitulación de mercado (VIX en backwardation + amplitud bajo Keltner de la cesta líquida). None si está apagado."""
+        cfg = self.settings.scanner.capitulation
+        if not cfg.enabled:
+            return None
+        today = self.now().date()
+        flags = [below_keltner(self.bars.candles(t.replace(" ", "-")), today) for t in cfg.tickers]
+        return assess_capitulation(self.state.vix, flags, cfg)
 
     def assignment(self) -> AssignmentExposure:
         return assignment_exposure(with_spreads(self.state.positions), self.state.account)

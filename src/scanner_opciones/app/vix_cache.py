@@ -15,6 +15,7 @@ def dump(vix: VixData) -> str:
         "last_closes": [[d.isoformat(), v] for d, v in vix.last_closes],
         "futures": [[d.isoformat(), v] for d, v in vix.futures],
         "updated_at": vix.updated_at.isoformat() if vix.updated_at else None,
+        "vix3m": vix.vix3m,
     })
 
 
@@ -29,6 +30,7 @@ def load(raw: Optional[str]) -> Optional[VixData]:
             last_closes=[(date.fromisoformat(d), float(v)) for d, v in data.get("last_closes", [])],
             futures=[(date.fromisoformat(d), float(v)) for d, v in data.get("futures", [])],
             updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None,
+            vix3m=None if data.get("vix3m") is None else float(data["vix3m"]),
         )
     except (ValueError, TypeError, KeyError):
         return None

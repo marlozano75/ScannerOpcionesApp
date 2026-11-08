@@ -72,6 +72,21 @@ def test_dashboard_renders_risk_and_vix(client_and_service):
 
 
 
+def test_dashboard_shows_the_market_capitulation_indicator(client_and_service):
+    from datetime import timedelta
+    from scanner_opciones.domain.models import VixData
+    client, svc, *_ = client_and_service
+    today = svc.now().date()
+    for t in svc.settings.scanner.capitulation.tickers[:10]:             # 10 valores de la cesta se hunden al final
+        closes = [100.0] * 60 + [95.0, 88.0]
+        svc.bars.upsert_ohlc(t, [(today - timedelta(days=len(closes) - 1 - i), c, c + 1, c - 1, c, 1000.0) for i, c in enumerate(closes)])
+    svc.state.vix = VixData(30.0, [], [(today + timedelta(days=10), 27.0)], svc.now())
+    page = client.get("/").text
+    assert 'id="capitulacion"' in page and "Capitulación de mercado" in page and "backwardation" in page
+    svc.state.vix = VixData(14.0, [], [(today + timedelta(days=10), 16.0)], svc.now())
+    assert "Capitulación de mercado" not in client.get("/").text
+
+
 BASE = "/scanner?submitted=1&discount=20&dte_min=25&dte_max=35&min_yield=1"
 
 

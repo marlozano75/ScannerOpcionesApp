@@ -29,7 +29,7 @@ from scanner_opciones.marketdata.sectors import ChainedSectors
 from scanner_opciones.marketdata.finnhub import FinnhubNews
 from scanner_opciones.marketdata.yahoo_financials import FallbackFinancials
 from scanner_opciones.marketdata.candles import SplitCandles
-from scanner_opciones.marketdata.yahoo import InstrumentYahooSymbols, YahooAnalysts, YahooCandles, YahooDescriptions, YahooEarningsHistory, YahooFinancials, YahooFx, YahooSectors
+from scanner_opciones.marketdata.yahoo import InstrumentYahooSymbols, YahooAnalysts, YahooCandles, YahooDescriptions, YahooEarningsHistory, YahooFinancials, YahooFx, YahooSectors, fetch_vix3m
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import ChainCacheRepo, MetaRepo
@@ -105,7 +105,7 @@ def build_app(settings: Settings):
                          descriptions=YahooDescriptions(settings.company.concurrency) if settings.company.enabled else None,
                          news=(FinnhubNews(settings.finnhub.api_token.strip(), settings.company.calls_per_minute)
                                if settings.company.enabled and settings.finnhub.api_token.strip() else None),
-                         tortuga=RoutineRunner(settings, MetaRepo(db)), fx=YahooFx(period="5d"), option_history=tasty)
+                         tortuga=RoutineRunner(settings, MetaRepo(db)), fx=YahooFx(period="5d"), option_history=tasty, vix3m=fetch_vix3m)
     holder.append(service)
     service.endpoints = scan_endpoints(settings.ibkr)
     runner = PeriodicRunner(service.refresh_periodic, settings.refresh_interval_minutes * 60)

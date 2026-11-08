@@ -40,6 +40,7 @@ o 7496 (real). La app arranca aunque TWS no esté disponible y lo indica en pant
 - **Panel:** cushion de IBKR con semáforo (> 40 % verde, 30–40 % ámbar, ≤ 30 % rojo), Look Ahead, Post-Expiration y Severidad IBKR (0 verde, 1 ámbar, 2 naranja, 3 rojo), VIX y diversificación.
 - Exposición: **Gross Position Value**, **Nominal Assignment Exposure** (short puts − long puts) y **Leverage Assignment** (NAE / NLV).
 - Selector **cuenta real / simulada** en la cabecera.
+- **Capitulación de mercado:** aviso informativo en la tarjeta del VIX del Panel (VIX en backwardation + % de una cesta líquida bajo Keltner; `scanner.capitulation`, `docs/deteccion-suelos.md`). No filtra nada.
 - **Backtest:** pestaña con todo lo probado para decidir cuándo entrar (suelos, CDS, venta de puts) y sus resultados; las rondas nuevas se añaden a `src/scanner_opciones/backtest/resultados.json` (`docs/backtest.md`).
 
 ## Rango guardado y cotizaciones

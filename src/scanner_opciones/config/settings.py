@@ -554,6 +554,16 @@ class TickerModesSettings(_Model):
     history: bool = True                                 # una fila por ticker y día en `ticker_mode_history`
 
 
+class CapitulationSettings(_Model):
+    """Indicador informativo de capitulación de mercado del Panel (`scanner/capitulation.py`; investigación en docs/deteccion-suelos.md).
+    La amplitud se mide sobre una cesta fija de valores líquidos (la de la investigación), no sobre toda la watchlist."""
+    enabled: bool = True
+    tickers: tuple[str, ...] = ("SPY", "QQQ", "IWM", "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "AMD", "NFLX", "JPM", "BAC", "XOM",
+                                "INTC", "MU", "PLTR", "COIN", "SOFI", "UBER", "DIS", "BA", "XLF", "GLD", "TLT", "SMH")
+    breadth_min_pct: float = Field(20, gt=0, le=100)     # % de la cesta bajo Keltner a partir del cual hay amplitud de caída (35 % = capitulación fuerte)
+    min_tickers: int = Field(8, ge=1)
+
+
 class CdsSettings(_Model):
     """Call Debit Spread muy OTM (MTO; ver docs/mto-spreads.md): call comprada lejos del dinero + call vendida más arriba, DTE largo.
     Son valores del análisis del logbook (muestras pequeñas), editables."""
@@ -631,6 +641,7 @@ class ScannerSettings(_Model):
     quality: QualitySettings = QualitySettings()
     spreads: SpreadSettings = SpreadSettings()
     cds: CdsSettings = CdsSettings()
+    capitulation: CapitulationSettings = CapitulationSettings()
     ticker_modes: TickerModesSettings = TickerModesSettings()
 
     @property

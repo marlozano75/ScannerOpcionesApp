@@ -196,3 +196,4 @@ class VixData:
     last_closes: list[tuple[date, float]] = field(default_factory=list)  # últimos N cierres
     futures: list[tuple[date, float]] = field(default_factory=list)      # (vencimiento, precio)
     updated_at: Optional[datetime] = None
+    vix3m: Optional[float] = None                                        # VIX a 3 meses (Yahoo ^VIX3M; tastytrade no lo da): indicador de capitulación
