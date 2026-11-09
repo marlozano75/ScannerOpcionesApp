@@ -358,7 +358,10 @@ class DailyUpdater:
                     net_buyback_pct=fin.net_buyback_pct,
                     roic=fin.roic, loss_years=fin.loss_years, fiscal_years=fin.fiscal_years,
                     revenue_drop_years=fin.revenue_drop_years, revenue_years=fin.revenue_years,
-                    earnings_volatility=fin.earnings_volatility))
+                    earnings_volatility=fin.earnings_volatility,
+                    net_buyback_usd=fin.net_buyback_usd, new_asset_return=fin.new_asset_return,
+                    net_income_fy=fin.net_income_fy, earnings_cagr=fin.earnings_cagr,
+                    analyst_peg=fin.analyst_peg if fin.analyst_peg is not None else (self.quality.get(ticker) or TickerInfo(ticker)).analyst_peg))
             done += self.quality.save(updated)
             self.company_history.save_annual({t: found[t].annual for t in chunk if found.get(t) is not None}, self.now())
         log.info("Balance y flujo de caja (SEC EDGAR): %d de %d fichas actualizadas en %.1f s", done, len(stale),

@@ -2,14 +2,28 @@
 {% block title %}Universo{% endblock %}
 {% block body_class %}app-shell{% endblock %}
 {% block content %}
-{% macro metric(v, kind, ex) -%}
+{# Grado de un valor frente a los umbrales de scanner.quality.thresholds: q-s (estricto), q-g (estándar), q-a (flexible), q-r (no llega). Sin umbral o exento, nada #}
+{% macro grade(v, key, ex) -%}
+  {%- set t = qthr.get(key) -%}
+  {%- if t and v is not none and not ex -%}
+    {%- if t.is_max -%}{{ 'q-s' if v <= t.strict else 'q-g' if v <= t.standard else 'q-a' if v <= t.flexible else 'q-r' }}
+    {%- else -%}{{ 'q-s' if v >= t.strict else 'q-g' if v >= t.standard else 'q-a' if v >= t.flexible else 'q-r' }}{%- endif -%}
+  {%- endif -%}
+{%- endmacro %}
+{% macro grade_title(g) -%}{{ {'q-s': 'Cumple el grado estricto', 'q-g': 'Cumple el grado estándar', 'q-a': 'Cumple solo el grado flexible', 'q-r': 'No cumple ni el flexible'}.get(g, '') }}{%- endmacro %}
+{% macro metric(v, kind, ex, key=none) -%}
+  {%- set g = grade(v, key, ex)|trim if key else '' -%}
   {%- if v is none %}<td class="muted">{{ 'n/a' if ex else '—' }}</td>
-  {%- elif v >= 999 %}<td data-sort="999" title="Sin deuda / sin intereses: no hay nada que cubrir">∞</td>
-  {%- else %}<td data-sort="{{ v }}">{% if kind == 'x' %}{{ v|num }}×{% elif kind == 'f' %}{{ (v * 100)|pct(0) }}{% elif kind == 'p' %}{{ v|pct(1) }}{% else %}{{ v|num }}{% endif %}</td>
+  {%- elif v >= 999 %}<td data-sort="999" class="{{ g }}" title="Sin deuda / sin intereses: no hay nada que cubrir{{ ' · ' ~ grade_title(g) if g }}">∞</td>
+  {%- else %}<td data-sort="{{ v }}" class="{{ g }}"{% if g %} title="{{ grade_title(g) }}"{% endif %}>{% if kind == 'x' %}{{ v|num }}×{% elif kind == 'f' %}{{ (v * 100)|pct(0) }}{% elif kind == 'p' %}{{ v|pct(1) }}{% else %}{{ v|num }}{% endif %}</td>
   {%- endif %}
 {%- endmacro %}
 {% include "_msgs.html" %}
 <style>
+  td.q-s { background:rgba(26,127,55,.30); font-weight:600; }
+  td.q-g { background:rgba(26,127,55,.16); }
+  td.q-a { background:rgba(191,135,0,.20); }
+  td.q-r { background:rgba(207,34,46,.14); }
   .shell.uni { grid-template-columns:300px minmax(0,1fr); }
   .uni-main { min-height:0; overflow-y:auto; padding-right:4px; }
   .side-tools { padding:12px 0 6px; }
@@ -174,7 +188,7 @@
         <select name="q_liq" id="q_liq"><option value="">—</option>
           {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if qform.q_liq == n|string }}>≥ {{ n }}</option>{% endfor %}</select></label>
       <span class="qsep"></span>
-      {% set short = {'q_de': 'Deuda/Patr.', 'q_cov': 'Cobertura int.', 'q_cash': 'Efectivo/Deuda CP', 'q_ocfd': 'Flujo op./Deuda', 'q_capex': 'CapEx/Flujo op.', 'q_fcfa': 'FCF/Activos', 'q_bb': 'Recompra neta', 'q_roic': 'ROIC', 'q_loss': 'Años con pérdidas', 'q_revdrop': 'Caídas de ingresos', 'q_evol': 'Volat. beneficios'} %}
+      {% set short = {'q_de': 'Deuda/Patr.', 'q_cov': 'Cobertura int.', 'q_cash': 'Efectivo/Deuda CP', 'q_ocfd': 'Flujo op./Deuda', 'q_capex': 'CapEx/Flujo op.', 'q_fcfa': 'FCF/Activos', 'q_bb': 'Recompra neta', 'q_roic': 'ROIC', 'q_loss': 'Años con pérdidas', 'q_revdrop': 'Caídas de ingresos', 'q_evol': 'Volat. beneficios', 'q_bbm': 'Recompras/Cap.', 'q_nar': 'Ret. activos nuevos', 'q_peg': 'PEG hist.', 'q_apeg': 'PEG analistas'} %}
       {% for f in solvency %}
       <label class="qf" title="{{ f.label }}">{{ short[f.key] }}
         <select name="{{ f.key }}" id="{{ f.key }}"><option value="">—</option>
@@ -194,7 +208,7 @@
     form.addEventListener('change', function () { form.submit(); });
     try { if (sessionStorage.getItem('uni-qbar') === '0') bar.open = false; } catch (e) { /* sin almacenamiento */ }
     bar.addEventListener('toggle', function () { try { sessionStorage.setItem('uni-qbar', bar.open ? '1' : '0'); } catch (e) { /* idem */ } });
-    var ids = ['q_de', 'q_cov', 'q_cash', 'q_ocfd', 'q_capex', 'q_fcfa', 'q_bb', 'q_roic', 'q_loss', 'q_revdrop', 'q_evol'];
+    var ids = ['q_de', 'q_cov', 'q_cash', 'q_ocfd', 'q_capex', 'q_fcfa', 'q_bb', 'q_roic', 'q_loss', 'q_revdrop', 'q_evol', 'q_bbm', 'q_nar', 'q_peg', 'q_apeg'];
     document.querySelectorAll('button.qpreset').forEach(function (b) {   // combinaciones: rellenan la solvencia y filtran
       b.addEventListener('click', function () {
         ids.forEach(function (n) { document.getElementById(n).value = ''; });
@@ -264,7 +278,7 @@
   {% endif %}
   <div class="scroll"><table class="sortable sticky-tk with-sel" id="universe-table">
     <tr><th class="sel"><input type="checkbox" id="rk-all" checked title="Marcar / desmarcar todas"></th><th class="tk">Ticker</th><th data-nosort style="text-align:center" title="Pulsa la miniatura para ampliar el gráfico">Gráfico</th><th>En watchlist</th><th class="txt">Fuentes (nº)</th><th class="txt">Empresa</th><th class="txt">Sector</th>
-      <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th><th>Deuda/Patr.</th><th>Cobertura int.</th><th>Efectivo/Deuda CP</th><th>Flujo op./Deuda</th><th>CapEx/Flujo op.</th><th>FCF/Activos</th><th>Recompra neta</th><th>ROIC</th><th>Años con pérdidas</th><th>Caídas de ingresos</th><th>Volatilidad beneficios</th>
+      <th>EPS 12 m</th><th>Trim. +</th><th>Cap. (B$)</th><th>Liq. opc.</th><th>Resultados</th><th>Pasivo/Patr.</th><th>FCF (M$)</th><th>Deuda/Patr.</th><th>Cobertura int.</th><th>Efectivo/Deuda CP</th><th>Flujo op./Deuda</th><th>CapEx/Flujo op.</th><th>FCF/Activos</th><th>Recompra neta</th><th>ROIC</th><th>Años con pérdidas</th><th>Caídas de ingresos</th><th>Volatilidad beneficios</th><th title="Recompras de acciones − emisión, 12 meses, sobre la capitalización">Recompras/Cap.</th><th title="Δ flujo operativo anual / Δ activos totales en dos años fiscales">Ret. activos nuevos</th><th title="PEG histórico: (capitalización / beneficio neto del último año) / crecimiento anual compuesto del beneficio neto de 3-5 años. Mira atrás: no es la estimación de analistas">PEG hist.</th><th title="PEG de analistas (Yahoo Finance): P/E sobre el crecimiento multianual estimado por los analistas. Fórmula exacta no documentada por Yahoo">PEG analistas</th>
       {% for col in table.columns %}{% if loop.index0 not in skip %}<th{{ ' class="txt"' if col.kind != 'number' }}>{{ col.name }}</th>{% endif %}{% endfor %}</tr>
     {% for row in rows %}
       <tr><td class="sel"><input type="checkbox" name="sel" value="{{ row.ticker }}" checked></td>
@@ -283,13 +297,13 @@
         <td{% if q and q.liabilities_to_equity is not none %} data-sort="{{ q.liabilities_to_equity }}"{% if q.liabilities_to_equity > 3 %} style="color:#b3361b"{% endif %}{% endif %}>{{ q.liabilities_to_equity|num if q and q.liabilities_to_equity is not none else '—' }}</td>
         <td{% if q and q.fcf_ttm is not none %} data-sort="{{ q.fcf_ttm }}"{% if q.fcf_ttm <= 0 %} style="color:#b3361b"{% endif %}{% endif %}>{{ (q.fcf_ttm / 1e6)|money if q and q.fcf_ttm is not none else '—' }}</td>
         {%- set ex = row.ticker in exempt_tickers %}
-        {{ metric(q.debt_to_equity if q else none, 'n', ex) }}{{ metric(q.interest_coverage if q else none, 'x', ex) }}{{ metric(q.cash_to_short_debt if q else none, 'x', ex) }}
-        {{ metric(q.ocf_to_debt if q else none, 'f', ex) }}{{ metric(q.capex_to_ocf if q else none, 'f', ex) }}{{ metric(q.fcf_to_assets if q else none, 'f', ex) }}{{ metric(q.net_buyback_pct if q else none, 'p', ex) }}{{ metric(q.roic if q else none, 'f', ex) }}
-        {%- if q and q.loss_years is not none %}<td data-sort="{{ q.loss_years }}"{% if q.loss_years > 1 %} style="color:#b3361b"{% endif %} title="Años fiscales con pérdidas de los últimos {{ q.fiscal_years }}">{{ q.loss_years }}/{{ q.fiscal_years }}</td>
+        {{ metric(q.debt_to_equity if q else none, 'n', ex, 'debt_to_equity') }}{{ metric(q.interest_coverage if q else none, 'x', ex, 'interest_coverage') }}{{ metric(q.cash_to_short_debt if q else none, 'x', ex, 'cash_to_short_debt') }}
+        {{ metric(q.ocf_to_debt if q else none, 'f', ex, 'ocf_to_debt') }}{{ metric(q.capex_to_ocf if q else none, 'f', ex, 'capex_to_ocf') }}{{ metric(q.fcf_to_assets if q else none, 'f', ex, 'fcf_to_assets') }}{{ metric(q.net_buyback_pct if q else none, 'p', ex, 'net_buyback_pct') }}{{ metric(q.roic if q else none, 'f', ex, 'roic') }}
+        {%- if q and q.loss_years is not none %}{% set g = grade(q.loss_years, 'loss_years', ex)|trim %}<td data-sort="{{ q.loss_years }}" class="{{ g }}" title="{{ grade_title(g) ~ ' · ' if g }}Años fiscales con pérdidas de los últimos {{ q.fiscal_years }}">{{ q.loss_years }}/{{ q.fiscal_years }}</td>
         {%- else %}<td class="muted">{{ 'n/a' if ex else '—' }}</td>{% endif %}
-        {%- if q and q.revenue_drop_years is not none %}<td data-sort="{{ q.revenue_drop_years }}"{% if q.revenue_drop_years > 1 %} style="color:#b3361b"{% endif %} title="Años en que bajaron los ingresos, de {{ q.revenue_years }} comparaciones">{{ q.revenue_drop_years }}/{{ q.revenue_years }}</td>
+        {%- if q and q.revenue_drop_years is not none %}{% set g = grade(q.revenue_drop_years, 'revenue_drops', ex)|trim %}<td data-sort="{{ q.revenue_drop_years }}" class="{{ g }}" title="{{ grade_title(g) ~ ' · ' if g }}Años en que bajaron los ingresos, de {{ q.revenue_years }} comparaciones">{{ q.revenue_drop_years }}/{{ q.revenue_years }}</td>
         {%- else %}<td class="muted">{{ 'n/a' if ex else '—' }}</td>{% endif %}
-        {{ metric(q.earnings_volatility if q else none, 'f', ex) }}
+        {{ metric(q.earnings_volatility if q else none, 'f', ex, 'earnings_volatility') }}{{ metric(q.buyback_to_mcap_pct if q else none, 'p', ex, 'buyback_to_mcap_pct') }}{{ metric(q.new_asset_return if q else none, 'f', ex, 'new_asset_return') }}{{ metric(q.peg if q else none, 'n', ex, 'peg') }}{{ metric(q.analyst_peg if q else none, 'n', ex, 'analyst_peg') }}
         {% for cell in row.cells %}{% if loop.index0 not in skip %}
           {% if cell.value is not none %}<td data-sort="{{ cell.value }}">{{ cell.text }}</td>
           {% else %}<td{{ ' class="txt"' if table.columns[loop.index0].kind != 'number' }}>{{ cell.text }}</td>{% endif %}

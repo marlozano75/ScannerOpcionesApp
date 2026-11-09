@@ -191,7 +191,7 @@ def test_the_universe_shows_the_new_columns(client_and_service):
     page = client.get("/universe").text
     assert "<th>ROIC</th>" in page and "<th>Años con pérdidas</th>" in page
     ko = [row for row in page.split("<tr>") if 'value="KO"' in row][0]
-    assert "16%" in ko and "2/10" in ko and 'title="Años fiscales con pérdidas de los últimos 10"' in ko
+    assert "16%" in ko and "2/10" in ko and "Años fiscales con pérdidas de los últimos 10" in ko
 
 
 def test_quality_repo_round_trips_the_new_fields():
@@ -255,7 +255,7 @@ def test_the_universe_shows_the_stability_columns(client_and_service):
     page = client.get("/universe").text
     assert "<th>Caídas de ingresos</th>" in page and "<th>Volatilidad beneficios</th>" in page
     ko = [row for row in page.split("<tr>") if 'value="KO"' in row][0]
-    assert "3/9" in ko and "35%" in ko and "color:#b3361b" in ko                    # >1 caída se marca en rojo
+    assert "3/9" in ko and "35%" in ko and 'class="q-r"' in ko                     # 3 caídas no llegan ni al grado flexible: rojo
 
 
 def test_quality_repo_round_trips_the_stability_fields():
@@ -493,3 +493,16 @@ def test_the_universe_has_mini_charts_and_loads_the_big_chart_on_demand(client_a
     chart = client.get("/universe/chart?ticker=KO").text
     assert 'class="pcw"' in chart and 'class="lc"' in chart and "pcw-log" in chart
     assert "Sin cierres diarios" in client.get("/universe/chart?ticker=ZZZZ").text
+
+
+def test_the_universe_colours_each_value_by_the_grade_it_meets(client_and_service):
+    client, svc, gw, _ = client_and_service
+    from tests.integration.test_web import load_rank
+    load_rank(client)
+    # ROIC 16 %: ≥ estándar (12 %) pero < estricto (20 %); 0 años con pérdidas: estricto; capex/flujo 0,50: ni el flexible (0,60) lo pasa... sí: flexible
+    svc.quality.save([TickerInfo("KO", roic=0.16, loss_years=0, fiscal_years=10, capex_to_ocf=0.50, fcf_to_assets=0.01)])
+    ko = [row for row in client.get("/universe").text.split("<tr>") if 'value="KO"' in row][0]
+    assert 'data-sort="0.16" class="q-g"' in ko                  # estándar
+    assert 'data-sort="0" class="q-s"' in ko                     # estricto
+    assert 'data-sort="0.5" class="q-a"' in ko                   # solo el flexible
+    assert 'data-sort="0.01" class="q-r"' in ko                  # no llega al flexible (4 %)

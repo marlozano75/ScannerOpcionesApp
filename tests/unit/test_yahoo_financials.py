@@ -146,3 +146,24 @@ def test_company_card_and_tooltip_include_the_tastytrade_quality_line():
     assert "Calidad" in card and "en 22 d" in card and "BPA 12 m" in card
     assert "Calidad (tastytrade)" in svc.company_notes_map()["XP"]
     assert svc.company_card("ZZZ") == ""
+
+
+async def test_analyst_peg_wrapper_adds_the_yahoo_peg_and_survives_a_yahoo_failure():
+    from scanner_opciones.domain.errors import FinancialsError
+    from scanner_opciones.marketdata.financials import FakeFinancials, Financials
+    from scanner_opciones.marketdata.yahoo_financials import WithAnalystPeg
+
+    class Peg:
+        def __init__(self, data=None, error=None):
+            self.data, self.error = data or {}, error
+
+        async def get_peg(self, tickers):
+            if self.error:
+                raise self.error
+            return {t: v for t, v in self.data.items() if t in tickers}
+
+    inner = FakeFinancials({"KO": Financials(debt_to_equity=0.5), "MSFT": Financials(roic=0.3)})
+    got = await WithAnalystPeg(inner, Peg({"KO": 4.0})).get_financials(["KO", "MSFT"])
+    assert got["KO"].analyst_peg == 4.0 and got["KO"].debt_to_equity == 0.5 and got["MSFT"].analyst_peg is None
+    broken = await WithAnalystPeg(inner, Peg(error=FinancialsError("limitado"))).get_financials(["KO"])
+    assert broken["KO"].analyst_peg is None and broken["KO"].debt_to_equity == 0.5

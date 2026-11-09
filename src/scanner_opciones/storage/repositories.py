@@ -233,7 +233,7 @@ class TickerInfoRepo:
     _SELECT = (
         "SELECT t.*, q.eps_ttm, q.positive_quarters, q.reported_quarters, q.market_cap, q.option_liquidity, "
         "q.next_earnings, q.eps_surprise_pct, q.fundamentals_at, q.liabilities_to_equity, q.fcf_ttm, "
-        "q.financials_end, q.financials_at, q.debt_to_equity, q.interest_coverage, q.cash_to_short_debt, q.ocf_to_debt, q.capex_to_ocf, q.fcf_to_assets, q.net_buyback_pct, q.roic, q.loss_years, q.fiscal_years, q.revenue_drop_years, q.revenue_years, q.earnings_volatility FROM ticker_info t LEFT JOIN ticker_quality q ON q.ticker = t.ticker"
+        "q.financials_end, q.financials_at, q.debt_to_equity, q.interest_coverage, q.cash_to_short_debt, q.ocf_to_debt, q.capex_to_ocf, q.fcf_to_assets, q.net_buyback_pct, q.roic, q.loss_years, q.fiscal_years, q.revenue_drop_years, q.revenue_years, q.earnings_volatility, q.net_buyback_usd, q.new_asset_return, q.net_income_fy, q.earnings_cagr, q.analyst_peg FROM ticker_info t LEFT JOIN ticker_quality q ON q.ticker = t.ticker"
     )
 
     def upsert(self, info: TickerInfo) -> None:
@@ -316,6 +316,8 @@ class TickerInfoRepo:
             roic=r["roic"], loss_years=r["loss_years"], fiscal_years=r["fiscal_years"],
             revenue_drop_years=r["revenue_drop_years"], revenue_years=r["revenue_years"],
             earnings_volatility=r["earnings_volatility"],
+            net_buyback_usd=r["net_buyback_usd"], new_asset_return=r["new_asset_return"],
+            net_income_fy=r["net_income_fy"], earnings_cagr=r["earnings_cagr"], analyst_peg=r["analyst_peg"],
             hv30=r["hv30"], iv30=r["iv30"], iv_change_5d=r["iv_change_5d"],
             expiry_ivs=json.loads(r["expiry_ivs"]) if r["expiry_ivs"] else None,
         )
@@ -509,6 +511,7 @@ class QualityRepo:
         "eps_surprise_pct", "fundamentals_at", "liabilities_to_equity", "fcf_ttm", "financials_end", "financials_at",
         "debt_to_equity", "interest_coverage", "cash_to_short_debt", "ocf_to_debt", "capex_to_ocf", "fcf_to_assets",
         "net_buyback_pct", "roic", "loss_years", "fiscal_years", "revenue_drop_years", "revenue_years", "earnings_volatility",
+        "net_buyback_usd", "new_asset_return", "net_income_fy", "earnings_cagr", "analyst_peg",
     )
 
     def __init__(self, db: Database) -> None:
@@ -525,7 +528,8 @@ class QualityRepo:
             (i.ticker, i.eps_ttm, i.positive_quarters, i.reported_quarters, i.market_cap, i.option_liquidity,
              self._iso(i.next_earnings), i.eps_surprise_pct, self._iso(i.fundamentals_at), i.liabilities_to_equity,
              i.fcf_ttm, self._iso(i.financials_end), self._iso(i.financials_at), i.debt_to_equity, i.interest_coverage,
-             i.cash_to_short_debt, i.ocf_to_debt, i.capex_to_ocf, i.fcf_to_assets, i.net_buyback_pct, i.roic, i.loss_years, i.fiscal_years, i.revenue_drop_years, i.revenue_years, i.earnings_volatility)
+             i.cash_to_short_debt, i.ocf_to_debt, i.capex_to_ocf, i.fcf_to_assets, i.net_buyback_pct, i.roic, i.loss_years, i.fiscal_years, i.revenue_drop_years, i.revenue_years, i.earnings_volatility,
+             i.net_buyback_usd, i.new_asset_return, i.net_income_fy, i.earnings_cagr, i.analyst_peg)
             for i in infos
         ]
         updates = ", ".join(f"{c}=excluded.{c}" for c in self.COLUMNS)
@@ -555,6 +559,8 @@ class QualityRepo:
             roic=r["roic"], loss_years=r["loss_years"], fiscal_years=r["fiscal_years"],
             revenue_drop_years=r["revenue_drop_years"], revenue_years=r["revenue_years"],
             earnings_volatility=r["earnings_volatility"],
+            net_buyback_usd=r["net_buyback_usd"], new_asset_return=r["new_asset_return"],
+            net_income_fy=r["net_income_fy"], earnings_cagr=r["earnings_cagr"], analyst_peg=r["analyst_peg"],
         )
 
     def get(self, ticker: str) -> Optional[TickerInfo]:

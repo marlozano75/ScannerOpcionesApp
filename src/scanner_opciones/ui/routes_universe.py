@@ -108,6 +108,7 @@ def register(app, service, render, recall, remembered) -> None:
                       feeds=service.feed_rows(), describe=describe_schedule,
                       renamable=bool(current) and service.is_renamable_source(current.name),
                       total_rows=total_rows, qform=form, filter_error=filter_error, n_active=n_active, q_presets=q_presets,
+                      qthr={metric: {"is_max": sign == "≤", **getattr(qcfg.thresholds, metric)} for _, _, metric, _, sign, _ in SOLVENCY_UI},
                       solvency=solvency_controls(qcfg, form), level_names=qcfg.level_labels, manageable=qcfg.manageable_debt,
                       quality_opts=dict(quarters=qcfg.positive_quarters_options, liquidity=qcfg.liquidity_options,
                                         leverage=[_fmt(v) for v in qcfg.leverage_options]))

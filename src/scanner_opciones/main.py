@@ -27,9 +27,9 @@ from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.marketdata.edgar import EdgarFinancialsProvider
 from scanner_opciones.marketdata.sectors import ChainedSectors
 from scanner_opciones.marketdata.finnhub import FinnhubNews
-from scanner_opciones.marketdata.yahoo_financials import FallbackFinancials
+from scanner_opciones.marketdata.yahoo_financials import FallbackFinancials, WithAnalystPeg
 from scanner_opciones.marketdata.candles import SplitCandles
-from scanner_opciones.marketdata.yahoo import InstrumentYahooSymbols, YahooAnalysts, YahooCandles, YahooDescriptions, YahooEarningsHistory, YahooFinancials, YahooFx, YahooSectors, fetch_vix3m
+from scanner_opciones.marketdata.yahoo import InstrumentYahooSymbols, YahooAnalysts, YahooCandles, YahooDescriptions, YahooEarningsHistory, YahooAnalystPeg, YahooFinancials, YahooFx, YahooSectors, fetch_vix3m
 from scanner_opciones.marketdata.tastytrade import TastytradeVolatility, quiet_sdk_logging
 from scanner_opciones.storage.db import Database
 from scanner_opciones.storage.repositories import ChainCacheRepo, MetaRepo
@@ -67,6 +67,9 @@ def build_app(settings: Settings):
             " (el balance y el flujo de caja salen solo de Yahoo Finance)" if settings.edgar.yahoo_backup else " (filtros de apalancamiento y flujo de caja sin datos)")
         if settings.edgar.yahoo_backup:
             balance_provider = YahooFinancials(fx)
+
+    if balance_provider is not None and settings.edgar.analyst_peg:
+        balance_provider = WithAnalystPeg(balance_provider, YahooAnalystPeg())
 
     sector_providers = []
     for name in md.sector_sources:

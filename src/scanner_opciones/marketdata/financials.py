@@ -31,7 +31,12 @@ class Financials:
     revenue_drop_years: Optional[int] = None        # años en que bajaron los ingresos de los últimos 10 (None con < 5 años de historia)
     revenue_years: Optional[int] = None             # años comparados con el anterior (hasta 9)
     earnings_volatility: Optional[float] = None     # desviación típica del crecimiento anual del beneficio neto (fracción)
-    currency: str = "USD"                           # moneda en que reporta la empresa; los importes (fcf_ttm, annual) ya van convertidos a USD
+    net_buyback_usd: Optional[float] = None         # recompras de acciones − emisión de acciones nuevas, USD, 12 meses (negativo = emitió más)
+    new_asset_return: Optional[float] = None        # Δ flujo operativo anual / Δ activos totales en dos años fiscales (0,30 = 30 ¢ por dólar)
+    net_income_fy: Optional[float] = None           # beneficio neto del último año fiscal, USD (P/E del PEG histórico)
+    earnings_cagr: Optional[float] = None           # crecimiento anual compuesto del beneficio neto entre 3 y 5 años (fracción; None si no es positivo)
+    analyst_peg: Optional[float] = None             # PEG de Yahoo (`trailingPegRatio`): P/E sobre el crecimiento multianual que estiman los analistas
+    currency: str = "USD"                         # moneda en que reporta la empresa; los importes (fcf_ttm, annual) ya van convertidos a USD
     annual: tuple[AnnualYear, ...] = ()             # ingresos y beneficio neto de los últimos años fiscales (del más antiguo al más reciente)
 
 

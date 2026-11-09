@@ -386,6 +386,12 @@ class SolvencyThresholds(_Model):
     net_buyback_pct: dict[str, float] = _levels(0.0, 1.0, 2.0)         # mínimo (% de reducción del nº de acciones)
     # ROIC alto = beneficios más fiables (el vídeo no da umbral; Meta ≈ 23 %, Microsoft ≈ 29 %): estos tres son una suposición
     roic: dict[str, float] = _levels(0.08, 0.12, 0.20)                 # mínimo (fracción)
+    # recompras netas de 12 meses / capitalización: el estricto es el 2 % del cuaderno; el retorno de los activos nuevos, el «≈30 ¢ por dólar» (estricto)
+    buyback_to_mcap_pct: dict[str, float] = _levels(0.0, 1.0, 2.0)     # mínimo (%)
+    new_asset_return: dict[str, float] = _levels(0.10, 0.20, 0.30)     # mínimo (fracción; suposición salvo el 0,30)
+    # PEG histórico (P/E / crecimiento compuesto del beneficio de 3-5 años): del cuaderno, ≤ 1,6 razonable, < 1 infravalorada y > 2 cara
+    peg: dict[str, float] = _levels(2.0, 1.6, 1.0)                     # máximo (veces)
+    analyst_peg: dict[str, float] = _levels(2.0, 1.6, 1.0)             # máximo (veces): el PEG de los analistas usa los mismos umbrales que el histórico
     loss_years: dict[str, float] = _levels(2, 1, 0)                    # máximo de años con pérdidas de los últimos 10
     revenue_drops: dict[str, float] = _levels(2, 1, 0)                 # máximo de años con caída de ingresos de los últimos 10
     # desviación típica del crecimiento anual del beneficio neto (fracción); el vídeo no da umbral: SUPOSICIÓN calibrada con EDGAR
@@ -415,7 +421,7 @@ class QualityPreset(_Model):
 
     @model_validator(mode="after")
     def _check(self) -> "QualityPreset":
-        unknown = set(self.levels) - {"q_de", "q_cov", "q_cash", "q_ocfd", "q_capex", "q_fcfa", "q_bb", "q_roic", "q_loss", "q_revdrop", "q_evol"}
+        unknown = set(self.levels) - {"q_de", "q_cov", "q_cash", "q_ocfd", "q_capex", "q_fcfa", "q_bb", "q_roic", "q_loss", "q_revdrop", "q_evol", "q_bbm", "q_nar", "q_peg", "q_apeg"}
         if unknown:
             raise ValueError(f"filtros desconocidos en el preset «{self.name}»: {', '.join(sorted(unknown))}")
         if bad := set(self.levels.values()) - set(LEVELS):
@@ -738,6 +744,7 @@ class EdgarSettings(_Model):
     requests_per_second: float = Field(5, gt=0, le=10)   # la SEC permite 10 como máximo
     alerts_window_days: int = Field(90, ge=1)            # alertas de 8-K / retrasos de los últimos N días (⚠ junto al ticker)
     alerts_refresh_hours: float = Field(12, gt=0)        # cada cuántas horas se vuelven a consultar las presentaciones
+    analyst_peg: bool = True                             # PEG con la estimación de crecimiento de los analistas (Yahoo, una petición por ticker al consultar el balance)
     yahoo_backup: bool = True                            # los tickers que EDGAR no tiene (o con cifras de hace > 15 meses) se completan con Yahoo Finance
 
 

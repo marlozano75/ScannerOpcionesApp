@@ -340,6 +340,11 @@ def test_migration_v43_keeps_the_stored_bids_and_marks_them_as_missing_detail():
     d.conn.execute("CREATE TABLE option_bid_history (ticker TEXT NOT NULL, expiry TEXT NOT NULL, strike REAL NOT NULL, ref_day TEXT NOT NULL, bid REAL, fetched_at TEXT NOT NULL, PRIMARY KEY (ticker, expiry, strike))")
     d.conn.execute("INSERT INTO option_bid_history VALUES ('AAA','2026-07-17',10.0,'2026-06-17',0.5,'x'), ('BBB','2026-07-17',10.0,'2026-06-17',NULL,'x')")
     d.conn.execute("ALTER TABLE daily_bars DROP COLUMN volume")      # la v44 (volumen diario) se vuelve a aplicar al migrar
+    d.conn.execute("ALTER TABLE ticker_quality DROP COLUMN net_buyback_usd")      # y la v45 (recompras netas y retorno de activos nuevos)
+    d.conn.execute("ALTER TABLE ticker_quality DROP COLUMN new_asset_return")
+    d.conn.execute("ALTER TABLE ticker_quality DROP COLUMN net_income_fy")      # y la v46 (PEG histórico)
+    d.conn.execute("ALTER TABLE ticker_quality DROP COLUMN earnings_cagr")
+    d.conn.execute("ALTER TABLE ticker_quality DROP COLUMN analyst_peg")      # y la v47 (PEG de analistas)
     d.conn.execute("PRAGMA user_version = 42")
     d.migrate()
     repo = __import__("scanner_opciones.storage.repositories", fromlist=["BidHistoryRepo"]).BidHistoryRepo(d)

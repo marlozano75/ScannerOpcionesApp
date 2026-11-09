@@ -239,6 +239,52 @@ class YahooFinancials:
         return out
 
 
+class YahooAnalystPeg:
+    """PEG de los analistas desde `Ticker.info` de Yahoo: `trailingPegRatio` (o `pegRatio`), el P/E dividido por el crecimiento multianual que estiman los
+    analistas. Medido el 2026-11-09: el crecimiento a largo plazo (`growth_estimates` LTG) viene vacío en todos los valores probados y el PEG de Yahoo
+    equivale a un crecimiento de ~14 % (MSFT), ~7 % (KO) y ~52 % (NVDA); su fórmula exacta no está documentada. Solo se guardan los positivos. Una
+    petición por ticker (~0,5 s), en hilos."""
+
+    def __init__(self, concurrency: int = 4) -> None:
+        self.concurrency = concurrency
+
+    async def get_peg(self, tickers: list[str]) -> dict[str, float]:
+        try:
+            import yfinance
+        except ImportError as exc:
+            raise FinancialsError("Falta la librería yfinance (pip install yfinance)") from exc
+        logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+        sem = asyncio.Semaphore(self.concurrency)
+        out: dict[str, float] = {}
+        failures = 0
+
+        def fetch(symbol: str) -> dict:
+            return yfinance.Ticker(symbol).get_info() or {}
+
+        async def one(ticker: str) -> None:
+            nonlocal failures
+            if failures >= MAX_FAILURES:
+                return
+            async with sem:
+                try:
+                    info = await asyncio.to_thread(fetch, yahoo_symbol(ticker))
+                except Exception as exc:
+                    failures += 1
+                    log.debug("Yahoo: sin PEG de %s (%s)", ticker, exc)
+                    return
+            failures = 0
+            for key in ("trailingPegRatio", "pegRatio"):
+                value = info.get(key)
+                if isinstance(value, (int, float)) and value == value and value > 0:
+                    out[ticker] = float(value)
+                    return
+
+        await asyncio.gather(*(one(t) for t in tickers))
+        if failures >= MAX_FAILURES:
+            raise FinancialsError("Yahoo Finance no responde o limita las peticiones")
+        return out
+
+
 class YahooSectors:
     """Implementa `SectorProvider` con `Ticker.info` de Yahoo (sector e industria), traducido a los nombres de IBKR. Una petición por ticker (~0,5 s)."""
 

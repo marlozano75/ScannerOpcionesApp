@@ -46,10 +46,30 @@ class TickerInfo:
     revenue_drop_years: Optional[int] = None    # años en que bajaron los ingresos de los últimos 10 (None con < 5 años de historia)
     revenue_years: Optional[int] = None         # años comparados con el anterior (hasta 9)
     earnings_volatility: Optional[float] = None  # desviación típica del crecimiento anual del beneficio neto (fracción)
+    net_buyback_usd: Optional[float] = None     # recompras − emisión de acciones de los últimos 12 meses, USD (SEC EDGAR)
+    new_asset_return: Optional[float] = None    # Δ flujo operativo anual / Δ activos totales en dos años fiscales (SEC EDGAR)
+    net_income_fy: Optional[float] = None       # beneficio neto del último año fiscal, USD (SEC EDGAR)
+    earnings_cagr: Optional[float] = None       # crecimiento anual compuesto del beneficio neto, 3-5 años (SEC EDGAR)
+    analyst_peg: Optional[float] = None         # PEG con la estimación de crecimiento de los analistas (Yahoo Finance)
     hv30: Optional[float] = None                # volatilidad histórica a 30 días, en % (tastytrade)
     iv30: Optional[float] = None                # volatilidad implícita a 30 días, en % (tastytrade)
     iv_change_5d: Optional[float] = None        # cambio de la IV del subyacente en 5 días, en puntos de IV (+1 = ha subido 1 punto)
     expiry_ivs: Optional[dict] = None           # IV de cada vencimiento (fecha ISO -> fracción), de tastytrade: movimiento esperado
+
+    @property
+    def peg(self) -> Optional[float]:
+        """PEG HISTÓRICO: (capitalización / beneficio neto del último año fiscal) / (crecimiento anual compuesto del beneficio neto, en %). Mira atrás,
+        no es la estimación de analistas. None sin capitalización, con beneficio ≤ 0 o sin crecimiento positivo."""
+        if not self.market_cap or not self.net_income_fy or self.net_income_fy <= 0 or not self.earnings_cagr or self.earnings_cagr <= 0:
+            return None
+        return self.market_cap / self.net_income_fy / (self.earnings_cagr * 100.0)
+
+    @property
+    def buyback_to_mcap_pct(self) -> Optional[float]:
+        """Recompras netas de 12 meses / capitalización, en %. None si falta alguno de los dos datos."""
+        if self.net_buyback_usd is None or not self.market_cap:
+            return None
+        return self.net_buyback_usd / self.market_cap * 100.0
 
 
 @dataclass(frozen=True)

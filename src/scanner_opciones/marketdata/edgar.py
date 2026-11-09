@@ -60,6 +60,8 @@ TAXONOMIES = {
         revenue=("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet",
                  "RevenueFromContractWithCustomerIncludingAssessedTax"),
         interest=("InterestExpense", "InterestExpenseNonoperating", "InterestExpenseDebt", "InterestAndDebtExpense"),
+        # recompras netas (cuaderno «Filtros de Calidad»): recompras de acciones menos emisión de acciones nuevas, 12 meses
+        repurchase=("PaymentsForRepurchaseOfCommonStock",), issuance=("ProceedsFromIssuanceOfCommonStock",),
     ),
     "ifrs-full": dict(
         equity=("Equity", "EquityAttributableToOwnersOfParent"),
@@ -182,6 +184,8 @@ def to_usd(fin: Financials, currency: str, rate_at: Optional[RateAt]) -> Financi
     if not any(y.revenue is not None or y.net_income is not None for y in annual):
         annual = []
     return replace(fin, fcf_ttm=None if fcf_rate is None or fin.fcf_ttm is None else fin.fcf_ttm * fcf_rate,
+                   net_income_fy=None if fcf_rate is None or fin.net_income_fy is None else fin.net_income_fy * fcf_rate,
+                   net_buyback_usd=None if fcf_rate is None or fin.net_buyback_usd is None else fin.net_buyback_usd * fcf_rate,
                    annual=tuple(annual), currency=currency)
 
 
@@ -335,6 +339,55 @@ def _net_buyback_pct(tree: dict, fresh: str) -> Optional[float]:
     return -(annual[ends[-1]] / annual[ends[-2]] - 1.0) * 100.0
 
 
+def _net_buyback_usd(tree: dict, tags: dict, fresh: str) -> Optional[float]:
+    """Recompras netas de los últimos 12 meses (importe): recompras de acciones − emisión de acciones nuevas. Sin la etiqueta de recompras
+    no se sabe si hubo (None); sin la de emisión se da por cero. Negativo = la empresa emitió más de lo que recompró."""
+    bought = _flow_value(tree, tags.get("repurchase", ()), fresh)
+    if bought is None:
+        return None
+    issued = _flow_value(tree, tags.get("issuance", ()), fresh) or 0.0
+    return abs(bought) - abs(issued)
+
+
+NEW_ASSET_GAP_DAYS = (700, 760)   # los dos cierres fiscales que se comparan distan unos dos años
+
+
+def _new_asset_return(tree: dict, tags: dict, fresh: str) -> Optional[float]:
+    """Retorno de caja de los activos nuevos: variación del flujo operativo anual / variación de los activos totales entre el cierre fiscal de
+    hace dos años y el último (cuaderno: «lo que ganan los activos nuevos»; ≈0,30 = 30 céntimos por dólar). Sin aumento de activos no hay
+    «activos nuevos» que medir (None); un flujo que cae da un valor negativo."""
+    ocf = dict(_annual_series(tree, tags.get("ocf", ()), fresh))
+    assets = _instants(_freshest(tree, tags.get("assets", ())))
+    ends = sorted(e for e in ocf if e in assets)
+    if len(ends) < 2 or ends[-1] != max(ocf):
+        return None
+    last = ends[-1]
+    prior = [e for e in ends[:-1] if NEW_ASSET_GAP_DAYS[0] <= _days(e, last) <= NEW_ASSET_GAP_DAYS[1]]
+    if not prior:
+        return None
+    first = prior[-1]
+    delta_assets = assets[last] - assets[first]
+    return (ocf[last] - ocf[first]) / delta_assets if delta_assets > 0 else None
+
+
+EARNINGS_CAGR_YEARS = (3.0, 5.0)   # años que separan los dos beneficios con que se mide el crecimiento
+
+
+def _earnings_growth(tree: dict, tags: dict, fresh: str) -> tuple[Optional[float], Optional[float]]:
+    """(beneficio neto del último año fiscal, crecimiento anual compuesto del beneficio neto) para el PEG histórico. El crecimiento compara el
+    último año con el más antiguo que dista de 3 a 5 años; sin ambos beneficios positivos no se puede componer (None). Mira atrás: no es la
+    estimación de analistas del cuaderno."""
+    series = _annual_series(tree, tags.get("net_income", ()), fresh)
+    if not series:
+        return None, None
+    last_end, last = series[-1]
+    span = lambda e: _days(e, last_end) / 365.25   # noqa: E731
+    earlier = [(e, v) for e, v in series[:-1] if EARNINGS_CAGR_YEARS[0] <= span(e) <= EARNINGS_CAGR_YEARS[1] + 0.1]
+    if not earlier or last <= 0 or earlier[0][1] <= 0:
+        return last, None
+    return last, (last / earlier[0][1]) ** (1.0 / span(earlier[0][0])) - 1.0
+
+
 def _from_tree(tree: dict, tags: dict, today: date) -> Optional[Financials]:
     fresh = (today - timedelta(days=STALE_DAYS)).isoformat()
     ratio, balance_end, equity_val, liabilities_val = None, None, None, None
@@ -373,7 +426,8 @@ def _solvency(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabi
     """Cociente de solvencia y de calidad del flujo de caja. NO_LIMIT = sin deuda / sin intereses / sin deuda corriente."""
     out: dict[str, Optional[float]] = dict.fromkeys(
         ("debt_to_equity", "interest_coverage", "cash_to_short_debt", "ocf_to_debt", "capex_to_ocf", "fcf_to_assets", "net_buyback_pct",
-         "roic", "loss_years", "fiscal_years", "revenue_drop_years", "revenue_years", "earnings_volatility"))
+         "roic", "loss_years", "fiscal_years", "revenue_drop_years", "revenue_years", "earnings_volatility",
+         "net_buyback_usd", "new_asset_return", "net_income_fy", "earnings_cagr"))
     debt, current = _debt(tree, tags, fresh, equity, liabilities)
     if debt is not None and equity is not None and equity > 0:
         out["debt_to_equity"] = debt / equity
@@ -394,6 +448,9 @@ def _solvency(tree: dict, tags: dict, fresh: str, equity: Optional[float], liabi
         out["fcf_to_assets"] = fcf / assets
     out["net_buyback_pct"] = _net_buyback_pct(tree, fresh)
     out["roic"] = _roic(tree, tags, fresh, equity, debt)
+    out["net_buyback_usd"] = _net_buyback_usd(tree, tags, fresh)
+    out["new_asset_return"] = _new_asset_return(tree, tags, fresh)
+    out["net_income_fy"], out["earnings_cagr"] = _earnings_growth(tree, tags, fresh)
     out.update(_fiscal_profit(tree, tags, fresh))
     return out
 

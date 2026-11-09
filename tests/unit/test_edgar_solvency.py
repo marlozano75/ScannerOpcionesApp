@@ -83,6 +83,34 @@ def test_net_buyback_is_the_drop_in_diluted_shares_between_the_last_two_fiscal_y
     assert old.net_buyback_pct is None                                                                               # datos viejos
 
 
+def test_net_buyback_usd_is_repurchases_minus_issuance_over_twelve_months():
+    buy = [flow("2025-01-01", "2025-12-31", 300.0)]
+    f = parse(PaymentsForRepurchaseOfCommonStock=buy, ProceedsFromIssuanceOfCommonStock=[flow("2025-01-01", "2025-12-31", 50.0)])
+    assert f.net_buyback_usd == pytest.approx(250.0)
+    assert parse(PaymentsForRepurchaseOfCommonStock=buy).net_buyback_usd == pytest.approx(300.0)      # sin emisión: cero
+    assert parse().net_buyback_usd is None                                                           # sin etiqueta de recompras: no se sabe
+    over = parse(PaymentsForRepurchaseOfCommonStock=[flow("2025-01-01", "2025-12-31", 10.0)],
+                 ProceedsFromIssuanceOfCommonStock=[flow("2025-01-01", "2025-12-31", 40.0)])
+    assert over.net_buyback_usd == pytest.approx(-30.0)                                              # emitió más de lo que recompró
+
+
+def test_buyback_to_market_cap_uses_the_ticker_market_cap():
+    from scanner_opciones.domain.models import TickerInfo
+    assert TickerInfo("A", net_buyback_usd=30.0, market_cap=1000.0).buyback_to_mcap_pct == pytest.approx(3.0)
+    assert TickerInfo("A", net_buyback_usd=30.0).buyback_to_mcap_pct is None
+    assert TickerInfo("A", market_cap=1000.0).buyback_to_mcap_pct is None
+
+
+def test_new_asset_return_is_extra_operating_cash_over_extra_assets_in_two_fiscal_years():
+    ocf = [flow("2023-01-01", "2023-12-31", 800.0), flow("2024-01-01", "2024-12-31", 900.0), flow("2025-01-01", "2025-12-31", 1100.0)]
+    assets = [inst("2023-12-31", 1000.0), inst("2024-12-31", 1200.0), inst("2025-12-31", 1300.0)]
+    f = parse(NetCashProvidedByUsedInOperatingActivities=ocf, Assets=assets + [inst("2026-06-30", 1000.0)])
+    assert f.new_asset_return == pytest.approx(300 / 300)                                           # (1100−800) / (1300−1000)
+    shrinking = parse(NetCashProvidedByUsedInOperatingActivities=ocf, Assets=[inst("2023-12-31", 1500.0), inst("2025-12-31", 1300.0)])
+    assert shrinking.new_asset_return is None                                                      # no hay activos nuevos
+    assert parse(NetCashProvidedByUsedInOperatingActivities=ocf[-1:]).new_asset_return is None     # un solo año
+
+
 def test_stale_balance_gives_no_ratios():
     old = {k: [dict(f, end="2019-06-30", **({"start": "2018-07-01"} if "start" in f else {})) for f in v] for k, v in BASE.items()}
     assert parse_company_facts(gaap(**old), TODAY) is None
@@ -203,3 +231,27 @@ def test_earnings_volatility_clips_extreme_growth_and_skips_years_after_a_loss()
 def test_earnings_volatility_needs_four_growth_observations():
     assert parse(**annual([5, 4, 3, 2, 1])).earnings_volatility is not None                  # 5 años = 4 crecimientos
     assert parse(**annual([5, 4, -3, 2, 1])).earnings_volatility is None                     # la pérdida deja solo 3 crecimientos
+
+
+def _income(*pairs):
+    return [flow(f"{y}-01-01", f"{y}-12-31", v) for y, v in pairs]
+
+
+def test_historical_peg_inputs_are_last_fiscal_net_income_and_its_compound_growth():
+    from scanner_opciones.domain.models import TickerInfo
+    f = parse(NetIncomeLoss=_income((2021, 100.0), (2022, 120.0), (2023, 150.0), (2024, 180.0), (2025, 200.0)))
+    assert f.net_income_fy == pytest.approx(200.0)
+    assert f.earnings_cagr == pytest.approx((200 / 100) ** (1 / 4) - 1, rel=1e-2)       # 4 años entre 2021 y 2025
+    info = TickerInfo("A", market_cap=4000.0, net_income_fy=f.net_income_fy, earnings_cagr=f.earnings_cagr)
+    assert info.peg == pytest.approx(4000 / 200 / (f.earnings_cagr * 100))               # P/E 20 / crecimiento ≈ 18,9 %
+
+
+def test_historical_peg_is_undefined_without_positive_growth_or_enough_history():
+    from scanner_opciones.domain.models import TickerInfo
+    falling = parse(NetIncomeLoss=_income((2021, 200.0), (2022, 190.0), (2023, 150.0), (2024, 120.0), (2025, 100.0)))
+    assert falling.earnings_cagr < 0 and TickerInfo("A", market_cap=4000.0, net_income_fy=100.0, earnings_cagr=falling.earnings_cagr).peg is None
+    loss_base = parse(NetIncomeLoss=_income((2021, -50.0), (2022, 10.0), (2023, 20.0), (2024, 30.0), (2025, 40.0)))
+    assert loss_base.net_income_fy == pytest.approx(40.0) and loss_base.earnings_cagr is None     # base negativa: no se compone
+    short = parse(NetIncomeLoss=_income((2024, 30.0), (2025, 40.0)))
+    assert short.earnings_cagr is None                                                           # menos de 3 años de distancia
+    assert TickerInfo("A", net_income_fy=40.0, earnings_cagr=0.1).peg is None                    # sin capitalización

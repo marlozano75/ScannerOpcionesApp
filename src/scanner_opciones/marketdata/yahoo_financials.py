@@ -178,6 +178,27 @@ def convert(fin: Financials, currency: Optional[str], rate_at: Optional[RateAt])
     return fin if not currency or currency == "USD" else to_usd(fin, currency, rate_at)
 
 
+class WithAnalystPeg:
+    """`FinancialsProvider` que añade a lo que da `inner` (EDGAR con respaldo de Yahoo) el PEG de los analistas de cada ticker (`analyst_peg`).
+    Un fallo de Yahoo deja el balance como está, sin `analyst_peg` (el job conserva entonces el PEG ya guardado)."""
+
+    def __init__(self, inner: FinancialsProvider, peg_provider) -> None:
+        self.inner, self.peg_provider = inner, peg_provider
+
+    def __getattr__(self, name: str):
+        return getattr(self.inner, name)
+
+    async def get_financials(self, tickers: list[str]) -> dict[str, Financials]:
+        found = await self.inner.get_financials(tickers)
+        try:
+            pegs = await self.peg_provider.get_peg(list(found))
+        except FinancialsError as exc:
+            log.warning("PEG de analistas (Yahoo) no disponible: %s", exc)
+            return found
+        from dataclasses import replace
+        return {t: (replace(f, analyst_peg=pegs[t]) if t in pegs else f) for t, f in found.items()}
+
+
 class FallbackFinancials:
     """`FinancialsProvider` que pide a `backup` (Yahoo) lo que `primary` (EDGAR) no tiene: los tickers que devuelve vacíos. Todo lo demás
     (alertas de la SEC, sector) lo sigue dando `primary`."""

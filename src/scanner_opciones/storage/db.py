@@ -436,6 +436,23 @@ MIGRATIONS: list[str] = [
     """,
     # v44: volumen diario del subyacente (acciones/ETF), base de la detección de suelos (docs/deteccion-suelos.md). NULL = aún no se pidió; el histórico se completa solo
     "ALTER TABLE daily_bars ADD COLUMN volume REAL;",
+    # v45: recompras netas en dólares (sobre la capitalización) y retorno de caja de los activos nuevos (cuaderno «Filtros de Calidad»). Se vuelve a consultar EDGAR
+    """
+    ALTER TABLE ticker_quality ADD COLUMN net_buyback_usd REAL;
+    ALTER TABLE ticker_quality ADD COLUMN new_asset_return REAL;
+    UPDATE ticker_quality SET financials_at = NULL;
+    """,
+    # v46: PEG histórico (beneficio neto del último año fiscal y su crecimiento anual compuesto). Se vuelve a consultar EDGAR
+    """
+    ALTER TABLE ticker_quality ADD COLUMN net_income_fy REAL;
+    ALTER TABLE ticker_quality ADD COLUMN earnings_cagr REAL;
+    UPDATE ticker_quality SET financials_at = NULL;
+    """,
+    # v47: PEG con la estimación de crecimiento de los analistas (Yahoo). Se vuelve a pasar por el job del balance
+    """
+    ALTER TABLE ticker_quality ADD COLUMN analyst_peg REAL;
+    UPDATE ticker_quality SET financials_at = NULL;
+    """,
 ]
 
 

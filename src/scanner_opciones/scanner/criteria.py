@@ -45,6 +45,10 @@ SOLVENCY_RULES = (
     ("min_fcf_to_assets", "fcf_to_assets", "min", "FCF / activos"),
     ("min_net_buyback_pct", "net_buyback_pct", "min", "recompra neta de acciones"),
     ("min_roic", "roic", "min", "ROIC"),
+    ("min_buyback_to_mcap_pct", "buyback_to_mcap_pct", "min", "recompras netas / capitalización (%)"),
+    ("min_new_asset_return", "new_asset_return", "min", "retorno de caja de los activos nuevos"),
+    ("max_peg", "peg", "max", "PEG histórico"),
+    ("max_analyst_peg", "analyst_peg", "max", "PEG de analistas"),
     ("max_loss_years", "loss_years", "max", "años con pérdidas (últimos 10)"),
     ("max_revenue_drops", "revenue_drop_years", "max", "años con caída de ingresos (últimos 10)"),
     ("max_earnings_volatility", "earnings_volatility", "max", "volatilidad de los beneficios"),
@@ -117,6 +121,10 @@ class ScanCriteria:
     min_fcf_to_assets: Optional[float] = None     # flujo de caja libre / activos (fracción)
     min_net_buyback_pct: Optional[float] = None   # reducción del nº de acciones en el último año (%)
     min_roic: Optional[float] = None              # ROIC: resultado operativo tras impuestos / (deuda + patrimonio) (fracción)
+    min_buyback_to_mcap_pct: Optional[float] = None  # recompras netas de 12 meses / capitalización (%)
+    max_analyst_peg: Optional[float] = None       # PEG con la estimación de crecimiento de los analistas (Yahoo), máximo (veces)
+    max_peg: Optional[float] = None               # PEG histórico máximo: P/E / crecimiento anual compuesto del beneficio neto (veces)
+    min_new_asset_return: Optional[float] = None  # Δ flujo operativo / Δ activos en dos años fiscales (fracción)
     max_loss_years: Optional[int] = None          # años con pérdidas máximos de los últimos 10 años fiscales
     max_revenue_drops: Optional[int] = None       # años con caída de ingresos máximos de los últimos 10 años fiscales
     max_earnings_volatility: Optional[float] = None  # desviación típica máxima del crecimiento anual del beneficio (fracción)

@@ -41,7 +41,9 @@
     "El cruce MACD(6,20,9) con cierre sobre la EMA10 tampoco da ventaja (R10, 56,9 %); solo el pullback en tendencia con MACD<0 llega a 60 %.",
     "Sobre los días de capitulación, la divergencia alcista del MACD(12,26,9) en el ticker sube la recuperación a 10 sesiones de 61 % a 72 % (R11); se muestra como marca informativa «◆D».",
     "Las reglas de pullback a una media (EMA10, 8 EMA, primer toque de la SMA5) no superan al resto de tickers del mismo día ni a la tendencia sin toque; tocar la media deja las puts a 2 ATR algo menos seguras (R12).",
-    "Usar las medias para medir la tendencia del ticker (persistencia, apiladas, pendiente, regularidad) tampoco predice: solo separa tickers por volatilidad (R13)."
+    "Usar las medias para medir la tendencia del ticker (persistencia, apiladas, pendiente, regularidad) tampoco predice: solo separa tickers por volatilidad (R13).",
+    "La fuerza relativa estilo IBD (percentil RS 0-99) no mejora la venta de puts: los RS altos empeoran el aguante de la put aun a igual volatilidad (R15).",
+    "Los filtros de calidad de la empresa (caja, deuda, recompras, FCF/activos; SEC EDGAR punto en el tiempo, 2024-2026) no mejoran el aguante de una put a 2 ATR: la cola izquierda más corta de las empresas de calidad se explica por su menor volatilidad (R16)."
   ],
   "pendientes": [
     "Medir la prima de las puts tras una caída (necesita precios históricos de opciones; hoy no los hay).",
@@ -49,7 +51,8 @@
     "Horizontes distintos a 10 sesiones (5, 20, 30) y objetivos expresados como el movimiento que necesita cada CDS.",
     "Volume Profile con ticks o velas intradía, y FVG con selección manual de zonas.",
     "Mogalef con la fórmula exacta (las implementaciones difieren) y más variantes de MACD.",
-    "Validar las combinaciones de la ronda 7 con datos posteriores al 2026-11-06 como muestra fuera de muestra real."
+    "Validar las combinaciones de la ronda 7 con datos posteriores al 2026-11-06 como muestra fuera de muestra real.",
+    "Repetir R16 con una muestra que incluya deslistadas (supervivencia), más años y la prima de las puts; probar el PEG de analistas cuando haya histórico."
   ],
   "rondas": [
     {
@@ -2152,6 +2155,362 @@
       ],
       "scripts": [
         "scripts/suelos/medias_tiempo.py"
+      ],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R15",
+      "fecha": "2026-11-09",
+      "titulo": "Fuerza relativa (RS estilo IBD) para elegir fortaleza",
+      "objetivo": "puts",
+      "pregunta": "¿Los tickers con percentil RS alto (0,4·P3m + 0,2·P6m + 0,2·P9m + 0,2·P12m, ranking entre ~1.900 tickers) tienen mejor resultado al vender una put a 2 ATR que el resto el mismo día, y a igual volatilidad?",
+      "veredicto": "sin_ventaja",
+      "veredicto_texto": "El RS alto empeora el aguante de la put, incluso a igual volatilidad; solo mide volatilidad y momentum",
+      "tablas": [
+        {
+          "titulo": "Por quintil de percentil RS (2024-2026, 1,35 M de filas)",
+          "columnas": [
+            "Percentil RS",
+            "n",
+            "Vol. 63 d",
+            "Put a 2 ATR aguanta",
+            "Dif. mismo día",
+            "Dif. misma volatilidad",
+            "Sin cierre bajo −10 %",
+            "Peor mín. 21 d"
+          ],
+          "filas": [
+            [
+              "0-19",
+              "264.958",
+              "47 %",
+              "62,0 %",
+              "+1,4",
+              "+0,6",
+              "71,6 %",
+              "−9,0 %"
+            ],
+            [
+              "20-39",
+              "272.115",
+              "35 %",
+              "60,6 %",
+              "+0,0",
+              "+0,2",
+              "81,3 %",
+              "−6,9 %"
+            ],
+            [
+              "40-59",
+              "272.141",
+              "33 %",
+              "61,0 %",
+              "+0,4",
+              "+0,9",
+              "83,8 %",
+              "−6,4 %"
+            ],
+            [
+              "60-79",
+              "272.108",
+              "34 %",
+              "60,1 %",
+              "−0,5",
+              "+0,0",
+              "81,3 %",
+              "−6,9 %"
+            ],
+            [
+              "**80-99**",
+              "265.669",
+              "49 %",
+              "**59,2 %**",
+              "−1,4",
+              "**−1,7**",
+              "70,2 %",
+              "−9,5 %"
+            ],
+            [
+              "95-99",
+              "61.546",
+              "66 %",
+              "58,5 %",
+              "−2,2",
+              "−3,4",
+              "57,6 %",
+              "−12,7 %"
+            ],
+            [
+              "98-99",
+              "20.761",
+              "80 %",
+              "58,3 %",
+              "−2,2",
+              "−3,7",
+              "49,9 %",
+              "−15,1 %"
+            ]
+          ],
+          "barra": {
+            "col": 3,
+            "max": 70
+          },
+          "nota": "Base: 60,6 % (aguanta), 77,7 % (sin cierre bajo −10 %). Diferencias en puntos porcentuales; los IC95 % por días de las diferencias del tramo 80-99 no incluyen el 0."
+        }
+      ],
+      "puntos": [
+        "El RS alto separa por volatilidad: el quintil superior tiene vol. 49 % frente a 33-35 % del centro, y el peor mínimo a 21 sesiones es −9,5 %. El quintil inferior (rotos) también es volátil: la forma es en U.",
+        "A igual volatilidad (tercil) el RS ≥ 80 sigue peor que su control: −2,0 puntos con vol. baja, −1,1 con media y −2,0 con alta. No hay ventaja que compense la mayor volatilidad.",
+        "La tendencia del RS no ayuda: RS ≥ 70 con RS bajando ≥ 10 puntos en 21 sesiones aguanta MEJOR (63,6 %) que el que sube (58,1 %); la muestra extrema (RS ≥ 80 que cae ≥ 15, n = 420) es pequeña y de vol. 73 %.",
+        "El mercado alcista de SPY no cambia el resultado (RS ≥ 80: −1,0 puntos a igual volatilidad).",
+        "Cautelas: solo 2024-2026 (mercado alcista con mucho momentum), filas solapadas (las filas por ticker-día no son independientes; el IC es por días). El ranking usa el score: el RS final (1+s)/(1+s_SPY) de Fred6725 es monotónico en el score un mismo día, así que el percentil es idéntico. Los cierres de la BD se limpian de splits (salto > 40 %) como en las rondas anteriores."
+      ],
+      "scripts": [
+        "scripts/suelos/rs_fortaleza.py"
+      ],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R16",
+      "fecha": "2026-11-09",
+      "titulo": "Filtros de calidad de la empresa (cuaderno «Filtros de Calidad») para vender puts",
+      "objetivo": "puts",
+      "pregunta": "¿Las empresas que cumplen los filtros de calidad del cuaderno (caja, deuda, recompras, FCF/activos) aguantan mejor una put vendida a 2 ATR que las que no los cumplen el mismo día, y a igual volatilidad? Datos de SEC EDGAR tal como se conocían en cada fecha (hechos recortados a su fecha de presentación y pasados por el mismo analizador de la app).",
+      "veredicto": "sin_ventaja",
+      "veredicto_texto": "No mejoran el aguante de la put; la cola izquierda más corta de las empresas de calidad es volatilidad menor y desaparece al compararlas a igual volatilidad",
+      "tablas": [
+        {
+          "titulo": "Pruebas primarias (fijadas antes de mirar): cumple / no cumple",
+          "columnas": [
+            "Filtro",
+            "Cumple (filas)",
+            "Put a 2 ATR aguanta",
+            "Mín. 21 d ≤ −15 %",
+            "Mín. 21 d ≤ −20 %",
+            "Ret. a 126 d"
+          ],
+          "filas": [
+            [
+              "P1 Caja (4 filtros)",
+              "1.742",
+              "56,8 % / 58,7 %",
+              "13,7 % / 17,3 %",
+              "5,9 % / 8,7 %",
+              "+4,9 % / +10,4 %"
+            ],
+            [
+              "P2 Deuda sana",
+              "14.348",
+              "59,3 % / 57,9 %",
+              "16,9 % / 18,4 %",
+              "8,4 % / 9,5 %",
+              "+9,8 % / +9,7 %"
+            ],
+            [
+              "P3 = P1 y P2",
+              "877",
+              "56,9 % / 58,7 %",
+              "15,3 % / 17,9 %",
+              "5,8 % / 9,2 %",
+              "+5,2 % / +9,8 %"
+            ],
+            [
+              "Base: todas las filas",
+              "36.428",
+              "58,7 %",
+              "17,0 %",
+              "8,4 %",
+              "+10,3 %"
+            ]
+          ],
+          "nota": "Cada celda: cumple / no cumple. Muestra: 1.212 acciones de sectores no exentos, 33 fechas (último día hábil de cada mes, 2024-01 a 2026-09). P1 = flujo op./deuda ≥ 0,30, capex/flujo ≤ 0,35, recompra neta ≥ 2 %, FCF/activos ≥ 0,12; P2 = deuda/patrimonio ≤ 1, efectivo/deuda corta ≥ 1, cobertura ≥ 3. Sin dato (el valor no se podía calcular en esa fecha): 9 % en P1, 32 % en P2, 36 % en P3; no entra en la comparación."
+        },
+        {
+          "titulo": "Exceso del grupo que cumple frente al resto (puntos), con intervalos al 95 %",
+          "columnas": [
+            "Prueba",
+            "Medida",
+            "Mismo día",
+            "IC fechas",
+            "A igual volatilidad",
+            "IC tickers"
+          ],
+          "filas": [
+            [
+              "P1 Caja",
+              "Put a 2 ATR aguanta",
+              "−1,8",
+              "[−4,7; +1,3]",
+              "−1,1",
+              "[−3,2; +1,0]"
+            ],
+            [
+              "P1 Caja",
+              "Mín. 21 d ≤ −15 %",
+              "**−3,5**",
+              "[−5,5; −1,6]",
+              "−0,8",
+              "[−2,1; +0,7]"
+            ],
+            [
+              "P2 Deuda sana",
+              "Put a 2 ATR aguanta",
+              "+0,5",
+              "[−0,2; +1,2]",
+              "+0,6",
+              "[−0,1; +1,3]"
+            ],
+            [
+              "P2 Deuda sana",
+              "Mín. 21 d ≤ −15 %",
+              "−0,6",
+              "[−1,3; −0,1]",
+              "−0,5",
+              "[−1,1; +0,2]"
+            ],
+            [
+              "P3 = P1 y P2",
+              "Put a 2 ATR aguanta",
+              "−2,1",
+              "[−7,0; +2,1]",
+              "−1,4",
+              "[−4,3; +1,7]"
+            ],
+            [
+              "P3 = P1 y P2",
+              "Mín. 21 d ≤ −15 %",
+              "−2,7",
+              "[−5,6; −0,1]",
+              "−0,6",
+              "[−2,7; +1,7]"
+            ]
+          ],
+          "nota": "«Mismo día» compara con la media de todas las filas evaluables de esa fecha; «a igual volatilidad», con las de esa fecha y el mismo tercil de volatilidad a 63 sesiones. Los IC de fechas y de tickers son por bootstrap (los resultados de un mismo ticker se parecen entre meses, así que el de fechas solo es optimista). Por mitades (2024–jun 2025 / jul 2025–2026) el exceso de P1 en la put a 2 ATR es −3,7 y +0,2, y el de P2 +0,5 y +0,6."
+        },
+        {
+          "titulo": "Exploratorias: cada filtro estándar por separado (cumple / no cumple)",
+          "columnas": [
+            "Filtro",
+            "Cumple (filas)",
+            "Put a 2 ATR aguanta",
+            "Mín. 21 d ≤ −15 %",
+            "Sin dato"
+          ],
+          "filas": [
+            [
+              "Años con pérdidas ≤ 1",
+              "17.682",
+              "58,0 % / 59,3 %",
+              "11,2 % / 22,6 %",
+              "5 %"
+            ],
+            [
+              "Cobertura de intereses ≥ 3",
+              "20.147",
+              "58,7 % / 58,7 %",
+              "15,0 % / 23,4 %",
+              "22 %"
+            ],
+            [
+              "ROIC ≥ 12 %",
+              "9.753",
+              "58,6 % / 58,7 %",
+              "12,1 % / 19,5 %",
+              "12 %"
+            ],
+            [
+              "Recompra neta (acciones) ≥ 1 %",
+              "12.838",
+              "58,6 % / 58,8 %",
+              "13,2 % / 19,5 %",
+              "5 %"
+            ],
+            [
+              "Capex/flujo ≤ 0,35",
+              "21.394",
+              "58,4 % / 59,3 %",
+              "14,6 % / 21,1 %",
+              "4 %"
+            ],
+            [
+              "FCF/activos ≥ 0,08",
+              "13.975",
+              "58,0 % / 59,2 %",
+              "14,5 % / 18,8 %",
+              "4 %"
+            ],
+            [
+              "Volatilidad beneficios ≤ 0,5",
+              "8.658",
+              "57,8 % / 58,7 %",
+              "9,9 % / 14,4 %",
+              "30 %"
+            ],
+            [
+              "Flujo op./deuda ≥ 0,30",
+              "21.384",
+              "58,8 % / 58,5 %",
+              "15,7 % / 18,8 %",
+              "4 %"
+            ],
+            [
+              "Deuda/patrimonio ≤ 1",
+              "24.863",
+              "59,1 % / 57,4 %",
+              "16,9 % / 16,4 %",
+              "10 %"
+            ],
+            [
+              "Efectivo/deuda corta ≥ 1",
+              "28.920",
+              "58,7 % / 58,5 %",
+              "17,8 % / 11,8 %",
+              "11 %"
+            ],
+            [
+              "Caídas de ingresos ≤ 1",
+              "15.060",
+              "58,1 % / 58,9 %",
+              "17,6 % / 15,5 %",
+              "7 %"
+            ],
+            [
+              "Ret. activos nuevos ≥ 0,20",
+              "10.634",
+              "57,5 % / 59,3 %",
+              "15,7 % / 15,7 %",
+              "36 %"
+            ],
+            [
+              "[aprox.] Recompras/capitalización ≥ 1 %",
+              "14.611",
+              "58,6 % / 58,0 %",
+              "12,9 % / 14,8 %",
+              "39 %"
+            ],
+            [
+              "[aprox.] PEG histórico ≤ 1,6",
+              "6.049",
+              "58,8 % / 57,5 %",
+              "12,8 % / 9,5 %",
+              "62 %"
+            ]
+          ],
+          "nota": "Exploratorias: con 14 filtros alguno parecerá distinto por azar, y estas columnas no llevan el control de volatilidad ni intervalos. Ordenadas por la diferencia en la cola izquierda. [aprox.] = la capitalización de esa fecha es el cierre por las acciones de `dei:EntityCommonStockSharesOutstanding` (con varias clases de acciones cuenta una sola)."
+        }
+      ],
+      "puntos": [
+        "Ningún filtro mejora la medida principal: la put a 2 ATR (ya normalizada por la volatilidad de cada acción) aguanta lo mismo cumpla o no la calidad. P1 y P3 incluso quedan 1-2 puntos por debajo, con intervalos que incluyen el cero.",
+        "Lo que sí cambia es la cola izquierda: con P1 hay un 13,7 % de entradas con un mínimo a 21 sesiones por debajo de −15 % frente a un 17,3 %. Pero a igual volatilidad la diferencia baja de −3,5 a −0,8 puntos y su intervalo incluye el cero: las empresas de calidad caen menos porque se mueven menos, no por la calidad en sí. Para el vendedor de puts eso significa menos prima.",
+        "La prima NO se mide (no hay precios históricos de opciones): «más seguro con menos volatilidad» no equivale a mejor valor esperado. Esta ronda solo dice que la calidad no añade aguante por encima de lo que ya da una menor volatilidad.",
+        "El rendimiento de la acción a 126 sesiones, que es lo que mide el cuaderno, sale al revés en P1 (+4,9 % frente a +10,4 %): en 2024-2026 mandaron valores de crecimiento y momentum con deuda y poca recompra. No se contrasta con intervalos y el periodo es corto, así que no desmiente al cuaderno (que mide 5-10 años), pero tampoco lo confirma aquí.",
+        "Las condiciones de P1 son muy estrictas (1.742 filas, 173 tickers, un 5 % de la muestra) y el estricto del 2 % de recompras es lo que más recorta. P2 deja pasar a casi la mitad de la muestra y su efecto es el más pequeño y estable (+0,5 y +0,6 en las dos mitades, sin llegar a significativo).",
+        "Límites: la lista de acciones es la de HOY (supervivencia: faltan las quebradas y deslistadas que la calidad debería evitar, lo que sesga hacia «sin ventaja»); la BD solo tiene máximos y mínimos completos desde 2024 (33 fechas, un único régimen alcista); el PEG de analistas no tiene histórico y no se prueba; el valor sin dato queda fuera de la comparación, a diferencia de la app, donde cuenta como «no cumple» y los sectores exentos pasan sin medirse."
+      ],
+      "scripts": [
+        "scripts/suelos/calidad_fetch.py",
+        "scripts/suelos/calidad_pit.py",
+        "scripts/suelos/calidad_ev.py"
       ],
       "doc": "docs/deteccion-suelos.md"
     },
