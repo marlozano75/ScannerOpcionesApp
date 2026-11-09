@@ -996,6 +996,8 @@ class AppService:
         self.seed_management_profiles()
         self.apply_mto_exits()
         self.seed_mto_cds_profile()
+        if not self._session_begun:
+            self.warm_caches()      # ya: el primer refresco tarda minutos y, sin esto, la primera página pagaba ~25 s de limpieza de velas
         self._starting = True
         try:
             connected = await self._connect()
@@ -1334,6 +1336,9 @@ class AppService:
                 for i in range(0, len(tickers), WARM_BARS_CHUNK):
                     self.bars.all_closes(tickers[i:i + WARM_BARS_CHUNK])
                     await asyncio.sleep(0)
+            for build in (self.support_map, self.drop_map):      # columnas del Scanner: con las velas en memoria solo queda el cálculo
+                build()
+                await asyncio.sleep(0)
         except Exception:       # base cerrada al apagar, etc.: precalentar es optativo
             log.debug("No se pudieron precalentar las cachés", exc_info=True)
 

@@ -26,3 +26,11 @@ Medido con `py-spy` sobre la app en marcha: cambiar de perfil del Scanner tardab
 - **Universo:** cada miniatura llevaba ~960 puntos (10 KB) para 112 px: 24 de los 31 MB de la página. Ahora un punto por columna de píxel y caché por ticker (`routes_universe.mini_cache`).
 - **SQLite en modo WAL** (`journal_mode=WAL`, `synchronous=NORMAL`; aparecen `app.db-wal` y `app.db-shm`) y **GZipMiddleware**.
 - Pendiente (no hecho): sacar el trabajo síncrono del bucle de eventos; exige proteger la conexión SQLite compartida entre hilos.
+
+### Arranque (2026-11-09)
+
+Medido en el log y con `py-spy` durante un arranque: el primer Scanner tardó 25 s y las páginas 4–8 s mientras corría el refresco inicial.
+
+- Las cachés (`warm_caches`) solo se precalentaban al TERMINAR el primer refresco (3–7 min con el mercado abierto): ahora arrancan en `start()`, antes de conectar, e incluyen `support_map`/`drop_map`.
+- `ContractRepo.purge_expired_misses` se ejecutaba por ticker (×2.300, `DELETE` sin índice en `expiry`, ~5 s de bucle bloqueado): ahora una vez al día.
+- Sin tocar (por diseño): con IB Gateway ya abierto el primer `connectAsync` puede agotar `connect_timeout_seconds` (10 s) y la reconexión llega ~40 s después; el arranque no espera a TWS (`_offline_capable`). El refresco completo con el mercado abierto (~50.000 cotizaciones, 3–7 min) es el tiempo dominante.

@@ -874,6 +874,9 @@ class ContractRepo:
             self.db.conn.execute("DELETE FROM contract_misses WHERE ticker = ?", (ticker,))
 
     def purge_expired_misses(self, today: date) -> int:
+        if getattr(self, "_purged_on", None) == today:      # una vez al día: se llamaba por ticker (×2.300) y `expiry` no tiene índice (~5 s de bucle bloqueado)
+            return 0
+        self._purged_on = today
         with self.db.conn:
             return self.db.conn.execute(
                 "DELETE FROM contract_misses WHERE expiry < ?", (today.isoformat(),)
