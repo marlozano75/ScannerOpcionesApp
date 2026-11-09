@@ -65,6 +65,17 @@ def test_sma200_pullback_filter():
     assert build_call_debit_spreads(snaps, info(), c, TODAY, bars={}) == []
 
 
+def test_realized_move_is_informative_only():
+    snaps = [call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)]
+    zigzag = {"ZZZ": [(TODAY - timedelta(days=100 - i), 100.0 if i % 2 else 110.0) for i in range(100)]}   # ±9,5 % diario: vol. realizada ≈ 151 %
+    [r] = build_call_debit_spreads(snaps, info(), cfg(), TODAY, bars=zigzag)
+    assert 15 < r.realized_move_pct < 35 and round(r.expected_move_pct, 1) == 8.3          # 1,51 × √(10/365) ≈ 25 %; la IV da 8,3 %
+    [r] = build_call_debit_spreads(snaps, info(), cfg(), TODAY, bars={"ZZZ": zigzag["ZZZ"][:30]})
+    assert r.realized_move_pct is None                                                       # historial corto: no filtra, solo queda vacío
+    [r] = build_call_debit_spreads(snaps, info(), cfg(), TODAY)
+    assert r.realized_move_pct is None
+
+
 def test_call_candidates_add_short_legs():
     chain = OptionChain("ZZZ", frozenset({EXP, TODAY + timedelta(days=30)}), frozenset({100.0, 125.0, 130.0, 140.0, 150.0, 400.0}), 100)
     got = {(c.strike, c.right) for c in call_candidate_contracts(chain, 100.0, TODAY, CdsSettings(width_options=(10.0,), monthly_only=False))}

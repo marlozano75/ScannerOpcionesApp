@@ -42,6 +42,18 @@ class CdsResult:
     exit_credit_usd: float = 0.0      # lo que se cobra al cerrar en el objetivo, en $ por contrato, ya sin la comisión de cierre
     exit_profit_usd: float = 0.0      # ganancia neta en $ por contrato (cobrado − débito)
     exit_return_pct: float = 0.0      # ganancia neta / débito, en % (el objetivo menos la comisión de cierre)
+    realized_move_pct: Optional[float] = None   # informativo: movimiento típico a `move_days` días con la volatilidad realizada de 60 sesiones (None sin historial); contrástese con `expected_move_pct` (IV)
+
+
+def realized_vol(closes: Sequence[float], days: int = 60) -> Optional[float]:
+    """Volatilidad realizada anualizada (fracción): desviación típica de los log-retornos diarios de las últimas `days` sesiones × √252.
+    None con menos de `days` retornos o cierres no positivos."""
+    px = [float(c) for c in closes[-(days + 1):]]
+    if len(px) < days + 1 or any(p <= 0 for p in px):
+        return None
+    rets = [math.log(b / a) for a, b in zip(px, px[1:])]
+    mean = sum(rets) / len(rets)
+    return math.sqrt(sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)) * math.sqrt(252)
 
 
 def touch_probability_pct(z: float) -> float:
@@ -117,6 +129,7 @@ def build_call_debit_spreads(
             ks.sort()
     out: list[CdsResult] = []
     sma_cache: dict[str, Optional[float]] = {}
+    rv_cache: dict[str, Optional[float]] = {}
     for (ticker, expiry, strike), lg in calls.items():
         info = infos.get(ticker)
         price = info.underlying_price if info else None
@@ -145,6 +158,10 @@ def build_call_debit_spreads(
         if not iv or iv <= 0:
             continue
         expected_pct = iv * math.sqrt(cds.move_days / 365) * 100
+        if bars is not None and ticker not in rv_cache:
+            rv_cache[ticker] = realized_vol([px for _, px in bars.get(ticker, [])])
+        rv = rv_cache.get(ticker)
+        realized_pct = rv * math.sqrt(cds.move_days / 365) * 100 if rv else None
         mult = lg.contract.multiplier
         found: list[CdsResult] = []
         for width in ([round(k - strike, 4) for k in strikes[(ticker, expiry)] if k > strike + EPS] if cds.all_widths else cds.width_options):
@@ -186,7 +203,7 @@ def build_call_debit_spreads(
             breakeven = strike + debit
             found.append(CdsResult(lg, sh, width, debit, debit * mult, max_return, breakeven, (breakeven / price - 1) * 100,
                                    otm, net_delta, required_pct, expected_pct, required_mult, dist200, prob, prob * exit_return / 100,
-                                   exit_value, (exit_value - close_cost) * mult, exit_profit * mult, exit_return))
+                                   exit_value, (exit_value - close_cost) * mult, exit_profit * mult, exit_return, realized_pct))
         if cds.best_width and found:
             found = [max(found, key=lambda r: r.score)]
         out.extend(found)
