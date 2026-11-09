@@ -40,7 +40,8 @@
     "Los patrones clásicos de suelo (doble suelo, HCH invertido) con cierre confirmado, gap y contexto de mercado tampoco dan ventaja (R9); sumarlos a la mejor combinación la empeora.",
     "El cruce MACD(6,20,9) con cierre sobre la EMA10 tampoco da ventaja (R10, 56,9 %); solo el pullback en tendencia con MACD<0 llega a 60 %.",
     "Sobre los días de capitulación, la divergencia alcista del MACD(12,26,9) en el ticker sube la recuperación a 10 sesiones de 61 % a 72 % (R11); se muestra como marca informativa «◆D».",
-    "Las reglas de pullback a una media (EMA10, 8 EMA, primer toque de la SMA5) no superan al resto de tickers del mismo día ni a la tendencia sin toque; tocar la media deja las puts a 2 ATR algo menos seguras (R12)."
+    "Las reglas de pullback a una media (EMA10, 8 EMA, primer toque de la SMA5) no superan al resto de tickers del mismo día ni a la tendencia sin toque; tocar la media deja las puts a 2 ATR algo menos seguras (R12).",
+    "Usar las medias para medir la tendencia del ticker (persistencia, apiladas, pendiente, regularidad) tampoco predice: solo separa tickers por volatilidad (R13)."
   ],
   "pendientes": [
     "Medir la prima de las puts tras una caída (necesita precios históricos de opciones; hoy no los hay).",
@@ -1759,6 +1760,100 @@
       ],
       "scripts": [
         "scripts/suelos/medias_reglas.py"
+      ],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R13",
+      "fecha": "2026-11-09",
+      "titulo": "Medias móviles como medida de la tendencia del ticker",
+      "objetivo": "puts",
+      "pregunta": "Si en lugar de soporte se usan las medias para medir si un ticker está en tendencia alcista (persistencia sobre la EMA, medias apiladas y crecientes, pendiente, regularidad, extensión), ¿esos tickers rinden mejor a 10 días o sus puts aguantan más que el resto el mismo día?",
+      "veredicto": "sin_ventaja",
+      "veredicto_texto": "La tendencia medida con medias no mejora la subida a 10 días; solo mide la volatilidad del ticker: las medias apiladas dan +1,5 puntos de aguante con colchón fijo del 10 % en las dos muestras y la pendiente fuerte −6",
+      "tablas": [
+        {
+          "titulo": "Medidas de tendencia frente a la media de todos los tickers del mismo día",
+          "columnas": [
+            "Medida de tendencia con medias (dif. frente a todos los tickers del mismo día)",
+            "Cierra > entrada a 10 d: 27 tickers / 2.080",
+            "Aguanta 21 s, put a 2 ATR: 27 / 2.080",
+            "Aguanta 21 s, colchón fijo −10 %: 27 / 2.080"
+          ],
+          "filas": [
+            [
+              "Base (todas las filas)",
+              "55,9 % / 52,5 %",
+              "60,2 % / 60,6 %",
+              "83,7 % / 77,7 %"
+            ],
+            [
+              "Medias apiladas y crecientes (EMA8 > EMA21 > SMA50 > SMA200)",
+              "+1,4 / +0,4",
+              "0,0 / −1,7",
+              "**+1,5 / +1,5**"
+            ],
+            [
+              "Sobre SMA200 (control)",
+              "+0,9 / +0,3",
+              "+0,2 / −0,8",
+              "+0,9 / +1,2"
+            ],
+            [
+              "Bajo SMA200 (control)",
+              "−1,8 / −0,4",
+              "−0,5 / +1,2",
+              "−1,9 / −1,7"
+            ],
+            [
+              "Persistencia: ≥ 95 % de 50 sesiones sobre EMA21",
+              "+1,4 / −1,0",
+              "−3,0 / −4,6",
+              "−1,6 / −0,5"
+            ],
+            [
+              "Regularidad: R² del log-precio a 50 sesiones ≥ 0,9",
+              "+0,4 / +0,7",
+              "−3,8 / −3,8",
+              "−0,6 / +0,3"
+            ],
+            [
+              "Pendiente SMA50 ≥ 5 % en 20 sesiones",
+              "+0,7 / −0,5",
+              "+1,0 / −1,1",
+              "**−6,1 / −5,5**"
+            ],
+            [
+              "Extensión sobre EMA21 ≥ 3 ATR",
+              "+1,4 / +0,7",
+              "+1,0 / −2,1",
+              "−0,7 / −1,2"
+            ],
+            [
+              "Extensión bajo EMA21 (< −1 ATR)",
+              "−0,1 / +0,5",
+              "+2,0 / +3,9",
+              "−0,3 / 0,0"
+            ],
+            [
+              "Persistencia EMA10 ≥ 90 % + apiladas + R² ≥ 0,8",
+              "−0,3 / +0,8",
+              "−2,9 / −2,6",
+              "−0,7 / +1,5"
+            ]
+          ],
+          "nota": "Mismas muestras que R12 (Yahoo 27 tickers 2005-26 y 2.080 tickers de la app 2024-26). Características calculadas con datos hasta el cierre de la entrada. IC95 % por bootstrap de días en el script."
+        }
+      ],
+      "puntos": [
+        "Subida a 10 días: las diferencias son de ±1 punto y cambian de signo entre muestras; ni la carrera ±1,5 ATR ni el retorno a 21 sesiones mejoran de forma consistente (pendiente SMA50 ≥ 5 %: retorno a 21 d +1,0 puntos en 27 tickers, +0,2 en 2.080).",
+        "El «aguanta a 2 ATR» empeora con la tendencia suave y larga (−3 a −5 puntos con ≥ 95 % de sesiones sobre la EMA21 o R² ≥ 0,9), pero es un artefacto: el ATR de esos tickers es pequeño y 2 ATR es un colchón corto. Con colchón fijo del −10 % el efecto casi desaparece.",
+        "Con colchón fijo lo que separa a los tickers es la volatilidad: las medias apiladas (+1,5) y estar sobre la SMA200 (+1) seleccionan tickers más tranquilos; la pendiente fuerte de la SMA50 (−6) selecciona los que más se mueven. No es información direccional.",
+        "Estar bajo la EMA21 más de 1 ATR da +2 a +4 puntos de aguante a 2 ATR en ambas muestras, pero también es el ATR ya inflado por la caída; con colchón fijo no hay diferencia.",
+        "Lectura: la tendencia medida con medias sirve como filtro de calidad/volatilidad (ya cubierto por el filtro de medias y la SMA200 del Scanner), no como predictor. No se cambia nada en la app."
+      ],
+      "scripts": [
+        "scripts/suelos/medias_tendencia.py"
       ],
       "doc": "docs/deteccion-suelos.md"
     },
