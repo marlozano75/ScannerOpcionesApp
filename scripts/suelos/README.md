@@ -30,3 +30,4 @@ Medición por episodio (2026-11-09): `episodios.py $D` (pullback RSI2<10 en tend
 Mismo pullback separado por la Keltner del ticker (2026-11-09): `episodios_keltner.py $D` (necesita `yf.pkl` y `CDS.pkl`).
 Intervalo de confianza de esa diferencia (2026-11-09): `ci_keltner.py $D` (bootstrap por episodio, pareado, por filas con cluster y permutación; necesita `yf.pkl` y `CDS.pkl`).
 Validación fuera de muestra con 2.179 tickers (2026-11-09): `validacion_fetch.py $D` (Yahoo, lee la watchlist de `data/app.db` en solo lectura; desde la raíz del repo), `validacion_filtro.py $D` (descarta símbolos que no coinciden con la BD), `validacion_muestra.py $D yf_val_ok.pkl` (P por filas, día, episodio y primer día; necesita `yf.pkl`) y `validacion_control.py $D` (frente al control del mismo día).
+Componente de volatilidad propia (2026-11-09): `validacion_volatilidad.py $D` (percentil del ATR% y cociente frente a su media; resultado negativo; necesita `G_yf_val_ok.pkl`).
