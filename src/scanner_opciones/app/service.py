@@ -295,6 +295,7 @@ class AppService:
         self.refresh_job.ratio_store = (lambda: self.meta.get("margin_ratios") or "", lambda s: self.meta.set("margin_ratios", s))
         self.state = AppState()
         self._scan_memo: dict[tuple, tuple[float, object]] = {}
+        self._bars_memo: dict[str, tuple[tuple, object]] = {}      # ver `_memo_bars`
         self._openings: Optional[tuple[float, OpeningsData]] = None
         self._openings_error: Optional[str] = None
         self.profile_criteria_provider: Optional[Callable[[], list[tuple]]] = None   # lo pone la interfaz web: filtros grabados en cada perfil
@@ -1546,7 +1547,8 @@ class AppService:
         """Guarda y aplica los presets (Mensual/Táctico…), los valores de la estrategia de venta de puts y los del modo Spread editados en la
         aplicación; sobreviven a reinicios y mandan sobre config.yaml hasta `reset_scanner_config`. Lanza `ValidationError`/
         `ValueError` si no son válidos (no se guarda nada)."""
-        self._scan_memo.clear()      # los criterios por defecto y el exento de sectores pueden cambiar
+        self._scan_memo.clear()
+        self._bars_memo.clear()      # los criterios por defecto y el exento de sectores pueden cambiar
         new_presets = tuple(ScannerPreset(**p) for p in presets)
         if not new_presets:
             raise ValueError("Tiene que quedar al menos una configuración")
@@ -1711,7 +1713,8 @@ class AppService:
 
     def reset_scanner_config(self) -> None:
         """Vuelve a los presets y la estrategia de config.yaml."""
-        self._scan_memo.clear()      # los criterios por defecto y el exento de sectores pueden cambiar
+        self._scan_memo.clear()
+        self._bars_memo.clear()      # los criterios por defecto y el exento de sectores pueden cambiar
         self.meta.set(SCANNER_USER_CONFIG, "")
         self._set_scanner_config(*self._yaml_scanner)
 
@@ -3702,6 +3705,17 @@ class AppService:
         self._scan_memo[key] = (now, value)
         return value
 
+    def _memo_bars(self, name: str, build):
+        """Como `_memo` pero para lo que solo depende de las velas diarias, los precios del último refresco y el día: no lo invalida cualquier
+        escritura de la base (el refresco escribe sin parar y cada clic recalculaba las velas de todos los tickers, ~13 s)."""
+        key = (name, self.now().date(), self.bars.version, self.state.data_version)
+        hit = self._bars_memo.get(name)
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        value = build()
+        self._bars_memo[name] = (key, value)
+        return value
+
     def _memo_result(self, name: str, criteria: ScanCriteria, extra, build):
         """Resultado de un cálculo del Scanner para los mismos criterios, datos y cartera: volver a un perfil ya visto no lo recalcula."""
         positions = self.state.positions
@@ -4427,7 +4441,7 @@ class AppService:
             candles = self.bars.recent_candles(today - timedelta(days=MACD_DIV_DAYS))
             return frozenset(t for t, c in candles.items() if macd_divergence(c, today))
 
-        return self._memo("macd_div", build)
+        return self._memo_bars("macd_div", build)
 
     def drop_map(self) -> dict:
         """{ticker: DropStats} con la caída reciente de cada ticker frente a lo habitual en él (columnas informativas del Scanner). Vacío si está apagado."""
@@ -4447,7 +4461,7 @@ class AppService:
                     out[t] = st
             return out
 
-        return self._memo("drop_map", build)
+        return self._memo_bars("drop_map", build)
 
     def support_map(self) -> dict:
         """{ticker: SupportLevel} con el soporte validado más cercano por debajo del precio de cada ticker (columnas informativas del Scanner). Vacío si está apagado."""
@@ -4468,7 +4482,7 @@ class AppService:
                     out[t] = lv
             return out
 
-        return self._memo("support_map", build)
+        return self._memo_bars("support_map", build)
 
     def assignment(self) -> AssignmentExposure:
         return assignment_exposure(with_spreads(self.state.positions), self.state.account)

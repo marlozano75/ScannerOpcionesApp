@@ -396,7 +396,12 @@ def ticker_mini(closes: Sequence[tuple[date, float]], today: date, weeks: int = 
     span = max((bars[-1][0] - bars[0][0]).days, 1)
     lo, hi = min(p for _, p in bars), max(p for _, p in bars)
     margin = (hi - lo) * 0.08 or hi * 0.05 or 1.0
-    path = "M" + " L".join(f"{_scale((d - bars[0][0]).days, 0, span, pad, w - pad):.1f},{_scale(p, lo - margin, hi + margin, h - pad, pad):.1f}" for d, p in bars)
+    # un punto por columna de píxel (el dibujo mide 112 px: con todo el histórico llevaba ~960 puntos y 10 KB por miniatura; ×2.300 filas = 24 MB de página)
+    cols: dict[int, tuple[float, float]] = {}
+    for d, p in bars:
+        x = _scale((d - bars[0][0]).days, 0, span, pad, w - pad)
+        cols[round(x)] = (x, _scale(p, lo - margin, hi + margin, h - pad, pad))
+    path = "M" + " L".join(f"{x:.1f},{y:.1f}" for x, y in cols.values())
     return Markup(f'<svg class="pos-mini-svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" aria-hidden="true">'
                   f'<path d="{path}" fill="none" stroke="var(--viz-1)" stroke-width="1.5" stroke-linejoin="round"/></svg>')
 

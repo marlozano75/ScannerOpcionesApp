@@ -585,6 +585,8 @@ class BarRepo:
         self.db = db
         self._cache: dict[str, list[tuple[date, float]]] = {}      # por ticker, limpios; se rellena al pedirlos
         self._provisional: Optional[set[tuple[str, date]]] = None  # cierres del día en curso que aún no son el oficial
+        self.version = 0                                           # sube con cada cambio de velas OFICIALES (los provisionales no cuentan)
+        self._recent: dict[date, tuple[int, dict]] = {}            # `recent_candles` por fecha de inicio, válido mientras `version` no cambie
 
     def _prov(self) -> set[tuple[str, date]]:
         """Cierres provisionales (pocos: uno por ticker como mucho); se leen una vez."""
@@ -625,6 +627,7 @@ class BarRepo:
 
     def _drop_cache(self) -> None:
         self._cache, self._provisional = {}, None
+        self.version += 1
 
     def last_days(self, tickers: Iterable[str]) -> dict[str, date]:
         """Último día con cierre OFICIAL guardado de cada ticker (los que no tienen histórico no aparecen).
@@ -657,6 +660,7 @@ class BarRepo:
             )
         for d, px in bars:
             self._put(ticker, d, px, False)
+        self.version += 1
 
     def upsert_ohlc(self, ticker: str, bars: Iterable[tuple]) -> None:
         """Guarda velas (día, cierre, máximo, mínimo[, apertura[, volumen]]). Un máximo, mínimo, apertura o volumen que no llega no borra el ya guardado."""
@@ -672,6 +676,7 @@ class BarRepo:
         for d, px, *_ in bars:
             self._put(ticker, d, px, False)
         self._reclean(ticker)
+        self.version += 1
 
     def candles(self, ticker: str) -> list[tuple[date, Optional[float], Optional[float], Optional[float], float]]:
         """Velas oficiales del ticker (día, apertura, máximo, mínimo, cierre) en orden ascendente, tal cual están guardadas
@@ -681,12 +686,18 @@ class BarRepo:
 
     def recent_candles(self, since: date) -> dict[str, list[tuple]]:
         """Velas oficiales completas (con máximo y mínimo) de TODOS los tickers desde `since`: {ticker: [(día, apertura, máximo, mínimo, cierre)]} en una sola consulta."""
+        hit = self._recent.get(since)
+        if hit is not None and hit[0] == self.version:      # los datos oficiales no han cambiado: sin releer ni reconvertir fechas (era ~9 s por petición)
+            return hit[1]
         out: dict[str, list[tuple]] = {}
+        version = self.version
         for r in self.db.conn.execute(
                 "SELECT ticker, day, open, high, low, close FROM daily_bars WHERE provisional = 0 AND day >= ? AND high IS NOT NULL AND low IS NOT NULL "
                 "ORDER BY ticker, day", (since.isoformat(),)):
             out.setdefault(r["ticker"], []).append((date.fromisoformat(r["day"]), r["open"], r["high"], r["low"], r["close"]))
-        return out
+        self._recent = {k: v for k, v in self._recent.items() if v[0] == version}
+        self._recent[since] = (version, out)
+        return out      # compartido entre llamadas: quien lo use no debe modificarlo
 
     def missing_open(self, tickers: Iterable[str], recent: int, needed: int) -> list[str]:
         """Tickers con histórico oficial de los que, entre las últimas `recent` sesiones, menos de `needed` tienen apertura

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from jinja2 import pass_context
@@ -215,6 +216,24 @@ TEMPLATES.env.filters.update(
 )
 
 
+class Lazy:
+    """Diccionario que se calcula la primera vez que una plantilla lo toca: el Panel, Comunidad, etc. no usan las columnas de caída y soporte."""
+    def __init__(self, build) -> None:
+        self._build, self._value = build, None
+
+    def _d(self) -> dict:
+        if self._value is None:
+            self._value = self._build()
+        return self._value
+
+    def __bool__(self) -> bool: return bool(self._d())
+    def __len__(self) -> int: return len(self._d())
+    def __iter__(self): return iter(self._d())
+    def __contains__(self, k) -> bool: return k in self._d()
+    def __getitem__(self, k): return self._d()[k]
+    def get(self, k, default=None): return self._d().get(k, default)
+
+
 def create_app(
     service: AppService,
     gateway_factory: Optional[Callable[[AccountMode], BrokerGateway]] = None,
@@ -232,6 +251,7 @@ def create_app(
             await on_shutdown()
 
     app = FastAPI(title="ScannerOpcionesApp", lifespan=lifespan)
+    app.add_middleware(GZipMiddleware, minimum_size=1024)      # el HTML del Scanner/Universo pesa MB y se comprime ~10:1
 
     symbols = {"EUR": "€", "GBP": "£", "CHF": "CHF ", "JPY": "¥"}
     quote_symbols = {t: symbols.get(i.currency, i.currency + " ") for t, i in service.settings.instruments.items() if i.currency != "USD"}
@@ -273,7 +293,7 @@ def create_app(
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()), path=request.url.path,
             excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(), analyst_alerts=service.analyst_map(), company_names=service.company_name_map(),
-            company_notes=service.company_notes_map(), div_marks=service.div_marks(), drops=service.drop_map(), atr_of=service.atr_of, atr_period=service.settings.scanner.technical.atr_period, drop_cfg=service.settings.scanner.drop, supports=service.support_map(), sup_cfg=service.settings.scanner.support_levels, use_div="use_div" in request.query_params,
+            company_notes=service.company_notes_map(), div_marks=service.div_marks(), drops=Lazy(service.drop_map), atr_of=service.atr_of, atr_period=service.settings.scanner.technical.atr_period, drop_cfg=service.settings.scanner.drop, supports=Lazy(service.support_map), sup_cfg=service.settings.scanner.support_levels, use_div="use_div" in request.query_params,
         )
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 

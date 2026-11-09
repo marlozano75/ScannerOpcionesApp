@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 
 def register(app, service, render, recall, remembered) -> None:
     """Registra las rutas en `app` (comparten `service` y `render` de `create_app`)."""
+    mini_cache: dict = {}      # ticker -> miniatura SVG (ver `universe`)
     @app.get("/universe", response_class=HTMLResponse)
     async def universe(request: Request, src: str = ALL, message: str = "", view: str = ""):
         if (back := recall(request, "universe", ignore=("message", "debug", "view"))) is not None:
@@ -96,7 +97,12 @@ def register(app, service, render, recall, remembered) -> None:
         today, weeks_cfg = service.now().date(), service.settings.management.chart_weeks
         key_of = lambda t: t.replace(" ", "-")                      # IBKR escribe la clase con espacio (BRK B); el histórico, con guion      # noqa: E731
         closes = service.bars.all_closes({key_of(r.ticker) for r in rows})
-        minis = {r.ticker: ticker_mini(closes.get(key_of(r.ticker), []), today, weeks_cfg) for r in rows}
+        stamp = (today, weeks_cfg, service.bars.version)
+        if mini_cache.get("stamp") != stamp:      # las miniaturas solo cambian con el día o con velas nuevas: no se redibujan en cada visita
+            mini_cache.clear()
+            mini_cache["stamp"] = stamp
+        minis = {r.ticker: mini_cache[r.ticker] if r.ticker in mini_cache else mini_cache.setdefault(
+            r.ticker, ticker_mini(closes.get(key_of(r.ticker), []), today, weeks_cfg)) for r in rows}
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message, groups=message_groups(message),
                       minis=minis, ident=ident, skip=skip, wl_sync=wl_sync,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
