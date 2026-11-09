@@ -55,7 +55,10 @@ def support_levels(candles: Sequence[tuple], cfg: SupportLevelSettings) -> list[
     return out
 
 
-def nearest_support(levels: Sequence[SupportLevel], price: float, min_pivots: int) -> Optional[SupportLevel]:
-    """El soporte validado (≥ `min_pivots` pivotes) más alto que queda por debajo del precio."""
-    below = [lv for lv in levels if lv.pivots >= min_pivots and lv.high < price]
+def nearest_support(levels: Sequence[SupportLevel], price: float, min_pivots: int,
+                    max_distance_pct: Optional[float] = None) -> Optional[SupportLevel]:
+    """El soporte validado (≥ `min_pivots` pivotes) más alto que queda por debajo del precio y, si se indica,
+    a no más de `max_distance_pct` % de él (más lejos casi nunca llega a ser relevante: `scripts/suelos/soportes4.py`)."""
+    below = [lv for lv in levels if lv.pivots >= min_pivots and lv.high < price
+             and (max_distance_pct is None or (price / lv.high - 1) * 100 <= max_distance_pct)]
     return max(below, key=lambda lv: lv.high) if below else None

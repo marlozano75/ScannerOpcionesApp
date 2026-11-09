@@ -584,6 +584,7 @@ class SupportLevelSettings(_Model):
     hold_sessions: int = Field(3, ge=1)          # sesiones que debe seguir sobre la zona para contar el rebote
     min_pivots: int = Field(3, ge=1)             # pivotes para llamarlo soporte validado (3: ~67 % de rebote fuera de muestra)
     history_days: int = Field(1400, ge=60)       # días naturales de velas que se usan
+    max_distance_pct: Optional[float] = Field(15, gt=0)   # no se muestra un soporte a más de N % bajo el precio (soportes4.py: >15 % llega el 15 % o menos de las veces); null = sin límite
 
 
 class CdsSettings(_Model):

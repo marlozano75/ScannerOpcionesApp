@@ -37,3 +37,10 @@ def test_support_must_be_below_price_and_short_history_is_empty():
     lv = support_levels(candles(vs([100, 100, 100])), CFG)
     assert nearest_support(lv, 99.0, CFG.min_pivots) is None
     assert support_levels(candles([100.0] * 5), CFG) == []
+
+
+def test_max_distance_hides_far_supports():
+    lv = support_levels(candles(vs([100, 100.3, 99.8, 100.2])), CFG)
+    assert nearest_support(lv, 109.0, CFG.min_pivots, 15) is not None
+    assert nearest_support(lv, 130.0, CFG.min_pivots, 15) is None
+    assert nearest_support(lv, 130.0, CFG.min_pivots, None) is not None

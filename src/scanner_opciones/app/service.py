@@ -4463,7 +4463,7 @@ class AppService:
             for t, c in candles.items():
                 i = infos.get(t)
                 price = i.underlying_price if i and i.underlying_price else c[-1][4]
-                lv = nearest_support(support_levels(c, cfg), price, cfg.min_pivots)
+                lv = nearest_support(support_levels(c, cfg), price, cfg.min_pivots, cfg.max_distance_pct)
                 if lv is not None:
                     out[t] = lv
             return out
