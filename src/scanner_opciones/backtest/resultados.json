@@ -1,5 +1,5 @@
 {
-  "actualizado": "2026-11-08",
+  "actualizado": "2026-11-09",
   "metodologia": [
     "27 tickers líquidos (SPY, QQQ, IWM, AAPL, MSFT, NVDA, AMZN, META, GOOGL, TSLA, AMD, NFLX, JPM, BAC, XOM, INTC, MU, PLTR, COIN, SOFI, UBER, DIS, BA, XLF, GLD, TLT, SMH) con velas diarias de Yahoo 2004-2026 (≈128.000 ticker-día, incluye 2008, 2020 y 2022).",
     "Descubrimiento con 2004-2018 y validación fuera de muestra con 2019-2026 (IS / OOS). Las señales se calculan con el cierre de t, sin mirar el futuro.",
@@ -39,7 +39,8 @@
     "Lo que sí sirve: DESCARTAR. Una caída fuerte que no se confirma al día siguiente (mínimo de D+1 por debajo del de t, o precio bajo el cierre de t a las 11:30) conserva el mínimo solo el 11 % de las veces.",
     "Los patrones clásicos de suelo (doble suelo, HCH invertido) con cierre confirmado, gap y contexto de mercado tampoco dan ventaja (R9); sumarlos a la mejor combinación la empeora.",
     "El cruce MACD(6,20,9) con cierre sobre la EMA10 tampoco da ventaja (R10, 56,9 %); solo el pullback en tendencia con MACD<0 llega a 60 %.",
-    "Sobre los días de capitulación, la divergencia alcista del MACD(12,26,9) en el ticker sube la recuperación a 10 sesiones de 61 % a 72 % (R11); se muestra como marca informativa «◆D»."
+    "Sobre los días de capitulación, la divergencia alcista del MACD(12,26,9) en el ticker sube la recuperación a 10 sesiones de 61 % a 72 % (R11); se muestra como marca informativa «◆D».",
+    "Las reglas de pullback a una media (EMA10, 8 EMA, primer toque de la SMA5) no superan al resto de tickers del mismo día ni a la tendencia sin toque; tocar la media deja las puts a 2 ATR algo menos seguras (R12)."
   ],
   "pendientes": [
     "Medir la prima de las puts tras una caída (necesita precios históricos de opciones; hoy no los hay).",
@@ -1609,6 +1610,155 @@
       ],
       "scripts": [
         "scripts/suelos/cap_ticker.py"
+      ],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R12",
+      "fecha": "2026-11-09",
+      "titulo": "Medias móviles como soporte: EMA10 (Schwartz), 8 EMA y primer toque de la SMA5",
+      "objetivo": "puts",
+      "pregunta": "¿Las reglas de entrada basadas en un pullback a una media (EMA10 de Schwartz, 8 EMA de bigwavechartist, primer toque de la SMA5 tras ruptura de DTR-PeopleWish) dan más probabilidad de subida o de que una put vendida aguante que el resto de tickers el mismo día?",
+      "veredicto": "sin_ventaja",
+      "veredicto_texto": "Ninguna regla supera el control del mismo día ni el de tendencia sin toque; tocar la media deja las puts a 2 ATR algo menos seguras (−1 a −3 puntos)",
+      "tablas": [
+        {
+          "titulo": "Reglas de medias frente a la media de todos los tickers del mismo día (IC95 % por bootstrap de días en el script)",
+          "columnas": [
+            "Setup (señal al cierre; entrada al cierre)",
+            "27 tickers 2005-26: n",
+            "Cierra > entrada a 10 d (dif. vs mismo día)",
+            "Gana la carrera ±1,5 ATR",
+            "Aguanta 21 s (put a 2 ATR) (dif.)",
+            "2.080 tickers 2024-26: n",
+            "Cierra > entrada a 10 d (dif.)",
+            "Aguanta 21 s (put a 2 ATR) (dif.)"
+          ],
+          "filas": [
+            [
+              "Base (todas las filas)",
+              "127.372",
+              "55,9 %",
+              "47,2 %",
+              "60,2 %",
+              "1.347.911",
+              "52,5 %",
+              "60,6 %"
+            ],
+            [
+              "S10 Schwartz: toque de la EMA10 en tendencia",
+              "11.789",
+              "55,8 % (+0,2)",
+              "47,3 %",
+              "58,9 % (−1,3)",
+              "121.993",
+              "51,1 % (+0,0)",
+              "57,1 % (−2,2)"
+            ],
+            [
+              "S10 primer toque",
+              "636",
+              "57,1 % (+0,9)",
+              "48,6 %",
+              "58,6 % (−0,7)",
+              "4.299",
+              "51,2 % (+0,6)",
+              "56,9 % (−1,5)"
+            ],
+            [
+              "S10 + SMA50>SMA200 y mercado alcista",
+              "3.806",
+              "55,8 % (+1,4)",
+              "45,6 %",
+              "58,3 % (−0,3)",
+              "30.137",
+              "49,6 % (+1,2)",
+              "55,6 % (−1,5)"
+            ],
+            [
+              "Control: tendencia EMA10 sin toque",
+              "27.805",
+              "56,2 % (+0,5)",
+              "47,0 %",
+              "60,1 % (−0,4)",
+              "237.261",
+              "50,7 % (−0,0)",
+              "57,0 % (−2,2)"
+            ],
+            [
+              "Placebo: nivel EMA10 − 1 ATR",
+              "1.201",
+              "53,0 % (−2,0)",
+              "44,5 %",
+              "55,0 % (−2,5)",
+              "10.903",
+              "55,0 % (+1,8)",
+              "61,1 % (+0,5)"
+            ],
+            [
+              "S8 8 EMA (pullback con volumen y rango menores, vuelve sobre EMA8)",
+              "1.684",
+              "55,1 % (−1,0)",
+              "47,8 %",
+              "58,0 % (−2,0)",
+              "14.954",
+              "50,1 % (−0,4)",
+              "55,3 % (−3,4)"
+            ],
+            [
+              "Control S8: ya sobre EMA8, sin pullback",
+              "37.217",
+              "56,8 % (+1,2)",
+              "46,6 %",
+              "59,7 % (−0,3)",
+              "313.520",
+              "51,4 % (+0,5)",
+              "56,8 % (−2,3)"
+            ],
+            [
+              "D5 primer toque SMA5 tras ruptura de 20 días",
+              "3.918",
+              "56,0 % (+0,2)",
+              "46,2 %",
+              "59,4 % (−0,7)",
+              "34.450",
+              "51,0 % (+0,3)",
+              "57,6 % (−1,4)"
+            ],
+            [
+              "D5 primer toque, ruptura de 55 días",
+              "2.723",
+              "54,9 % (+0,1)",
+              "45,7 %",
+              "57,8 % (−0,9)",
+              "21.746",
+              "51,3 % (+0,8)",
+              "57,2 % (−1,1)"
+            ],
+            [
+              "D5 (55 d), toque 6-10 días tras la ruptura",
+              "587",
+              "50,6 % (−3,7)",
+              "41,6 %",
+              "54,4 % (−4,3)",
+              "5.030",
+              "51,8 % (−0,1)",
+              "58,5 % (−0,8)"
+            ]
+          ],
+          "nota": "Entrada al cierre de la señal; filtros con datos hasta el día anterior. 'Aguanta' = ningún cierre bajo entrada − 2 ATR en 21 sesiones. Yahoo (27 tickers líquidos) y velas de la app (2.080 tickers, desde 2024-01). El 620 MACD ya se midió en R10."
+        }
+      ],
+      "puntos": [
+        "Se probaron 3 reglas con definiciones operativas propias (el texto de las fuentes no es exacto): S10 toque del mínimo a EMA10 + 0,25 ATR con cierre sobre ella tras 5 cierres previos sobre una EMA10 creciente; S8 EMA8 de máx/cierre/mín con filtros de Finviz (cierre > SMA50, ≤ 20 % del máximo de 52 semanas, > 10 $), volumen relativo de 3 días < 1 y rango comprimido, entrada al volver sobre la EMA8 sin pasar de 0,5 ATR sobre EMA8(máx); D5 primer día con mínimo ≤ SMA5 entre 2 y 10 sesiones tras una ruptura de 20 o 55 días.",
+        "Ninguna diferencia frente al mismo día es robusta en las dos muestras. Las pocas que salen (S10 primer toque con mercado alcista: +4,8 puntos en 2.080 tickers, −0,9 en 27) no se repiten, y son rebanadas elegidas entre ~30 sin corregir por comparaciones múltiples.",
+        "Para vender puts, un toque de la media empeora el 'aguanta': 57,1 % (EMA10) y 55,3 % (8 EMA) frente a 60,6 % de la base en 2.080 tickers (−2 a −3 puntos). El precio acaba de caer hasta la media, y además la media no es un nivel especial: la EMA10 − 1 ATR da lo mismo o algo mejor.",
+        "Lo que sí cambia es la selección: los filtros de la 8 EMA (cerca de máximos, sobre SMA50) reducen el peor mínimo a 21 sesiones (−6,8 % frente a −7,7 %), pero lo hace también el control sin pullback: es la calidad del ticker, no la media.",
+        "Los toques tardíos de la SMA5 (6-10 días tras la ruptura de 55) rinden peor en 27 tickers (−3,7 puntos, IC95 % −7,0 a −0,3) y no en 2.080: ruido o régimen.",
+        "Cuadra con la ronda previa sin persistencia por ticker (`medias2.py`): ni la media concreta ni la regla que la usa añaden información sobre una zona cualquiera. No se añade nada a la app."
+      ],
+      "scripts": [
+        "scripts/suelos/medias_reglas.py"
       ],
       "doc": "docs/deteccion-suelos.md"
     },
