@@ -1858,6 +1858,304 @@
       "doc": "docs/deteccion-suelos.md"
     },
     {
+      "id": "R14",
+      "fecha": "2026-11-09",
+      "titulo": "Qué tickers pasan más tiempo sobre sus medias y de cuáles",
+      "objetivo": "datos",
+      "pregunta": "¿Qué tickers de la watchlist pasan más sesiones con el cierre sobre sus medias (EMA8/10/21/50, SMA20/50/100/200), en cuáles, y si ese tiempo es una característica estable del ticker?",
+      "veredicto": "info",
+      "veredicto_texto": "Casi todo es la rentabilidad del periodo (ρ 0,83) y no persiste (2023-26: ρ ≈ 0 entre mitades); solo los líderes de 22 años (SPY, QQQ, AAPL, NVDA) repiten, con ρ ≈ 0,4",
+      "tablas": [
+        {
+          "titulo": "Sesiones con cierre sobre cada media (mediana de tickers; p10-p90)",
+          "columnas": [
+            "Media",
+            "2.080 tickers 2023-26",
+            "27 tickers 2005-26",
+            "Racha media (sesiones)",
+            "Cruces a la baja por año"
+          ],
+          "filas": [
+            [
+              "EMA8",
+              "53,0 % (46-59)",
+              "55,4 %",
+              "5,0",
+              "26,5"
+            ],
+            [
+              "EMA10",
+              "53,0 % (46-60)",
+              "55,9 %",
+              "5,6",
+              "23,8"
+            ],
+            [
+              "EMA21",
+              "53,9 % (44-63)",
+              "56,5 %",
+              "8,1",
+              "16,3"
+            ],
+            [
+              "EMA50",
+              "55,2 % (41-69)",
+              "59,5 %",
+              "12,8",
+              "10,6"
+            ],
+            [
+              "SMA20",
+              "53,4 % (45-61)",
+              "55,9 %",
+              "8,7",
+              "15,2"
+            ],
+            [
+              "SMA50",
+              "54,9 % (42-67)",
+              "56,9 %",
+              "14,6",
+              "9,2"
+            ],
+            [
+              "SMA100",
+              "56,6 % (39-74)",
+              "62,6 %",
+              "21,0",
+              "6,3"
+            ],
+            [
+              "**SMA200**",
+              "**59,1 % (33-83)**",
+              "67,4 %",
+              "31,4",
+              "4,3"
+            ]
+          ],
+          "barra": {
+            "col": 1,
+            "max": 100
+          },
+          "nota": "Periodo desde que existe la SMA200. Rachas y cruces de la muestra de 2.080 tickers. Sobre las 8 medias a la vez: mediana 29 % (p90 42,5 %)."
+        },
+        {
+          "titulo": "Tickers que más tiempo pasan sobre sus medias (% medio sobre las 8 medias, 2.080 tickers 2023-26)",
+          "columnas": [
+            "Ticker",
+            "% medio sobre las 8 medias",
+            "Sobre SMA200",
+            "Sobre EMA10",
+            "Retorno del periodo",
+            "Volatilidad anual"
+          ],
+          "filas": [
+            [
+              "HNGE",
+              "82,4 %",
+              "78 %",
+              "76 %",
+              "+155 %",
+              "48 %"
+            ],
+            [
+              "BNY",
+              "80,9 %",
+              "98 %",
+              "70 %",
+              "+253 %",
+              "21 %"
+            ],
+            [
+              "CNC",
+              "80,4 %",
+              "100 %",
+              "67 %",
+              "+82 %",
+              "45 %"
+            ],
+            [
+              "WELL",
+              "77,4 %",
+              "100 %",
+              "66 %",
+              "+196 %",
+              "21 %"
+            ],
+            [
+              "SPY",
+              "77,4 %",
+              "92 %",
+              "68 %",
+              "+84 %",
+              "15 %"
+            ],
+            [
+              "XMAG",
+              "76,4 %",
+              "98 %",
+              "64 %",
+              "+16 %",
+              "13 %"
+            ],
+            [
+              "HWM",
+              "75,4 %",
+              "93 %",
+              "63 %",
+              "+376 %",
+              "35 %"
+            ],
+            [
+              "CM",
+              "75,1 %",
+              "93 %",
+              "66 %",
+              "+230 %",
+              "20 %"
+            ],
+            [
+              "TSM",
+              "74,5 %",
+              "91 %",
+              "64 %",
+              "+328 %",
+              "41 %"
+            ],
+            [
+              "QQQ",
+              "74,1 %",
+              "92 %",
+              "66 %",
+              "+97 %",
+              "20 %"
+            ],
+            [
+              "Los 27 originales, 2005-26: SPY, QQQ, AAPL, NVDA, META, SMH",
+              "64-69 %",
+              "73-80 %",
+              "59-63 %",
+              "—",
+              "19-48 %"
+            ],
+            [
+              "Menos tiempo: PEW, VXX, RUN, TMC, BBAI, CONL, QUBT",
+              "17-26 %",
+              "0-19 %",
+              "26-37 %",
+              "−25 a −67 %",
+              "57-142 %"
+            ]
+          ],
+          "nota": "Ranking de un periodo alcista con la watchlist de hoy (sesgo de supervivencia)."
+        },
+        {
+          "titulo": "Por sector (mediana de tickers, 2023-26)",
+          "columnas": [
+            "Sector",
+            "n",
+            "% medio sobre medias",
+            "Sobre SMA200",
+            "Sobre las 8 a la vez",
+            "Volatilidad anual"
+          ],
+          "filas": [
+            [
+              "ETF diversificado",
+              "15",
+              "67,0 %",
+              "83,2 %",
+              "43,6 %",
+              "19,6 %"
+            ],
+            [
+              "Financial",
+              "433",
+              "58,5 %",
+              "67,8 %",
+              "33,1 %",
+              "28,6 %"
+            ],
+            [
+              "Utilities",
+              "77",
+              "57,6 %",
+              "65,2 %",
+              "32,0 %",
+              "22,2 %"
+            ],
+            [
+              "Industrial",
+              "337",
+              "55,1 %",
+              "59,8 %",
+              "29,7 %",
+              "38,3 %"
+            ],
+            [
+              "Basic Materials",
+              "136",
+              "55,1 %",
+              "58,3 %",
+              "29,7 %",
+              "42,7 %"
+            ],
+            [
+              "Communications",
+              "110",
+              "54,3 %",
+              "57,6 %",
+              "29,3 %",
+              "42,2 %"
+            ],
+            [
+              "Consumer, Non-cyclical",
+              "371",
+              "52,9 %",
+              "53,5 %",
+              "26,6 %",
+              "44,8 %"
+            ],
+            [
+              "Consumer, Cyclical",
+              "206",
+              "52,6 %",
+              "54,5 %",
+              "26,7 %",
+              "39,4 %"
+            ],
+            [
+              "Energy",
+              "92",
+              "52,3 %",
+              "56,3 %",
+              "27,0 %",
+              "38,9 %"
+            ],
+            [
+              "Technology",
+              "296",
+              "51,9 %",
+              "54,2 %",
+              "26,8 %",
+              "50,8 %"
+            ]
+          ]
+        }
+      ],
+      "puntos": [
+        "Las medias cortas (EMA8, EMA10, SMA20) están sobre el precio ~53-56 % del tiempo en casi todos los tickers (p10-p90 estrecho): miden ruido, cambian de lado 15-27 veces al año. Las lentas separan: la SMA200 va de 33 % (p10) a 83 % (p90) y la racha media sube a 31 sesiones.",
+        "Ningún ticker pasa más del 76 % del tiempo sobre la EMA10 (0 de 2.080 llegan al 90 %); 94 pasan ≥ 90 % sobre la SMA200 y solo ~29 % de las sesiones está sobre las 8 medias a la vez.",
+        "El tiempo sobre las medias es sobre todo rentabilidad del periodo: correlación de rangos 0,83 con el retorno y −0,32 con la volatilidad. Los que más están son financieras, ETF amplios (SPY, DIA, SCHD) y ganadores recientes; los que menos, tickers que cayeron más del 30 %.",
+        "Persistencia: en 2.080 tickers la correlación entre la 1.ª y la 2.ª mitad es ≈ 0 (SMA200 0,14); el quintil que más tiempo estuvo sobre sus medias pasó de 70,9 % a 56,8 % y el que menos, de 34,8 % a 54,1 % (regresión a la media). En los 27 tickers líquidos de 22 años la correlación es 0,27-0,42: hay un componente de líder estructural, pero con muy pocos tickers y con sesgo de supervivencia.",
+        "Consecuente con R12 y R13: no hay «ticker que respeta sus medias»; lo que se observa es el ciclo del mercado y los ganadores de cada periodo."
+      ],
+      "scripts": [
+        "scripts/suelos/medias_tiempo.py"
+      ],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
       "id": "D1",
       "fecha": "2026-11-06",
       "titulo": "Datos disponibles para backtest",
