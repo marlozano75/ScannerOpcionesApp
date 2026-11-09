@@ -34,3 +34,7 @@ Medido en el log y con `py-spy` durante un arranque: el primer Scanner tardó 25
 - Las cachés (`warm_caches`) solo se precalentaban al TERMINAR el primer refresco (3–7 min con el mercado abierto): ahora arrancan en `start()`, antes de conectar, e incluyen `support_map`/`drop_map`.
 - `ContractRepo.purge_expired_misses` se ejecutaba por ticker (×2.300, `DELETE` sin índice en `expiry`, ~5 s de bucle bloqueado): ahora una vez al día.
 - Sin tocar (por diseño): con IB Gateway ya abierto el primer `connectAsync` puede agotar `connect_timeout_seconds` (10 s) y la reconexión llega ~40 s después; el arranque no espera a TWS (`_offline_capable`). El refresco completo con el mercado abierto (~50.000 cotizaciones, 3–7 min) es el tiempo dominante.
+
+### Caché de velas vaciada en cada refresco (2026-11-09)
+
+`cleanup_orphans` corre antes de CADA refresco y `BarRepo.purge_except` vaciaba la caché de velas limpias aunque no borrara nada: la primera página del Scanner tras cada refresco (cada ~15 min con el mercado abierto) tardaba ~24 s en relimpiar todo (medido: 23,7 s la primera, 0,22 s las siguientes). Ahora `purge_except` y `prune` solo invalidan si borran filas (`tests/unit/test_bar_cache.py`).

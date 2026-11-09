@@ -800,12 +800,14 @@ class BarRepo:
         """Borra los cierres anteriores a `before` (el histórico no crece sin límite)."""
         with self.db.conn:
             n = self.db.conn.execute("DELETE FROM daily_bars WHERE day < ?", (before.isoformat(),)).rowcount
-        self._drop_cache()
+        if n:
+            self._drop_cache()
         return n
 
     def purge_except(self, keep: Iterable[str]) -> int:
         n = _delete_not_in(self.db, "daily_bars", "ticker", keep)
-        self._drop_cache()
+        if n:      # se llama antes de CADA refresco: vaciar la caché sin haber borrado nada obligaba a relimpiar todas las velas (~20 s en la siguiente página)
+            self._drop_cache()
         return n
 
 
