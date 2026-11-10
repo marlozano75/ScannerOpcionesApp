@@ -65,6 +65,7 @@ class ScanCriteria:
     min_oi: Optional[int] = None
     min_bid: Optional[float] = None
     min_bid_size: Optional[int] = None
+    min_volume: Optional[int] = None              # volumen mínimo del contrato (un dato que falta no pasa, como el OI)
     max_spread_pct: Optional[float] = None
     min_iv_rank: Optional[float] = None
     min_iv_percentile: Optional[float] = None
@@ -184,6 +185,7 @@ class ScanCriteria:
     max_credit_width_pct: Optional[float] = None   # ... y máximo (%)
     max_long_abs_delta: Optional[float] = None     # |delta| máximo de la put comprada (sin delta no pasa)
     min_long_oi: Optional[int] = None              # liquidez de la pata comprada: OI mínimo
+    min_long_volume: Optional[int] = None          # ... y volumen mínimo (un dato que falta no pasa)
     max_combo_spread_pct: Optional[float] = None   # spread bid/ask del combo (vendida − comprada) / crédito máximo (%)
     max_long_spread_pct: Optional[float] = None    # ... y spread bid/ask máximo (%); sin bid no pasa
     min_spread_credit: Optional[float] = None      # crédito neto mínimo por spread, $ por contrato
@@ -226,7 +228,7 @@ def criteria_from_settings(settings: Settings) -> ScanCriteria:
         dte_min=ini.dte_min,
         dte_max=ini.dte_max,
         min_put_credit=f.min_put_credit, max_capital_risk_pct=f.max_capital_risk_pct,
-        min_oi=f.min_oi, min_bid=settings.scanner.min_bid, min_bid_size=f.min_bid_size, max_spread_pct=f.max_spread_pct,
+        min_oi=f.min_oi, min_bid=settings.scanner.min_bid, min_bid_size=f.min_bid_size, min_volume=f.min_volume, max_spread_pct=f.max_spread_pct,
         min_iv_rank=f.min_iv_rank, min_iv_percentile=f.min_iv_percentile,
         manageable_max_de=settings.scanner.quality.manageable_debt.max_debt_to_equity,
         manageable_min_cover=settings.scanner.quality.manageable_debt.min_interest_coverage,

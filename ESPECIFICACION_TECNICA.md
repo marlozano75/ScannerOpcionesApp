@@ -246,7 +246,7 @@ ScannerOpcionesApp/
 | `scanner.initial.strike_below_pct_min` / `_max` | `10` / `30` | descuento mínimo y máximo del strike; valores iniciales editables |
 | `scanner.initial.min_annual_yield_pct` | `12.0` | valor inicial editable |
 | `scanner.initial.dte_min` / `dte_max` | `1` / `35` | valores iniciales editables (Q-03) |
-| `scanner.filters.min_oi` / `min_bid_size` / `max_spread_pct` / `min_iv_rank` / `min_iv_percentile` | sin valor (filtro desactivado) | |
+| `scanner.filters.min_oi` / `min_bid_size` / `min_volume` / `max_spread_pct` / `min_iv_rank` / `min_iv_percentile` | sin valor (filtro desactivado) | |
 | `risk.cushion_thresholds` | `normal_above: 40`, `concern_above: 30` | verde >40 / ámbar 30-40 / rojo <30 (Q-05) |
 | `diversification.weeks_ahead` | `5` | |
 | `vix.history_days` / `vix.futures_ahead` | `5` / `3` | |

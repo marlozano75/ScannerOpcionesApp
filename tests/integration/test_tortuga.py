@@ -478,9 +478,9 @@ async def test_radar_contracts_are_revalued_with_live_quotes_and_keep_tortugas_d
             return {(date(2026, 12, 4), 440.0): "S", (date(2026, 12, 4), 430.0): "L", (before["MPC"].put_expiry, before["MPC"].put_strike): "P"}
 
         async def get_option_quotes(self, symbols):
-            q = {"S": SimpleNamespace(bid=5.0, ask=5.4, last=None, delta=-0.3, iv=None, open_interest=None, bid_size=None, ask_size=None),
-                 "L": SimpleNamespace(bid=1.0, ask=1.2, last=None, delta=-0.1, iv=None, open_interest=None, bid_size=None, ask_size=None),
-                 "P": SimpleNamespace(bid=9.0, ask=9.4, last=None, delta=-0.25, iv=None, open_interest=None, bid_size=None, ask_size=None)}
+            q = {"S": SimpleNamespace(bid=5.0, ask=5.4, last=None, delta=-0.3, iv=None, open_interest=None, bid_size=None, ask_size=None, volume=None),
+                 "L": SimpleNamespace(bid=1.0, ask=1.2, last=None, delta=-0.1, iv=None, open_interest=None, bid_size=None, ask_size=None, volume=None),
+                 "P": SimpleNamespace(bid=9.0, ask=9.4, last=None, delta=-0.25, iv=None, open_interest=None, bid_size=None, ask_size=None, volume=None)}
             return {s: q[s] for s in symbols}
 
         async def get_prices(self, tickers):

@@ -447,7 +447,7 @@ class RefreshJob:
         las griegas (delta, IV) y, campo a campo, con el open interest."""
         updated_at = self.now()
         bid, ask, last, bid_size, ask_size = q.bid, q.ask, q.last, q.bid_size, q.ask_size
-        delta, iv, oi = q.delta, q.iv, q.open_interest
+        delta, iv, oi, volume = q.delta, q.iv, q.open_interest, q.volume
         tws_at, kept = None, False
         if previous is not None:
             if bid is None and ask is None and (previous.bid is not None or previous.ask is not None):
@@ -466,12 +466,14 @@ class RefreshJob:
                 delta, iv = previous.delta, previous.iv
             if oi is None:
                 oi = previous.open_interest
+            if volume is None:
+                volume = previous.volume
         y = gross_yield_pct(bid, ask, contract.strike)
         dte = contract.dte(self.now().date())
         return ContractSnapshot(
             contract=contract, updated_at=updated_at,
             bid=bid, ask=ask, last=last, delta=delta, iv=iv, open_interest=oi,
-            bid_size=bid_size, ask_size=ask_size, bid_size_tws_at=tws_at,
+            bid_size=bid_size, ask_size=ask_size, bid_size_tws_at=tws_at, volume=volume,
             spread_pct=spread_pct(bid, ask), yield_pct=y,
             yield_annualized_pct=annualized_yield_pct(y, dte),
             iv_rank=info.iv_rank if info else None,

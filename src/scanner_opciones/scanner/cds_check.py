@@ -106,6 +106,8 @@ def _values(r: CdsResult, info: Optional[TickerInfo], cds: CdsSettings, today: d
         "cds_earn": (f"resultados el {earn:%d/%m/%Y}" if earn and earnings_in_window(info, cds.move_days, today) else "sin resultados en la ventana"),
         "cds_oi": str(r.long.open_interest if r.long.open_interest is not None else "—"),
         "cds_oi_s": str(r.short.open_interest if r.short.open_interest is not None else "—"),
+        "cds_lvol": str(r.long.volume if r.long.volume is not None else "—"),
+        "cds_svol": str(r.short.volume if r.short.volume is not None else "—"),
         "cds_bsz": sz(r.long.bid_size, r.short.bid_size),
         "cds_asz": sz(r.long.ask_size, r.short.ask_size),
         "cds_wpct": f"{_fmt(r.width / r.long.contract.strike * 100)} %",

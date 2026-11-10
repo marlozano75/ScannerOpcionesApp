@@ -106,6 +106,7 @@ class ContractSnapshot:
     margin_at: Optional[datetime] = None  # cuándo se pidió el margen (para reutilizarlo)
     bid_size_tws_at: Optional[datetime] = None   # cuándo se sustituyó `bid_size` por el de TWS (None: es el del proveedor de datos)
     margin_price: Optional[float] = None         # precio del subyacente cuando se pidió el margen (para reutilizarlo mientras el precio no se mueva)
+    volume: Optional[int] = None                 # contratos negociados: los de la sesión (Trade.day_volume) o, si hoy no hubo operaciones, los de la sesión anterior (Summary.prev_day_volume)
 
 
 @dataclass(frozen=True)
@@ -192,6 +193,7 @@ class OptionQuote:
     open_interest: Optional[int] = None
     bid_size: Optional[int] = None
     ask_size: Optional[int] = None
+    volume: Optional[int] = None      # ver `ContractSnapshot.volume`
 
 
 @dataclass(frozen=True)

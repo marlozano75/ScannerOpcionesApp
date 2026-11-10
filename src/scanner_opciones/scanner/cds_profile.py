@@ -32,6 +32,8 @@ def default_form(settings) -> dict:
         "best": cfg.best_width, "allw": cfg.all_widths,
         "dmin": _fmt(cfg.min_debit_usd), "dmax": _fmt(cfg.max_debit_usd),
         "oi": str(cfg.min_long_oi), "oi_s": str(cfg.min_short_oi), "ls": _fmt(cfg.max_long_spread_pct), "ls_s": _fmt(cfg.max_short_spread_pct),
+        "use_lvol": cfg.min_long_volume is not None, "lvol": str(cfg.min_long_volume if cfg.min_long_volume is not None else 10),
+        "use_svol": cfg.min_short_volume is not None, "svol": str(cfg.min_short_volume if cfg.min_short_volume is not None else 10),
         "use_bsz": cfg.min_bid_size is not None, "bsz": str(cfg.min_bid_size if cfg.min_bid_size is not None else 10),
         "use_asz": cfg.min_ask_size is not None, "asz": str(cfg.min_ask_size if cfg.min_ask_size is not None else 10),
         "gain": _fmt(cfg.target_gain_pct), "days": str(cfg.move_days), "mult": _fmt(cfg.max_required_move_mult),

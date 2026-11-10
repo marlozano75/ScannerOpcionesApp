@@ -48,6 +48,7 @@ scanner:
     width_options: [1, 2.5, 5, 10, 15, 20]        # anchos que se prueban todos (strike vendido − comprado, en $)
     max_combo_spread_pct: 15                # spread bid/ask del combo (vendida − comprada) máximo, en % del crédito
     min_long_oi: 10                         # pata comprada: OI mínimo
+    min_long_volume: 10                     # pata comprada: volumen mínimo (valor de la caja; el filtro empieza desmarcado)
     max_long_spread_pct: 25                 # pata comprada: spread bid/ask máximo (%); sin bid no pasa
     min_credit_usd: 30                      # crédito neto mínimo por spread ($ por contrato)
     min_return_on_risk_pct: 25              # retorno mínimo hasta el vencimiento sobre el riesgo (crédito / pérdida máxima), sin anualizar
@@ -109,6 +110,7 @@ scanner:
   filters:                       # null = filtro desactivado
     min_oi: null
     min_bid_size: null
+    min_volume: null
     max_spread_pct: null
     min_iv_rank: null
     min_iv_percentile: null
@@ -134,6 +136,7 @@ scanner:
   filter_values:                 # valores de las cajas de los filtros opcionales cuando están desmarcados
     min_oi: 100
     min_bid_size: 20
+    min_volume: 10      # contratos negociados (sesión actual o, sin operaciones hoy, la anterior)
     max_spread_pct: 35
     min_iv_rank: 30
     min_iv_percentile: 50

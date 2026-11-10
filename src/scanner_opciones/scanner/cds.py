@@ -104,11 +104,12 @@ def _size_ok(size: Optional[int], minimum: Optional[int]) -> bool:
 
 
 def _leg_ok(s: ContractSnapshot, cds: CdsSettings, long: bool) -> bool:
-    """Liquidez de una pata: spread bid/ask, OI, y tamaño del bid y del ask si se exigen (la comprada y la vendida tienen límites propios de spread y OI)."""
+    """Liquidez de una pata: spread bid/ask, OI, y tamaño del bid y del ask si se exigen (la comprada y la vendida tienen límites propios de spread, OI y volumen)."""
     sp = _spread_pct(s)
     max_sp, min_oi = (cds.max_long_spread_pct, cds.min_long_oi) if long else (cds.max_short_spread_pct, cds.min_short_oi)
     return (sp is not None and sp <= max_sp + EPS and (s.open_interest or 0) >= min_oi
-            and _size_ok(s.bid_size, cds.min_bid_size) and _size_ok(s.ask_size, cds.min_ask_size))
+            and _size_ok(s.bid_size, cds.min_bid_size) and _size_ok(s.ask_size, cds.min_ask_size)
+            and _size_ok(s.volume, cds.min_long_volume if long else cds.min_short_volume))
 
 
 def build_call_debit_spreads(

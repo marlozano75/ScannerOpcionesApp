@@ -34,6 +34,7 @@ def parse_scan(service, qp, set_name: str = "put") -> dict:
     optional = {
         "oi": ("min_oi", int, base.min_oi),
         "bidsize": ("min_bid_size", int, base.min_bid_size),
+        "vol": ("min_volume", int, base.min_volume),
         "spread": ("max_spread_pct", float, base.max_spread_pct),
         "ivr": ("min_iv_rank", float, base.min_iv_rank),
         "ivp": ("min_iv_percentile", float, base.min_iv_percentile),
@@ -45,7 +46,7 @@ def parse_scan(service, qp, set_name: str = "put") -> dict:
     form["fsrc"] = []       # fuentes del Universo elegidas (casillas `fs_<fuente>`)
     form["use_src"] = False  # casilla «Filtrar por fuentes»: activa y sin ninguna marcada, no sale nada
     fv = service.settings.scanner.filter_values
-    shown = {"oi": fv.min_oi, "bidsize": fv.min_bid_size, "spread": fv.max_spread_pct,
+    shown = {"oi": fv.min_oi, "bidsize": fv.min_bid_size, "vol": fv.min_volume, "spread": fv.max_spread_pct,
              "ivr": fv.min_iv_rank, "ivp": fv.min_iv_percentile, "credit": fv.min_put_credit, "risk": fv.max_capital_risk_pct}
     for key, (_, _, cfg_value) in optional.items():   # estado inicial desde la configuración
         form[f"use_{key}"] = cfg_value is not None
@@ -65,7 +66,7 @@ def parse_scan(service, qp, set_name: str = "put") -> dict:
     sp = service.settings.scanner.spreads      # modo spread: marcar cada filtro lo aplica; las cajas traen los valores preconfigurados
     form.update(mode=set_name, set=set_name, best_width=True,
                 use_rr=True, rr=_fmt(sp.min_return_on_risk_pct), use_mc=True, mc=_fmt(sp.min_credit_usd),
-                use_cs=True, cs=_fmt(sp.max_combo_spread_pct), use_lo=True, lo=_fmt(sp.min_long_oi), use_ls=True, ls=_fmt(sp.max_long_spread_pct),
+                use_cs=True, cs=_fmt(sp.max_combo_spread_pct), use_lo=True, lo=_fmt(sp.min_long_oi), use_lv=False, lv=_fmt(sp.min_long_volume), use_ls=True, ls=_fmt(sp.max_long_spread_pct),
                 use_mn=True, mn=_fmt(sp.max_loss_nlv_pct),
                 # criterios de Sosnoff: empiezan desmarcados (se marcan a mano o con el botón «Aplicar criterios de Sosnoff»)
                 use_ld=False, ld=_fmt(sp.max_long_abs_delta), use_cw=False, cw=_fmt(sp.min_credit_width_pct),
@@ -81,15 +82,15 @@ def parse_scan(service, qp, set_name: str = "put") -> dict:
                 form["mode"] = "put"
             if form["mode"] not in ("put", "spread"):
                 raise ValueError("modo desconocido")
-            if any(key in qp for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ld", "cw", "wd")):   # bloque visible: lo enviado manda
+            if any(key in qp for key in ("rr", "mc", "mn", "ss", "cs", "lo", "lv", "ls", "ld", "cw", "wd")):   # bloque visible: lo enviado manda
                 form["best_width"] = "best_width" in qp
             # las cajas de texto viajan siempre que el bloque se ve; si no hay ninguna (p. ej. se acaba de cambiar
             # de instrumento) los límites conservan sus valores marcados por defecto
-            for shown_keys in (("rr", "mc", "ss", "cs", "lo", "ls", "mn"), ("ld", "cw", "wd")):
+            for shown_keys in (("rr", "mc", "ss", "cs", "lo", "lv", "ls", "mn"), ("ld", "cw", "wd")):
                 if any(key in qp for key in shown_keys):
                     for key in shown_keys:
                         form[f"use_{key}"] = f"use_{key}" in qp
-            for key in ("rr", "mc", "mn", "ss", "cs", "lo", "ls", "ld", "cw", "cwx", "wd"):
+            for key in ("rr", "mc", "mn", "ss", "cs", "lo", "lv", "ls", "ld", "cw", "cwx", "wd"):
                 if key in qp:
                     form[key] = qp.get(key, "").strip()
             for key in ("discount", "dte_min", "dte_max", "min_yield"):
@@ -239,6 +240,7 @@ def parse_scan(service, qp, set_name: str = "put") -> dict:
                     ("use_rr", "rr", "min_return_on_risk_pct", "Retorno s/ riesgo mín. (%)", None),
                     ("use_mc", "mc", "min_spread_credit", "Crédito mín. ($ por contrato)", None),
                     ("use_lo", "lo", "min_long_oi", "OI mín. de la pata comprada", None),
+                    ("use_lv", "lv", "min_long_volume", "Volumen mín. de la pata comprada", None),
                     ("use_cs", "cs", "max_combo_spread_pct", "Spread máx. del combo (% del crédito)", None),
                     ("use_ls", "ls", "max_long_spread_pct", "Spread máx. de la pata comprada (%)", None),
                     ("use_mn", "mn", "max_loss_nlv_pct", "Pérdida máxima (% del NLV)", 100)):

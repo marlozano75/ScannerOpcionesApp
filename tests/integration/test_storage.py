@@ -20,9 +20,9 @@ def db():
 
 
 def test_migration_sets_version_and_is_idempotent(db):
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 47
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 48
     db.migrate()
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 47
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 48
 
 
 def test_file_database_persists(tmp_path):
@@ -145,9 +145,19 @@ def test_migration_from_v1_keeps_existing_snapshots(tmp_path):
     conn.commit()
     conn.close()
     db = Database(path)
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 47
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 48
     snaps = SnapshotRepo(db).all()
     assert len(snaps) == 1 and snaps[0].bid == 1.0 and snaps[0].bid_size is None
+
+
+def test_snapshot_volume_roundtrip(db):
+    contracts, snaps = ContractRepo(db), SnapshotRepo(db)
+    c = OptionContract("AAPL", date(2026, 10, 30), 150.0)
+    contracts.replace_for_ticker("AAPL", [c])
+    snaps.upsert(ContractSnapshot(c, NOW, bid=1.0, ask=1.2, volume=250))
+    assert snaps.all("AAPL")[0].volume == 250
+    snaps.upsert(ContractSnapshot(c, NOW, bid=1.0, ask=1.2))
+    assert snaps.all("AAPL")[0].volume is None
 
 
 def test_snapshot_bid_size_roundtrip_and_price_update(db):
@@ -178,7 +188,7 @@ def test_migration_from_v2_keeps_the_old_iv_history_table(tmp_path):
     conn.commit()
     conn.close()
     db = Database(path)
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 47
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 48
     rows = db.conn.execute("SELECT ticker, day, iv FROM iv_history").fetchall()   # ya no se usa, pero no se borra
     assert [tuple(r) for r in rows] == [("AAPL", "2026-09-01", 0.2)]
 
@@ -198,7 +208,7 @@ def test_migration_from_v3_adds_misses_and_margin_date(tmp_path):
     conn.commit()
     conn.close()
     db = Database(path)
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 47
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 48
     snap = SnapshotRepo(db).all("AAPL")[0]
     assert snap.initial_margin == 1500 and snap.margin_at is None      # sin fecha: el margen se pedirá de nuevo
     assert db.conn.execute("SELECT COUNT(*) FROM contract_misses").fetchone()[0] == 0
@@ -218,7 +228,7 @@ def test_meta_repo_and_migration_from_v4(tmp_path):
     conn.commit()
     conn.close()
     db = Database(path)
-    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 47
+    assert db.conn.execute("PRAGMA user_version").fetchone()[0] == 48
     meta = MetaRepo(db)
     assert meta.get("k") is None
     meta.set("k", "a")

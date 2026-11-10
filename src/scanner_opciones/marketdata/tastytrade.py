@@ -392,7 +392,7 @@ class TastytradeVolatility:
         """Quote + Greeks + Summary por DXLink, en grupos de `option_batch_size` contratos (una conexión cada uno).
         Un grupo termina cuando todos tienen cotización y griegas, cuando pasan `settle` s sin datos nuevos (el
         resto no cotiza) o al agotar `wait`."""
-        from tastytrade.dxfeed import Greeks, Quote, Summary
+        from tastytrade.dxfeed import Greeks, Quote, Summary, Trade
         from tastytrade.streamer import DXLinkStreamer
 
         got: dict[str, dict] = {s: {} for s in symbols}
@@ -411,7 +411,12 @@ class TastytradeVolatility:
             d.update(iv=num(e.volatility), delta=num(e.delta), greeks=True)
 
         def fill_summary(d: dict, e: Any) -> None:
-            d.update(oi=num(e.open_interest))
+            d.update(oi=num(e.open_interest), prev_volume=num(e.prev_day_volume))
+
+        def fill_trade(d: dict, e: Any) -> None:
+            v = num(e.day_volume)
+            if v is not None:
+                d["volume"] = max(v, d.get("volume") or 0.0)       # acumulado de la sesión: nunca baja
 
         async def fetch_group(group: list[str]) -> None:
             """Una conexión por grupo (reutilizar la del grupo anterior falla con miles de suscripciones). Se
@@ -423,11 +428,11 @@ class TastytradeVolatility:
                             fill(got[ev.event_symbol], ev)
 
                 tasks = [asyncio.create_task(read(c, f))
-                         for c, f in ((Quote, fill_quote), (Greeks, fill_greeks), (Summary, fill_summary))]
+                         for c, f in ((Quote, fill_quote), (Greeks, fill_greeks), (Summary, fill_summary), (Trade, fill_trade))]
                 try:
                     loop = asyncio.get_running_loop()
                     for j in range(0, len(group), SUBSCRIBE_CHUNK):
-                        for cls in (Quote, Greeks, Summary):
+                        for cls in (Quote, Greeks, Summary, Trade):
                             await streamer.subscribe(cls, group[j:j + SUBSCRIBE_CHUNK])
                     start = last_change = loop.time()
                     last_n = -1
@@ -450,10 +455,11 @@ class TastytradeVolatility:
             if not (d.get("quoted") or d.get("greeks")):
                 continue
             oi, bs, az = d.get("oi"), d.get("bid_size"), d.get("ask_size")
+            vol = d.get("volume") if d.get("volume") is not None else d.get("prev_volume")   # sin operaciones hoy: la sesión anterior
             out[s] = OptionQuote(
                 bid=d.get("bid"), ask=d.get("ask"), last=None, delta=d.get("delta"), iv=d.get("iv"),
                 open_interest=int(oi) if oi is not None else None, bid_size=int(bs) if bs is not None else None,
-                ask_size=int(az) if az is not None else None,
+                ask_size=int(az) if az is not None else None, volume=int(vol) if vol is not None else None,
             )
         return out
 

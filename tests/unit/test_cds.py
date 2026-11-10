@@ -194,6 +194,18 @@ def test_bid_and_ask_size_filters_apply_to_both_legs_and_missing_data_fails():
     assert build_call_debit_spreads([a, b], info(), cfg(min_bid_size=1), TODAY) == []            # sin dato de tamaño no pasa
 
 
+def test_each_leg_has_its_own_volume_limit_and_missing_data_fails():
+    from dataclasses import replace
+    a, b = call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)
+    legs = [replace(a, volume=500), replace(b, volume=20)]
+    assert len(build_call_debit_spreads(legs, info(), cfg(), TODAY)) == 1                                   # sin filtro no importa
+    assert len(build_call_debit_spreads(legs, info(), cfg(min_long_volume=500, min_short_volume=20), TODAY)) == 1
+    assert build_call_debit_spreads(legs, info(), cfg(min_long_volume=501), TODAY) == []                    # la comprada tiene 500
+    assert build_call_debit_spreads(legs, info(), cfg(min_short_volume=21), TODAY) == []                    # la vendida tiene 20
+    assert len(build_call_debit_spreads(legs, info(), cfg(min_long_volume=400), TODAY)) == 1                # el límite de la vendida no se exige a la comprada
+    assert build_call_debit_spreads([a, b], info(), cfg(min_long_volume=1), TODAY) == []                    # sin dato de volumen no pasa
+
+
 def test_all_widths_uses_any_saved_strike_above_the_long():
     # comprada 130; vendidas guardadas a 135, 140 y 150 (anchos 5, 10 y 20); la lista solo trae el 10
     snaps = [call(130, 3.9, 4.0, 0.30), call(135, 3.0, 3.2, 0.26), call(140, 2.2, 2.4, 0.22), call(150, 1.2, 1.4, 0.15)]

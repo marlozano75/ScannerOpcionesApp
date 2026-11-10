@@ -52,7 +52,7 @@ def test_cds_profile_renders_in_the_scanner_with_its_filters_chips_impact_and_ta
         text = client.get("/scanner?" + cds_profile_query(svc)).text
         for needle in ('id="sec-widths"', 'id="sec-debit"', 'id="sec-move"', 'name="dmax"', 'Base (', 'Activados (', 'Desactivados (', 'id="viz-box"', 'data-kind="cds"',
                        '>ZZZ</a>', 'Comp./Vend.', '× esperado', 'Technology',
-                       'name="oi_s"', 'name="ls_s"', 'name="use_bsz"', 'name="use_asz"', 'Bid size comp.', 'Ask size comp.', 'Bid size vend.', 'Ask size vend.', '>ATR ($)</th>', '>ATR %</th>'):
+                       'name="oi_s"', 'name="ls_s"', 'name="use_bsz"', 'name="use_asz"', 'name="use_lvol"', 'name="use_svol"', 'Vol. comp.', 'Vol. vend.', 'Bid size comp.', 'Ask size comp.', 'Bid size vend.', 'Ask size vend.', '>ATR ($)</th>', '>ATR %</th>'):
             assert needle in text, needle
         assert "Simular seleccionados" not in text and "Téc." not in text
         assert text.count("<tr><td class=\"tk\"") == 1         # el único spread 130/140
@@ -345,6 +345,7 @@ def test_migration_v43_keeps_the_stored_bids_and_marks_them_as_missing_detail():
     d.conn.execute("ALTER TABLE ticker_quality DROP COLUMN net_income_fy")      # y la v46 (PEG histórico)
     d.conn.execute("ALTER TABLE ticker_quality DROP COLUMN earnings_cagr")
     d.conn.execute("ALTER TABLE ticker_quality DROP COLUMN analyst_peg")      # y la v47 (PEG de analistas)
+    d.conn.execute("ALTER TABLE snapshots DROP COLUMN volume")      # y la v48 (volumen de la opción)
     d.conn.execute("PRAGMA user_version = 42")
     d.migrate()
     repo = __import__("scanner_opciones.storage.repositories", fromlist=["BidHistoryRepo"]).BidHistoryRepo(d)

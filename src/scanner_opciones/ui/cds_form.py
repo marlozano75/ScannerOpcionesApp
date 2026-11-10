@@ -57,14 +57,14 @@ def parse_cds(service, qp) -> dict:
     ticker_filters: dict = {}
     error: Optional[str] = None
     if submitted:
-        for key in ("dte_min", "dte_max", "otm_min", "otm_max", "widths", "wpct_min", "wpct_max", "dmin", "dmax", "oi", "oi_s", "ls", "ls_s", "bsz", "asz", "gain", "days", "mult",
+        for key in ("dte_min", "dte_max", "otm_min", "otm_max", "widths", "wpct_min", "wpct_max", "dmin", "dmax", "oi", "oi_s", "ls", "ls_s", "lvol", "svol", "bsz", "asz", "gain", "days", "mult",
                     "ret", "prob", "xp", "top", "sma", "ref", "ref_x"):
             if key in qp:
                 form[key] = str(qp.get(key, "")).strip()
         for new, old in (("oi_s", "oi"), ("ls_s", "ls")):        # perfil guardado antes de separar las patas: el valor único valía para las dos
             if new not in qp and old in qp:
                 form[new] = form[old]
-        for key in ("best", "use_ret", "use_prob", "use_xp", "use_sma", "use_earn", "use_bsz", "use_asz"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
+        for key in ("best", "use_ret", "use_prob", "use_xp", "use_sma", "use_earn", "use_bsz", "use_asz", "use_lvol", "use_svol"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
             form[key] = key in qp
         form["allw"] = "allw" in qp or "allw_set" not in qp      # `allw_set` marca que el formulario trae la casilla: sin él (perfil o enlace anterior a la casilla) vale «marcada»
         form["allw_set"] = True
@@ -93,6 +93,8 @@ def parse_cds(service, qp) -> dict:
             min_debit_usd=_num(form["dmin"], "Débito mínimo"), max_debit_usd=_num(form["dmax"], "Débito máximo"),
             min_long_oi=_num(form["oi"], "OI mínimo de la comprada", int), min_short_oi=_num(form["oi_s"], "OI mínimo de la vendida", int),
             max_long_spread_pct=_num(form["ls"], "Spread máximo de la comprada"), max_short_spread_pct=_num(form["ls_s"], "Spread máximo de la vendida"),
+            min_long_volume=_num(form["lvol"], "Volumen mínimo de la comprada", int) if form["use_lvol"] else None,
+            min_short_volume=_num(form["svol"], "Volumen mínimo de la vendida", int) if form["use_svol"] else None,
             min_bid_size=_num(form["bsz"], "Bid size mínimo", int) if form["use_bsz"] else None,
             min_ask_size=_num(form["asz"], "Ask size mínimo", int) if form["use_asz"] else None,
             target_gain_pct=_num(form["gain"], "Objetivo de ganancia"), move_days=_num(form["days"], "Días del movimiento", int),

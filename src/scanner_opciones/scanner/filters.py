@@ -100,6 +100,8 @@ def reject_reason(
         return "OI insuficiente o desconocido"
     if criteria.min_bid_size is not None and (snap.bid_size is None or snap.bid_size < criteria.min_bid_size):
         return "Bid size insuficiente o desconocido"
+    if criteria.min_volume is not None and (snap.volume is None or snap.volume < criteria.min_volume):
+        return "Volumen insuficiente o desconocido"
     if criteria.max_spread_pct is not None and (
         snap.spread_pct is None or snap.spread_pct > criteria.max_spread_pct + _EPS
     ):

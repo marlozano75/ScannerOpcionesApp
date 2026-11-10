@@ -453,6 +453,8 @@ MIGRATIONS: list[str] = [
     ALTER TABLE ticker_quality ADD COLUMN analyst_peg REAL;
     UPDATE ticker_quality SET financials_at = NULL;
     """,
+    # v48: volumen de la opción en el último snapshot (sesión actual o, sin operaciones, la anterior). NULL = el proveedor no lo dio
+    "ALTER TABLE snapshots ADD COLUMN volume INTEGER;",
 ]
 
 

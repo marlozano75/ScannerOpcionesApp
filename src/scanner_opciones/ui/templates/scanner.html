@@ -84,6 +84,8 @@
                 ('sec-liq', 'Spread ≤ ' ~ f.ls ~ ' % comprada', 'ls'), ('sec-liq', 'Spread ≤ ' ~ f.ls_s ~ ' % vendida', 'ls_s')] %}
 {% if f.use_bsz %}{% set _ = chips.append(('sec-liq', 'Bid size ≥ ' ~ f.bsz, 'use_bsz bsz')) %}{% endif %}
 {% if f.use_asz %}{% set _ = chips.append(('sec-liq', 'Ask size ≥ ' ~ f.asz, 'use_asz asz')) %}{% endif %}
+{% if f.use_lvol %}{% set _ = chips.append(('sec-liq', 'Volumen ≥ ' ~ f.lvol ~ ' comprada', 'use_lvol lvol')) %}{% endif %}
+{% if f.use_svol %}{% set _ = chips.append(('sec-liq', 'Volumen ≥ ' ~ f.svol ~ ' vendida', 'use_svol svol')) %}{% endif %}
 {% if f.best %}{% set _ = chips.append(('sec-widths', 'Solo el mejor ancho', 'best')) %}{% endif %}
 {% if f.wpct_min or f.wpct_max %}{% set _ = chips.append(('sec-widths', 'Ancho/strike ' ~ (f.wpct_min or '0') ~ '–' ~ (f.wpct_max or '∞') ~ ' %', 'wpct_min wpct_max')) %}{% endif %}
 {% if f.use_prob %}{% set _ = chips.append(('sec-move', 'Prob. objetivo ≥ ' ~ f.prob ~ ' %', 'use_prob prob')) %}{% endif %}
@@ -160,7 +162,7 @@
 {% if form.q_earn %}{% set _ = quality.append(('Sin resultados', 'q_earn')) %}{% endif %}
 {% set optional = [] %}
 {% if form.q_liq %}{% set _ = optional.append(('Liquidez ≥ ' ~ form.q_liq, 'q_liq')) %}{% endif %}
-{% for key, use, label, sign in (('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('spread', 'use_spread', 'Spread', '≤')) %}
+{% for key, use, label, sign in (('oi', 'use_oi', 'OI', '≥'), ('bidsize', 'use_bidsize', 'Bid size', '≥'), ('vol', 'use_vol', 'Volumen', '≥'), ('spread', 'use_spread', 'Spread', '≤')) %}
   {% if form[use] %}{% set _ = optional.append((label ~ ' ' ~ sign ~ ' ' ~ form[key], use ~ ' ' ~ key)) %}{% endif %}
 {% endfor %}
 {# grupo de volatilidad (IV, delta) y técnico de entrada (cercanía a la media de 50 o a un soporte) #}
@@ -188,6 +190,7 @@
   {% if form.use_rr %}{% set _ = spreadf.append(('Retorno/riesgo ≥ ' ~ form.rr ~ ' %', 'use_rr rr')) %}{% endif %}
   {% if form.use_cs %}{% set _ = spreadf.append(('Spread combo ≤ ' ~ form.cs ~ ' % del crédito', 'use_cs cs')) %}{% endif %}
   {% if form.use_lo %}{% set _ = spreadf.append(('OI comprada ≥ ' ~ form.lo, 'use_lo lo')) %}{% endif %}
+  {% if form.use_lv %}{% set _ = spreadf.append(('Volumen comprada ≥ ' ~ form.lv, 'use_lv lv')) %}{% endif %}
   {% if form.use_ls %}{% set _ = spreadf.append(('Spread comprada ≤ ' ~ form.ls ~ ' %', 'use_ls ls')) %}{% endif %}
   {% if form.use_mn %}{% set _ = spreadf.append(('Pérdida máx. ≤ ' ~ form.mn ~ ' % NLV', 'use_mn mn')) %}{% endif %}
   {% if form.use_ld %}{% set _ = spreadf.append(('Δ comprada ≤ ' ~ form.ld, 'use_ld ld')) %}{% endif %}
@@ -227,12 +230,12 @@
 {# filtros desactivados (lado de resultados), para cualquier perfil: (sección, texto, claves) #}
 {% set offs = [] %}
 {% if form.set == 'spread' %}
-  {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_cs', 'Spread combo'), ('use_lo', 'OI comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV'), ('use_ld', 'Δ comprada'), ('use_cw', 'Crédito/ancho'), ('use_wd', 'Anchos fijos')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label, use)) %}{% endif %}{% endfor %}
+  {% for use, label in (('use_rr', 'Retorno/riesgo'), ('use_cs', 'Spread combo'), ('use_lo', 'OI comprada'), ('use_lv', 'Volumen comprada'), ('use_ls', 'Spread comprada'), ('use_mn', 'Pérdida máx. NLV'), ('use_ld', 'Δ comprada'), ('use_cw', 'Crédito/ancho'), ('use_wd', 'Anchos fijos')) %}{% if not form[use] %}{% set _ = offs.append(('sec-spread', label, use)) %}{% endif %}{% endfor %}
 {% endif %}
 {% for use, label, sec in (('use_ivr', 'IV Rank', 'sec-iv'), ('use_ivp', 'IV Percentile', 'sec-iv'), ('use_delta', 'Delta', 'sec-delta'), ('use_ivhv', 'IV/HV', 'sec-iv'),
     ('use_ivchg', 'Cambio de IV', 'sec-iv'), ('use_near', 'Cerca de MA50/soporte', 'sec-entry'), ('use_atr', 'ATR', 'sec-atr'), ('use_exp', 'Mov. esperado', 'sec-atr'), ('use_rsi', 'RSI', 'sec-entry'),
     ('use_boll', 'Bollinger %B', 'sec-entry'), ('use_bw', 'Ancho de bandas', 'sec-entry'), ('use_oi', 'OI', 'sec-optional'),
-    ('use_bidsize', 'Bid size', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('use_credit', 'Crédito mín.', 'sec-credit'), ('use_risk', 'Capital en riesgo', 'sec-risk'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
+    ('use_bidsize', 'Bid size', 'sec-optional'), ('use_vol', 'Volumen', 'sec-optional'), ('use_spread', 'Spread', 'sec-optional'), ('use_credit', 'Crédito mín.', 'sec-credit'), ('use_risk', 'Capital en riesgo', 'sec-risk'), ('q_earn', 'Sin resultados', 'sec-quality')) %}
   {% if not form[use] and (use not in ('use_credit', 'use_risk') or form.set != 'spread') %}{% set _ = offs.append((sec, label, use)) %}{% endif %}
 {% endfor %}
 {% if not form.q_liq %}{% set _ = offs.append(('sec-optional', 'Liquidez', 'q_liq')) %}{% endif %}
@@ -466,7 +469,7 @@
         <p class="note">Un dato que falta cuenta como «no cumple»; los ETF no se miden y las financieras y sectores exentos no miden el FCF ni el apalancamiento. No hay filtro de «evitar resultados»: con DTE 200–500 siempre hay unos resultados antes del vencimiento.</p>
       {% endcall %}
 
-      {% call section('sec-liq', 'Liquidez de las opciones', (('Liq. ≥ ' ~ form.q_liq ~ ' · ') if form.q_liq else '') ~ 'OI ≥ ' ~ form.oi ~ '/' ~ form.oi_s ~ ' · spread ≤ ' ~ form.ls ~ '/' ~ form.ls_s ~ ' %' ~ ((' · bid size ≥ ' ~ form.bsz) if form.use_bsz else '') ~ ((' · ask size ≥ ' ~ form.asz) if form.use_asz else ''), true) %}
+      {% call section('sec-liq', 'Liquidez de las opciones', (('Liq. ≥ ' ~ form.q_liq ~ ' · ') if form.q_liq else '') ~ 'OI ≥ ' ~ form.oi ~ '/' ~ form.oi_s ~ ' · spread ≤ ' ~ form.ls ~ '/' ~ form.ls_s ~ ' %' ~ ((' · bid size ≥ ' ~ form.bsz) if form.use_bsz else '') ~ ((' · ask size ≥ ' ~ form.asz) if form.use_asz else '') ~ ((' · vol. ≥ ' ~ form.lvol ~ '/' ~ form.svol) if form.use_lvol and form.use_svol else (' · vol. comprada ≥ ' ~ form.lvol) if form.use_lvol else (' · vol. vendida ≥ ' ~ form.svol) if form.use_svol else ''), true) %}
         <label class="field">Liquidez de las opciones del ticker (1-5)
           <select name="q_liq" id="q_liq"><option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>{% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más</option>{% endfor %}</select></label>
         <p class="note">Valoración de tastytrade (5 = la mejor): mide el ticker. Debajo, la liquidez de cada pata.</p>
@@ -480,6 +483,10 @@
           <input name="bsz" value="{{ form.bsz }}" inputmode="numeric"></label>
         <label class="opt opt-row" title="Tamaño mínimo del ask (contratos) en las dos patas; una pata sin dato de tamaño no pasa"><span class="check"><input type="checkbox" name="use_asz" {{ 'checked' if form.use_asz }}> Ask size ≥ (cada pata)</span>
           <input name="asz" value="{{ form.asz }}" inputmode="numeric"></label>
+        <label class="opt opt-row" title="Volumen mínimo de la call comprada (contratos de la sesión o, sin operaciones hoy, de la anterior); sin dato no pasa"><span class="check"><input type="checkbox" name="use_lvol" {{ 'checked' if form.use_lvol }}> Volumen ≥ (comprada)</span>
+          <input name="lvol" value="{{ form.lvol }}" inputmode="numeric"></label>
+        <label class="opt opt-row" title="Volumen mínimo de la call vendida (contratos de la sesión o, sin operaciones hoy, de la anterior); sin dato no pasa"><span class="check"><input type="checkbox" name="use_svol" {{ 'checked' if form.use_svol }}> Volumen ≥ (vendida)</span>
+          <input name="svol" value="{{ form.svol }}" inputmode="numeric"></label>
         <p class="note">Una pata sin bid/ask válido no cuenta. Los tamaños son los del proveedor de datos (tastytrade): suelen ser bastante menores que los que muestra TWS.</p>
       {% endcall %}
 
@@ -509,7 +516,7 @@
       {% if form.set == 'spread' %}
       {% call section('sec-spread', 'Spread: ancho y riesgo', spreadf | join(' · '), true) %}
         <label class="check" title="Se prueban todos los anchos y gana el de mayor retorno anualizado sobre riesgo"><input type="checkbox" name="best_width" {{ 'checked' if form.best_width }}> Solo el mejor ancho por put</label>
-        {% for key, use, label, tip in (('rr', 'use_rr', 'Retorno/riesgo mín. (%)', 'Crédito / pérdida máxima hasta el vencimiento, sin anualizar'), ('mc', 'use_mc', 'Crédito mín. ($)', 'Crédito mínimo en dólares por contrato'), ('cs', 'use_cs', 'Spread combo máx. (%)', 'Spread bid/ask del combo, en % del crédito'), ('lo', 'use_lo', 'OI mín. comprada', 'Open interest mínimo de la pata comprada'), ('ls', 'use_ls', 'Spread compr. máx. (%)', 'Spread bid/ask máximo de la pata comprada; sin bid no pasa'), ('mn', 'use_mn', 'Pérdida máx. (% NLV)', 'Pérdida máxima del spread como % del NLV')) %}
+        {% for key, use, label, tip in (('rr', 'use_rr', 'Retorno/riesgo mín. (%)', 'Crédito / pérdida máxima hasta el vencimiento, sin anualizar'), ('mc', 'use_mc', 'Crédito mín. ($)', 'Crédito mínimo en dólares por contrato'), ('cs', 'use_cs', 'Spread combo máx. (%)', 'Spread bid/ask del combo, en % del crédito'), ('lo', 'use_lo', 'OI mín. comprada', 'Open interest mínimo de la pata comprada'), ('lv', 'use_lv', 'Vol. mín. comprada', 'Volumen mínimo de la pata comprada (sesión actual o, sin operaciones hoy, la anterior); sin dato no pasa'), ('ls', 'use_ls', 'Spread compr. máx. (%)', 'Spread bid/ask máximo de la pata comprada; sin bid no pasa'), ('mn', 'use_mn', 'Pérdida máx. (% NLV)', 'Pérdida máxima del spread como % del NLV')) %}
         <label class="opt opt-row" title="{{ tip }}"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
@@ -620,7 +627,7 @@
             <option value="" {{ 'selected' if form.q_liq == '' }}>Cualquiera</option>
             {% for n in quality_opts.liquidity %}<option value="{{ n }}" {{ 'selected' if form.q_liq == n|string }}>{{ n }} o más{{ count_text('min_option_liquidity', n) }}</option>{% endfor %}</select></label>
         <p class="note">Valoración de tastytrade (5 = la mejor). Con 3 o más se descartan dos de cada tres tickers.</p>
-        {% for key, use, label in (('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('spread', 'use_spread', 'Spread máx. (%)')) %}
+        {% for key, use, label in (('oi', 'use_oi', 'OI mínimo'), ('bidsize', 'use_bidsize', 'Bid size mínimo'), ('vol', 'use_vol', 'Volumen mínimo'), ('spread', 'use_spread', 'Spread máx. (%)')) %}
         <label class="opt opt-row"><span class="check"><input type="checkbox" name="{{ use }}" {{ 'checked' if form[use] }}> {{ label }}</span>
           <input name="{{ key }}" value="{{ form[key] }}" inputmode="decimal"></label>
         {% endfor %}
@@ -928,7 +935,7 @@
     const OFF = {   // clave del panel -> casillas a desmarcar, cajas a vaciar y selects a poner en su valor neutro
       yield: { set: { min_yield: '0' } }, price: { set: { price_min: '', price_max: '' } },
       floor_eps: { uncheck: ['fl_eps'] }, floor_quarters: { set: { fl_q: '0' } }, floor_fcf: { uncheck: ['fl_fcf'] },
-      credit: { uncheck: ['use_credit'] }, risk: { uncheck: ['use_risk'] }, oi: { uncheck: ['use_oi'] }, bid_size: { uncheck: ['use_bidsize'] }, spread: { uncheck: ['use_spread'] },
+      credit: { uncheck: ['use_credit'] }, risk: { uncheck: ['use_risk'] }, oi: { uncheck: ['use_oi'] }, bid_size: { uncheck: ['use_bidsize'] }, volume: { uncheck: ['use_vol'] }, spread: { uncheck: ['use_spread'] },
       iv_rank: { uncheck: ['use_ivr'] }, iv_pct: { uncheck: ['use_ivp'] }, iv_hv: { uncheck: ['use_ivhv'] }, iv_change: { uncheck: ['use_ivchg'] },
       atr: { uncheck: ['use_atr'] }, expected_move: { uncheck: ['use_exp'] }, delta: { uncheck: ['use_delta'] }, near_level: { uncheck: ['use_near'] }, rsi: { uncheck: ['use_rsi'] },
       bollinger: { uncheck: ['use_boll'] }, bollinger_width: { uncheck: ['use_bw'] },
@@ -938,7 +945,7 @@
       averages: { sectionSelects: 'sec-ma' },
       // Call Debit Spread: cada filtro vuelve a un valor que no descarta nada
       cds_debit: { set: { dmin: '0', dmax: '1000000' } }, cds_oi: { set: { oi: '0' } }, cds_oi_s: { set: { oi_s: '0' } }, cds_spread: { set: { ls: '1000' } }, cds_spread_s: { set: { ls_s: '1000' } },
-      cds_bsz: { uncheck: ['use_bsz'] }, cds_asz: { uncheck: ['use_asz'] },
+      cds_bsz: { uncheck: ['use_bsz'] }, cds_asz: { uncheck: ['use_asz'] }, cds_lvol: { uncheck: ['use_lvol'] }, cds_svol: { uncheck: ['use_svol'] },
       cds_wpct: { set: { wpct_min: '', wpct_max: '' } }, cds_move: { set: { mult: '1000' } }, cds_prob: { uncheck: ['use_prob'] }, cds_xprofit: { uncheck: ['use_xp'] }, cds_earn: { uncheck: ['use_earn'] }, cds_return: { uncheck: ['use_ret'] }, cds_sma: { uncheck: ['use_sma'] },
       cds_entry: { uncheck: ['use_near', 'use_rsi', 'use_boll', 'use_bw'] }, cds_ma: { sectionSelects: 'sec-ma' },
       cds_profit: { uncheck: ['q_profit'] }, cds_quarters: { set: { q_quarters: '' } }, cds_fcf: { uncheck: ['q_fcf'] }, cds_lev: { set: { q_lev: '' } },

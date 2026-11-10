@@ -281,6 +281,7 @@ DEFAULT_PRESETS = (
 class FilterSettings(_Model):
     min_oi: Optional[int] = Field(None, ge=0)
     min_bid_size: Optional[int] = Field(None, ge=0)
+    min_volume: Optional[int] = Field(None, ge=0)         # volumen mínimo del contrato (sesión actual o, sin operaciones hoy, la anterior)
     max_spread_pct: Optional[float] = Field(None, ge=0)
     min_iv_rank: Optional[float] = Field(None, ge=0, le=100)
     min_iv_percentile: Optional[float] = Field(None, ge=0, le=100)
@@ -293,6 +294,7 @@ class FilterValues(_Model):
     (marcar el filtro los aplica). `scanner.filters` decide cuáles empiezan marcados."""
     min_oi: int = Field(100, ge=0)
     min_bid_size: int = Field(20, ge=0)
+    min_volume: int = Field(10, ge=0)
     max_spread_pct: float = Field(35, ge=0)
     min_iv_rank: float = Field(30, ge=0, le=100)
     min_iv_percentile: float = Field(50, ge=0, le=100)
@@ -306,6 +308,7 @@ class SpreadSettings(_Model):
     width_options: tuple[float, ...] = (1.0, 2.5, 5.0, 10.0, 15.0, 20.0)
     min_return_on_risk_pct: float = Field(25, gt=0)   # retorno mínimo del PERIODO sobre el riesgo: crédito / (ancho − crédito), sin anualizar (como el yield de TPC)
     min_long_oi: int = Field(10, ge=0)               # OI mínimo de la pata comprada
+    min_long_volume: int = Field(10, ge=0)           # volumen mínimo de la pata comprada (valor de la caja; el filtro empieza desmarcado)
     max_long_spread_pct: float = Field(25, gt=0)     # spread bid/ask máximo de la pata comprada (%); sin bid no pasa
     max_combo_spread_pct: float = Field(15, gt=0)    # spread bid/ask del combo (vendida − comprada) máximo, en % del crédito: con un combo ancho el crédito es incierto
     min_credit_usd: float = Field(30, gt=0)          # crédito neto mínimo por spread, en $ por contrato (descarta spreads de céntimos)
@@ -622,6 +625,8 @@ class CdsSettings(_Model):
     max_short_spread_pct: float = Field(25, gt=0)        # ... y de la vendida (%)
     min_bid_size: Optional[int] = Field(None, ge=0)      # tamaño mínimo del bid de cada pata (None = sin filtro; un dato que falta no pasa)
     min_ask_size: Optional[int] = Field(None, ge=0)      # tamaño mínimo del ask de cada pata (None = sin filtro)
+    min_long_volume: Optional[int] = Field(None, ge=0)   # volumen mínimo de la call comprada (None = sin filtro; un dato que falta no pasa)
+    min_short_volume: Optional[int] = Field(None, ge=0)  # ... y de la vendida
     # Rentabilidad mínima esperada (obligatoria): el subyacente debe poder mover lo necesario para ganar `target_gain_pct` del débito
     # (objetivo de salida del perfil MTO) en `move_days` días. Movimiento necesario = objetivo × débito / delta neta; se compara con el
     # movimiento esperado a `move_days` días (precio × IV a `move_days` días × √(días/365); la IV sale de interpolar la IV por vencimiento de tastytrade en varianza total, con el IV30 de respaldo).

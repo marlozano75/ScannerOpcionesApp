@@ -87,6 +87,15 @@ def test_long_leg_needs_open_interest_and_a_two_sided_market():
     assert scan([snap(90, 2.0, 2.2), snap(85, 0.0, 0.3)]).spreads                # sin el filtro, pasaba
 
 
+def test_long_leg_volume_filter_fails_without_data():
+    from dataclasses import replace
+    short, long = snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)
+    legs = [short, replace(long, volume=40)]
+    assert scan(legs).spreads and scan(legs, min_long_volume=40).spreads             # sin filtro no importa; con él pasa al llegar al mínimo
+    assert not scan(legs, min_long_volume=41).spreads
+    assert not scan([short, long], min_long_volume=1).spreads                         # sin dato de volumen no pasa
+
+
 def test_combo_spread_is_measured_against_the_credit():
     legs = [snap(90, 2.0, 2.2), snap(85, 0.5, 0.6)]    # combo 1,40 / 1,70: 0,30 de spread sobre un crédito de 1,40 = 21,4 %
     assert scan(legs, max_combo_spread_pct=25).spreads and not scan(legs, max_combo_spread_pct=20).spreads

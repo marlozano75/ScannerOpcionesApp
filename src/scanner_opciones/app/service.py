@@ -2005,7 +2005,7 @@ class AppService:
             for sym, q in quotes.items():
                 ticker, expiry, strike = symbols[sym]
                 snaps[snapshot_key(ticker, expiry, strike)] = ContractSnapshot(
-                    OptionContract(ticker, expiry, strike), now, q.bid, q.ask, q.last, q.delta, q.iv, q.open_interest, bid_size=q.bid_size, ask_size=q.ask_size)
+                    OptionContract(ticker, expiry, strike), now, q.bid, q.ask, q.last, q.delta, q.iv, q.open_interest, bid_size=q.bid_size, ask_size=q.ask_size, volume=q.volume)
             prices: dict[str, float] = {}
             if hasattr(provider, "get_prices"):
                 try:
@@ -2750,7 +2750,7 @@ class AppService:
             for sym, q in quotes.items():
                 ticker, expiry, strike = symbols[sym]
                 snaps[snapshot_key(ticker, expiry, strike)] = ContractSnapshot(
-                    OptionContract(ticker, expiry, strike), now, q.bid, q.ask, q.last, q.delta, q.iv, q.open_interest, bid_size=q.bid_size, ask_size=q.ask_size)
+                    OptionContract(ticker, expiry, strike), now, q.bid, q.ask, q.last, q.delta, q.iv, q.open_interest, bid_size=q.bid_size, ask_size=q.ask_size, volume=q.volume)
             tickers = [t for t in legs if t not in watchlist]
             infos: dict[str, TickerInfo] = {}
             closes: dict = {}

@@ -60,6 +60,7 @@
   <tr>
     <td>Spread comp. / vend.</td><td class="{{ bad('cds_spread cds_spread_s') }}">{{ lg.spread_pct|pct }} / {{ sh.spread_pct|pct }}</td>
     <td>OI comp. / vend.</td><td class="{{ bad('cds_oi cds_oi_s') }}">{{ lg.open_interest if lg.open_interest is not none else '—' }} / {{ sh.open_interest if sh.open_interest is not none else '—' }}</td>
+    <td>Volumen comp. / vend.</td><td class="{{ bad('cds_lvol cds_svol') }}">{{ lg.volume if lg.volume is not none else '—' }} / {{ sh.volume if sh.volume is not none else '—' }}</td>
     <td>Bid / ask size comp.</td><td class="{{ bad('cds_bsz cds_asz') }}">{{ lg.bid_size if lg.bid_size is not none else '—' }} / {{ lg.ask_size if lg.ask_size is not none else '—' }}
       <span class="muted">· vend. {{ sh.bid_size if sh.bid_size is not none else '—' }} / {{ sh.ask_size if sh.ask_size is not none else '—' }}</span></td>
   </tr>

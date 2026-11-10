@@ -120,6 +120,8 @@ def build_spreads(
                 continue
             if criteria.min_long_oi is not None and (long.open_interest or 0) < criteria.min_long_oi:
                 continue
+            if criteria.min_long_volume is not None and (long.volume or 0) < criteria.min_long_volume:
+                continue
             if criteria.max_long_abs_delta is not None and (long.delta is None or abs(long.delta) > criteria.max_long_abs_delta + EPS):
                 continue
             if criteria.max_long_spread_pct is not None:   # un ask sin bid no es un mercado: spread de 200 % o más

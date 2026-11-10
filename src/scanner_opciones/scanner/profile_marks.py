@@ -46,6 +46,7 @@ def _short_marks(r, c, kind: str, nlv, nlv_usd_rate: float) -> dict[str, str]:
     _put(m, "spread", _sev(s.spread_pct, c.max_spread_pct, minimum=False))
     _put(m, "bidsize", _sev(None if s.bid_size is None else float(s.bid_size), None if c.min_bid_size is None else float(c.min_bid_size), minimum=True))
     _put(m, "oi", _sev(None if s.open_interest is None else float(s.open_interest), None if c.min_oi is None else float(c.min_oi), minimum=True))
+    _put(m, "vol", _sev(None if s.volume is None else float(s.volume), None if c.min_volume is None else float(c.min_volume), minimum=True))
     if i is not None:
         if c.min_option_liquidity is not None and i.option_liquidity is not None:
             _put(m, "liq", _sev(float(i.option_liquidity), float(c.min_option_liquidity), minimum=True))
@@ -90,6 +91,7 @@ def row_marks(r, kind: str, c, spread=None, nlv=None) -> dict[str, str]:
         _put(m, "ldelta", _sev(abs(lg.delta), c.max_long_abs_delta, minimum=False))
     _put(m, "lspread", _sev(lg.spread_pct, c.max_long_spread_pct, minimum=False))
     _put(m, "loi", _sev(None if lg.open_interest is None else float(lg.open_interest), None if c.min_long_oi is None else float(c.min_long_oi), minimum=True))
+    _put(m, "lvol", _sev(None if lg.volume is None else float(lg.volume), None if c.min_long_volume is None else float(c.min_long_volume), minimum=True))
     return m
 
 

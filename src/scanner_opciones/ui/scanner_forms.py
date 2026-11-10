@@ -191,6 +191,7 @@ SPREAD_FIELDS = (    # valores iniciales del modo Spread del Scanner (`scanner.s
     ("min_credit_usd", "Crédito mín. ($ por contrato)", "float"),
     ("max_combo_spread_pct", "Spread bid/ask máx. del combo (% del crédito)", "float"),
     ("min_long_oi", "OI mín. de la pata comprada", "int"),
+    ("min_long_volume", "Volumen mín. de la pata comprada", "int"),
     ("max_long_spread_pct", "Spread bid/ask máx. de la pata comprada (%)", "float"),
     ("max_loss_nlv_pct", "Pérdida máxima (% del NLV)", "float"),
     ("max_long_abs_delta", "Sosnoff: |delta| máx. de la put comprada", "float"),

@@ -88,6 +88,14 @@ class TestOptionalFilters:
         assert "Bid size" in reject_reason(replace(snap(), bid_size=None), 100.0, TODAY, c)
         assert reject_reason(replace(snap(), bid_size=None), 100.0, TODAY, REGULAR) is None
 
+    def test_min_volume(self):
+        from dataclasses import replace
+        c = REGULAR.with_filters(min_volume=10)
+        assert reject_reason(replace(snap(), volume=10), 100.0, TODAY, c) is None
+        assert "Volumen" in reject_reason(replace(snap(), volume=9), 100.0, TODAY, c)
+        assert "Volumen" in reject_reason(replace(snap(), volume=None), 100.0, TODAY, c)      # sin dato no pasa, como el OI
+        assert reject_reason(replace(snap(), volume=None), 100.0, TODAY, REGULAR) is None     # sin filtro, no se mira
+
     def test_max_spread(self):
         c = REGULAR.with_filters(max_spread_pct=10)
         assert reject_reason(snap(spread=10), 100.0, TODAY, c) is None

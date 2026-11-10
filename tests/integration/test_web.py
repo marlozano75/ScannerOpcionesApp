@@ -122,6 +122,19 @@ def test_scanner_has_no_operation_selector(client_and_service):
     assert client.get("/scanner?op=tactical").status_code == 200                   # un enlace antiguo no rompe
 
 
+def test_volume_column_and_optional_filter(client_and_service):
+    client, svc, gw, _ = client_and_service
+    for c in svc.contracts.list():
+        gw.quotes[c] = OptionQuote(bid=1.0, ask=1.2, open_interest=500, volume=321)
+    refresh(client)
+    page = client.get(BASE)
+    assert ">Vol.<" in page.text and "<td>321</td>" in page.text           # columna con el volumen guardado
+    assert "Ningún contrato cumple" in client.get(BASE + "&use_vol=on&vol=1000").text
+    ticked = client.get(BASE + "&use_vol=on&vol=300")
+    assert "Ningún contrato cumple" not in ticked.text and 'name="use_vol" checked' in ticked.text
+    assert "contratos cumplen" in client.get(BASE + "&vol=1000").text       # valor sin casilla: no se aplica
+
+
 def test_optional_filters_only_apply_when_ticked(client_and_service):
     client, svc, gw, _ = client_and_service
     refresh(client)
@@ -913,6 +926,9 @@ def test_scanner_spread_mode_renders_and_validates(client_and_service):
     assert r.status_code == 200
     assert "R/R anual" in r.text and "Mejor ancho por put" in r.text and "Crédito ≥ 20 $" in r.text and "spreads" in r.text
     assert "Todos los anchos" in client.get(BASE + "&mode=spread&use_rr=on&rr=25").text      # casilla del mejor ancho desmarcada
+    vol = client.get(BASE + "&mode=spread&use_rr=on&rr=25&use_lv=on&lv=999999")        # volumen de la pata comprada: columnas, chip y filtro
+    assert "Volumen comprada ≥ 999999" in vol.text and 'name="use_lv" checked' in vol.text and "Vol. comp." in vol.text
+    assert 'name="use_lv" checked' not in client.get(BASE + "&mode=spread").text            # empieza desmarcado
     # sin ningún valor de los límites (cambio de instrumento) quedan marcados los de config, y el mejor ancho activo
     first = client.get(BASE + "&mode=spread").text
     assert "Retorno/riesgo ≥ 25 %" in first and "Crédito ≥ 30 $" in first and "Mejor ancho por put" in first

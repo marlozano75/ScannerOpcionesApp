@@ -219,6 +219,17 @@ async def test_refresh_stores_bid_size(env):
     assert by[75.0].bid_size == 42 and by[80.0].bid_size is None
 
 
+async def test_refresh_stores_volume_and_keeps_the_previous_one_when_the_provider_gives_none(env):
+    c75, c80 = await _prepare_refresh(env)
+    env.gw.quotes[c75] = OptionQuote(bid=1.0, ask=1.2, open_interest=300, volume=120)
+    await env.refresh.run()
+    by = {s.contract.strike: s for s in env.snaps.all("AAPL")}
+    assert by[75.0].volume == 120 and by[80.0].volume is None
+    env.gw.quotes[c75] = OptionQuote(bid=1.0, ask=1.2, open_interest=300)       # el proveedor no trae volumen esta vez
+    await env.refresh.run()
+    assert {s.contract.strike: s for s in env.snaps.all("AAPL")}[75.0].volume == 120
+
+
 async def test_refresh_takes_iv_rank_and_percentile_from_the_provider(env):
     await _prepare_refresh(env)
     assert (env.info.get("AAPL").iv_rank, env.info.get("AAPL").iv_percentile) == (61.0, 72.0)

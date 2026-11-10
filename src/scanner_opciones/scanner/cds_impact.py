@@ -38,7 +38,7 @@ def _g(v: float) -> str:
 def relaxed(cds: CdsSettings) -> CdsSettings:
     """Los mismos CDS pero sin ningún filtro opcional (queda la ventana del catálogo y la validez de las patas)."""
     return cds.model_copy(update=dict(
-        best_width=False, exclude_earnings=False, top_per_ticker=0, min_prob_pct=None, min_exit_profit_usd=None, min_debit_usd=0.0, max_debit_usd=HUGE, min_long_oi=0, min_short_oi=0, max_long_spread_pct=HUGE, max_short_spread_pct=HUGE, min_bid_size=None, min_ask_size=None, max_required_move_mult=HUGE,
+        best_width=False, exclude_earnings=False, top_per_ticker=0, min_prob_pct=None, min_exit_profit_usd=None, min_debit_usd=0.0, max_debit_usd=HUGE, min_long_oi=0, min_short_oi=0, max_long_spread_pct=HUGE, max_short_spread_pct=HUGE, min_bid_size=None, min_ask_size=None, min_long_volume=None, min_short_volume=None, max_required_move_mult=HUGE,
         min_max_return_pct=None, sma200_below_pct_min=None, width_pct_min=None, width_pct_max=None))
 
 
@@ -66,6 +66,10 @@ def predicates(cds: CdsSettings, infos: Optional[Mapping[str, TickerInfo]] = Non
         out.append(("cds_oi", "OI de la comprada", f"≥ {cds.min_long_oi}", lambda r: (r.long.open_interest or 0) >= cds.min_long_oi))
     if cds.min_short_oi > 0:
         out.append(("cds_oi_s", "OI de la vendida", f"≥ {cds.min_short_oi}", lambda r: (r.short.open_interest or 0) >= cds.min_short_oi))
+    if cds.min_long_volume is not None:
+        out.append(("cds_lvol", "Volumen de la comprada", f"≥ {cds.min_long_volume}", lambda r: _size_ok(r.long.volume, cds.min_long_volume)))
+    if cds.min_short_volume is not None:
+        out.append(("cds_svol", "Volumen de la vendida", f"≥ {cds.min_short_volume}", lambda r: _size_ok(r.short.volume, cds.min_short_volume)))
     if cds.min_bid_size is not None:
         out.append(("cds_bsz", "Bid size de cada pata", f"≥ {cds.min_bid_size}", lambda r: all(_size_ok(s.bid_size, cds.min_bid_size) for s in (r.long, r.short))))
     if cds.min_ask_size is not None:
