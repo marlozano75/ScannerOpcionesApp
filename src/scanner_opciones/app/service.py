@@ -4151,19 +4151,25 @@ class AppService:
         strikes = sorted((k for k in chain.strikes if floor <= k <= o.strike and round(k - width, 4) in known), key=lambda k: o.strike - k)[:self.ROLL_MAX_STRIKES]
         pairs = [(mk(e, k), mk(e, round(k - width, 4))) for e in expiries for k in strikes]
         wanted = [c for pair in pairs for c in pair]
-        try:
-            quotes = await asyncio.wait_for(self.gateway.get_quotes([cur_short, cur_long, *wanted]), 90)
-        except (BrokerError, asyncio.TimeoutError) as exc:
-            raise ValueError(f"No se pudieron cotizar las candidatas del roll: {exc or 'tiempo agotado'}") from None
         shorts_c = [mk(o.expiry, k, OptionRight.CALL) for k in sorted(k for k in chain.strikes if underlying <= k <= underlying * (1 + cfg.call_strikes_above_pct / 100)
                                                                          and round(k + width, 4) in known)][:self.ROLL_MAX_STRIKES]
         longs_c = [mk(o.expiry, round(c.strike + width, 4), OptionRight.CALL) for c in shorts_c]
+        # las dos cotizaciones van a la vez (una conexión DXLink cada una); un fallo con las calls no impide evaluar el roll
+        results = await asyncio.gather(
+            self._timed_quotes(f"roll spread {ticker}: puts", [cur_short, cur_long, *wanted], 90),
+            self._timed_quotes(f"roll spread {ticker}: calls", [*shorts_c, *longs_c], 60) if shorts_c else asyncio.sleep(0, {}),
+            return_exceptions=True)
+        if isinstance(results[0], BaseException):
+            exc = results[0]
+            if not isinstance(exc, (BrokerError, asyncio.TimeoutError)):
+                raise exc
+            raise ValueError(f"No se pudieron cotizar las candidatas del roll: {exc or 'tiempo agotado'}") from None
+        quotes = results[0]
         call_quotes: dict = {}
-        if shorts_c:         # un fallo con las calls no impide evaluar el roll
-            try:
-                call_quotes = await asyncio.wait_for(self.gateway.get_quotes([*shorts_c, *longs_c]), 60)
-            except (BrokerError, asyncio.TimeoutError) as exc:
-                log.info("Calls de la defensa de %s no disponibles: %s", ticker, exc or "tiempo agotado")
+        if isinstance(results[1], BaseException):
+            log.info("Calls de la defensa de %s no disponibles: %s", ticker, results[1] or "tiempo agotado")
+        else:
+            call_quotes = results[1]
         qs, ql = quotes.get(cur_short), quotes.get(cur_long)
         close_live = qs is not None and ql is not None and qs.ask is not None and ql.bid is not None and qs.ask - ql.bid > 0
         close_cost = qs.ask - ql.bid if close_live else mark
@@ -4198,7 +4204,15 @@ class AppService:
                                           info.iv_rank if info else None, defense, report, len(pairs), sum(1 for r in rollq), today, (), (), len(s_rq),
                                           "spread", long_strike, call_spreads)
 
-    ROLL_MAX_EXPIRIES = 8       # vencimientos candidatos del roll cotizados a la vez
+    async def _timed_quotes(self, label: str, contracts: list, timeout: float) -> dict:
+        """`gateway.get_quotes` con tiempo máximo y una línea INFO con lo que tarda (para ver qué fase del roll en vivo domina)."""
+        t = time.perf_counter()
+        try:
+            return await asyncio.wait_for(self.gateway.get_quotes(contracts), timeout)
+        finally:
+            log.info("Cotización %s: %d contratos en %.1f s", label, len(contracts), time.perf_counter() - t)
+
+    ROLL_MAX_EXPIRIES = 8      # vencimientos candidatos del roll cotizados a la vez
     ROLL_MAX_STRIKES = 40       # strikes candidatos por vencimiento (los más cercanos al actual)
 
     async def roll_evaluation(self, key: str) -> "defense_mod.RollEvaluation":
@@ -4221,11 +4235,13 @@ class AppService:
         mark = abs(pos.market_value) / (contracts * o.multiplier) if contracts else 0.0
         entry = abs(pos.avg_cost) / o.multiplier if pos.avg_cost else None
         current = OptionContract(ticker, o.expiry, o.strike, OptionRight.PUT, o.multiplier)
+        t0 = time.perf_counter()
         try:
             with chain_origin(f"evaluar roll {ticker}"):
                 chain = await asyncio.wait_for(self.gateway.get_option_chain(ticker), 30)
         except (BrokerError, asyncio.TimeoutError) as exc:
             raise ValueError(f"No se pudo leer la cadena de {ticker}: {exc or 'tiempo agotado'}") from None
+        log.info("Roll de %s: cadena en %.1f s", ticker, time.perf_counter() - t0)
         if pos.hedge_strike is not None:
             return await self._spread_evaluation(pos, chain, info, underlying, contracts, mark, entry, cfg, today)
         expiries = [e for e in chain.expiries if e > o.expiry and cfg.roll_dte_min <= (e - today).days <= cfg.roll_dte_far][:self.ROLL_MAX_EXPIRIES]
@@ -4238,16 +4254,23 @@ class AppService:
         up = underlying * (1 + cfg.call_strikes_above_pct / 100)
         calls = [OptionContract(ticker, o.expiry, k, OptionRight.CALL, o.multiplier)
                  for k in sorted(k for k in chain.strikes if underlying <= k <= up)][:self.ROLL_MAX_STRIKES]
-        try:
-            quotes = await asyncio.wait_for(self.gateway.get_quotes([current, *wanted, *protect]), 90)
-        except (BrokerError, asyncio.TimeoutError) as exc:
+        # las dos cotizaciones (puts+protección y calls) van a la vez: cada una abre su propia conexión DXLink; un fallo con las calls no impide evaluar el roll
+        results = await asyncio.gather(
+            self._timed_quotes(f"roll {ticker}: puts+protección", [current, *wanted, *protect], 90),
+            self._timed_quotes(f"roll {ticker}: calls", calls, 60) if calls else asyncio.sleep(0, {}),
+            return_exceptions=True)
+        if isinstance(results[0], BaseException):
+            exc = results[0]
+            if not isinstance(exc, (BrokerError, asyncio.TimeoutError)):
+                raise exc
             raise ValueError(f"No se pudieron cotizar las candidatas del roll: {exc or 'tiempo agotado'}") from None
+        quotes = results[0]
         call_quotes: dict = {}
-        if calls:          # un fallo con las calls no impide evaluar el roll y la protección
-            try:
-                call_quotes = await asyncio.wait_for(self.gateway.get_quotes(calls), 60)
-            except (BrokerError, asyncio.TimeoutError) as exc:
-                log.info("Calls de la defensa de %s no disponibles: %s", ticker, exc or "tiempo agotado")
+        if isinstance(results[1], BaseException):
+            log.info("Calls de la defensa de %s no disponibles: %s", ticker, results[1] or "tiempo agotado")
+        else:
+            call_quotes = results[1]
+        log.info("Evaluación del roll de %s: %.1f s en total (%d contratos, %d calls)", ticker, time.perf_counter() - t0, len(wanted) + len(protect) + 1, len(calls))
         live = quotes.get(current)
         close_live = live is not None and live.ask is not None and live.ask > 0
         close_cost = live.ask if close_live else mark
