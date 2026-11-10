@@ -603,3 +603,20 @@ async def test_the_default_quote_scope_adds_the_strategy_window_to_the_initial_f
     assert in_scope(85.0, 44)            # DTE 36–45: solo la ventana de la estrategia
     assert not in_scope(85.0, 50)        # fuera de todo
     assert not in_scope(97.0, 40)        # -3 %: más cerca del precio que el 5 % de la estrategia
+
+
+async def test_held_contracts_are_stored_quoted_and_get_margin_outside_the_window(env):
+    """Lo que hay en cartera se guarda, se cotiza y pide margen aunque quede fuera de la ventana (ITM, DTE largo)."""
+    env.add_aapl()
+    itm = OptionContract("AAPL", TODAY + timedelta(days=60), 110.0, con_id=123)       # ITM y DTE 60: fuera del catálogo
+    env.daily.syncer.held_provider = lambda: [itm]
+    env.refresh.owned_puts = lambda: {("AAPL", itm.expiry, 110.0)}
+    env.refresh.held_keys = lambda: {("AAPL", itm.expiry, 110.0, itm.right)}
+    await env.daily.run_pending()
+    assert itm.expiry in {c.expiry for c in env.contracts.list("AAPL")}
+    env.gw.quotes[itm] = OptionQuote(bid=12.0, ask=12.4, open_interest=10)
+    env.gw.margins[itm] = 2200.0
+    await env.refresh.run()
+    snap = next(s for s in env.snaps.all("AAPL") if s.contract.strike == 110.0)
+    assert snap.initial_margin == 2200.0 and snap.margin_at is not None
+    assert env.snaps.put_margins() == [("AAPL", itm.expiry, 110.0, 2200.0)]

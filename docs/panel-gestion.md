@@ -68,3 +68,8 @@ _Parte de la documentación del proyecto (se lee bajo demanda; el resumen y el �
 
 - «Estado de la cartera» ya no muestra «Margen comprometido» y el bloque de Reg T ya no lleva «Post-Expiration»; sí «Variación desde el último cierre» (`AccountSummary.daily_pnl`, `reqPnL`, moneda base, con el % sobre el NLV de ayer) y el «Riesgo total abierto» en la moneda base (`total_risk / usd_per_base`).
 - Columna «Var. día ($)» de «Gestión de posiciones»: `Position.daily_pnl` sale de `reqPnLSingle` (una suscripción por posición, `IBKRGateway._sync_pnl_single`; la primera lectura de una posición nueva sale vacía y se rellena en el siguiente refresco de cuenta). Llega ya en USD (medido con IB Gateway el 2026-11-03: la suma de las líneas dividida por `usd_per_base` da exactamente el cambio del día de la cuenta, que sí va en la moneda base), sin convertir, como «P&L ($)» (en USD, igual que PYG N RLZDS de TWS, que no descuenta comisiones: medido 2026-11-03 con coste medio − valor; la nuestra sí descuenta la de cierre si el perfil sale antes); en un spread/combo se suma el de sus patas. Se guarda en `meta.portfolio_cache` y `_refresh_portfolio` conserva el último valor (de la posición y de la cuenta) mientras TWS no entrega el nuevo, de modo que sin TWS o justo tras reiniciar se ve el último. No verificado contra un TWS real.
+
+
+## Margen de las puts en cartera (2026-11-10)
+
+La columna Margen sale del what-if guardado en el snapshot del mismo contrato. Como el catálogo solo guardaba strikes a −5 %…−35 % y DTE ≤ 35, las puts ITM, las cercanas al precio o de vencimiento largo (FRO, NFLX, SOXL, SPY, TQQQ) no tenían snapshot y el margen salía vacío. Ahora todo lo que hay en cartera se guarda y se cotiza siempre (ver CLAUDE.md, «Cartera siempre completa»).

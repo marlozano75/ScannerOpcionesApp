@@ -292,6 +292,8 @@ class AppService:
             syncer.modes_provider = self.ticker_modes
         self.bid_history = BidHistoryRepo(db)
         self.refresh_job.owned_puts = self.owned_short_puts
+        self.refresh_job.held_keys = self.held_option_keys
+        syncer.held_provider = self.held_option_contracts
         self.refresh_job.ratio_store = (lambda: self.meta.get("margin_ratios") or "", lambda s: self.meta.set("margin_ratios", s))
         self.state = AppState()
         self._scan_memo: dict[tuple, tuple[float, object]] = {}
@@ -4278,6 +4280,22 @@ class AppService:
         """(ticker de la app, vencimiento, strike) de las puts vendidas en cartera: son las únicas a las que se pide el margen real (what-if)."""
         return {(p.option.ticker, p.option.expiry, round(float(p.option.strike), 4)) for p in self.state.positions
                 if p.option is not None and p.option.right is OptionRight.PUT and p.quantity < 0}
+
+    def held_option_contracts(self) -> list[OptionContract]:
+        """Todas las opciones en cartera (puts y calls, vendidas o compradas) de tickers de la watchlist, con el ticker de la app: el catálogo las
+        guarda siempre y el refresco las cotiza, estén o no en la ventana."""
+        by_norm = {norm_ticker(t): t for t in self.watchlist.list()}
+        out: dict[tuple, OptionContract] = {}
+        for p in self.state.positions:
+            o = p.option
+            if o is None or not p.quantity or (tk := by_norm.get(norm_ticker(o.ticker))) is None:
+                continue
+            c = replace(o, ticker=tk)
+            out[(tk, c.expiry, round(float(c.strike), 4), c.right)] = c
+        return list(out.values())
+
+    def held_option_keys(self) -> set[tuple]:
+        return {(c.ticker, c.expiry, round(float(c.strike), 4), c.right) for c in self.held_option_contracts()}
 
     def put_margins(self) -> dict[str, float]:
         """Margen what-if guardado (por contrato) de las puts vendidas de la cartera, por `put_key` (en un spread, de la pata vendida).

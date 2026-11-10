@@ -102,6 +102,8 @@ class RefreshJob:
         # {(ticker, vencimiento, strike redondeado a 4)} de las puts vendidas en cartera.
         self.estimate_margins = settings.refresh.margin_estimate
         self.owned_puts: Optional[Callable[[], set]] = None
+        # claves (ticker, vencimiento, strike a 4, derecho) de TODOS los contratos en cartera: se cotizan siempre, aunque salgan del alcance
+        self.held_keys: Optional[Callable[[], set]] = None
         self.ratio_store: Optional[tuple[Callable[[], str], Callable[[str], None]]] = None   # (leer, guardar) los cocientes calibrados (meta)
         self._ratios = margin_estimate.MarginRatios({}, settings.refresh.margin_estimate_default_ratio)
 
@@ -132,6 +134,9 @@ class RefreshJob:
         otm = (contract.strike / price - 1) * 100
         return cds.dte_min <= contract.dte(today) <= cds.dte_max and otm >= cds.long_otm_pct_min - 1e-9
 
+    def _is_held(self, contract: OptionContract) -> bool:
+        return self.held_keys is not None and (contract.ticker, contract.expiry, round(float(contract.strike), 4), contract.right) in self.held_keys()
+
     @staticmethod
     def _in_scope(contract: OptionContract, info, criteria: Sequence[ScanCriteria], today) -> bool:
         if contract.right is not OptionRight.PUT:      # las calls solo se cotizan por `_cds_in_scope`
@@ -157,6 +162,9 @@ class RefreshJob:
         started = time.monotonic()
         criteria = list(criteria) if criteria else self.default_scope()
         infos = self.ticker_info.all()
+        for t in {c.ticker for c in self.syncer.held_provider()} if self.syncer.held_provider else ():   # lo que hay en cartera, siempre guardado
+            if tickers is None or t in tickers:
+                self.syncer.add_held(t)
         stored = self.contracts.list()
         if tickers is not None:
             stored = [c for c in stored if c.ticker in tickers]
@@ -171,9 +179,13 @@ class RefreshJob:
         # las patas compradas de los spreads están por debajo de la vendida: se cotiza también la franja extra guardada
         # (solo para cotizar: los márgenes se siguen pidiendo con `criteria`)
         quote_scope = criteria + self._leg_scope(criteria)
+        held = [c for c in stored if self._is_held(c)]
         all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), quote_scope, today)
                          or self._cds_in_scope(c, infos.get(c.ticker), today)]
         all_contracts = self._apply_modes(all_contracts, infos, report)
+        if held:    # la cartera se cotiza completa, sin recortes por modo ni por ventana
+            seen = {self._snap_key(c) for c in all_contracts}
+            all_contracts += [c for c in held if self._snap_key(c) not in seen]
         # snapshots anteriores: de ellos se reutiliza el margen mientras sea reciente
         prev = {self._snap_key(s.contract): s for s in self.snapshots.all()} if all_contracts else {}
         self._calibrate_margins(prev.values())
@@ -331,7 +343,7 @@ class RefreshJob:
         today = self.now().date()
         every = self.snapshots.all()
         self._calibrate_margins(every)
-        todo = [snap for snap in every if self._in_scope(snap.contract, infos.get(snap.contract.ticker), criteria, today)]
+        todo = [snap for snap in every if self._in_scope(snap.contract, infos.get(snap.contract.ticker), criteria, today) or self._is_held(snap.contract)]
         results = await asyncio.gather(
             *(self._maybe_add_margin(snap, infos.get(snap.contract.ticker), criteria, report, snap) for snap in todo), return_exceptions=True)
         ready = [new for snap, new in zip(todo, results)
@@ -476,11 +488,11 @@ class RefreshJob:
         price = info.underlying_price if info else None
         today = self.now().date()
         # el margen solo sirve a la put desnuda; en un ticker sin ese modo (solo spreads: su riesgo es el ancho menos el crédito, sin what-if) no se pide
-        mode = self._modes.get(snap.contract.ticker)
-        if mode is not None and not mode.put:
-            return self._keep_margin(snap, previous)
         c = snap.contract
-        owned = self.estimate_margins and self.owned_puts is not None and (c.ticker, c.expiry, round(float(c.strike), 4)) in self.owned_puts()
+        owned = self.owned_puts is not None and (c.ticker, c.expiry, round(float(c.strike), 4)) in self.owned_puts()
+        mode = self._modes.get(snap.contract.ticker)
+        if mode is not None and not mode.put and not owned:
+            return self._keep_margin(snap, previous)
         passes = owned or any(
             reject_reason(snap, price, today, cr, snap.iv_rank, snap.iv_percentile) is None
             for cr in criteria
