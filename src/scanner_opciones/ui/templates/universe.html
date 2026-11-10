@@ -346,7 +346,7 @@
       document.getElementById('uni-title').textContent = t;
       body.textContent = 'Cargando…';
       overlay.hidden = false;
-      fetch('/universe/chart?ticker=' + encodeURIComponent(t))
+      fetchFrag('/universe/chart?ticker=' + encodeURIComponent(t))
         .then(function (res) { return res.text(); })
         .then(function (html) { if (!overlay.hidden) body.innerHTML = html; })
         .catch(function () { body.textContent = 'No se pudo cargar el gráfico.'; });

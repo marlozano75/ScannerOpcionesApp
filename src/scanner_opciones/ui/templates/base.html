@@ -110,6 +110,16 @@
   .chip:hover { border-color:var(--accent); }
   .chip.active { background:var(--accent); border-color:var(--accent); color:#fff; }
   .chip small { opacity:.65; margin-left:4px; }
+  .col-off { display:none !important; }
+  .colmgr { position:relative; margin:0 0 6px; }
+  .colmgr-btn { font-size:12.5px; padding:3px 10px; }
+  .colmgr-panel { position:absolute; z-index:30; top:100%; left:0; width:min(560px, 92vw); max-height:60vh; overflow:auto; background:var(--panel); border:1px solid var(--line-strong); border-radius:8px; padding:8px 10px; box-shadow:0 6px 20px rgba(0,0,0,.25); }
+  .colmgr-panel[hidden] { display:none; }
+  .colmgr-actions { display:flex; gap:6px; margin-bottom:6px; }
+  .colmgr-actions button { font-size:12px; padding:2px 8px; }
+  .colmgr-grp > summary { cursor:pointer; font-weight:600; font-size:13px; padding:3px 0; }
+  .colmgr-list { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:2px 10px; padding:2px 0 6px 20px; font-size:12.5px; }
+  .colmgr-list label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   th.sortable-th { cursor:pointer; user-select:none; }
   th.sortable-th:hover { color:var(--ink); }
   th[aria-sort=ascending]::after { content:' \25B2'; font-size:10px; }
@@ -413,6 +423,19 @@
 <script>{% include "sortable.js" %}</script>
 <script>document.querySelectorAll('table.sortable').forEach(function (t, i) { SortableTables.init(t, i); });</script>
 <script>
+/* fetch de fragmentos (gráficos, roll, impacto) con tiempo máximo: si el servidor tarda o no responde, el aviso
+   «Cargando…» no se queda para siempre; falla y los .catch de cada pantalla muestran el error. Uso: fetchFrag(url[, ms][, opciones]). */
+window.fetchFrag = function (url, ms, opts) {
+  if (typeof ms === 'object' && ms) { opts = ms; ms = 0; }
+  var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, ms || 30000);
+  var o = Object.assign({ cache: 'no-store' }, opts || {}, { signal: ctl.signal });
+  return fetch(url, o).then(function (r) { clearTimeout(t); if (!r.ok) throw new Error(r.status); return r; },
+                            function (e) { clearTimeout(t); throw e; });
+};
+</script>
+<script>{% include "columns.js" %}</script>
+<script>document.querySelectorAll('table[data-colmanager]').forEach(function (t) { ColumnManager.init(t); });</script>
+<script>
 /* Conserva la posición de desplazamiento al volver a la misma página justo después de salir de ella
    (cambiar un selector envía el formulario y recarga la página, que si no vuelve arriba). Además de la
    ventana, guarda la de los elementos con id y `data-keep-scroll` (las columnas del Scanner). */
@@ -506,6 +529,7 @@
       if (window.uiSetupHelp) window.uiSetupHelp();
       if (window.uiRestoreOpen) window.uiRestoreOpen();
       if (window.SortableTables) document.querySelectorAll('table.sortable').forEach(function (t, i) { SortableTables.init(t, i); });
+      if (window.ColumnManager) document.querySelectorAll('table[data-colmanager]').forEach(function (t) { ColumnManager.init(t); });
       window.scrollTo(x, y);
       document.dispatchEvent(new CustomEvent('soft:after'));
       current = d.version; account = d.account;

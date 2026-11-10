@@ -753,7 +753,7 @@
     {% if is_cds %}
     {% if cds_ok and cds_cfg.enabled %}
     {% set rmax = cds_rows|map(attribute='res.max_return_pct')|max if cds_rows else 0 %}
-    <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results">
+    <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results" data-colmanager>
       <tr>{{ cols.cds_head() }}</tr>
       {% for x in cds_rows %}<tr>{{ cols.cds_cells(x, rmax, nlv_usd) }}</tr>
       {% else %}<tr><td colspan="60" class="muted empty">Ningún spread cumple los criterios (¿ya hay calls guardadas y cotizadas?).</td></tr>{% endfor %}
@@ -762,7 +762,7 @@
     {% elif out and criteria and criteria.spread_mode %}
     {% set rmax = out.spreads|map(attribute='return_on_risk_annualized_pct')|max if out.spreads else 0 %}
     <form method="post" action="/simulate" class="table-form">
-      <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
+      <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results" data-colmanager>
         <tr><th class="sel"></th>{{ cols.spread_head() }}<th data-nosort title="Número de contratos a simular (1–9)">Cant.</th></tr>
         {% for sp in out.spreads %}{% set c = sp.short.snapshot.contract %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike ~ '|' ~ sp.long.contract.strike %}
@@ -775,7 +775,7 @@
     </form>
     {% elif out %}
     <form method="post" action="/simulate" class="table-form">
-      <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results">
+      <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk with-sel" id="scan-results" data-colmanager>
         <tr><th class="sel"></th>{{ cols.head() }}<th data-nosort title="Número de contratos a simular (1–9)">Cant.</th></tr>
         {% for r in out.results %}{% set c = r.snapshot.contract %}
           {% set key = c.ticker ~ '|' ~ c.expiry ~ '|' ~ c.strike %}
@@ -849,7 +849,7 @@
         : a.dataset.ticker + ' · strike ' + usd(a.dataset.strike) + (a.dataset.long ? ' / ' + usd(a.dataset.long) : '');
       body.innerHTML = '<p class="muted">Cargando…</p>';
       if (!dlg.open) dlg.showModal();
-      fetch('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike) + (a.dataset.long ? '&long=' + encodeURIComponent(a.dataset.long) : '') + (a.dataset.expiry ? '&expiry=' + encodeURIComponent(a.dataset.expiry) : '') + (a.dataset.prem ? '&prem=' + encodeURIComponent(a.dataset.prem) : '') + (cds ? '&kind=cds' + (a.dataset.exit ? '&exit=' + encodeURIComponent(a.dataset.exit) + '&need=' + encodeURIComponent(a.dataset.need) : '') : ''))
+      fetchFrag('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike) + (a.dataset.long ? '&long=' + encodeURIComponent(a.dataset.long) : '') + (a.dataset.expiry ? '&expiry=' + encodeURIComponent(a.dataset.expiry) : '') + (a.dataset.prem ? '&prem=' + encodeURIComponent(a.dataset.prem) : '') + (cds ? '&kind=cds' + (a.dataset.exit ? '&exit=' + encodeURIComponent(a.dataset.exit) + '&need=' + encodeURIComponent(a.dataset.need) : '') : ''))
         .then(function (r) { return r.text(); })
         .then(function (html) { body.innerHTML = html; applyMa(); })
         .catch(function () { body.innerHTML = '<p class="muted">No se pudo cargar el gráfico.</p>'; });
@@ -1041,10 +1041,10 @@
     function load() {
       if (loaded || !box.open) return;
       loaded = true;
-      fetch(box.dataset.url + window.location.search, { headers: { 'X-Requested-With': 'fetch' } })
+      fetchFrag(box.dataset.url + window.location.search, 60000, { headers: { 'X-Requested-With': 'fetch' } })
         .then(function (r) { return r.text(); })
         .then(function (html) { const b = document.getElementById('impact-body'); b.innerHTML = html; b.dataset.done = '1'; if (window.stratCounts) window.stratCounts(); })
-        .catch(function () { document.getElementById('impact-body').textContent = 'No se pudo calcular.'; });
+        .catch(function () { loaded = false; document.getElementById('impact-body').textContent = 'No se pudo calcular (cierra y abre el panel para reintentar).'; });
     }
     if (impactHtml !== null && box.open) {
       const b = document.getElementById('impact-body'); b.innerHTML = impactHtml; b.dataset.done = '1';
@@ -1074,7 +1074,7 @@
       });
       const body = document.getElementById('ck-body');
       body.className = 'muted'; body.textContent = 'Calculando…';
-      fetch('/scanner/cds-check?' + q.toString(), { headers: { 'X-Requested-With': 'fetch' } })
+      fetchFrag('/scanner/cds-check?' + q.toString(), 60000, { headers: { 'X-Requested-With': 'fetch' } })
         .then(function (r) { return r.text(); })
         .then(function (html) { body.className = ''; body.innerHTML = html; })
         .catch(function () { body.textContent = 'No se pudo consultar.'; });

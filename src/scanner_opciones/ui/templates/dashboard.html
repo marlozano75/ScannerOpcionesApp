@@ -165,7 +165,7 @@
       title.textContent = key.split('|')[0];
       body.textContent = 'Cargando…';
       overlay.hidden = false;
-      fetch('/management/chart?key=' + encodeURIComponent(key))
+      fetchFrag('/management/chart?key=' + encodeURIComponent(key))
         .then(function (res) { return res.text(); })
         .then(function (html) { if (!overlay.hidden) body.innerHTML = html; })
         .catch(function () { body.textContent = 'No se pudo cargar el gráfico.'; });
@@ -177,7 +177,7 @@
       title.textContent = r.getAttribute('data-title') || 'Roll';
       body.textContent = 'Cotizando la cadena en vivo… (unos segundos)';
       overlay.hidden = false;
-      fetch('/management/roll?key=' + encodeURIComponent(r.getAttribute('data-key')))
+      fetchFrag('/management/roll?key=' + encodeURIComponent(r.getAttribute('data-key')), 90000)
         .then(function (res) { return res.text(); })
         .then(function (html) { if (!overlay.hidden) body.innerHTML = html; })
         .catch(function () { body.textContent = 'No se pudo evaluar el roll.'; });
