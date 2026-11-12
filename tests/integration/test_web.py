@@ -1142,3 +1142,19 @@ def test_el_precalentado_deja_hecho_el_escaneo_de_cada_perfil(client_and_service
     assert warmed >= 1
     assert client.get("/scanner").status_code == 200       # el perfil inicial, con los criterios de su enlace
     assert len(calls) == warmed                             # ya estaba en la caché
+
+
+def test_los_gráficos_ampliados_ofrecen_la_vista_de_velas(client_and_service):
+    """El gráfico del strike lleva el conmutador «Cierres / Velas» con sus niveles; las velas y la librería se sirven aparte."""
+    client, svc, _, _ = client_and_service
+    refresh(client)
+    svc.bars.upsert_ohlc("AAPL", [(TODAY - timedelta(days=i), 100.0, 101.0, 98.0, 99.0) for i in range(1, 40)])
+    frag = client.get(f"/chart/strike?ticker=AAPL&strike=80&long=75&prem=1.5&expiry={TODAY + timedelta(days=30)}").text
+    assert 'class="tvw"' in frag and 'data-ticker="AAPL"' in frag and 'class="shw"' in frag      # el gráfico de cierres sigue dentro
+    assert "Put vendida" in frag and "Put comprada" in frag and "Breakeven" in frag and "Vencimiento" in frag
+    assert "&lt;div" not in frag                                                                  # la ficha de la empresa no se escapa
+    data = client.get("/chart/candles?ticker=AAPL").json()
+    assert len(data["candles"]) >= 39 and {"time", "open", "high", "low", "close"} <= set(data["candles"][0])
+    lib = client.get("/static/lightweight-charts.js")
+    assert lib.status_code == 200 and "javascript" in lib.headers["content-type"] and "max-age" in lib.headers["cache-control"]
+    assert "tvw-btn" in client.get("/scanner").text                                               # el script del conmutador va en todas las páginas

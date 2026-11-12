@@ -16,6 +16,7 @@ from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.tortuga.schedule import FeedSchedule, ScheduleError, describe as describe_schedule, parse_times
 from scanner_opciones.ui.common import MAX_FORM_FIELDS, _grp, _load_groups, message_groups
 from scanner_opciones.ui.position_charts import ticker_chart, ticker_mini, windowed
+from scanner_opciones.ui import tv_charts
 from scanner_opciones.ui.scanner_forms import SOLVENCY_UI, _fmt, _sector_of, quality_form, read_quality, solvency_controls
 from scanner_opciones.universe.descriptions import SourceInfo, describe, describe_manual
 from scanner_opciones.universe.hellostocks_html import HTML_SUFFIXES, missing_strategies
@@ -125,7 +126,9 @@ def register(app, service, render, recall, remembered) -> None:
         closes = sorted(service.bars.closes(ticker.replace(" ", "-")).items())
         today, weeks_cfg = service.now().date(), service.settings.management.chart_weeks
         earnings = service.next_earnings(ticker)
-        return HTMLResponse(str(Markup(service.company_card(ticker)) + windowed(lambda w, log: ticker_chart(closes, today, w, earnings, log), weeks_cfg)))
+        chart = tv_charts.candle_switch(windowed(lambda w, log: ticker_chart(closes, today, w, earnings, log), weeks_cfg), ticker,
+                                        events=tv_charts.date_events(None, earnings, today))
+        return HTMLResponse(str(Markup(service.company_card(ticker)) + chart))
 
     @app.post("/universe/load")
     async def universe_load(files: list[UploadFile]):

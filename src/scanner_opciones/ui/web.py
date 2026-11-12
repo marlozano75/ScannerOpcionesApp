@@ -13,7 +13,7 @@ from typing import Awaitable, Callable, Optional
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import QueryParams
 
@@ -54,6 +54,7 @@ from scanner_opciones.portfolio.overview import other_positions, portfolio_statu
 from scanner_opciones.scanner.criteria import commission_model
 from scanner_opciones.ui import cds_form, dashboard_charts as dash, page_charts, routes_backtest, routes_criba, routes_cds, routes_comunidad, routes_historico, routes_marketradar, routes_universe, scanner_parse, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
+from scanner_opciones.ui import tv_charts
 
 STRIKE_WINDOWS = ((6, "6 meses"), (12, "1 año"), (24, "2 años"))     # ventanas del gráfico del strike; la última, «Todo», usa todo el histórico
 from scanner_opciones.rankedstocks.loader import SYMBOL_HEADERS, _plain
@@ -374,6 +375,8 @@ def create_app(
             if _put_key(s) == key:
                 closes = sorted(service.bars.closes(key_of(s.ticker)).items())
                 chart = windowed(lambda w, log: position_chart(closes, [s], mgmt_cfg, today, w, s.underlying_price, service.next_earnings(s.ticker), log), weeks_cfg)
+                chart = tv_charts.candle_switch(chart, s.ticker, tv_charts.put_levels(s.strike, s.long_strike, s.entry_credit),
+                                                tv_charts.date_events(s.expiry, service.next_earnings(s.ticker), today))
                 plan = exit_plan(s, mgmt_cfg, today)
                 lines = f"{s.contracts} × {_num(s.strike)}{'/' + _num(s.long_strike) if s.long_strike is not None else ''} · venc. {s.expiry.strftime('%d/%m')} ({s.dte} d) · {plan.text}"
                 return HTMLResponse(str(Markup(service.company_card(s.ticker)) + chart + Markup('<ul class="vs" style="margin:6px 0 0;padding-left:16px"><li>') + lines + Markup("</li></ul>")))
@@ -381,6 +384,10 @@ def create_app(
             if x.key == key:
                 closes = sorted(service.bars.closes(key_of(x.ticker)).items())
                 chart = windowed(lambda w, log: other_chart(closes, x, today, w, x.underlying, service.next_earnings(x.ticker), log), weeks_cfg)
+                legs = [tv_charts.Level(strike, f"{kind} {'vendida' if short else 'comprada'}", tv_charts.SHORT if short else tv_charts.LONG)
+                        for strike, short, kind, _ in x.legs]
+                chart = tv_charts.candle_switch(chart, x.ticker, legs or [tv_charts.Level(v, "Strike") for v in x.levels],
+                                                tv_charts.date_events(x.expiry, service.next_earnings(x.ticker), today))
                 return HTMLResponse(str(Markup(service.company_card(x.ticker)) + chart))
         return HTMLResponse("La posición ya no está en la cartera.", status_code=404)
 
@@ -1008,7 +1015,19 @@ def create_app(
                + "".join(f"<li>{escape(a.text)}</li>" for a in alerts) + "</ul></div>") if alerts else ""
         bar = (f'<div class="shw-bar">{buttons}<button type="button" class="shw-log" aria-pressed="false" '
                f'title="Escala logarítmica del eje de precios">Log</button></div>')
-        return HTMLResponse(service.company_card(ticker) + box + f'<div class="shw">{bar}{views}</div>')
+        levels = tv_charts.cds_levels(strike, long, exit) if kind == "cds" else tv_charts.put_levels(strike, long, prem)
+        chart = tv_charts.candle_switch(Markup(f'<div class="shw">{bar}{views}</div>'), ticker, levels, tv_charts.date_events(expiry, earnings, today))
+        return HTMLResponse(service.company_card(ticker) + box + str(chart))      # `str`: sumar un Markup escaparía la ficha, que ya es HTML
+
+    @app.get("/chart/candles")
+    async def chart_candles(ticker: str):
+        """Velas diarias y volumen de un ticker (JSON) para la vista de velas de los gráficos ampliados (`ui/tv_charts.py`)."""
+        return tv_charts.candle_data(service.bars, ticker)
+
+    @app.get("/static/lightweight-charts.js", include_in_schema=False)
+    async def lightweight_charts():
+        """La librería de gráficos, servida desde el paquete (sin CDN) y cacheada por el navegador."""
+        return FileResponse(tv_charts.LIBRARY, media_type="text/javascript", headers={"Cache-Control": "max-age=604800"})
 
     @app.get("/chart/mini.svg")
     async def strike_mini(ticker: str, strike: float, long: Optional[float] = None, kind: str = ""):
