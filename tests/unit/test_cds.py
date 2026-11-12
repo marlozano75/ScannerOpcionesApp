@@ -255,3 +255,16 @@ def test_all_short_strikes_saves_any_strike_above_the_long_up_to_width_pct_max()
     off = {c.strike for c in call_candidate_contracts(chain, 100.0, TODAY, CdsSettings(all_short_strikes=False, **base))}
     # compradas 130, 137 y 150 (25–50 % OTM): con la opción, sus vendidas hasta +20 % del strike (137, 150, 163; el 400 no); sin ella, solo +10 $
     assert on == {130.0, 137.0, 150.0, 163.0} and off == {130.0, 137.0, 150.0}
+
+
+def test_adjusted_probability_uses_realized_move_in_the_score():
+    snaps = [call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)]
+    calm = {"ZZZ": [(TODAY - timedelta(days=100 - i), 100.0 + (1.0 if i % 2 else 0.0)) for i in range(100)]}   # realizado ≈ 16 %/año: mucho menos que el esperado
+    [base] = build_call_debit_spreads(snaps, info(), cfg(realized_weight=0), TODAY, bars=calm)
+    [mix] = build_call_debit_spreads(snaps, info(), cfg(realized_weight=0.5), TODAY, bars=calm)
+    assert base.prob_adj_pct == base.prob_pct                                     # peso 0 = la probabilidad de siempre
+    assert mix.prob_pct == base.prob_pct and mix.prob_adj_pct < mix.prob_pct       # el realizado es menor: baja la ajustada
+    assert mix.score < base.score
+    # sin historial no hay realizado: la ajustada es igual a la original y la puntuación no cambia
+    [nohist] = build_call_debit_spreads(snaps, info(), cfg(), TODAY)
+    assert nohist.prob_adj_pct == nohist.prob_pct

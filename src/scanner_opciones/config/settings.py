@@ -645,6 +645,9 @@ class CdsSettings(_Model):
     min_realized_ratio: Optional[float] = Field(None, gt=0)
     # IV Rank máximo del subyacente (0–100): con IV en máximos del año las opciones son caras y una caída de la IV recorta la ganancia de la delta. Sin dato no descarta (None = sin filtro).
     max_iv_rank: Optional[float] = Field(None, ge=0, le=100)
+    # Probabilidad ajustada (2026-11-12): la probabilidad de la puntuación usa un movimiento que mezcla el esperado (IV) y el realizado (60 sesiones):
+    # (1 − peso) × esperado + peso × realizado. 0 = solo el esperado (la probabilidad de siempre); 0,5 = la media; 1 = solo el realizado. Sin historial usa el esperado.
+    realized_weight: float = Field(0.5, ge=0, le=1)
     exclude_earnings: bool = True                              # descarta los tickers con resultados dentro de los próximos `move_days` días (el salto por resultados falsea el movimiento esperado)
     min_exit_profit_usd: Optional[float] = Field(None, gt=0)   # ganancia neta mínima en $ por contrato al cerrar en el objetivo (None = sin filtro)
     top_per_ticker: int = Field(2, ge=0)                       # como mucho N spreads por ticker (los de mayor puntuación); 0 = todos

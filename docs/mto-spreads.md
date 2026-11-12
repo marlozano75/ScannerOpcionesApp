@@ -324,3 +324,7 @@ Dos filtros opcionales más en «Rentabilidad mínima esperada», **apagados por
 
 - `scanner.cds.min_realized_ratio` (caja con 0,6): cociente movimiento realizado (60 sesiones) / esperado (IV). Por debajo de ~0,6 la IV está inflada y la probabilidad calculada (que usa el esperado) es optimista. Nueva columna «Real./Esp.» (en rojo por debajo de 0,6). Sin historial suficiente no descarta.
 - `scanner.cds.max_iv_rank` (caja con 60): IV Rank máximo del subyacente (el de la call comprada). Con IV en máximos las opciones son caras y una caída de la IV recorta la ganancia de la delta. Sin dato no descarta.
+
+### Probabilidad ajustada en la puntuación (2026-11-12)
+
+La puntuación (orden de la tabla) usa ahora la **probabilidad ajustada** (`CdsResult.prob_adj_pct`, columna «Prob. ajust. %»): la misma fórmula de tocar el nivel, pero con el movimiento `(1 − w) × esperado + w × realizado` (`scanner.cds.realized_weight`, **0,5** = la media; 0 recupera la puntuación anterior; 1 = solo el realizado). Sin historial (sin realizado) vale la original. Los filtros «Prob. objetivo ≥» y «Necesario ≤ esperado» siguen sobre la probabilidad y el múltiplo con el esperado (IV). La Δ neta / débito no se suma aparte: ya está dentro del movimiento necesario. Sin calibrar con el logbook.

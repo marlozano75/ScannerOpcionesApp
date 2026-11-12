@@ -37,11 +37,12 @@ class CdsResult:
     required_move_mult: float         # necesario / esperado (≤ max_required_move_mult)
     sma200_distance_pct: Optional[float]   # % del precio respecto a la SMA200 (negativo = por debajo)
     prob_pct: float = 0.0             # probabilidad (%) de tocar el nivel que da el objetivo en `move_days` días
-    score: float = 0.0                # prob × retorno neto en la salida / 100: rendimiento del débito ponderado por la probabilidad (orden de la tabla)
+    score: float = 0.0                # prob ajustada × retorno neto en la salida / 100: rendimiento del débito ponderado por la probabilidad (orden de la tabla)
     exit_value: float = 0.0           # valor del spread en la salida (por acción) = débito × (1 + objetivo)
     exit_credit_usd: float = 0.0      # lo que se cobra al cerrar en el objetivo, en $ por contrato, ya sin la comisión de cierre
     exit_profit_usd: float = 0.0      # ganancia neta en $ por contrato (cobrado − débito)
     exit_return_pct: float = 0.0      # ganancia neta / débito, en % (el objetivo menos la comisión de cierre)
+    prob_adj_pct: float = 0.0         # probabilidad (%) con el movimiento mezclado de esperado y realizado (`realized_weight`): la que usa la puntuación; = `prob_pct` sin historial o con peso 0
     realized_move_pct: Optional[float] = None   # informativo: movimiento típico a `move_days` días con la volatilidad realizada de 60 sesiones (None sin historial); contrástese con `expected_move_pct` (IV)
 
     @property
@@ -215,12 +216,14 @@ def build_call_debit_spreads(
             if cds.min_realized_ratio is not None and realized_pct is not None and realized_pct / expected_pct < cds.min_realized_ratio - EPS:
                 continue                   # la IV está inflada respecto a lo que la acción se mueve de verdad (sin historial no descarta)
             prob = touch_probability_pct(required_mult)
+            blend_pct = expected_pct if realized_pct is None else (1 - cds.realized_weight) * expected_pct + cds.realized_weight * realized_pct
+            prob_adj = touch_probability_pct(required_pct / blend_pct) if blend_pct > 0 else 0.0
             if cds.min_prob_pct is not None and prob < cds.min_prob_pct - EPS:
                 continue                   # probabilidad mínima de alcanzar el objetivo
             breakeven = strike + debit
             found.append(CdsResult(lg, sh, width, debit, debit * mult, max_return, breakeven, (breakeven / price - 1) * 100,
-                                   otm, net_delta, required_pct, expected_pct, required_mult, dist200, prob, prob * exit_return / 100,
-                                   exit_value, (exit_value - close_cost) * mult, exit_profit * mult, exit_return, realized_pct))
+                                   otm, net_delta, required_pct, expected_pct, required_mult, dist200, prob, prob_adj * exit_return / 100,
+                                   exit_value, (exit_value - close_cost) * mult, exit_profit * mult, exit_return, prob_adj, realized_pct))
         if cds.best_width and found:
             found = [max(found, key=lambda r: r.score)]
         out.extend(found)
