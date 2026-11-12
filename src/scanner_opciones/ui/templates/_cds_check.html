@@ -28,7 +28,7 @@
     <td>Retorno máx. %</td><td class="{{ bad('cds_return') }}">{{ r.max_return_pct|num(0) }}</td>
   </tr>
   <tr>
-    <td>Δ neta</td><td>{{ r.net_delta|num(2) }}</td>
+    <td>Δ neta / por $ débito</td><td class="{{ bad('cds_ndelta') }}">{{ r.net_delta|num(2) }} / {{ r.delta_per_debit|num(3) }}</td>
     <td>Necesario %</td><td class="{{ bad('cds_move') }}">{{ r.required_move_pct|pct }}</td>
     <td>Esperado %</td><td class="{{ bad('cds_move') }}">{{ r.expected_move_pct|pct }}</td>
   </tr>

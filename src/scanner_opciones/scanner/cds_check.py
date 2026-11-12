@@ -100,6 +100,7 @@ def _values(r: CdsResult, info: Optional[TickerInfo], cds: CdsSettings, today: d
         "cds_debit": f"{_fmt(r.debit * mult, 0)} $",
         "cds_move": f"{_fmt(r.required_move_mult, 2)}× (necesario {_fmt(r.required_move_pct)} % · esperado {_fmt(r.expected_move_pct)} %)",
         "cds_prob": f"{_fmt(r.prob_pct, 0)} %",
+        "cds_ndelta": _fmt(r.net_delta, 2),
         "cds_xprofit": f"{_fmt(r.exit_profit_usd, 0)} $",
         "cds_spread": f"{_fmt(sp_l)} %" if sp_l is not None else "—",
         "cds_spread_s": f"{_fmt(sp_s)} %" if sp_s is not None else "—",

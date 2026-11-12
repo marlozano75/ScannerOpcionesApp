@@ -58,13 +58,13 @@ def parse_cds(service, qp) -> dict:
     error: Optional[str] = None
     if submitted:
         for key in ("dte_min", "dte_max", "otm_min", "otm_max", "widths", "wpct_min", "wpct_max", "dmin", "dmax", "oi", "oi_s", "ls", "ls_s", "lvol", "svol", "bsz", "asz", "gain", "days", "mult",
-                    "ret", "prob", "xp", "top", "sma", "ref", "ref_x"):
+                    "ret", "prob", "nd", "xp", "top", "sma", "ref", "ref_x"):
             if key in qp:
                 form[key] = str(qp.get(key, "")).strip()
         for new, old in (("oi_s", "oi"), ("ls_s", "ls")):        # perfil guardado antes de separar las patas: el valor único valía para las dos
             if new not in qp and old in qp:
                 form[new] = form[old]
-        for key in ("best", "use_ret", "use_prob", "use_xp", "use_sma", "use_earn", "use_bsz", "use_asz", "use_lvol", "use_svol"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
+        for key in ("best", "use_ret", "use_prob", "use_nd", "use_xp", "use_sma", "use_earn", "use_bsz", "use_asz", "use_lvol", "use_svol"):          # casillas: ausentes = desmarcadas (solo si el formulario se envió entero)
             form[key] = key in qp
         form["allw"] = "allw" in qp or "allw_set" not in qp      # `allw_set` marca que el formulario trae la casilla: sin él (perfil o enlace anterior a la casilla) vale «marcada»
         form["allw_set"] = True
@@ -100,6 +100,7 @@ def parse_cds(service, qp) -> dict:
             target_gain_pct=_num(form["gain"], "Objetivo de ganancia"), move_days=_num(form["days"], "Días del movimiento", int),
             max_required_move_mult=_num(form["mult"], "Múltiplo del movimiento esperado"),
             min_prob_pct=_num(form["prob"], "Probabilidad mínima") if form["use_prob"] else None,
+            min_net_delta=_num(form["nd"], "Delta neta mínima") if form["use_nd"] else None,
             min_exit_profit_usd=_num(form["xp"], "Ganancia de salida mínima") if form["use_xp"] else None,
             exclude_earnings=bool(form["use_earn"]),
             top_per_ticker=_num(form["top"], "Máximo por ticker", int),

@@ -21,7 +21,7 @@ def info(price=100.0, iv30=50.0):
 
 # sin SMA200 ni mínimo de retorno máximo: aísla cada prueba
 def cfg(**kw):
-    base = dict(sma200_below_pct_min=None, min_max_return_pct=None, width_options=(10.0,), min_debit_usd=0, max_debit_usd=10000, all_widths=False)
+    base = dict(sma200_below_pct_min=None, min_max_return_pct=None, width_options=(10.0,), min_debit_usd=0, max_debit_usd=10000, all_widths=False, min_net_delta=None)
     base.update(kw)
     return CdsSettings(**base)
 
@@ -36,6 +36,17 @@ def test_required_move_filter_is_mandatory():
     assert r.required_move_mult < 1
     # con IV baja el mismo spread exige más de lo que cabe esperar: se descarta
     assert build_call_debit_spreads(snaps, info(iv30=20.0), cfg(), TODAY) == []
+
+
+def test_min_net_delta_filter_and_delta_per_debit():
+    # delta neta 0,08 (0,30 − 0,22), débito 1,75
+    snaps = [call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)]
+    assert CdsSettings().min_net_delta == 0.15                                  # valor inicial
+    assert build_call_debit_spreads(snaps, info(), cfg(min_net_delta=0.15), TODAY) == []
+    [r] = build_call_debit_spreads(snaps, info(), cfg(min_net_delta=0.08), TODAY)       # el límite exacto pasa
+    assert round(r.delta_per_debit, 3) == 0.046
+    # delta neta 0,20 (0,40 − 0,20): pasa el mínimo de 0,15
+    assert len(build_call_debit_spreads([call(130, 5.9, 6.0, 0.40), call(140, 2.2, 2.4, 0.20)], info(), cfg(min_net_delta=0.15), TODAY)) == 1
 
 
 def test_net_delta_not_positive_is_discarded():

@@ -89,6 +89,7 @@
 {% if f.best %}{% set _ = chips.append(('sec-widths', 'Solo el mejor ancho', 'best')) %}{% endif %}
 {% if f.wpct_min or f.wpct_max %}{% set _ = chips.append(('sec-widths', 'Ancho/strike ' ~ (f.wpct_min or '0') ~ '–' ~ (f.wpct_max or '∞') ~ ' %', 'wpct_min wpct_max')) %}{% endif %}
 {% if f.use_prob %}{% set _ = chips.append(('sec-move', 'Prob. objetivo ≥ ' ~ f.prob ~ ' %', 'use_prob prob')) %}{% endif %}
+{% if f.use_nd %}{% set _ = chips.append(('sec-move', 'Δ neta ≥ ' ~ f.nd, 'use_nd nd')) %}{% endif %}
 {% if f.use_xp %}{% set _ = chips.append(('sec-move', 'Ganancia salida ≥ ' ~ f.xp ~ ' $', 'use_xp xp')) %}{% endif %}
 {% if f.use_earn %}{% set _ = chips.append(('sec-move', 'Sin resultados en ' ~ f.days ~ ' d', 'use_earn')) %}{% endif %}
 {% if f.top != '0' %}{% set _ = chips.append(('sec-widths', 'Máx. ' ~ f.top ~ ' por ticker', 'top')) %}{% endif %}
@@ -136,6 +137,7 @@
 {% if not (f.wpct_min or f.wpct_max) %}{% set _ = offs.append(('sec-widths', 'Ancho/strike', 'wpct_min wpct_max')) %}{% endif %}
 {% if not f.use_ret %}{% set _ = offs.append(('sec-move', 'Retorno máximo', 'use_ret')) %}{% endif %}
 {% if not f.use_prob %}{% set _ = offs.append(('sec-move', 'Probabilidad del objetivo', 'use_prob')) %}{% endif %}
+{% if not f.use_nd %}{% set _ = offs.append(('sec-move', 'Delta neta mínima', 'use_nd')) %}{% endif %}
 {% if not f.use_xp %}{% set _ = offs.append(('sec-move', 'Ganancia de salida', 'use_xp')) %}{% endif %}
 {% if not f.use_earn %}{% set _ = offs.append(('sec-move', 'Resultados en la ventana', 'use_earn')) %}{% endif %}
 {% if f.top == '0' %}{% set _ = offs.append(('sec-widths', 'Máximo por ticker', 'top')) %}{% endif %}
@@ -424,6 +426,8 @@
           <input name="ret" value="{{ form.ret }}" inputmode="decimal"></label>
         <label class="opt opt-row" title="Probabilidad de que el subyacente toque el nivel que da el objetivo en esos días: 2·(1 − Φ(necesario/esperado))"><span class="check"><input type="checkbox" name="use_prob" {{ 'checked' if form.use_prob }}> Prob. objetivo ≥ (%)</span>
           <input name="prob" value="{{ form.prob }}" inputmode="decimal"></label>
+        <label class="opt opt-row" title="Delta de la comprada − delta de la vendida: lo que gana el spread por cada $1 que sube el subyacente. Para salir en días o semanas conviene que sea alta (orientativo 0,20–0,35); con menos de 0,10 hace falta un movimiento grande"><span class="check"><input type="checkbox" name="use_nd" {{ 'checked' if form.use_nd }}> Δ neta ≥</span>
+          <input name="nd" value="{{ form.nd }}" inputmode="decimal"></label>
         <label class="opt opt-row" title="Ganancia neta en $ por contrato al cerrar en el objetivo (cobro de salida − débito)"><span class="check"><input type="checkbox" name="use_xp" {{ 'checked' if form.use_xp }}> Ganancia salida ≥ ($)</span>
           <input name="xp" value="{{ form.xp }}" inputmode="decimal"></label>
         <label class="opt opt-row" title="Descarta el ticker si presenta resultados entre hoy y dentro de los días del movimiento esperado: el salto por resultados no está en la IV a ese plazo"><span class="check"><input type="checkbox" name="use_earn" {{ 'checked' if form.use_earn }}> Sin resultados en la ventana de días</span></label>
@@ -946,7 +950,7 @@
       // Call Debit Spread: cada filtro vuelve a un valor que no descarta nada
       cds_debit: { set: { dmin: '0', dmax: '1000000' } }, cds_oi: { set: { oi: '0' } }, cds_oi_s: { set: { oi_s: '0' } }, cds_spread: { set: { ls: '1000' } }, cds_spread_s: { set: { ls_s: '1000' } },
       cds_bsz: { uncheck: ['use_bsz'] }, cds_asz: { uncheck: ['use_asz'] }, cds_lvol: { uncheck: ['use_lvol'] }, cds_svol: { uncheck: ['use_svol'] },
-      cds_wpct: { set: { wpct_min: '', wpct_max: '' } }, cds_move: { set: { mult: '1000' } }, cds_prob: { uncheck: ['use_prob'] }, cds_xprofit: { uncheck: ['use_xp'] }, cds_earn: { uncheck: ['use_earn'] }, cds_return: { uncheck: ['use_ret'] }, cds_sma: { uncheck: ['use_sma'] },
+      cds_wpct: { set: { wpct_min: '', wpct_max: '' } }, cds_move: { set: { mult: '1000' } }, cds_prob: { uncheck: ['use_prob'] }, cds_ndelta: { uncheck: ['use_nd'] }, cds_xprofit: { uncheck: ['use_xp'] }, cds_earn: { uncheck: ['use_earn'] }, cds_return: { uncheck: ['use_ret'] }, cds_sma: { uncheck: ['use_sma'] },
       cds_entry: { uncheck: ['use_near', 'use_rsi', 'use_boll', 'use_bw'] }, cds_ma: { sectionSelects: 'sec-ma' },
       cds_profit: { uncheck: ['q_profit'] }, cds_quarters: { set: { q_quarters: '' } }, cds_fcf: { uncheck: ['q_fcf'] }, cds_lev: { set: { q_lev: '' } },
       cds_liq: { set: { q_liq: '' } }, cds_price: { set: { price_min: '', price_max: '' } }, cds_sources: { uncheck: ['use_src'] },

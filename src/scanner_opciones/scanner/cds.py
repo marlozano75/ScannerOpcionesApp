@@ -44,6 +44,11 @@ class CdsResult:
     exit_return_pct: float = 0.0      # ganancia neta / débito, en % (el objetivo menos la comisión de cierre)
     realized_move_pct: Optional[float] = None   # informativo: movimiento típico a `move_days` días con la volatilidad realizada de 60 sesiones (None sin historial); contrástese con `expected_move_pct` (IV)
 
+    @property
+    def delta_per_debit(self) -> float:
+        """Delta neta por $ de débito (por acción): lo que gana el spread por cada $1 que sube el subyacente, respecto a lo que cuesta. Informativo."""
+        return self.net_delta / self.debit if self.debit > 0 else 0.0
+
 
 def realized_vol(closes: Sequence[float], days: int = 60) -> Optional[float]:
     """Volatilidad realizada anualizada (fracción): desviación típica de los log-retornos diarios de las últimas `days` sesiones × √252.
@@ -186,6 +191,8 @@ def build_call_debit_spreads(
             net_delta = abs(lg.delta) - abs(sh.delta)
             if net_delta <= EPS:
                 continue                   # sin delta neta positiva una subida no da el objetivo
+            if cds.min_net_delta is not None and net_delta < cds.min_net_delta - EPS:
+                continue                   # delta neta mínima: la salida rápida necesita que el spread responda a una subida pequeña
             required_pct = cds.target_gain_pct / 100 * debit / net_delta / price * 100
             required_mult = required_pct / expected_pct
             if required_mult > cds.max_required_move_mult + EPS:

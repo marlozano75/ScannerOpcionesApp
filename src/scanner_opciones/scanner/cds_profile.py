@@ -37,6 +37,7 @@ def default_form(settings) -> dict:
         "use_bsz": cfg.min_bid_size is not None, "bsz": str(cfg.min_bid_size if cfg.min_bid_size is not None else 10),
         "use_asz": cfg.min_ask_size is not None, "asz": str(cfg.min_ask_size if cfg.min_ask_size is not None else 10),
         "gain": _fmt(cfg.target_gain_pct), "days": str(cfg.move_days), "mult": _fmt(cfg.max_required_move_mult),
+        "use_nd": cfg.min_net_delta is not None, "nd": _fmt(cfg.min_net_delta if cfg.min_net_delta is not None else 0.15),
         "use_prob": cfg.min_prob_pct is not None, "prob": _fmt(cfg.min_prob_pct if cfg.min_prob_pct is not None else 40), "top": str(cfg.top_per_ticker),
         "use_earn": cfg.exclude_earnings,
         "use_xp": cfg.min_exit_profit_usd is not None, "xp": _fmt(cfg.min_exit_profit_usd if cfg.min_exit_profit_usd is not None else 50),

@@ -38,7 +38,7 @@ def _g(v: float) -> str:
 def relaxed(cds: CdsSettings) -> CdsSettings:
     """Los mismos CDS pero sin ningún filtro opcional (queda la ventana del catálogo y la validez de las patas)."""
     return cds.model_copy(update=dict(
-        best_width=False, exclude_earnings=False, top_per_ticker=0, min_prob_pct=None, min_exit_profit_usd=None, min_debit_usd=0.0, max_debit_usd=HUGE, min_long_oi=0, min_short_oi=0, max_long_spread_pct=HUGE, max_short_spread_pct=HUGE, min_bid_size=None, min_ask_size=None, min_long_volume=None, min_short_volume=None, max_required_move_mult=HUGE,
+        best_width=False, exclude_earnings=False, top_per_ticker=0, min_prob_pct=None, min_net_delta=None, min_exit_profit_usd=None, min_debit_usd=0.0, max_debit_usd=HUGE, min_long_oi=0, min_short_oi=0, max_long_spread_pct=HUGE, max_short_spread_pct=HUGE, min_bid_size=None, min_ask_size=None, min_long_volume=None, min_short_volume=None, max_required_move_mult=HUGE,
         min_max_return_pct=None, sma200_below_pct_min=None, width_pct_min=None, width_pct_max=None))
 
 
@@ -52,6 +52,8 @@ def predicates(cds: CdsSettings, infos: Optional[Mapping[str, TickerInfo]] = Non
          lambda r: r.required_move_mult <= cds.max_required_move_mult + EPS),
         *([("cds_prob", "Probabilidad de alcanzar el objetivo", f"≥ {_g(cds.min_prob_pct)} %", lambda r: r.prob_pct >= cds.min_prob_pct - EPS)]
           if cds.min_prob_pct is not None else []),
+        *([("cds_ndelta", "Delta neta", f"≥ {_g(cds.min_net_delta)}", lambda r: r.net_delta >= cds.min_net_delta - EPS)]
+          if cds.min_net_delta is not None else []),
         *([("cds_xprofit", "Ganancia de salida", f"≥ {_g(cds.min_exit_profit_usd)} $", lambda r: r.exit_profit_usd >= cds.min_exit_profit_usd - EPS)]
           if cds.min_exit_profit_usd is not None else []),
         ("cds_spread", "Spread bid/ask de la comprada", f"≤ {_g(cds.max_long_spread_pct)} %",
