@@ -45,12 +45,12 @@
   <h2>Todos los perfiles en un solo escaneo</h2>
   <p class="muted" style="margin-top:0">Cada put vendida o spread que cumple los filtros de <b>algún</b> perfil sale una sola vez, con la columna <b>Estrategias</b> de los perfiles que cumple.
     Los filtros son los guardados en cada perfil (para cambiarlos, carga el perfil en el <a href="/scanner">Scanner</a> y guárdalo). El perfil «Tortuga» (las puts que no encajan por DTE) no entra.
-    Una put y un spread de la misma vendida son filas distintas.</p>
+    Una put y un spread de la misma vendida son filas distintas. Los Call Debit Spreads de los perfiles CDS salen en una tabla aparte, debajo (tienen otras columnas).</p>
   <form method="get" action="/scanner/todos" class="pf-bar">
     {% for p in candidates %}
     <label class="check"><input type="checkbox" name="pf" value="{{ p.name }}" {{ 'checked' if p.name in chosen }} onchange="this.form.submit()">
       <span class="pf-chip" style="background:{{ colors.get(p.name) or 'var(--accent)' }}">{{ p.name }}</span>
-      {% if counts.get(p.name) %}<span class="pf-count">{% for inst, n in counts[p.name].items() %}{{ n }} {{ 'puts' if inst == 'put' else 'spreads' }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}</label>
+      {% if counts.get(p.name) %}<span class="pf-count">{% for inst, n in counts[p.name].items() %}{{ n }} {{ {'put': 'puts', 'spread': 'spreads', 'cds': 'CDS'}[inst] }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}</label>
     {% endfor %}
     <a href="/scanner" class="muted">← Scanner</a>
   </form>
@@ -82,6 +82,16 @@
     </table></div>
     {% if rows %}<div class="table-actions"><button>Simular seleccionados</button></div>{% endif %}
   </form>
+  {% if cds_rows or candidates|selectattr('mode', 'equalto', 'cds')|selectattr('name', 'in', chosen)|list %}
+  {% set cmax = cds_rows|map(attribute='res.max_return_pct')|max if cds_rows else 0 %}
+  <h3 style="margin:18px 0 6px">Call Debit Spreads</h3>
+  <p class="headline" style="margin:4px 0 8px"><span class="big">{{ cds_rows|length }}</span> CDS cumplen los filtros de algún perfil CDS (mismas columnas que el perfil CDS del Scanner, más la de perfiles)</p>
+  <div class="scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results-cds" data-colmanager>
+    <tr>{{ cols.cds_head() }}<th class="txt" title="Perfiles CDS cuyos filtros cumple esta fila">Estrategias</th></tr>
+    {% for x in cds_rows %}<tr>{{ cols.cds_cells(x, cmax, nlv_usd) }}<td class="txt" data-sort="{{ cds_names[loop.index0]|length }}">{% for n in cds_names[loop.index0] %}<span class="pf-chip" style="background:{{ colors.get(n) or 'var(--accent)' }}">{{ n }}</span>{% endfor %}</td></tr>
+    {% else %}<tr><td colspan="60" class="muted empty">Ningún CDS cumple los filtros de los perfiles CDS elegidos.</td></tr>{% endfor %}
+  </table></div>
+  {% endif %}
 </div>
 <div class="hscroll" id="hscroll"><button type="button" data-d="-1" title="Desplazar a la izquierda" aria-label="Desplazar a la izquierda">‹</button><button type="button" data-d="1" title="Desplazar a la derecha" aria-label="Desplazar a la derecha">›</button></div>
 <dialog id="strike-dialog" class="sh-dialog" data-soft-keep>

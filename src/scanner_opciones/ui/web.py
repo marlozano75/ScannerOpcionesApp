@@ -48,7 +48,7 @@ from scanner_opciones.scanner.quality import is_exempt, ticker_quality_reject
 from scanner_opciones.portfolio import defense as defense_mod, other_mgmt
 from scanner_opciones.portfolio.overview import other_positions, portfolio_status
 from scanner_opciones.scanner.criteria import commission_model
-from scanner_opciones.ui import dashboard_charts as dash, page_charts, routes_backtest, routes_criba, routes_cds, routes_comunidad, routes_historico, routes_marketradar, routes_universe, scanner_parse, viz
+from scanner_opciones.ui import cds_form, dashboard_charts as dash, page_charts, routes_backtest, routes_criba, routes_cds, routes_comunidad, routes_historico, routes_marketradar, routes_universe, scanner_parse, viz
 from scanner_opciones.ui.charts import strike_chart_html, strike_mini_svg
 
 STRIKE_WINDOWS = ((6, "6 meses"), (12, "1 año"), (24, "2 años"))     # ventanas del gráfico del strike; la última, «Todo», usa todo el histórico
@@ -461,13 +461,24 @@ def create_app(
         """Un solo escaneo con los filtros de varios perfiles (`pf` repetido; sin ninguno, todos): cada
         put o spread que cumple los de alguno sale una vez, con la columna de los perfiles que cumple. Los filtros son los guardados en cada perfil."""
         profiles, _ = get_profiles()
-        candidates = [p for p in profiles if p.mode != "cds"]
+        candidates = list(profiles)
         asked = set(request.query_params.getlist("pf"))
         chosen = [p for p in candidates if not asked or p.name in asked]
         sets, errors = [], []
+        counts_cds: dict[str, dict[str, int]] = {}
+        cds_hits: dict = {}      # (ticker, vencimiento, strike comprado, strike vendido) → (resultado, [perfiles]); tabla aparte: otras columnas que las puts
         for p in chosen:
             for inst in p.instruments:
-                if inst == "cds":      # el Call Debit Spread no se mezcla con puts (otras columnas): se escanea solo en su perfil
+                if inst == "cds":      # el CDS no comparte columnas con las puts: va en su propia tabla, bajo la de puts y spreads
+                    parsed = cds_form.parse_cds(service, {"submitted": "1", "mode": "cds", "profile": p.name, **cds_form.with_allw(p.set_params("cds"))})
+                    if parsed["cds"] is None:
+                        errors.append(f"{p.name} (CDS): {parsed['error']}")
+                        continue
+                    found = service.scan_cds(parsed["cds"], **parsed["ref"])
+                    for r in found:
+                        c = r.long.contract
+                        cds_hits.setdefault((c.ticker, c.expiry, c.strike, r.short.contract.strike), (r, []))[1].append(p.name)
+                    counts_cds[p.name] = {"cds": len(found)}
                     continue
                 parsed = parse_scan({"submitted": "1", "mode": inst, "profile": p.name, **p.set_params(inst)}, inst)
                 if parsed["criteria"] is None:
@@ -475,7 +486,13 @@ def create_app(
                 else:
                     sets.append((p.name, inst, parsed["criteria"]))
         rows, counts = service.scan_profiles(sets)
-        return render(request, "scanner_all.html", no_autorefresh=True, rows=rows, counts=counts, candidates=candidates, chosen={p.name for p in chosen}, errors=errors,
+        for name, c in counts_cds.items():
+            counts.setdefault(name, {}).update(c)
+        infos, today = service.infos(), service.now().date()
+        ordered = sorted(cds_hits.values(), key=lambda h: -h[0].score)
+        cds_rows = [routes_cds.CdsRow(r, infos.get(r.long.contract.ticker), (r.long.contract.expiry - today).days) for r, _ in ordered]
+        cds_names = [names for _, names in ordered]      # perfiles que cumple cada fila, en el mismo orden
+        return render(request, "scanner_all.html", no_autorefresh=True, rows=rows, counts=counts, cds_rows=cds_rows, cds_names=cds_names, candidates=candidates, chosen={p.name for p in chosen}, errors=errors,
                       colors={p.name: p.color for p in profiles}, nlv_usd=service.nlv_usd(),
                       owned=service.owned_options(), held=service.held_tickers(), techs=service.tech_summaries(ScanOutput([m.short for m in rows], 0, {}, [])),
                       watch_data=True)

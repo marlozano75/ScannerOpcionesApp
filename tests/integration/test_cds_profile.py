@@ -74,5 +74,6 @@ def test_page_shows_profile_form_sma_column_and_saves_a_profile():
         assert prof.mode == "cds" and prof.cds["dmax"] == "700" and prof.cds["best"] == "on"
         page = client.get("/scanner?mode=cds&profile=CDS+barato")
         assert 'name="dmax" value="700"' in page.text and "checked" in page.text.split('name="best"')[1][:30]
-        assert client.get("/scanner/todos").status_code == 200
+        todos = client.get("/scanner/todos")      # los perfiles CDS entran en «Todos los perfiles», en su propia tabla
+        assert todos.status_code == 200 and "CDS barato" in todos.text and "Call Debit Spreads" in todos.text
         assert client.get("/exits").status_code == 200 and client.get("/scanner/config").status_code == 200
