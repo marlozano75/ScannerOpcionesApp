@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import threading
 import zlib
 from datetime import date, datetime, timedelta
 from itertools import groupby
@@ -606,6 +607,7 @@ class BarRepo:
         self._provisional: Optional[set[tuple[str, date]]] = None  # cierres del día en curso que aún no son el oficial
         self.version = 0                                           # sube con cada cambio de velas OFICIALES (los provisionales no cuentan)
         self._recent: dict[date, tuple[int, dict]] = {}            # `recent_candles` por fecha de inicio, válido mientras `version` no cambie
+        self._load_lock = threading.RLock()                        # una carga en frío a la vez (interfaz y jobs van en hilos distintos)
 
     LOAD_CHUNK = 500      # tickers por consulta de `_load`
     LOAD_ALL_FROM = 200   # a partir de tantos tickers sin cargar se lee la tabla entera de una pasada (`_load_all`)
@@ -629,22 +631,24 @@ class BarRepo:
     def _load(self, tickers: Iterable[str]) -> None:
         """Lee y limpia de una vez los tickers que aún no están en la copia en memoria: una consulta por lote en lugar de una por ticker
         (la carga en frío de toda la watchlist hacía ~2.300 consultas; 2026-11-12)."""
-        missing = sorted(t for t in set(tickers) if t not in self._cache)
-        if len(missing) < 2:
+        tickers = set(tickers)
+        if sum(1 for t in tickers if t not in self._cache) < 2:
             return
-        if len(missing) >= self.LOAD_ALL_FROM:
-            self._load_all()
-            for ticker in missing:
-                self._cache.setdefault(ticker, [])
-            return
-        for k in range(0, len(missing), self.LOAD_CHUNK):
-            chunk = missing[k:k + self.LOAD_CHUNK]
-            rows = self.db.conn.execute(
-                f"SELECT ticker, day, close, high, low FROM daily_bars WHERE ticker IN ({','.join('?' * len(chunk))}) ORDER BY ticker, day", chunk)
-            for ticker, group in groupby(rows, key=lambda r: r[0]):
-                self._cache[ticker] = clean_bars([(_day(r[1]), r[2], r[3], r[4]) for r in group])
-            for ticker in chunk:
-                self._cache.setdefault(ticker, [])      # sin velas guardadas: tampoco se vuelve a consultar
+        with self._load_lock:       # si otro hilo ya las está cargando (el precalentado al arrancar), se espera y se aprovecha: no se lee dos veces
+            missing = sorted(t for t in tickers if t not in self._cache)
+            if len(missing) >= self.LOAD_ALL_FROM:
+                self._load_all()
+                for ticker in missing:
+                    self._cache.setdefault(ticker, [])
+                return
+            for k in range(0, len(missing), self.LOAD_CHUNK):
+                chunk = missing[k:k + self.LOAD_CHUNK]
+                rows = self.db.conn.execute(
+                    f"SELECT ticker, day, close, high, low FROM daily_bars WHERE ticker IN ({','.join('?' * len(chunk))}) ORDER BY ticker, day", chunk)
+                for ticker, group in groupby(rows, key=lambda r: r[0]):
+                    self._cache[ticker] = clean_bars([(_day(r[1]), r[2], r[3], r[4]) for r in group])
+                for ticker in chunk:
+                    self._cache.setdefault(ticker, [])      # sin velas guardadas: tampoco se vuelve a consultar
 
     def _load_all(self) -> None:
         """Carga en frío: UNA pasada por toda la tabla de la que salen a la vez los cierres limpios de los tickers que faltan y las velas
@@ -686,6 +690,10 @@ class BarRepo:
     def _drop_cache(self) -> None:
         self._cache, self._provisional = {}, None
         self.version += 1
+
+    def tickers(self) -> list[str]:
+        """Tickers con alguna vela guardada."""
+        return [r[0] for r in self.db.conn.execute("SELECT DISTINCT ticker FROM daily_bars")]
 
     def last_days(self, tickers: Iterable[str]) -> dict[str, date]:
         """Último día con cierre OFICIAL guardado de cada ticker (los que no tienen histórico no aparecen).

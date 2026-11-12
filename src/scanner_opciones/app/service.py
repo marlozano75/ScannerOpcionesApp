@@ -303,6 +303,7 @@ class AppService:
         self._openings_error: Optional[str] = None
         self.profile_criteria_provider: Optional[Callable[[], list[tuple]]] = None   # lo pone la interfaz web: filtros grabados en cada perfil
         self.profile_provider: Optional[Callable[[], tuple[list[ScannerProfile], str]]] = None   # lo pone la interfaz web (perfiles guardados o derivados)
+        self.page_warmer: Optional[Callable[[], Iterable[None]]] = None      # lo pone la interfaz web: generador que deja hecho el escaneo de cada perfil (`warm_caches`)
         self._yaml_scanner = (settings.scanner.presets, settings.scanner.strategy, settings.scanner.spreads)   # los de config.yaml, para restaurarlos
         self._load_scanner_config()
         self._load_portfolio()
@@ -1353,6 +1354,9 @@ class AppService:
             for build in (self.support_map, self.drop_map):      # columnas del Scanner: con las velas en memoria solo queda el cálculo
                 build()
                 await asyncio.sleep(0)
+            if self.page_warmer is not None:      # el escaneo de cada perfil guardado: abrir el Scanner o cambiar de perfil tras un refresco no lo espera
+                for _ in self.page_warmer():
+                    await asyncio.sleep(0)
         except Exception:       # base cerrada al apagar, etc.: precalentar es optativo
             log.debug("No se pudieron precalentar las cachés", exc_info=True)
 
@@ -3354,7 +3358,9 @@ class AppService:
     def history_coverage(self) -> tuple[int, int]:
         """(tickers de la watchlist con histórico de cierres, tickers de la watchlist)."""
         tickers = self.watchlist.list()
-        return len(self.bars.last_days(tickers)), len(tickers)
+        # solo cambia con las velas oficiales o el día: la consulta agrupa los ~2 millones de velas (0,8 s) y la pedía cada carga de un perfil con filtros técnicos
+        with_history = self._memo_day("history_tickers", lambda: frozenset(self.bars.last_days(self.bars.tickers())))
+        return sum(1 for t in tickers if t in with_history), len(tickers)
 
     def infos(self, criteria: Optional[ScanCriteria] = None) -> dict[str, TickerInfo]:
         """Fichas de los tickers. Si el filtro IV/HV está activo, a las que no tienen HV30 (tastytrade no la calcula para algunos

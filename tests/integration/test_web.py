@@ -942,6 +942,7 @@ def _make_spread_possible(svc):
     from dataclasses import replace
     snap = next(s for s in svc.snapshots.all() if s.contract.strike == 80.0)
     svc.snapshots.upsert(replace(snap, bid=3.0, ask=3.2, spread_pct=6.5))
+    svc._scan_memo.clear()                  # los snapshots se leen una vez por `data_version` (y el precalentado ya los leyó tras el refresco)
 
 
 SPREAD_Q = "&use_rr=on&rr=0.1&use_mc=on&mc=1&min_yield=0.1&discount=1"
@@ -1124,3 +1125,20 @@ def test_div_filter_keeps_only_marked_tickers(client_and_service):
     assert "contratos cumplen" in marked and "no está en capitulación completa" not in marked and "◆D" in marked
     svc.bars.upsert_ohlc("AAPL", shape([100.0] * 120))                      # sin divergencia: el filtro lo quita
     assert "Ningún contrato cumple" in client.get(BASE + "&use_div=on").text
+
+
+def test_el_precalentado_deja_hecho_el_escaneo_de_cada_perfil(client_and_service):
+    """Tras un refresco `warm_caches` recorre `page_warmer` (lo pone la interfaz): abrir un perfil después no vuelve a escanear."""
+    client, svc, _, _ = client_and_service
+    refresh(client)
+    assert svc.page_warmer is not None
+    calls: list = []
+    original = svc._scan
+    svc._scan = lambda criteria, include_rejections: calls.append(criteria) or original(criteria, include_rejections)
+    svc._scan_memo.clear()
+    for _ in svc.page_warmer():      # un paso por perfil guardado
+        pass
+    warmed = len(calls)
+    assert warmed >= 1
+    assert client.get("/scanner").status_code == 200       # el perfil inicial, con los criterios de su enlace
+    assert len(calls) == warmed                             # ya estaba en la caché

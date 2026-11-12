@@ -15,6 +15,7 @@ from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+from starlette.datastructures import QueryParams
 
 from scanner_opciones.jobs.loop_thread import JobsLoop
 from scanner_opciones.ui.loops import LoopSplit
@@ -192,6 +193,34 @@ def _num(v: Optional[float], digits: int = 2) -> str:
     return "—" if v is None else f"{v:.{digits}f}"
 
 
+GRADE_TITLES = {"q-s": "Cumple el grado estricto", "q-g": "Cumple el grado estándar", "q-a": "Cumple solo el grado flexible", "q-r": "No cumple ni el flexible"}
+
+
+def metric_cells(thresholds):
+    """Función `metric(valor, tipo, exento, clave)` que pinta la celda de una métrica de solvencia del Universo con el color de su grado
+    (`thresholds`: {clave: {is_max, strict, standard, flexible}}). `tipo`: 'x' múltiplo, 'f' fracción en %, 'p' porcentaje, otro = número."""
+    thresholds = thresholds or {}
+
+    def grade(v, key, exempt) -> str:
+        t = thresholds.get(key) if key else None
+        if not t or v is None or exempt:
+            return ""
+        if t["is_max"]:
+            return "q-s" if v <= t["strict"] else "q-g" if v <= t["standard"] else "q-a" if v <= t["flexible"] else "q-r"
+        return "q-s" if v >= t["strict"] else "q-g" if v >= t["standard"] else "q-a" if v >= t["flexible"] else "q-r"
+
+    def metric(v, kind, exempt, key=None) -> Markup:
+        if v is None:
+            return Markup('<td class="muted">n/a</td>' if exempt else '<td class="muted">—</td>')
+        g = grade(v, key, exempt)
+        if v >= 999:
+            return Markup(f'<td data-sort="999" class="{g}" title="Sin deuda / sin intereses: no hay nada que cubrir{" · " + GRADE_TITLES[g] if g else ""}">∞</td>')
+        text = _num(v) + "×" if kind == "x" else _pct(v * 100, 0) if kind == "f" else _pct(v, 1) if kind == "p" else _num(v)
+        return Markup(f'<td data-sort="{v}" class="{g}"{f' title="{GRADE_TITLES[g]}"' if g else ""}>{text}</td>')
+
+    return metric
+
+
 def _days_label(days: int) -> str:
     """7 -> «1 semana», 30 -> «1 mes», 365 -> «1 año», 252 -> «252 días (~1 año bursátil)»; otros valores, «N días»."""
     if days == 252:
@@ -214,6 +243,7 @@ from scanner_opciones.ui.scanner_forms import (  # noqa: F401  (se vuelven a exp
 
 
 TEMPLATES.env.globals["viz"] = viz
+TEMPLATES.env.globals["metric_cells"] = metric_cells
 TEMPLATES.env.filters.update(
     pct=_pct, money=_money, signed=_signed, num=_num, x=_x, light_label=lambda l: LIGHT_LABEL[l], zip=lambda a, b: zip(a, b)
 )
@@ -805,6 +835,37 @@ def create_app(
         worst = {diff[k] for k in keys.split() if k in diff}
         return " chg-bad" if "bad" in worst else " chg-warn" if worst else ""
 
+    def quality_count_map() -> dict:
+        """Cuántos tickers pasan cada nivel de los filtros de calidad. No depende del perfil (base de config.yaml): se reutiliza entre cargas
+        mientras no cambien los datos."""
+        return service._memo("quality_counts", lambda: quality_counts(
+            service.ticker_info.all(), service.watchlist.list(), service.criteria(), service.settings.scanner.quality))
+
+    def warm_profiles():
+        """Deja hecho, perfil a perfil, lo que su página del Scanner calcula al abrirse (escaneo, resumen técnico, recuentos de calidad) con los
+        mismos criterios que su enlace, para que esté en las cachés del servicio. Lo recorre `AppService.warm_caches` en el hilo de los jobs
+        tras cada refresco, cediendo el turno entre perfiles; un fallo en uno no afecta a los demás."""
+        profiles, _ = get_profiles()
+        for p in profiles:
+            try:
+                qp = QueryParams(profile_href(p).partition("?")[2])
+                if p.mode == "cds":
+                    routes_cds.page(service, profiles, qp)
+                else:
+                    _, parsed = parse_one(qp)
+                    if parsed["criteria"] is not None:
+                        service.tech_summaries(service.scan(parsed["criteria"]))
+            except Exception:  # noqa: BLE001 - precalentar es optativo
+                log.debug("No se pudo precalentar el perfil %s", p.name, exc_info=True)
+            yield
+        try:
+            quality_count_map()
+        except Exception:  # noqa: BLE001
+            log.debug("No se pudieron precalentar los recuentos de calidad", exc_info=True)
+        yield
+
+    service.page_warmer = warm_profiles
+
     @app.get("/scanner", response_class=HTMLResponse)
     async def scanner(request: Request, debug: int = 0):
         if (back := recall(request, "scanner")) is not None:
@@ -885,9 +946,7 @@ def create_app(
                 if saved.get(kind) is not None and (cm := row_marks(r, kind, saved[kind], sp, nlv)):
                     marks[row_key(r, sp)] = cm
 
-        qcfg = service.settings.scanner.quality
-        # no depende del perfil (base de config.yaml): se reutiliza entre cargas mientras no cambien los datos
-        counts = service._memo("quality_counts", lambda: quality_counts(service.ticker_info.all(), service.watchlist.list(), service.criteria(), qcfg))
+        counts = quality_count_map()
         strategy_qs, strategy_on = strategy_link(service.settings, parsed["form"], service.criteria(), request.query_params)
         yield_max = max((r.yield_ref_annualized_pct or 0.0 for r in out.results), default=0.0) if out else 0.0   # escala de las barras del yield
         return render(request, "scanner.html", no_autorefresh=True, out=out, owned=service.owned_options(), held=service.held_tickers(), ref_label=ref_label, watch_data=True, presets=presets, profile_buttons=profile_buttons, active_profile=active_profile, sev=sev, marks=marks, default_qs=default_qs,

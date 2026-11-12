@@ -11,13 +11,8 @@
   {%- endif -%}
 {%- endmacro %}
 {% macro grade_title(g) -%}{{ {'q-s': 'Cumple el grado estricto', 'q-g': 'Cumple el grado estándar', 'q-a': 'Cumple solo el grado flexible', 'q-r': 'No cumple ni el flexible'}.get(g, '') }}{%- endmacro %}
-{% macro metric(v, kind, ex, key=none) -%}
-  {%- set g = grade(v, key, ex)|trim if key else '' -%}
-  {%- if v is none %}<td class="muted">{{ 'n/a' if ex else '—' }}</td>
-  {%- elif v >= 999 %}<td data-sort="999" class="{{ g }}" title="Sin deuda / sin intereses: no hay nada que cubrir{{ ' · ' ~ grade_title(g) if g }}">∞</td>
-  {%- else %}<td data-sort="{{ v }}" class="{{ g }}"{% if g %} title="{{ grade_title(g) }}"{% endif %}>{% if kind == 'x' %}{{ v|num }}×{% elif kind == 'f' %}{{ (v * 100)|pct(0) }}{% elif kind == 'p' %}{{ v|pct(1) }}{% else %}{{ v|num }}{% endif %}</td>
-  {%- endif %}
-{%- endmacro %}
+{#- la celda de cada métrica de solvencia se pinta en Python (`web.metric_cells`): como macro eran ~16.000 llamadas por página, casi la mitad del tiempo de la tabla -#}
+{% set metric = metric_cells(qthr) %}
 {% include "_msgs.html" %}
 <style>
   td.q-s { background:rgba(26,127,55,.30); font-weight:600; }

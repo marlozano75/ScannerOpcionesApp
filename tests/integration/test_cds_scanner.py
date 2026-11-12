@@ -33,6 +33,7 @@ def _seed(svc):
     snaps = [_call(130, 3.9, 4.0, 0.30), _call(140, 2.2, 2.4, 0.22)]
     svc.contracts.sync_for_ticker("ZZZ", {svc.contracts.key(s.contract) for s in snaps}, [s.contract for s in snaps])
     assert svc.snapshots.upsert_many(snaps) == 2
+    svc._scan_memo.clear()                  # los snapshots se leen una vez por `data_version` (y el precalentado ya los leyó al arrancar)
 
 
 def _client(svc):
