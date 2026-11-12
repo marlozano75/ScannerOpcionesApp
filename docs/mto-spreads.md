@@ -258,3 +258,54 @@ El CDS es un **tercer instrumento de los perfiles del Scanner** (`scanner/profil
 **Catálogo con todos los strikes de la vendida (2026-11-06; `scanner.cds.all_short_strikes`, activo por defecto).** Además de las calls `width_options` $ por encima de cada comprada, `call_candidate_contracts` guarda CUALQUIER strike de la cadena por encima de ella hasta `width_pct_max` % de su strike (sin tope si es `null`), para que «Todos los anchos» tenga cobertura completa también por encima del 130 % OTM (antes un ancho fuera de la lista cuya vendida cayera ahí no existía en la base). Medido con las cadenas guardadas (1.163 tickers): ≈ +5,5 % de calls (≈ 27.500 → ≈ 29.000, estimación; hoy hay 25.164 con DTE ≥ 200). No se midió el tiempo extra por ciclo de cotización. `all_short_strikes: false` recupera el catálogo anterior. La primera actualización diaria tras el cambio las valida y guarda.
 
 **Columna «Realizado %» (2026-11-09; `CdsResult.realized_move_pct`, `scanner/cds.py::realized_vol`).** Solo informativa, no filtra: movimiento típico a `move_days` días con la volatilidad realizada de las últimas 60 sesiones (desviación de los log-retornos × √252 × √(días/365)), junto a «Esperado %» (IV). Sirve para ver en qué valores la IV está inflada o corta frente a lo que la acción se mueve de verdad; vacía sin 61 cierres. Se probó y descartó un filtro del breakeven al vencimiento frente a esa volatilidad: la estrategia sale en ~10 días o con resultado positivo y no espera al vencimiento.
+
+## Put credit spreads con DTE > 100 días (análisis 2026-11-12, `estrategia/logbook_mto_2026-11-12.csv`)
+
+Logbook de la cuenta 50K (281 patas). Se emparejaron las patas put por ticker, hora de apertura y vencimiento (cuidado: varias filas del mismo spread salen duplicadas, p. ej. T, PINS, ARCC; hay que dividir por la cantidad total).
+
+**Qué hay realmente:** de ~18 put spreads verticales solo UNO tiene DTE > 100 y es puro: **HIMS 47/50, vencimiento 2027-12-17, 3 contratos, abierto el 2026-11-10 (401 DTE), crédito 2,82 $ sobre ancho 3 $ → riesgo 0,18 $, ratio beneficio/riesgo 15,7.** El resto de los PCS tiene 30–98 DTE y ratio 1,2–2,1 (los «999» de un primer cálculo eran duplicados de filas). UBER (391 DTE, put 35/60 + call 100) es un combo, no un PCS; SOXL 30/15 (275 DTE, 1×2) es un ratio de puts con débito. **No hay ningún PCS largo cerrado: no se puede medir acierto ni P&L; la muestra es 1 operación de hace 2 días.** Lo que sigue es análisis de estructura, no de resultados.
+
+### El ratio 15,7 es profundidad ITM, no ventaja
+
+- HIMS cotiza a 20,81 $ y el strike vendido es 50 $: el spread está **+140 % ITM**. Vender 50 / comprar 47 por 2,82 $ equivale, por paridad put-call, a un **Call Debit Spread 47/50** (comprada 126 % OTM, 401 DTE, ancho 3 $) más efectivo: exactamente la ventana del CDS (DTE 200–500, comprada 25–130 % OTM). El PCS «muy ITM» **es** un CDS muy OTM construido con puts.
+- Se gana solo si el subyacente sube: pérdida máxima con HIMS ≤ 47, beneficio máximo con HIMS ≥ 50; breakeven ≈ 47,18 (+127 %). Con IV 75 % la probabilidad lognormal de acabar > 47,18 es ≈ 8 % (> 50: ≈ 7 %) frente a un punto de equilibrio de 0,18/3 = 6 %: **el ratio alto solo compensa una probabilidad baja; el margen sobre el equilibrio es pequeño y depende de la IV**.
+- De los 0,18 $ de «riesgo», la mayor parte no es prima de la opción sino el valor del dinero: con tipos del 4 % a 1,1 años el ancho descontado es ≈ 2,87 $; el valor teórico del CDS equivalente es ≈ 0,05–0,26 $ según las patas (calls de HIMS: 47 → 2,26/2,63; 50 → 1,82/2,54; el comprador paga hasta 0,81 $ al natural). El crédito puede ser un efecto del mid y de la horquilla ancha de las puts ITM (70 P: 48,95/51,10; 75 P: 52,50/56,50), no una ventaja real: **medir siempre el ratio con el precio al natural (vendida al bid, comprada al ask)**.
+- En los PCS cortos del propio logbook (ya analizados arriba) el beneficio llega por rebote rápido, no por vencer; el DTE largo da tiempo, pero solo sirve con una salida en el primer rebote (+20 %, ver CDS).
+
+### Puts frente a calls para la misma estructura
+
+| | PCS ITM largo (puts) | CDS (calls) |
+|---|---|---|
+| Payoff | idéntico (paridad) | idéntico |
+| Riesgo de asignación anticipada | sí: la put vendida muy ITM con poco valor extrínseco (deep ITM, tipos 4 %) | no (HIMS no paga dividendo; las calls vendidas OTM casi no se ejercen) |
+| Liquidez | puts ITM con horquillas de 2–4 $ por pata | calls OTM con horquillas menores y más OI |
+| Margen | what-if de TWS (Reg T: ancho − crédito) | débito pagado, sin margen |
+| Catálogo en la app | NO guardado: puts solo −5…−35 % bajo el precio, DTE 1–35 | sí: `scanner.cds` (DTE 200–500, OTM 25–130 %) |
+| Efectivo | cobra el crédito (interés del efectivo) | paga el débito |
+
+### Propuesta para implementar «algo parecido al CDS»
+
+1. **No duplicar el motor.** `scanner/cds.py` ya construye el payoff equivalente; un escáner de PCS ITM largo por puts exigiría ampliar el catálogo de puts a strikes por encima del precio con DTE 200–500 (puts ≈ el doble de contratos que el CDS, con horquillas peores) para obtener lo mismo.
+2. **Mejora barata en el CDS:** columna/valor «crédito PCS equivalente» = ancho·descuento − débito (con el tipo libre de riesgo) y marca «ejecutable como PCS» cuando el crédito real de las puts (bid/ask) supere ese valor teórico; solo informativo, a partir de las puts que haya en la cadena de tastytrade (consulta puntual con la cadena, sin guardarlas).
+3. **Si se quiere el PCS real:** perfil de escaneo «MTO PCS largo» con strike vendido ≥ 50 % sobre el precio, DTE 200–500, ancho 3–25 $, ratio medido al natural, probabilidad de beneficio máximo (delta de la vendida ≈ 1 − P) ≥ punto de equilibrio + margen, extrínseco de la put vendida ≥ intereses del strike a DTE (anti-asignación) y modo `cds` del ticker. Misma salida que el CDS (objetivo +20 %, revisar a ≤ 90 DTE; `long_review_dte`).
+4. **Antes de implementar:** esperar a tener cerrados varios (el logbook solo trae HIMS) y revisar HIMS con el precio real de las puts (la app no las guarda).
+
+### Filtro anti-asignación (put vendida muy ITM)
+
+El titular de una put americana muy ITM la ejerce cuando su valor extrínseco es menor que el interés que ganaría cobrando el strike hoy.
+
+```
+extrínseco = precio_put − (K_vendida − S)     # usar el BID (lo que cobras al cerrar)
+carry      = K_vendida × r × DTE/365          # interés sobre el strike hasta el vencimiento
+colchón    = extrínseco / carry
+pasa si colchón ≥ 1,25   y   |delta vendida| < 0,95
+```
+
+- Los dividendos no hacen falta: bajan el precio de la acción y hacen menos atractivo ejercer una put, así que el filtro es conservador. `r` va en config (tipo del efectivo de IBKR o fijo, 4 %).
+- |delta| ≈ 1 indica que la put cotiza a intrínseco y el extrínseco no es fiable.
+- **HIMS 47/50 (aproximado, precios del logbook y cierre del 11-11):** extrínseco de la put 50 ≈ 31,80 − 29,19 = 2,61 $; carry a 401 DTE con r = 4 % ≈ 2,20 $; colchón ≈ 1,19. Pasa con umbral 1,0 y falla con 1,25: está al límite (con el bid sería menor).
+- **Por qué importa con riesgo acotado:** una asignación de 3 contratos carga 300 acciones a 50 $ (≈ 15.000 $) de golpe, un problema de margen/efectivo en una cuenta de 50K, y obliga a ejercer o vender antes de tiempo la put comprada 47 perdiendo su extrínseco.
+- **Encaje en la app (propuesto):** filtro del perfil «MTO PCS largo» con casilla propia y fila en «¿Cuánto descarta cada filtro?» (mismo patrón que `cds_impact.predicates`); config `min_extrinsic_carry_ratio` (1,25), `risk_free_rate_pct`, `max_short_abs_delta` (0,95). Además, una alerta en el Panel si el colchón de una put vendida ya abierta baja de 1 (el extrínseco se erosiona al moverse la acción); es lo más útil y no depende del escáner.
+- El CDS no lo necesita: la call vendida OTM casi nunca se ejerce.
+
+*Es análisis de una operación abierta y de estructura, no recomendación de inversión.*
