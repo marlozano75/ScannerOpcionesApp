@@ -49,6 +49,25 @@ def test_min_net_delta_filter_and_delta_per_debit():
     assert len(build_call_debit_spreads([call(130, 5.9, 6.0, 0.40), call(140, 2.2, 2.4, 0.20)], info(), cfg(min_net_delta=0.15), TODAY)) == 1
 
 
+def test_realized_ratio_filter_and_iv_rank_max():
+    snaps = [call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)]
+    zigzag = {"ZZZ": [(TODAY - timedelta(days=100 - i), 100.0 if i % 2 else 110.0) for i in range(100)]}   # realizado ≈ 25 % vs esperado 8,3 %: cociente ≈ 3
+    [r] = build_call_debit_spreads(snaps, info(), cfg(), TODAY, bars=zigzag)
+    assert r.realized_ratio is not None and r.realized_ratio > 2
+    assert len(build_call_debit_spreads(snaps, info(), cfg(min_realized_ratio=0.6), TODAY, bars=zigzag)) == 1
+    calm = {"ZZZ": [(TODAY - timedelta(days=100 - i), 100.0 + (0.1 if i % 2 else 0.0)) for i in range(100)]}   # casi plano: cociente < 0,1
+    assert build_call_debit_spreads(snaps, info(), cfg(min_realized_ratio=0.6), TODAY, bars=calm) == []
+    [r] = build_call_debit_spreads(snaps, info(), cfg(), TODAY)
+    assert r.realized_ratio is None                                              # sin historial no hay cociente...
+    assert len(build_call_debit_spreads(snaps, info(), cfg(min_realized_ratio=0.6), TODAY)) == 1     # ... y no descarta
+    # IV Rank máximo: se mira el de la call comprada; sin dato no descarta
+    hi = call(130, 3.9, 4.0, 0.30)
+    hi = ContractSnapshot(hi.contract, None, bid=hi.bid, ask=hi.ask, delta=hi.delta, iv=hi.iv, open_interest=hi.open_interest, iv_rank=80.0)
+    assert build_call_debit_spreads([hi, snaps[1]], info(), cfg(max_iv_rank=60), TODAY) == []
+    assert len(build_call_debit_spreads([hi, snaps[1]], info(), cfg(max_iv_rank=90), TODAY)) == 1
+    assert len(build_call_debit_spreads(snaps, info(), cfg(max_iv_rank=10), TODAY)) == 1
+
+
 def test_net_delta_not_positive_is_discarded():
     assert build_call_debit_spreads([call(130, 3.9, 4.0, 0.25), call(140, 2.2, 2.4, 0.25)], info(), cfg(), TODAY) == []
 

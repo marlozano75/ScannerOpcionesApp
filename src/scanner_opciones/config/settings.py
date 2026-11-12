@@ -640,6 +640,11 @@ class CdsSettings(_Model):
     # Delta neta mínima (delta comprada − delta vendida; 2026-11-12): para salir en días o semanas el spread tiene que ganar valor con una subida pequeña.
     # Con menos delta neta hay que esperar un movimiento grande aunque el débito sea de céntimos (None = sin filtro).
     min_net_delta: Optional[float] = Field(0.15, gt=0, lt=1)
+    # Cociente movimiento realizado (60 sesiones) / esperado (IV) mínimo (2026-11-12): si la acción se mueve de verdad mucho menos de lo que implica la IV, la
+    # probabilidad calculada (que usa el esperado) es optimista. Sin historial suficiente no descarta (None = sin filtro; orientativo 0,6).
+    min_realized_ratio: Optional[float] = Field(None, gt=0)
+    # IV Rank máximo del subyacente (0–100): con IV en máximos del año las opciones son caras y una caída de la IV recorta la ganancia de la delta. Sin dato no descarta (None = sin filtro).
+    max_iv_rank: Optional[float] = Field(None, ge=0, le=100)
     exclude_earnings: bool = True                              # descarta los tickers con resultados dentro de los próximos `move_days` días (el salto por resultados falsea el movimiento esperado)
     min_exit_profit_usd: Optional[float] = Field(None, gt=0)   # ganancia neta mínima en $ por contrato al cerrar en el objetivo (None = sin filtro)
     top_per_ticker: int = Field(2, ge=0)                       # como mucho N spreads por ticker (los de mayor puntuación); 0 = todos

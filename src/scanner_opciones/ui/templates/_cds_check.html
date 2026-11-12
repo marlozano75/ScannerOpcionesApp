@@ -30,7 +30,7 @@
   <tr>
     <td>Δ neta / por $ débito</td><td class="{{ bad('cds_ndelta') }}">{{ r.net_delta|num(2) }} / {{ r.delta_per_debit|num(3) }}</td>
     <td>Necesario %</td><td class="{{ bad('cds_move') }}">{{ r.required_move_pct|pct }}</td>
-    <td>Esperado %</td><td class="{{ bad('cds_move') }}">{{ r.expected_move_pct|pct }}</td>
+    <td>Esperado % · Real./Esp.</td><td class="{{ bad('cds_move cds_rratio') }}">{{ r.expected_move_pct|pct }} · {{ r.realized_ratio|num(2) if r.realized_ratio is not none else '—' }}</td>
   </tr>
   <tr>
     <td>× esperado</td><td class="{{ bad('cds_move') }}">{{ r.required_move_mult|num(2) }}</td>
@@ -55,7 +55,7 @@
   <tr>
     <td>Δ comp. / vend.</td><td>{{ lg.delta|num }} / {{ sh.delta|num }}</td>
     <td>IV (comprada)</td><td>{{ (lg.iv * 100)|pct if lg.iv is not none else '—' }}</td>
-    <td>IV Rank / Pctl</td><td>{{ lg.iv_rank|pct(0) }} / {{ lg.iv_percentile|pct(0) }}</td>
+    <td>IV Rank / Pctl</td><td class="{{ bad('cds_ivmax') }}">{{ lg.iv_rank|pct(0) }} / {{ lg.iv_percentile|pct(0) }}</td>
   </tr>
   <tr>
     <td>Spread comp. / vend.</td><td class="{{ bad('cds_spread cds_spread_s') }}">{{ lg.spread_pct|pct }} / {{ sh.spread_pct|pct }}</td>
