@@ -15,6 +15,10 @@ SPIKE_RATIO = 1.8             # un cierre a más de esta razón (arriba o abajo)
 RANGE_SLACK = 0.15            # margen sobre el máximo/mínimo del día para dar por válido el cierre
 SPLIT_RATIOS = (2, 3, 4, 5, 6, 8, 10, 15, 20, 25, 30, 40, 50, 100)
 SPLIT_TOLERANCE = 0.12        # lo que puede alejarse el salto observado de la razón exacta (incluye el movimiento real del día)
+# Entre estos dos límites el salto de un día a otro no puede coincidir con ninguna razón de split (ni directa ni inversa): es el 99,9 % de los
+# días, y probar las 28 razones en cada uno era casi todo el coste de limpiar los 2 millones de velas (8,4 s → 1,5 s, mismo resultado; 2026-11-12)
+NO_SPLIT_BELOW = min(SPLIT_RATIOS) * (1 - SPLIT_TOLERANCE)
+NO_SPLIT_ABOVE = (1 + SPLIT_TOLERANCE) / min(SPLIT_RATIOS)
 
 Row = tuple[date, float, Optional[float], Optional[float]]     # día, cierre, máximo, mínimo
 
@@ -37,6 +41,8 @@ def clean_bars(rows: Sequence[Row]) -> list[tuple[date, float]]:
     # saltos de nivel por un split que el proveedor no ajustó atrás
     for i in range(len(out) - 1, 0, -1):
         ratio = out[i][1] / out[i - 1][1]
+        if NO_SPLIT_ABOVE < ratio < NO_SPLIT_BELOW:
+            continue
         for k in SPLIT_RATIOS:
             for factor in (k, 1 / k):
                 if abs(ratio / factor - 1) <= SPLIT_TOLERANCE:

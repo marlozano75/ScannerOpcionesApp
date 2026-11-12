@@ -5,6 +5,7 @@ import bisect
 import json
 import zlib
 from datetime import date, datetime, timedelta
+from itertools import groupby
 from typing import Iterable, Optional, Sequence
 
 from scanner_opciones.domain.enums import OptionRight
@@ -19,6 +20,18 @@ from scanner_opciones.storage.db import Database
 
 def _dt(value: Optional[str]) -> Optional[datetime]:
     return datetime.fromisoformat(value) if value else None
+
+
+_DAYS: dict[str, date] = {}
+
+
+def _day(iso: str) -> date:
+    """Fecha de un día guardado como texto. Las velas repiten los mismos ~1.000 días en cada ticker: convertir cada una de los 2 millones
+    era un tercio del coste de leerlas."""
+    day = _DAYS.get(iso)
+    if day is None:
+        day = _DAYS[iso] = date.fromisoformat(iso)
+    return day
 
 
 def _delete_not_in(db: Database, table: str, column: str, keep: Iterable[str]) -> int:
@@ -224,6 +237,7 @@ class WatchlistRepo:
 class TickerInfoRepo:
     def __init__(self, db: Database) -> None:
         self.db = db
+        self._all: Optional[tuple[int, dict[str, TickerInfo]]] = None      # (escrituras de la conexión al leer, fichas): ver `all`
 
     _COLUMNS = (
         "ticker", "sector", "category", "underlying_price", "days_to_ex_dividend", "iv_rank", "iv_percentile",
@@ -327,8 +341,13 @@ class TickerInfoRepo:
         return self._row(r) if r else None
 
     def all(self) -> dict[str, TickerInfo]:
-        rows = self.db.conn.execute(self._SELECT).fetchall()
-        return {r["ticker"]: self._row(r) for r in rows}
+        """Fichas de todos los tickers. Una página del Scanner lo pedía 9 veces (0,1 s cada una con ~2.300 tickers): se reutiliza mientras la
+        base no haya recibido ninguna escritura (`Database.total_changes`; la lectura une otras tablas, así que vale cualquier escritura). Diccionario nuevo en cada llamada."""
+        stamp = self.db.total_changes
+        if self._all is None or self._all[0] != stamp:
+            rows = self.db.conn.execute(self._SELECT).fetchall()
+            self._all = (stamp, {r["ticker"]: self._row(r) for r in rows})
+        return dict(self._all[1])
 
 
 class FilingAlertRepo:
@@ -588,6 +607,9 @@ class BarRepo:
         self.version = 0                                           # sube con cada cambio de velas OFICIALES (los provisionales no cuentan)
         self._recent: dict[date, tuple[int, dict]] = {}            # `recent_candles` por fecha de inicio, válido mientras `version` no cambie
 
+    LOAD_CHUNK = 500      # tickers por consulta de `_load`
+    LOAD_ALL_FROM = 200   # a partir de tantos tickers sin cargar se lee la tabla entera de una pasada (`_load_all`)
+
     def _prov(self) -> set[tuple[str, date]]:
         """Cierres provisionales (pocos: uno por ticker como mucho); se leen una vez."""
         if self._provisional is None:
@@ -599,10 +621,46 @@ class BarRepo:
         """Cierres limpios del ticker (copia en memoria; se leen y limpian la primera vez que se piden)."""
         bars = self._cache.get(ticker)
         if bars is None:
-            rows = [(date.fromisoformat(r["day"]), r["close"], r["high"], r["low"]) for r in self.db.conn.execute(
+            rows = [(_day(r["day"]), r["close"], r["high"], r["low"]) for r in self.db.conn.execute(
                 "SELECT day, close, high, low FROM daily_bars WHERE ticker = ? ORDER BY day", (ticker,))]
             bars = self._cache[ticker] = clean_bars(rows)
         return bars
+
+    def _load(self, tickers: Iterable[str]) -> None:
+        """Lee y limpia de una vez los tickers que aún no están en la copia en memoria: una consulta por lote en lugar de una por ticker
+        (la carga en frío de toda la watchlist hacía ~2.300 consultas; 2026-11-12)."""
+        missing = sorted(t for t in set(tickers) if t not in self._cache)
+        if len(missing) < 2:
+            return
+        if len(missing) >= self.LOAD_ALL_FROM:
+            self._load_all()
+            for ticker in missing:
+                self._cache.setdefault(ticker, [])
+            return
+        for k in range(0, len(missing), self.LOAD_CHUNK):
+            chunk = missing[k:k + self.LOAD_CHUNK]
+            rows = self.db.conn.execute(
+                f"SELECT ticker, day, close, high, low FROM daily_bars WHERE ticker IN ({','.join('?' * len(chunk))}) ORDER BY ticker, day", chunk)
+            for ticker, group in groupby(rows, key=lambda r: r[0]):
+                self._cache[ticker] = clean_bars([(_day(r[1]), r[2], r[3], r[4]) for r in group])
+            for ticker in chunk:
+                self._cache.setdefault(ticker, [])      # sin velas guardadas: tampoco se vuelve a consultar
+
+    def _load_all(self) -> None:
+        """Carga en frío: UNA pasada por toda la tabla de la que salen a la vez los cierres limpios de los tickers que faltan y las velas
+        oficiales completas de todos (lo que devuelve `recent_candles`, que así recorta en memoria en vez de recorrer la tabla otra vez).
+        Solo recorrer los ~2 millones de filas cuesta ~2,5 s: hacerlo dos veces era un tercio del primer Scanner (2026-11-12)."""
+        version, candles = self.version, {}
+        rows = self.db.conn.execute("SELECT ticker, day, close, high, low, open, provisional FROM daily_bars ORDER BY ticker, day")
+        for ticker, group in groupby(rows, key=lambda r: r[0]):
+            bars = [(_day(r[1]), r[2], r[3], r[4], r[5], r[6]) for r in group]
+            if ticker not in self._cache:      # los ya cargados llevan al día sus escrituras: no se pisan
+                self._cache[ticker] = clean_bars([b[:4] for b in bars])
+            official = [(d, o, hi, lo, c) for d, c, hi, lo, o, provisional in bars if not provisional and hi is not None and lo is not None]
+            if official:
+                candles[ticker] = official
+        self._recent = {k: v for k, v in self._recent.items() if v[0] == version}
+        self._recent[date.min] = (version, candles)
 
     def _put(self, ticker: str, day: date, close: float, provisional: bool) -> None:
         """Refleja en la copia en memoria un cierre escrito (si el ticker ya está cargado; si no, se leerá de la base al pedirlo)."""
@@ -638,7 +696,9 @@ class BarRepo:
 
     def all_closes(self, tickers: Iterable[str]) -> dict[str, list[tuple[date, float]]]:
         """Cierres de varios tickers a la vez, en orden ascendente (para el scanner). Listas nuevas: quien llama puede modificarlas."""
-        return {t: list(bars) for t in set(tickers) if (bars := self._bars(t))}
+        tickers = set(tickers)
+        self._load(tickers)
+        return {t: list(bars) for t in tickers if (bars := self._bars(t))}
 
     def closes(self, ticker: str, official_only: bool = False) -> dict[date, float]:
         """Cierres del ticker. Con `official_only` se leen tal cual de la base de datos (comprueba ajustes del proveedor); si no, ya limpios."""
@@ -691,10 +751,17 @@ class BarRepo:
             return hit[1]
         out: dict[str, list[tuple]] = {}
         version = self.version
-        for r in self.db.conn.execute(
-                "SELECT ticker, day, open, high, low, close FROM daily_bars WHERE provisional = 0 AND day >= ? AND high IS NOT NULL AND low IS NOT NULL "
-                "ORDER BY ticker, day", (since.isoformat(),)):
-            out.setdefault(r["ticker"], []).append((date.fromisoformat(r["day"]), r["open"], r["high"], r["low"], r["close"]))
+        wider = min((d for d, (v, _) in self._recent.items() if v == version and d < since), default=None)
+        if wider is not None:      # ya se leyó un periodo más largo (soportes antes que caídas): se recorta en memoria en vez de releer la tabla (~4 s)
+            for ticker, candles in self._recent[wider][1].items():
+                i = bisect.bisect_left(candles, since, key=lambda c: c[0])
+                if i < len(candles):
+                    out[ticker] = candles[i:] if i else candles
+        else:
+            for ticker, group in groupby(self.db.conn.execute(
+                    "SELECT ticker, day, open, high, low, close FROM daily_bars WHERE provisional = 0 AND day >= ? AND high IS NOT NULL AND low IS NOT NULL "
+                    "ORDER BY ticker, day", (since.isoformat(),)), key=lambda r: r[0]):
+                out[ticker] = [(_day(r[1]), r[2], r[3], r[4], r[5]) for r in group]
         self._recent = {k: v for k, v in self._recent.items() if v[0] == version}
         self._recent[since] = (version, out)
         return out      # compartido entre llamadas: quien lo use no debe modificarlo

@@ -134,8 +134,13 @@ class RefreshJob:
         otm = (contract.strike / price - 1) * 100
         return cds.dte_min <= contract.dte(today) <= cds.dte_max and otm >= cds.long_otm_pct_min - 1e-9
 
-    def _is_held(self, contract: OptionContract) -> bool:
-        return self.held_keys is not None and (contract.ticker, contract.expiry, round(float(contract.strike), 4), contract.right) in self.held_keys()
+    def _held_set(self) -> set:
+        """Claves de las opciones en cartera, calculadas UNA vez por ciclo (leerlas por contrato congelaba la app: decenas de miles de lecturas de la watchlist)."""
+        return self.held_keys() if self.held_keys is not None else set()
+
+    @staticmethod
+    def _is_held(contract: OptionContract, held: set) -> bool:
+        return (contract.ticker, contract.expiry, round(float(contract.strike), 4), contract.right) in held
 
     @staticmethod
     def _in_scope(contract: OptionContract, info, criteria: Sequence[ScanCriteria], today) -> bool:
@@ -179,7 +184,8 @@ class RefreshJob:
         # las patas compradas de los spreads están por debajo de la vendida: se cotiza también la franja extra guardada
         # (solo para cotizar: los márgenes se siguen pidiendo con `criteria`)
         quote_scope = criteria + self._leg_scope(criteria)
-        held = [c for c in stored if self._is_held(c)]
+        held_set = self._held_set()
+        held = [c for c in stored if self._is_held(c, held_set)] if held_set else []
         all_contracts = [c for c in stored if self._in_scope(c, infos.get(c.ticker), quote_scope, today)
                          or self._cds_in_scope(c, infos.get(c.ticker), today)]
         all_contracts = self._apply_modes(all_contracts, infos, report)
@@ -343,7 +349,8 @@ class RefreshJob:
         today = self.now().date()
         every = self.snapshots.all()
         self._calibrate_margins(every)
-        todo = [snap for snap in every if self._in_scope(snap.contract, infos.get(snap.contract.ticker), criteria, today) or self._is_held(snap.contract)]
+        held_set = self._held_set()
+        todo = [snap for snap in every if self._in_scope(snap.contract, infos.get(snap.contract.ticker), criteria, today) or self._is_held(snap.contract, held_set)]
         results = await asyncio.gather(
             *(self._maybe_add_margin(snap, infos.get(snap.contract.ticker), criteria, report, snap) for snap in todo), return_exceptions=True)
         ready = [new for snap, new in zip(todo, results)

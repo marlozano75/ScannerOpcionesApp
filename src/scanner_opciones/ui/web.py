@@ -15,6 +15,9 @@ from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
+
+from scanner_opciones.jobs.loop_thread import JobsLoop
+from scanner_opciones.ui.loops import LoopSplit
 from jinja2 import pass_context
 from markupsafe import Markup, escape
 
@@ -217,7 +220,7 @@ TEMPLATES.env.filters.update(
 
 
 class Lazy:
-    """Diccionario que se calcula la primera vez que una plantilla lo toca: el Panel, Comunidad, etc. no usan las columnas de caída y soporte."""
+    """Diccionario (o conjunto) que se calcula la primera vez que una plantilla lo toca: el Panel, Comunidad, etc. no usan las columnas de caída y soporte."""
     def __init__(self, build) -> None:
         self._build, self._value = build, None
 
@@ -239,18 +242,31 @@ def create_app(
     gateway_factory: Optional[Callable[[AccountMode], BrokerGateway]] = None,
     on_startup: Optional[Callable[[], Awaitable[None]]] = None,
     on_shutdown: Optional[Callable[[], Awaitable[None]]] = None,
+    jobs: Optional[JobsLoop] = None,
 ) -> FastAPI:
+    """`jobs`: hilo con su propio bucle de eventos donde corren `on_startup`/`on_shutdown` y todo lo que arrancan (refresco, actualización diaria,
+    broker), para que la interfaz no espere a sus tramos síncronos (`ui/loops.py`). Sin él todo va en el bucle del servidor."""
     from contextlib import asynccontextmanager
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        if on_startup:
-            await on_startup()
-        yield
-        if on_shutdown:
-            await on_shutdown()
+        if jobs is not None:
+            service.jobs_loop = jobs.start()
+            service.watchlist.db.split_reader()      # este hilo (el de la interfaz) lee por su propia conexión
+        run = jobs.run if jobs is not None else (lambda coro: coro)
+        try:
+            if on_startup:
+                await run(on_startup())
+            yield
+            if on_shutdown:
+                await run(on_shutdown())
+        finally:
+            if jobs is not None:
+                service.jobs_loop = None
+                jobs.stop()
 
     app = FastAPI(title="ScannerOpcionesApp", lifespan=lifespan)
+    app.add_middleware(LoopSplit, service=service)             # por dentro de la compresión: ver `ui/loops.py`
     app.add_middleware(GZipMiddleware, minimum_size=1024)      # el HTML del Scanner/Universo pesa MB y se comprime ~10:1
 
     symbols = {"EUR": "€", "GBP": "£", "CHF": "CHF ", "JPY": "¥"}
@@ -292,8 +308,9 @@ def create_app(
             pacing_wait=service.pacing_wait_seconds() if service.busy else 0,
             market_closed=service.settings.market.pause_when_closed and not service.market_open(),
             next_open=service.market.next_open(service.now()), path=request.url.path,
-            excluded_notice=service.excluded_notice, sec_alerts=service.filing_alert_map(), analyst_alerts=service.analyst_map(), company_names=service.company_name_map(),
-            company_notes=service.company_notes_map(), div_marks=service.div_marks(), drops=Lazy(service.drop_map), atr_of=service.atr_of, atr_period=service.settings.scanner.technical.atr_period, drop_cfg=service.settings.scanner.drop, supports=Lazy(service.support_map), sup_cfg=service.settings.scanner.support_levels, use_div="use_div" in request.query_params,
+            # mapas de todos los tickers: perezosos, porque varias páginas y fragmentos (Backtest, salidas, configuración, impacto) no los tocan
+            excluded_notice=service.excluded_notice, sec_alerts=Lazy(service.filing_alert_map), analyst_alerts=Lazy(service.analyst_map), company_names=Lazy(service.company_name_map),
+            company_notes=Lazy(service.company_notes_map), div_marks=Lazy(service.div_marks), drops=Lazy(service.drop_map), atr_of=service.atr_of, atr_period=service.settings.scanner.technical.atr_period, drop_cfg=service.settings.scanner.drop, supports=Lazy(service.support_map), sup_cfg=service.settings.scanner.support_levels, use_div="use_div" in request.query_params,
         )
         return TEMPLATES.TemplateResponse(request, name, {**base, **ctx})
 
@@ -367,7 +384,7 @@ def create_app(
     async def management_roll(request: Request, key: str = ""):
         """Evalúa en vivo el roll de una put desnuda del Panel (cotiza la cadena); fragmento para la capa del Panel."""
         try:
-            ev = await service.roll_evaluation(key)
+            ev = await service.on_jobs(service.roll_evaluation(key))      # cotiza con el broker: en el bucle de los jobs
         except ValueError as exc:
             return render(request, "_roll.html", error=str(exc), ev=None)
         return render(request, "_roll.html", error=None, ev=ev)
@@ -910,7 +927,7 @@ def create_app(
         """Gráfico de cierres mensuales del ticker frente al strike, con los días desde el último toque
         (fragmento HTML que el Scanner muestra en una ventana)."""
         closes = service.bars.closes(ticker)
-        if not closes and strike > 0 and await service.ensure_history(ticker):   # fuera de la watchlist: se descarga al abrir el gráfico
+        if not closes and strike > 0 and await service.on_jobs(service.ensure_history(ticker)):   # fuera de la watchlist: se descarga al abrir el gráfico
             closes = service.bars.closes(ticker)
         if not closes or strike <= 0:
             return HTMLResponse('<p class="muted">Sin histórico de cierres de este ticker: tastytrade no devolvió velas. Se reintenta al abrir el gráfico otra vez.</p>')

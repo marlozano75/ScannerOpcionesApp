@@ -22,6 +22,7 @@ from scanner_opciones.broker.probe import choose_endpoint, detect_endpoint, scan
 from scanner_opciones.config.settings import Settings, load_settings
 from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.errors import ConfigError
+from scanner_opciones.jobs.loop_thread import JobsLoop
 from scanner_opciones.jobs.scheduler import PeriodicRunner
 from scanner_opciones.market.hours import MarketCalendar
 from scanner_opciones.marketdata.edgar import EdgarFinancialsProvider
@@ -168,7 +169,8 @@ def build_app(settings: Settings):
         await service.stop()
         db.close()
 
-    return create_app(service, factory, on_startup, on_shutdown)
+    # los jobs (y con ellos la conexión con el broker) van en su propio hilo: la interfaz no espera a los tramos síncronos del refresco
+    return create_app(service, factory, on_startup, on_shutdown, jobs=JobsLoop())
 
 
 def main(argv: list[str] | None = None) -> int:

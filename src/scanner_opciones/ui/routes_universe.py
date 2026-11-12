@@ -104,7 +104,7 @@ def register(app, service, render, recall, remembered) -> None:
         minis = {r.ticker: mini_cache[r.ticker] if r.ticker in mini_cache else mini_cache.setdefault(
             r.ticker, ticker_mini(closes.get(key_of(r.ticker), []), today, weeks_cfg)) for r in rows}
         return render(request, "universe.html", no_autorefresh=True, table=table, rows=rows, message=message, groups=message_groups(message),
-                      minis=minis, ident=ident, skip=skip, wl_sync=wl_sync,
+                      minis=minis, ident=ident, skip=skip, wl_sync=wl_sync, wl_mode=wl_mode, wl_grace=service.settings.watchlist_sync.grace_days,
                       qp=request.query_params, src=current.name if current else ALL, sources=sources, files=files,
                       numbers=numbers, member={t: ", ".join(map(str, n)) for t, n in member.items()},
                       all_count=len(member), manual=[(n, len(t)) for n, t in service.manual_sources.items()],

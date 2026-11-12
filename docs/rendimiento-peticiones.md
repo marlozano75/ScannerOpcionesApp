@@ -25,7 +25,7 @@ Medido con `py-spy` sobre la app en marcha: cambiar de perfil del Scanner tardab
 - **Comunidad:** `IDEAS_WAIT_SECONDS` 10 → 1 (sale con lo guardado y se recarga sola al cotizar; antes esperaba hasta 10 s).
 - **Universo:** cada miniatura llevaba ~960 puntos (10 KB) para 112 px: 24 de los 31 MB de la página. Ahora un punto por columna de píxel y caché por ticker (`routes_universe.mini_cache`).
 - **SQLite en modo WAL** (`journal_mode=WAL`, `synchronous=NORMAL`; aparecen `app.db-wal` y `app.db-shm`) y **GZipMiddleware**.
-- Pendiente (no hecho): sacar el trabajo síncrono del bucle de eventos; exige proteger la conexión SQLite compartida entre hilos.
+- Sacar el trabajo síncrono del bucle de eventos: hecho el 2026-11-12, ver «Jobs en su propio hilo».
 
 ### Arranque (2026-11-09)
 
@@ -38,3 +38,45 @@ Medido en el log y con `py-spy` durante un arranque: el primer Scanner tardó 25
 ### Caché de velas vaciada en cada refresco (2026-11-09)
 
 `cleanup_orphans` corre antes de CADA refresco y `BarRepo.purge_except` vaciaba la caché de velas limpias aunque no borrara nada: la primera página del Scanner tras cada refresco (cada ~15 min con el mercado abierto) tardaba ~24 s en relimpiar todo (medido: 23,7 s la primera, 0,22 s las siguientes). Ahora `purge_except` y `prune` solo invalidan si borran filas (`tests/unit/test_bar_cache.py`).
+
+
+### Carga en frío y cálculos tras cada refresco (2026-11-12)
+
+Medido sobre una copia de la base (2.326 tickers, 2,16 millones de velas, 94.000 snapshots) con `FakeGateway`, sin red y sin jobs en marcha: el primer Scanner tardaba 22 s y el primero tras cada refresco 6 s; el resto de páginas pagaban los mapas de todos los tickers aunque no los usaran. Los resultados (cierres limpios, velas recientes, soportes y caídas) se compararon con los de antes en todos los tickers y son idénticos.
+
+| Página | Antes | Ahora |
+|---|---|---|
+| Scanner en frío | 22 s | 10,9 s |
+| Scanner tras un refresco | 6 s | 2,4 s |
+| Scanner repetido | 0,3 s | 0,1 s |
+| Panel tras un refresco (sin posiciones) | 0,74 s | 0,65 s |
+| Backtest | 0,11 s | 0,04 s |
+| Watchlist | 0,26–0,5 s | 0,26 s |
+
+- **Limpieza de splits** (`bar_cleaning.clean_bars`): probaba las 28 razones de split en cada día; ahora se salta los días cuyo salto queda entre `NO_SPLIT_ABOVE` (0,56) y `NO_SPLIT_BELOW` (1,76), donde ninguna puede coincidir (8,4 s → 1,5 s).
+- **Una sola pasada por `daily_bars`** (`BarRepo._load_all`, cuando faltan ≥ `LOAD_ALL_FROM` tickers): de ella salen los cierres limpios y las velas oficiales completas (`_recent[date.min]`), de las que `recent_candles` recorta cualquier periodo en memoria. Antes eran ~2.300 consultas para los cierres más una pasada entera por cada periodo distinto (soportes y caídas). Con menos tickers sin cargar, una consulta por lote de `LOAD_CHUNK` (`BarRepo._load`). Las fechas se convierten una vez por día distinto (`repositories._day`). Solo recorrer la tabla cuesta ~2,5 s: es el suelo de la carga en frío.
+- **Precalentado** (`AppService._warm_caches`): pide los cierres de la watchlist de una vez (antes en trozos de 40 tickers que cedían el turno). Menos tiempo total (~8 s frente a ~12 s), pero un único bloqueo de ~5 s al arrancar.
+- **Soportes y caídas**: lo que solo depende de las velas (`support_levels`; `drop.drop_base`: máximo de la ventana, ATR e historial) se guarda por día y versión de velas (`AppService._memo_day`) y un refresco ya no lo invalida; con cada refresco solo se elige el soporte más cercano al precio nuevo y se aplica el precio y la IV (`drop.drop_from`). `support_levels` usa además el cierre mínimo posterior precalculado en vez de recorrer todos los cierres por grupo. `AppService._recent_candles` lee solo el periodo más largo de los tres (MACD, caídas, soportes).
+- **Mapas de todos los tickers en `render()`** (alertas de la SEC, analistas, nombres, notas, ◆D): ahora `Lazy`, así que las páginas y fragmentos que no los usan no los calculan. `filing_alert_map`, `analyst_map` y `company_notes_map` se reutilizan hasta que sube `data_version` (`_memo(..., by_version=True)`; quien escribe esas fichas la sube al acabar): durante un refresco, que escribe sin parar, cada página los rehacía (0,4 s solo las notas).
+- **`TickerInfoRepo.all`**: una página del Scanner lo pedía 9 veces (0,1 s cada una); se reutiliza mientras la conexión no haya escrito nada (`total_changes`).
+- No hecho: miniaturas del Universo bajo demanda (ya están cacheadas y pesan ~1 KB; el coste de esa página es el HTML de la tabla, 5,7 MB) (fase 3).
+
+### Jobs en su propio hilo (2026-11-12)
+
+Los jobs (refresco, actualización diaria, reconexión, conexión con el broker y con tastytrade) compartían el bucle de eventos con la interfaz: cada tramo síncrono de un refresco dejaba las páginas esperando. Ahora corren en un hilo con su propio bucle (`jobs/loop_thread.py::JobsLoop`, que `main.py` pasa a `create_app(..., jobs=...)`; `on_startup`/`on_shutdown` se ejecutan en él) y la interfaz conserva el suyo.
+
+Medido sobre la copia de la base con un job simulado al 100 % de CPU en tramos de 2 s (más duro que un refresco real, que pasa parte del tiempo esperando a la red):
+
+| Petición | Sin carga | Un solo bucle | Jobs en su hilo |
+|---|---|---|---|
+| `/data-version` | 1 ms | 1,6 s | 2 ms |
+| Scanner (repetido) | 0,10 s | 3,8 s | 0,30 s |
+| Panel | 0,20 s | 3,9 s | 0,50 s |
+| Watchlist | 0,16–0,35 s | 3,8 s | 0,40 s |
+
+- **Reparto de peticiones** (`ui/loops.py::LoopSplit`): GET/HEAD se atienden en el bucle de la interfaz; todo lo demás (POST) se ejecuta entero en el bucle de los jobs, como antes, así que lo que modifica el estado del servicio sigue pasando en un solo hilo. Un GET que necesita al broker pasa esa parte por `AppService.on_jobs` (roll del Panel, histórico de un gráfico fuera de la watchlist) o `wait_task` (cotización de Comunidad); `AppService.launch` llamado desde la interfaz lanza la tarea en el bucle de los jobs.
+- **SQLite**: el hilo de la interfaz lee por una conexión propia (`Database.split_reader`; `Database.conn` devuelve la del hilo que la pide). Con WAL ve lo último confirmado sin esperar a las transacciones del refresco. Las escrituras de las dos conexiones cuentan para invalidar cachés (`Database.total_changes`); tras cada GET se confirma lo que hubiera quedado a medias (`settle`) para no dejar la base bloqueada, y una escritura espera a la otra conexión hasta `BUSY_TIMEOUT_SECONDS` (30 s). Una base en memoria (tests) no se separa.
+- **Intervalo de cambio entre hilos** (`SWITCH_INTERVAL_SECONDS` = 0,3 ms; por defecto en Python 5 ms): imprescindible. Una página suelta el intérprete en cada fila que lee de SQLite y, con un job ocupando la CPU, tardaba hasta 5 ms en recuperarlo: con 5 ms el Scanner bajo carga tardaba 7 s (peor que con un solo bucle); con 1 ms, 3,6 s; con 0,3 ms, 0,35 s.
+- **Cachés compartidas**: `AppService._memo*` llevan un cerrojo (`_memo_lock`, un cálculo a la vez). Si los jobs cambian un diccionario mientras una página lo recorre («changed size during iteration»), `LoopSplit` repite la lectura una vez.
+- Límites: los dos hilos se reparten una CPU (una página bajo carga tarda 2–3 veces lo que sin ella); un cierre recién escrito puede faltar en la copia en memoria de las velas de un ticker hasta su siguiente escritura si coincide con la carga en frío. No verificado con TWS y tastytrade reales (solo con `FakeGateway` y uvicorn): `ib_async` y el SDK de tastytrade se crean y usan ahora en el bucle del hilo de jobs. Para volver a un solo bucle basta quitar `jobs=JobsLoop()` en `main.py`.
+- Tests: `tests/integration/test_loop_split.py`.

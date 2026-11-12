@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import time
 import asyncio
+import threading
+import concurrent.futures
 import hashlib
 import base64
 import json
@@ -63,7 +65,7 @@ from scanner_opciones.scanner.capitulation import Capitulation, assess as assess
 from scanner_opciones.scanner.profiles import UNASSIGNED, Profile as ScannerProfile
 from scanner_opciones.scanner.filters import iv_change_available, iv_hv_available
 from scanner_opciones.metrics import technical as ta
-from scanner_opciones.metrics.drop import drop_stats
+from scanner_opciones.metrics.drop import drop_base, drop_from
 from scanner_opciones.metrics.support_levels import nearest_support, support_levels
 from scanner_opciones.metrics.yields import reference_price
 from scanner_opciones.scanner.criteria import commission_model
@@ -159,7 +161,6 @@ PUT_PROFILES = "put_profiles"   # clave de `meta`: perfil de gestión elegido pa
 EXIT_STYLES = "exit_styles"   # clave de `meta`: estilos base de salida propios (JSON, `portfolio/exits.py::dump_custom`)
 MGMT_PROFILES = "mgmt_profiles"   # clave de `meta`: perfiles de GESTIÓN (JSON, `portfolio/mgmt_profiles.py`); vacío = los sembrados (Comunidad/Radar/MTO)
 SCANNER_USER_CONFIG = "scanner_user_config"   # clave de `meta`: presets y estrategia editados desde la aplicación (JSON)
-WARM_BARS_CHUNK = 40                               # tickers cuyos cierres se precalientan entre cesiones del turno (~0,2 s)
 MACD_DIV_DAYS = 260                                  # días naturales de velas que se leen para la divergencia del MACD (~180 sesiones)
 SCAN_MEMO_SECONDS = 1800.0                          # vida de las lecturas reutilizadas entre cálculos del Scanner (`_memo`)
 KEPT = "no se descartan por este filtro"       # efecto de un dato que falta en el aviso de `filter_data_gaps`
@@ -368,6 +369,10 @@ class AppService:
         self._tasty_again = False    # una actualización diaria acabó mientras la del arranque seguía: que la repita al terminar
         self._account_lock = asyncio.Lock()  # cuenta, posiciones y VIX: aparte, para que un ciclo largo de mercado no los retrase
         self._background: set = set()
+        # Bucle de eventos de los jobs cuando van en su propio hilo (`jobs/loop_thread.py`; None = todo en un solo bucle, como en los tests).
+        # La interfaz, desde su hilo, lee con los métodos síncronos y pasa por `on_jobs`/`launch` lo que tenga que correr en este bucle.
+        self.jobs_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._memo_lock = threading.RLock()      # las cachés de lecturas (`_memo*`) se consultan desde los dos hilos
 
     # ---- Universo: los ficheros cargados sobreviven a los reinicios --------------------------
     def _universe_dir(self) -> Optional[Path]:
@@ -1194,22 +1199,28 @@ class AppService:
     def filing_alert_map(self) -> dict[str, list[FilingAlert]]:
         """Alertas vigentes de la SEC por ticker normalizado (`norm_ticker`): solo los que tienen alguna dentro de la ventana configurada."""
         today, window = self.now().date(), self.settings.edgar.alerts_window_days
-        out: dict[str, list[FilingAlert]] = {}
-        for ticker, (_, alerts) in self.filing_alerts.all().items():
-            recent = [a for a in alerts if 0 <= (today - a.day).days <= window]
-            if recent:
-                out[norm_ticker(ticker)] = recent
-        return out
+
+        def build() -> dict[str, list[FilingAlert]]:
+            out: dict[str, list[FilingAlert]] = {}
+            for ticker, (_, alerts) in self.filing_alerts.all().items():
+                recent = [a for a in alerts if 0 <= (today - a.day).days <= window]
+                if recent:
+                    out[norm_ticker(ticker)] = recent
+            return out
+        return self._memo(f"filing_alerts|{today}|{window}", build, by_version=True)      # quien escribe alertas sube `data_version` al acabar
 
     def analyst_map(self) -> dict[str, list[AnalystChange]]:
         """Cambios de valoración de analistas vigentes por ticker normalizado (`norm_ticker`): solo los que tienen alguno dentro de la ventana."""
         today, window = self.now().date(), self.settings.analysts.window_days
-        out: dict[str, list[AnalystChange]] = {}
-        for ticker, (_, changes) in self.analyst_changes.all().items():
-            recent = [c for c in changes if 0 <= (today - c.day).days <= window]
-            if recent:
-                out[norm_ticker(ticker)] = recent
-        return out
+
+        def build() -> dict[str, list[AnalystChange]]:
+            out: dict[str, list[AnalystChange]] = {}
+            for ticker, (_, changes) in self.analyst_changes.all().items():
+                recent = [c for c in changes if 0 <= (today - c.day).days <= window]
+                if recent:
+                    out[norm_ticker(ticker)] = recent
+            return out
+        return self._memo(f"analyst_changes|{today}|{window}", build, by_version=True)
 
     def company_notes_map(self) -> dict[str, str]:
         """{ticker normalizado: texto} con a qué se dedica la empresa, sus noticias recientes con fecha y la línea de calidad de tastytrade, para el
@@ -1223,7 +1234,8 @@ class AppService:
                     key = norm_ticker(t)
                     out[key] = "\n".join(p for p in (out.get(key, ""), line) if p)
             return {t: text for t, text in out.items() if text}
-        return self._memo("company_notes", build)
+        # `by_version`: durante un refresco (que escribe sin parar) cada página rehacía los ~2.300 textos (0,4 s); las fichas suben `data_version` al guardarse
+        return self._memo("company_notes", build, by_version=True)
 
     def company_card(self, ticker: str) -> str:
         """Nombre completo, descripción, noticias con fecha, calidad (tastytrade) y resultados de un ticker, como HTML para los gráficos de historial y del Panel."""
@@ -1334,18 +1346,59 @@ class AppService:
                 await asyncio.sleep(0)
             if not self._bars_warmed:
                 self._bars_warmed = True
-                tickers = self.watchlist.list()
-                for i in range(0, len(tickers), WARM_BARS_CHUNK):
-                    self.bars.all_closes(tickers[i:i + WARM_BARS_CHUNK])
-                    await asyncio.sleep(0)
+                # de una vez: una sola pasada por la tabla da cierres y velas (`BarRepo._load_all`, ~5 s); por trozos de pocos tickers eran
+                # ~2.300 consultas y otra pasada entera para las velas de soportes y caídas (~12 s en total)
+                self.bars.all_closes(self.watchlist.list())
+                await asyncio.sleep(0)
             for build in (self.support_map, self.drop_map):      # columnas del Scanner: con las velas en memoria solo queda el cálculo
                 build()
                 await asyncio.sleep(0)
         except Exception:       # base cerrada al apagar, etc.: precalentar es optativo
             log.debug("No se pudieron precalentar las cachés", exc_info=True)
 
+    def _off_jobs_loop(self) -> bool:
+        """True si los jobs tienen su propio bucle y quien llama está en otro hilo (el de la interfaz)."""
+        loop = self.jobs_loop
+        if loop is None:
+            return False
+        try:
+            return asyncio.get_running_loop() is not loop
+        except RuntimeError:
+            return True
+
+    def on_jobs(self, coro):
+        """Devuelve algo que se puede esperar (`await`) para ejecutar la corrutina en el bucle de los jobs: lo que habla con el broker o toma los
+        cerrojos de los jobs no puede correr en el bucle de la interfaz. Sin bucle propio de jobs es la misma corrutina."""
+        if not self._off_jobs_loop():
+            return coro
+        return asyncio.wrap_future(asyncio.run_coroutine_threadsafe(coro, self.jobs_loop))
+
+    async def wait_task(self, task, timeout: float) -> None:
+        """Espera como mucho `timeout` segundos a una tarea lanzada con `launch`, esté en el bucle que esté, sin cancelarla si no termina
+        (lanza `asyncio.TimeoutError`)."""
+        if isinstance(task, concurrent.futures.Future):
+            waiting = asyncio.wrap_future(task)
+        elif task.get_loop() is not asyncio.get_running_loop():
+            async def wait() -> None:
+                await asyncio.shield(task)
+            waiting = asyncio.wrap_future(asyncio.run_coroutine_threadsafe(wait(), task.get_loop()))
+            await asyncio.wait_for(waiting, timeout)      # al agotarse se cancela la espera, no la tarea (`shield`)
+            return
+        else:
+            waiting = task
+        await asyncio.wait_for(asyncio.shield(waiting), timeout)
+
+    def settle_db(self) -> None:
+        """Confirma lo que la conexión de este hilo tenga a medias (ver `Database.settle`)."""
+        self.watchlist.db.settle()
+
     def launch(self, coro) -> "asyncio.Future":
-        """Ejecuta una corrutina en segundo plano (acciones manuales largas)."""
+        """Ejecuta una corrutina en segundo plano (acciones manuales largas). Desde el hilo de la interfaz se lanza en el bucle de los jobs y
+        devuelve un `concurrent.futures.Future` (con `done()`; para esperarlo, `wait_task`)."""
+        if self._off_jobs_loop():
+            async def tracked():
+                return await self.launch(coro)
+            return asyncio.run_coroutine_threadsafe(tracked(), self.jobs_loop)
         task = asyncio.ensure_future(coro)
         self._background.add(task)
         task.add_done_callback(self._background.discard)
@@ -3699,29 +3752,47 @@ class AppService:
     def criteria(self, **overrides) -> ScanCriteria:
         return criteria_from_settings(self.settings).with_filters(**overrides)
 
-    def _memo(self, name: str, build):
-        """Lectura costosa (snapshots, cierres, ATR) reutilizada entre los cálculos de una misma petición del Scanner: el escaneo y el aviso de resultados vacíos una más. Caduca a los `SCAN_MEMO_SECONDS` o si cambian los datos (`data_version`)."""
-        now = time.monotonic()
-        key = (name, self.state.data_version, self.watchlist.db.data_changes)     # data_changes: cualquier escritura en la base invalida
-        hit = self._scan_memo.get(key)
-        if hit is not None and now - hit[0] < SCAN_MEMO_SECONDS:
-            return hit[1]
-        value = build()
-        # solo se conserva lo de la versión actual de los datos: lo de las anteriores ya no puede acertar y ocuparía memoria (~60 MB de snapshots)
-        self._scan_memo = {k: v for k, v in self._scan_memo.items() if k[1:] == key[1:] and now - v[0] < SCAN_MEMO_SECONDS}
-        self._scan_memo[key] = (now, value)
-        return value
+    def _memo(self, name: str, build, by_version: bool = False):
+        """Lectura costosa (snapshots, cierres, ATR) reutilizada entre los cálculos de una misma petición del Scanner: el escaneo y el aviso de resultados vacíos una más. Caduca a los `SCAN_MEMO_SECONDS` o si cambian los datos (`data_version`).
+        `by_version=True`: solo la invalida `data_version` (que sube al terminar cada refresco), no las escrituras sueltas de la base. Es para los snapshots: durante un refresco,
+        que escribe sin parar, releer los ~60 MB en cada carga del Scanner congelaba la app; se ven los del último refresco terminado."""
+        with self._memo_lock:       # un cálculo a la vez: la interfaz y los jobs (otro hilo) comparten la caché y no repiten el mismo trabajo
+            now = time.monotonic()
+            data_changes = self.watchlist.db.data_changes       # cualquier escritura en la base invalida (salvo `by_version`)
+            key = (name, self.state.data_version, None if by_version else data_changes)
+            hit = self._scan_memo.get(key)
+            if hit is not None and now - hit[0] < SCAN_MEMO_SECONDS:
+                return hit[1]
+            value = build()
+            # solo se conserva lo de la versión actual de los datos: lo de las anteriores ya no puede acertar y ocuparía memoria (~60 MB de snapshots)
+            self._scan_memo = {k: v for k, v in self._scan_memo.items()
+                               if k[1] == key[1] and (k[2] is None or k[2] == data_changes) and now - v[0] < SCAN_MEMO_SECONDS}
+            self._scan_memo[key] = (now, value)
+            return value
 
     def _memo_bars(self, name: str, build):
         """Como `_memo` pero para lo que solo depende de las velas diarias, los precios del último refresco y el día: no lo invalida cualquier
         escritura de la base (el refresco escribe sin parar y cada clic recalculaba las velas de todos los tickers, ~13 s)."""
-        key = (name, self.now().date(), self.bars.version, self.state.data_version)
-        hit = self._bars_memo.get(name)
-        if hit is not None and hit[0] == key:
-            return hit[1]
-        value = build()
-        self._bars_memo[name] = (key, value)
-        return value
+        with self._memo_lock:
+            key = (name, self.now().date(), self.bars.version, self.state.data_version)
+            hit = self._bars_memo.get(name)
+            if hit is not None and hit[0] == key:
+                return hit[1]
+            value = build()
+            self._bars_memo[name] = (key, value)
+            return value
+
+    def _memo_day(self, name: str, build, extra=None):
+        """Como `_memo_bars` pero para lo que solo depende de las velas OFICIALES y del día (no de los precios del refresco): un refresco no lo
+        invalida. `extra`: lo demás de lo que dependa (la configuración)."""
+        with self._memo_lock:
+            key = (name, self.now().date(), self.bars.version, extra)
+            hit = self._bars_memo.get(name)
+            if hit is not None and hit[0] == key:
+                return hit[1]
+            value = build()
+            self._bars_memo[name] = (key, value)
+            return value
 
     def _memo_result(self, name: str, criteria: ScanCriteria, extra, build):
         """Resultado de un cálculo del Scanner para los mismos criterios, datos y cartera: volver a un perfil ya visto no lo recalcula."""
@@ -3735,13 +3806,13 @@ class AppService:
 
     def _scan_snapshots(self):
         """Snapshots de PUTS para los escaneos (las calls guardadas para los Call Debit Spread no entran: `_scan_call_snapshots`)."""
-        return self._memo("snapshots", lambda: [s for s in self.snapshots.all() if s.contract.right is OptionRight.PUT])
+        return self._memo("snapshots", lambda: [s for s in self.snapshots.all() if s.contract.right is OptionRight.PUT], by_version=True)
 
     def _scan_call_snapshots(self):
-        return self._memo("call_snapshots", lambda: [s for s in self.snapshots.all() if s.contract.right is OptionRight.CALL])
+        return self._memo("call_snapshots", lambda: [s for s in self.snapshots.all() if s.contract.right is OptionRight.CALL], by_version=True)
 
     def _scan_closes(self, snapshots):
-        return self._memo("closes", lambda: self.bars.all_closes({s.contract.ticker for s in snapshots}))
+        return self._memo_bars("closes", lambda: self.bars.all_closes({s.contract.ticker for s in snapshots}))
 
     def scan(self, criteria: ScanCriteria, include_rejections: bool = False) -> ScanOutput:
         return self._memo_result("scan", criteria, include_rejections, lambda: self._scan(criteria, include_rejections))
@@ -3959,7 +4030,7 @@ class AppService:
     def _atr_map(self) -> dict[str, float]:
         """ATR de la watchlist y de los tickers con contratos guardados, leído una vez por cambio de datos (son ~2.800 consultas a SQLite, 1-2 s) y
         compartido por el filtro, el aviso de datos que faltan y el panel de impacto."""
-        return self._memo("atr", lambda: self.bars.atr(
+        return self._memo_bars("atr", lambda: self.bars.atr(
             set(self.watchlist.list()) | {s.contract.ticker for s in self._scan_snapshots()}, self.settings.scanner.technical.atr_period))
 
     def atr_of(self, ticker: str) -> Optional[float]:
@@ -4340,9 +4411,9 @@ class AppService:
         wanted = {(r.snapshot.contract.ticker, r.snapshot.contract.strike): r.info.underlying_price if r.info else None for r in shorts}
         if not wanted:
             return {}
-        bars = self._memo("closes_all", lambda: self.bars.all_closes(set(self.watchlist.list())))
+        bars = self._memo_bars("closes_all", lambda: self.bars.all_closes(set(self.watchlist.list())))
         # el resumen de cada ticker (RSI, zonas de soporte) es caro y no depende del perfil: se reutiliza entre cargas mientras no cambien los datos
-        summarizer = self._memo("tech_summarizer", lambda: TechSummarizer(
+        summarizer = self._memo_bars("tech_summarizer", lambda: TechSummarizer(
             bars, self.settings.scanner.technical, self.settings.scanner.strategy, self.now().date()))
         found = ((key, summarizer.summary(key[0], price, key[1])) for key, price in wanted.items())
         return {key: s for key, s in found if s is not None}
@@ -4484,10 +4555,26 @@ class AppService:
         today = self.now().date()
 
         def build() -> frozenset:
-            candles = self.bars.recent_candles(today - timedelta(days=MACD_DIV_DAYS))
+            candles = self._recent_candles(MACD_DIV_DAYS)
             return frozenset(t for t, c in candles.items() if macd_divergence(c, today))
 
         return self._memo_bars("macd_div", build)
+
+    def _drop_days(self) -> int:
+        """Días naturales de velas que necesitan las columnas de caída."""
+        cfg = self.settings.scanner.drop
+        return int((cfg.history_days + cfg.window_days) * 1.5) + 10
+
+    def _recent_candles(self, days: int) -> dict[str, list[tuple]]:
+        """Velas oficiales de los últimos `days` días naturales de todos los tickers. La divergencia del MACD, las caídas y los soportes piden
+        periodos distintos: se lee de la base solo el más largo (una pasada por ~2 millones de velas, ~3 s) y los demás se recortan de él en
+        memoria (`BarRepo.recent_candles`), sea cual sea el orden en que una página los pida."""
+        today, scanner = self.now().date(), self.settings.scanner
+        widest = max(days, MACD_DIV_DAYS if scanner.capitulation.enabled else 0, self._drop_days() if scanner.drop.enabled else 0,
+                     scanner.support_levels.history_days if scanner.support_levels.enabled else 0)
+        if widest > days:
+            self.bars.recent_candles(today - timedelta(days=widest))
+        return self.bars.recent_candles(today - timedelta(days=days))
 
     def drop_map(self) -> dict:
         """{ticker: DropStats} con la caída reciente de cada ticker frente a lo habitual en él (columnas informativas del Scanner). Vacío si está apagado."""
@@ -4496,15 +4583,17 @@ class AppService:
             return {}
         today = self.now().date()
 
+        def bases() -> dict:
+            """{ticker: DropBase}: máximo de la ventana, ATR e historial de caídas; solo cambian con las velas o el día."""
+            candles = self._recent_candles(self._drop_days())
+            return {t: b for t, c in candles.items() if (b := drop_base(c, cfg)) is not None}
+
         def build() -> dict:
-            candles = self.bars.recent_candles(today - timedelta(days=int((cfg.history_days + cfg.window_days) * 1.5) + 10))
             infos = self.infos()
             out = {}
-            for t, c in candles.items():
+            for t, base in self._memo_day("drop_base", bases, cfg).items():      # con cada refresco solo cambian el precio y la IV
                 i = infos.get(t)
-                st = drop_stats(c, i.underlying_price if i else None, i.iv30 if i else None, cfg)
-                if st is not None:
-                    out[t] = st
+                out[t] = drop_from(base, i.underlying_price if i else None, i.iv30 if i else None, cfg)
             return out
 
         return self._memo_bars("drop_map", build)
@@ -4516,14 +4605,18 @@ class AppService:
             return {}
         today = self.now().date()
 
+        def levels() -> dict:
+            """{ticker: (soportes del histórico, último cierre)}: lo caro (~5 s con toda la watchlist) y solo cambia con las velas o el día."""
+            candles = self._recent_candles(cfg.history_days)
+            return {t: (support_levels(c, cfg), c[-1][4]) for t, c in candles.items()}
+
         def build() -> dict:
-            candles = self.bars.recent_candles(today - timedelta(days=cfg.history_days))
             infos = self.infos()
             out = {}
-            for t, c in candles.items():
+            for t, (found, last_close) in self._memo_day("support_levels", levels, cfg).items():      # con cada refresco solo se elige el más cercano al precio nuevo
                 i = infos.get(t)
-                price = i.underlying_price if i and i.underlying_price else c[-1][4]
-                lv = nearest_support(support_levels(c, cfg), price, cfg.min_pivots, cfg.max_distance_pct)
+                price = i.underlying_price if i and i.underlying_price else last_close
+                lv = nearest_support(found, price, cfg.min_pivots, cfg.max_distance_pct)
                 if lv is not None:
                     out[t] = lv
             return out

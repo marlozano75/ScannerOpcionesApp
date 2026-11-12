@@ -28,7 +28,7 @@ def register(app, service, render, remembered) -> None:
         task = service.community_quotes_task() if data is not None else None
         if task is not None:      # espera lo razonable; si tarda más, la página sale con lo que hay y se recarga sola cuando termine
             try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=IDEAS_WAIT_SECONDS)
+                await service.wait_task(task, IDEAS_WAIT_SECONDS)
             except asyncio.TimeoutError:
                 quoting = True
             except Exception:

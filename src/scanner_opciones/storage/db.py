@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
+from typing import Optional
 
 MIGRATIONS: list[str] = [
     # v1
@@ -458,6 +460,9 @@ MIGRATIONS: list[str] = [
 ]
 
 
+BUSY_TIMEOUT_SECONDS = 30.0      # espera de una escritura a que la otra conexión termine la suya (hilo de la interfaz frente al de los jobs)
+
+
 class Database:
     """Envoltorio fino sobre sqlite3. `path=':memory:'` para tests."""
 
@@ -466,18 +471,54 @@ class Database:
         self.path = str(path)   # dónde vive realmente esta base de datos (el Universo guarda sus ficheros a su lado)
         if str(path) != ":memory:":
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(path), check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        if str(path) != ":memory:":      # WAL: las lecturas de la interfaz no esperan a las escrituras del refresco
-            self.conn.execute("PRAGMA journal_mode = WAL")
-            self.conn.execute("PRAGMA synchronous = NORMAL")
+        self._main = self._open()
+        self._reader: Optional[sqlite3.Connection] = None      # conexión propia del hilo de la interfaz (`split_reader`)
+        self._reader_thread: Optional[int] = None
         self.migrate()
+
+    def _open(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.path, check_same_thread=False, timeout=BUSY_TIMEOUT_SECONDS)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        if self.path != ":memory:":      # WAL: las lecturas de la interfaz no esperan a las escrituras del refresco
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+        return conn
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """Conexión del hilo que la pide: la de siempre, salvo en el hilo de la interfaz una vez separado (`split_reader`)."""
+        if self._reader_thread is not None and threading.get_ident() == self._reader_thread:
+            return self._reader
+        return self._main
+
+    def split_reader(self) -> bool:
+        """El hilo que llama (el de la interfaz) pasa a usar una conexión propia: con WAL lee lo último confirmado sin esperar a las transacciones
+        del hilo de los jobs ni ver sus escrituras a medias. Una base en memoria no se puede abrir dos veces: sigue con la única conexión."""
+        if self.path == ":memory:" or self._reader is not None:
+            return False
+        self.settle()
+        self._reader = self._open()
+        self._reader_thread = threading.get_ident()
+        return True
+
+    def settle(self) -> None:
+        """Confirma lo que la conexión de este hilo tenga a medias (una escritura fuera de un `with conn:`): con dos conexiones, una transacción
+        abierta en la de la interfaz dejaría esperando a las escrituras del refresco."""
+        conn = self.conn
+        if conn.in_transaction:
+            conn.commit()
+
+    @property
+    def total_changes(self) -> int:
+        """Filas escritas por todas las conexiones de esta base desde que se abrió."""
+        reader = self._reader
+        return self._main.total_changes + (reader.total_changes if reader is not None else 0)
 
     @property
     def data_changes(self) -> int:
         """Escrituras acumuladas que SÍ pueden cambiar lo que escanea el Scanner (todas menos las periódicas de `meta` que no le afectan)."""
-        return self.conn.total_changes - self.quiet_changes
+        return self.total_changes - self.quiet_changes
 
     def migrate(self) -> None:
         current = self.conn.execute("PRAGMA user_version").fetchone()[0]
@@ -488,4 +529,7 @@ class Database:
         self.conn.commit()
 
     def close(self) -> None:
-        self.conn.close()
+        reader, self._reader, self._reader_thread = self._reader, None, None
+        if reader is not None:
+            reader.close()
+        self._main.close()

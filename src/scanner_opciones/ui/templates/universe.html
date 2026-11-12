@@ -121,6 +121,16 @@
   {% else %}<p class="muted">Aún no se ha cargado nada.</p>{% endif %}
 </div>
 {% elif not table %}<p class="muted" style="margin-top:18px">Aún no hay fuentes: carga un fichero (.xlsx o .html) o añade tickers a mano con el menú de la izquierda.</p>{% endif %}
+{% if view != 'history' %}
+<form method="post" action="/universe/watchlist-sync" id="wl-sync-status" class="muted" style="margin:10px 0 0;font-size:13px">
+  Watchlist:
+  {% if wl_mode == 'on' %}<b>sincronizada con las fuentes</b>{% if wl_sync and wl_sync.held %} (en espera de confirmación, ver aviso){% endif %} — las fuentes nuevas entran solas.
+    <button type="submit" name="on" value="0" class="secondary" title="La Watchlist se sigue cambiando a mano desde el Universo">Pasar a manual</button>
+  {% elif wl_mode == 'off' %}<b>a mano</b> — no sigue a las fuentes.
+    <button type="submit" name="on" value="1" class="secondary" onclick="return confirmClick(this, 'La Watchlist quedará igual que las fuentes con opciones y las fuentes nuevas entrarán solas (los tickers sin fuente se quitan tras {{ wl_grace }} días). ¿Activar?')">Activar sincronización</button>
+  {% else %}<b>sin decidir</b> — no se ha aplicado nada todavía.{% endif %}
+</form>
+{% endif %}
 {% if wl_sync and view != 'history' %}{% set p = wl_sync.plan %}
 <div class="banner {{ 'warn' if wl_sync.held else 'info' }}" id="wl-sync">
   <form method="post" action="/universe/watchlist-sync" style="margin:0">

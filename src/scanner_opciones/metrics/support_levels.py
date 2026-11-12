@@ -39,11 +39,15 @@ def support_levels(candles: Sequence[tuple], cfg: SupportLevelSettings) -> list[
             groups[-1].append(i)
         else:
             groups.append([i])
+    # cierre mínimo desde cada sesión hasta el final: saber si un grupo se perdió deja de recorrer todos los cierres posteriores (era la mitad del coste)
+    later_min = [float("inf")] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        later_min[i] = close[i] if close[i] < later_min[i + 1] else later_min[i + 1]
     out = []
     for g in groups:
         lo, hi = min(low[i] for i in g), max(low[i] for i in g)
         first = min(g)
-        if any(x < lo * (1 - band) for x in close[first + 1:]):
+        if later_min[first + 1] < lo * (1 - band):
             continue                                              # perdido: ya no es soporte
         approaches = bounces = 0
         for t in range(first + w + 1, n - hold):

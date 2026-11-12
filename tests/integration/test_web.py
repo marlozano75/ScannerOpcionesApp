@@ -979,6 +979,7 @@ def _set_long_delta(svc, delta):
     from dataclasses import replace
     snap = next(s for s in svc.snapshots.all() if s.contract.strike == 75.0)
     svc.snapshots.upsert(replace(snap, delta=delta))
+    svc._scan_memo.clear()                  # los snapshots se leen una vez por `data_version`: una escritura suelta no los invalida
 
 
 def test_sosnoff_filters_long_delta_credit_over_width_and_fixed_widths(client_and_service):
