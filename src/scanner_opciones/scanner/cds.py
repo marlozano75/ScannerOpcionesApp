@@ -43,6 +43,7 @@ class CdsResult:
     exit_profit_usd: float = 0.0      # ganancia neta en $ por contrato (cobrado − débito)
     exit_return_pct: float = 0.0      # ganancia neta / débito, en % (el objetivo menos la comisión de cierre)
     prob_adj_pct: float = 0.0         # probabilidad (%) con el movimiento mezclado de esperado y realizado (`realized_weight`): la que usa la puntuación; = `prob_pct` sin historial o con peso 0
+    price: float = 0.0                # precio del subyacente al escanear (para pasar la delta neta a % del débito por % de subida)
     realized_move_pct: Optional[float] = None   # informativo: movimiento típico a `move_days` días con la volatilidad realizada de 60 sesiones (None sin historial); contrástese con `expected_move_pct` (IV)
 
     @property
@@ -52,8 +53,9 @@ class CdsResult:
 
     @property
     def delta_per_debit(self) -> float:
-        """Delta neta por $ de débito (por acción): lo que gana el spread por cada $1 que sube el subyacente, respecto a lo que cuesta. Informativo."""
-        return self.net_delta / self.debit if self.debit > 0 else 0.0
+        """% que gana el spread (sobre su débito) por cada 1 % que sube el subyacente: `delta neta × precio / débito / 100 × 100`. Es la inversa del movimiento necesario
+        (`required_move_pct` = objetivo / esto), así que a igual objetivo ordena igual que él. Informativo."""
+        return self.net_delta * self.price / self.debit if self.debit > 0 and self.price > 0 else 0.0
 
 
 def realized_vol(closes: Sequence[float], days: int = 60) -> Optional[float]:
@@ -223,7 +225,7 @@ def build_call_debit_spreads(
             breakeven = strike + debit
             found.append(CdsResult(lg, sh, width, debit, debit * mult, max_return, breakeven, (breakeven / price - 1) * 100,
                                    otm, net_delta, required_pct, expected_pct, required_mult, dist200, prob, prob_adj * exit_return / 100,
-                                   exit_value, (exit_value - close_cost) * mult, exit_profit * mult, exit_return, prob_adj, realized_pct))
+                                   exit_value, (exit_value - close_cost) * mult, exit_profit * mult, exit_return, prob_adj, price, realized_pct))
         if cds.best_width and found:
             found = [max(found, key=lambda r: r.score)]
         out.extend(found)

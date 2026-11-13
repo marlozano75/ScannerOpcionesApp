@@ -315,7 +315,7 @@ pasa si colchón ≥ 1,25   y   |delta vendida| < 0,95
 Para salir en días o semanas, cuando sube la acción, el spread tiene que ganar valor con una subida pequeña: lo mide la delta neta (delta de la comprada − delta de la vendida), sobre todo en relación al débito. El filtro «Movimiento necesario ≤ esperado» ya lo contiene de forma indirecta (necesario = objetivo × débito / Δ neta), pero dejaba pasar spreads con Δ neta de 0,05 y débito de céntimos.
 
 - `scanner.cds.min_net_delta` (`CdsSettings`, **0,15** por defecto; `None` = sin filtro): casilla «Δ neta ≥» en la sección «Rentabilidad mínima esperada» del Scanner CDS (`use_nd`/`nd`), chip, fila «Delta neta» en «¿Cuánto descarta cada filtro?» (`cds_ndelta`) y en la consulta de un CDS.
-- Columna informativa «Δ neta / débito» (`CdsResult.delta_per_debit`: lo que gana el spread por cada $1 que sube la acción respecto a lo que cuesta; más alto = mejor para una salida rápida).
+- Columna informativa «% subida / débito» (`CdsResult.delta_per_debit`, antes Δ neta/débito en $; desde 2026-11-13 = delta neta × precio / débito, el % que gana el spread sobre su débito por cada 1 % que sube la acción: objetivo / esto = movimiento necesario; más alto = mejor para una salida rápida).
 - Los perfiles CDS guardados antes de este cambio no traen la casilla `use_nd`, así que se leen sin el filtro hasta que se marque y se vuelva a guardar el perfil. Orientación (sin calibrar con el logbook): 0,20–0,35.
 
 ### Realizado / esperado e IV Rank máximo (2026-11-12)

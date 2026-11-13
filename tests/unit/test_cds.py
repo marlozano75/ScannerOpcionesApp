@@ -44,7 +44,8 @@ def test_min_net_delta_filter_and_delta_per_debit():
     assert CdsSettings().min_net_delta == 0.15                                  # valor inicial
     assert build_call_debit_spreads(snaps, info(), cfg(min_net_delta=0.15), TODAY) == []
     [r] = build_call_debit_spreads(snaps, info(), cfg(min_net_delta=0.08), TODAY)       # el límite exacto pasa
-    assert round(r.delta_per_debit, 3) == 0.046
+    assert round(r.delta_per_debit, 2) == 4.57            # 0,08 × 100 / 1,75: el spread gana un 4,6 % de su débito por cada 1 % que sube la acción
+    assert round(r.required_move_pct * r.delta_per_debit, 1) == 20.0   # necesario × esto = objetivo (20 %)
     # delta neta 0,20 (0,40 − 0,20): pasa el mínimo de 0,15
     assert len(build_call_debit_spreads([call(130, 5.9, 6.0, 0.40), call(140, 2.2, 2.4, 0.20)], info(), cfg(min_net_delta=0.15), TODAY)) == 1
 
