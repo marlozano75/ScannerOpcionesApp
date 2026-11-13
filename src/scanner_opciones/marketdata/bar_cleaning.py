@@ -27,6 +27,17 @@ def _outside_range(close: float, high: Optional[float], low: Optional[float]) ->
     return (high is not None and high > 0 and close > high * (1 + RANGE_SLACK)) or (low is not None and low > 0 and close < low * (1 - RANGE_SLACK))
 
 
+def appends_cleanly(last_close: float, close: float) -> bool:
+    """True si añadir un cierre `close` (sin máximo ni mínimo, como el provisional del día) tras unos cierres ya limpios cuyo último es
+    `last_close` deja lo anterior intacto: `clean_bars(filas + [nueva]) == clean_bars(filas) + [nueva]`.
+
+    Por qué basta con mirar la razón: el último cierre limpio es siempre el último que pasó el filtro de rango (el de picos no puede quitar
+    el último, no tiene vecino siguiente, y el reescalado por split nunca toca el último). Con la fila nueva ese cierre pasa a tener vecino
+    siguiente, y solo sería un pico si se alejara de él más de `SPIKE_RATIO` (1,8×); y la fila nueva solo provoca un reescalado si su salto
+    cae en una razón de split. Dentro de (`NO_SPLIT_ABOVE`, `NO_SPLIT_BELOW`) = (0,56; 1,76) no pasa ninguna de las dos cosas."""
+    return close > 0 and last_close > 0 and NO_SPLIT_ABOVE < close / last_close < NO_SPLIT_BELOW
+
+
 def clean_bars(rows: Sequence[Row]) -> list[tuple[date, float]]:
     """Cierres (día, cierre) ascendentes ya limpios; `rows` debe venir ordenado por día."""
     kept = [(d, c) for d, c, h, lo in rows if c > 0 and not _outside_range(c, h, lo)]

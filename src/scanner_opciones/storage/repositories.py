@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import bisect
 import json
+import logging
 import threading
+import time
 import zlib
 from datetime import date, datetime, timedelta
 from itertools import groupby
@@ -12,11 +14,14 @@ from typing import Iterable, Optional, Sequence
 from scanner_opciones.domain.enums import OptionRight
 from scanner_opciones.domain.models import ContractSnapshot, OptionContract, TickerInfo
 from scanner_opciones.marketdata.analysts import AnalystChange
-from scanner_opciones.marketdata.bar_cleaning import clean_bars
+from scanner_opciones.marketdata.bar_cleaning import appends_cleanly, clean_bars
 from scanner_opciones.marketdata.company import CompanyNotes, NewsItem
 from scanner_opciones.marketdata.filings import FilingAlert
 from scanner_opciones.marketdata.history import AnnualYear, Dividend, EarningsQuarter
+from scanner_opciones.storage import bar_snapshot
 from scanner_opciones.storage.db import Database
+
+log = logging.getLogger(__name__)
 
 
 def _dt(value: Optional[str]) -> Optional[datetime]:
@@ -603,6 +608,8 @@ class BarRepo:
     repositorio la mantiene al día; borrar o podar la descarta. `last_days` va por SQL. Solo este repositorio escribe en `daily_bars`."""
     def __init__(self, db: Database) -> None:
         self.db = db
+        self._snapshot = bar_snapshot.path_for(db.path)            # copia en disco de las velas limpias (arranque en frío); None en memoria
+        self.snapshot_saver: Optional[threading.Thread] = None     # último guardado de la copia en marcha (los tests lo esperan)
         self._cache: dict[str, list[tuple[date, float]]] = {}      # por ticker, limpios; se rellena al pedirlos
         self._provisional: Optional[set[tuple[str, date]]] = None  # cierres del día en curso que aún no son el oficial
         self.version = 0                                           # sube con cada cambio de velas OFICIALES (los provisionales no cuentan)
@@ -651,20 +658,67 @@ class BarRepo:
                     self._cache.setdefault(ticker, [])      # sin velas guardadas: tampoco se vuelve a consultar
 
     def _load_all(self) -> None:
-        """Carga en frío: UNA pasada por toda la tabla de la que salen a la vez los cierres limpios de los tickers que faltan y las velas
-        oficiales completas de todos (lo que devuelve `recent_candles`, que así recorta en memoria en vez de recorrer la tabla otra vez).
-        Solo recorrer los ~2 millones de filas cuesta ~2,5 s: hacerlo dos veces era un tercio del primer Scanner (2026-11-12)."""
-        version, candles = self.version, {}
+        """Carga en frío de los cierres limpios de los tickers que faltan y de las velas oficiales completas de todos (lo que devuelve
+        `recent_candles`, que así recorta en memoria en vez de recorrer la tabla otra vez).
+
+        Sale de la copia en disco (`storage/bar_snapshot.py`, ~1 s) si sigue valiendo, con los cierres provisionales del día superpuestos;
+        si no, de UNA pasada por toda la tabla (~5,8 s; recorrer los ~2 millones de filas dos veces era un tercio del primer Scanner,
+        2026-11-12), y entonces se guarda la copia en segundo plano para el próximo arranque."""
+        version = self.version
+        started = time.perf_counter()
+        tag = bar_snapshot.fingerprint(self.db.conn) if self._snapshot is not None else None      # antes que las velas (ver `fingerprint`)
+        stored = bar_snapshot.load(self._snapshot, tag) if tag is not None else None
+        if stored is not None:
+            closes, candles = stored
+            self._overlay_provisional(closes)
+            source = "la copia en disco"
+        else:
+            closes, official, candles = self._read_all()
+            if tag is not None:
+                self.snapshot_saver = bar_snapshot.save_in_background(self._snapshot, tag, official, candles)
+            source = "la base de datos"
+        for ticker, bars in closes.items():
+            if ticker not in self._cache:      # los ya cargados llevan al día sus escrituras: no se pisan
+                self._cache[ticker] = bars
+        self._recent = {k: v for k, v in self._recent.items() if v[0] == version}
+        self._recent[date.min] = (version, candles)
+        log.info("Velas de %d tickers cargadas de %s en %.1f s", len(closes), source, time.perf_counter() - started)
+
+    def _read_all(self) -> tuple[dict, dict, dict]:
+        """Una pasada por toda la tabla: (cierres limpios con los provisionales, cierres limpios solo de las velas oficiales —lo que guarda la
+        copia en disco—, velas oficiales completas)."""
+        closes, official, candles = {}, {}, {}
         rows = self.db.conn.execute("SELECT ticker, day, close, high, low, open, provisional FROM daily_bars ORDER BY ticker, day")
         for ticker, group in groupby(rows, key=lambda r: r[0]):
             bars = [(_day(r[1]), r[2], r[3], r[4], r[5], r[6]) for r in group]
-            if ticker not in self._cache:      # los ya cargados llevan al día sus escrituras: no se pisan
-                self._cache[ticker] = clean_bars([b[:4] for b in bars])
-            official = [(d, o, hi, lo, c) for d, c, hi, lo, o, provisional in bars if not provisional and hi is not None and lo is not None]
-            if official:
-                candles[ticker] = official
-        self._recent = {k: v for k, v in self._recent.items() if v[0] == version}
-        self._recent[date.min] = (version, candles)
+            prov = [b for b in bars if b[5]]
+            official[ticker] = clean_bars([b[:4] for b in bars if not b[5]] if prov else [b[:4] for b in bars])
+            if not prov:
+                closes[ticker] = official[ticker]
+            elif len(prov) == 1 and prov[0] is bars[-1] and official[ticker] and appends_cleanly(official[ticker][-1][1], prov[0][1]):
+                closes[ticker] = official[ticker] + [prov[0][:2]]      # lo habitual en horario de mercado: no se limpia dos veces
+            else:
+                closes[ticker] = clean_bars([b[:4] for b in bars])
+            complete = [(d, o, hi, lo, c) for d, c, hi, lo, o, provisional in bars if not provisional and hi is not None and lo is not None]
+            if complete:
+                candles[ticker] = complete
+        return closes, {t: v for t, v in official.items() if v}, candles
+
+    def _overlay_provisional(self, closes: dict[str, list[tuple[date, float]]]) -> None:
+        """Añade a los cierres de la copia en disco (solo oficiales) los provisionales del día como si se hubieran limpiado juntos: si el
+        provisional es el último y su salto no altera la limpieza (`bar_cleaning.appends_cleanly`), se añade sin más; si no (varios en un
+        ticker, uno anterior al último oficial, un salto de split), ese ticker se vuelve a limpiar de la base."""
+        prov = self.db.conn.execute("SELECT ticker, day, close FROM daily_bars WHERE provisional = 1 ORDER BY ticker, day").fetchall()
+        self._provisional = {(r[0], date.fromisoformat(r[1])) for r in prov}
+        for ticker, group in groupby(prov, key=lambda r: r[0]):
+            group = list(group)
+            bars = closes.get(ticker)
+            day, close = date.fromisoformat(group[0][1]), group[0][2]
+            if len(group) == 1 and bars and day > bars[-1][0] and appends_cleanly(bars[-1][1], close):
+                bars.append((day, close))
+            else:
+                closes[ticker] = clean_bars([(_day(r[0]), r[1], r[2], r[3]) for r in self.db.conn.execute(
+                    "SELECT day, close, high, low FROM daily_bars WHERE ticker = ? ORDER BY day", (ticker,))])
 
     def _put(self, ticker: str, day: date, close: float, provisional: bool) -> None:
         """Refleja en la copia en memoria un cierre escrito (si el ticker ya está cargado; si no, se leerá de la base al pedirlo)."""
@@ -726,6 +780,7 @@ class BarRepo:
                 "ON CONFLICT(ticker, day) DO UPDATE SET close = excluded.close, provisional = 0",
                 [(ticker, d.isoformat(), px) for d, px in bars],
             )
+            self.db.conn.execute(bar_snapshot.BUMP_SQL)      # misma transacción: la copia en disco de las velas deja de valer
         for d, px in bars:
             self._put(ticker, d, px, False)
         self.version += 1
@@ -741,6 +796,7 @@ class BarRepo:
                 "open = COALESCE(excluded.open, daily_bars.open), volume = COALESCE(excluded.volume, daily_bars.volume)",
                 [(ticker, d.isoformat(), px, high, low, op, vol) for d, px, high, low, op, vol in bars],
             )
+            self.db.conn.execute(bar_snapshot.BUMP_SQL)
         for d, px, *_ in bars:
             self._put(ticker, d, px, False)
         self._reclean(ticker)
@@ -869,18 +925,24 @@ class BarRepo:
     def delete(self, ticker: str) -> None:
         with self.db.conn:
             self.db.conn.execute("DELETE FROM daily_bars WHERE ticker = ?", (ticker,))
+            self.db.conn.execute(bar_snapshot.BUMP_SQL)
         self._drop_cache()
 
     def prune(self, before: date) -> int:
         """Borra los cierres anteriores a `before` (el histórico no crece sin límite)."""
         with self.db.conn:
             n = self.db.conn.execute("DELETE FROM daily_bars WHERE day < ?", (before.isoformat(),)).rowcount
+            if n:
+                self.db.conn.execute(bar_snapshot.BUMP_SQL)
         if n:
             self._drop_cache()
         return n
 
     def purge_except(self, keep: Iterable[str]) -> int:
         n = _delete_not_in(self.db, "daily_bars", "ticker", keep)
+        if n:
+            with self.db.conn:      # tras el borrado, nunca antes: una carga entre medias dejaría la copia con una marca vieja (se descarta)
+                self.db.conn.execute(bar_snapshot.BUMP_SQL)
         if n:      # se llama antes de CADA refresco: vaciar la caché sin haber borrado nada obligaba a relimpiar todas las velas (~20 s en la siguiente página)
             self._drop_cache()
         return n

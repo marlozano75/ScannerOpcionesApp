@@ -32,7 +32,10 @@ def support_levels(candles: Sequence[tuple], cfg: SupportLevelSettings) -> list[
         return []
     low = [c[3] for c in candles]
     close = [c[4] for c in candles]
-    piv = [i for i in range(w, n - w) if low[i] < min(low[i - w:i]) and low[i] <= min(low[i + 1:i + 1 + w])]
+    # el primer par de comparaciones es condición necesaria de las otras dos (un mínimo local está bajo la sesión anterior y no sobre la
+    # siguiente) y descarta casi todas las sesiones sin crear las dos listas de la ventana: 0,71 s → 0,41 s con toda la watchlist (2026-11-13)
+    piv = [i for i in range(w, n - w) if low[i] < low[i - 1] and low[i] <= low[i + 1]
+           and low[i] < min(low[i - w:i]) and low[i] <= min(low[i + 1:i + 1 + w])]
     groups: list[list[int]] = []
     for i in sorted(piv, key=lambda k: low[k]):
         if groups and low[i] <= low[groups[-1][0]] * (1 + band):

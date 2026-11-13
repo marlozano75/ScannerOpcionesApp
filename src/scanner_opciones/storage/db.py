@@ -457,6 +457,9 @@ MIGRATIONS: list[str] = [
     """,
     # v48: volumen de la opción en el último snapshot (sesión actual o, sin operaciones, la anterior). NULL = el proveedor no lo dio
     "ALTER TABLE snapshots ADD COLUMN volume INTEGER;",
+    # v49: índice parcial de los cierres provisionales del día (pocos): la carga en frío de las velas los lee aparte para superponerlos a la copia
+    # en disco (`storage/bar_snapshot.py`) y sin índice era recorrer los ~2 millones de filas
+    "CREATE INDEX IF NOT EXISTS daily_bars_provisional ON daily_bars (ticker, day, close) WHERE provisional = 1;",
 ]
 
 
