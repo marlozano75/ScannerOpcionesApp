@@ -138,11 +138,15 @@ def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), event
     return Markup(
         f'<div class="tvw" data-ticker="{escape(ticker)}" data-lines="{escape(json.dumps(lines))}" data-events="{escape(json.dumps(marks))}" data-markers="{escape(json.dumps(signs))}">'
         '<div class="tvw-bar"><button type="button" class="tvw-btn on" data-v="svg" title="Gráfico de cierres con sus anotaciones">Cierres</button>'
-        '<button type="button" class="tvw-btn" data-v="tv" title="Velas interactivas, diarias o intradía (zoom con la rueda, arrastrar para desplazar)">Velas</button></div>'
+        '<button type="button" class="tvw-btn" data-v="tv" title="Velas interactivas, diarias o intradía. Rueda: zoom en el tiempo; arrastrar: desplazar; arrastrar el eje de precios: ampliar en vertical">Velas</button></div>'
         f'<div class="tvw-svg">{closes_chart}</div>'
         '<div class="tvw-tv" hidden>'
         f'<div class="tvw-tools">{steps}{ranges}<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="50"> SMA 50</label>'
         '<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="200"> SMA 200</label>'
+        '<button type="button" class="tvw-fit" aria-pressed="false" title="Ajustar la escala para que se vean siempre los strikes, el breakeven y el objetivo '
+        '(sin marcar, se ajusta a las velas visibles y se puede ampliar una zona)">Niveles</button>'
+        '<button type="button" class="tvw-reset" title="Volver a ajustar la escala de precios a lo visible (tras estirar el eje a mano; también con doble clic en el eje)">'
+        'Reajustar</button>'
         '<button type="button" class="tvw-log" aria-pressed="false" title="Escala logarítmica del eje de precios">Log</button></div>'
         + (f'<div class="tvw-notes">{note_html}</div>' if note_html else "") +
         f'<div class="tvw-legend">&nbsp;</div><div class="tvw-chart"></div><div class="tvw-foot">{chips}'

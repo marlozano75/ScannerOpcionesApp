@@ -82,10 +82,11 @@
     var prices = lines.map(function (l) { return l.price; });
     var series = chart.addCandlestickSeries({
       upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down,
-      // los strikes quedan lejos del precio: sin esto la escala automática los dejaría fuera de la vista
+      // la escala automática se ajusta a las velas visibles (se puede ampliar una zona); con «Niveles» incluye además los strikes,
+      // el breakeven y el objetivo, que suelen quedar lejos del precio
       autoscaleInfoProvider: function (original) {
         var res = original();
-        if (res && res.priceRange && prices.length) {
+        if (box._fitLines && res && res.priceRange && prices.length) {
           res.priceRange.minValue = Math.min.apply(null, prices.concat(res.priceRange.minValue));
           res.priceRange.maxValue = Math.max.apply(null, prices.concat(res.priceRange.maxValue));
         }
@@ -141,6 +142,7 @@
       intra: intra,
       remove: function () { chart.remove(); },
       range: range,
+      autoscale: function () { chart.priceScale('right').applyOptions({ autoScale: true }); },
       log: function (on) { chart.priceScale('right').applyOptions({ mode: on ? LC.PriceScaleMode.Logarithmic : LC.PriceScaleMode.Normal }); },
       average: function (n, on) {
         if (on && !averages[n]) {
@@ -195,7 +197,7 @@
   }
 
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('.tvw-btn, .tvw-rng, .tvw-log, .tvw-iv, .tvw-ext');
+    var t = e.target.closest && e.target.closest('.tvw-btn, .tvw-rng, .tvw-log, .tvw-iv, .tvw-ext, .tvw-fit, .tvw-reset');
     if (!t) return;
     var box = t.closest('.tvw');
     if (!box) return;
@@ -209,7 +211,14 @@
       return;
     }
     if (!box._tv) return;
-    if (t.classList.contains('tvw-log')) {
+    if (t.classList.contains('tvw-fit')) {
+      t.classList.toggle('on');
+      t.setAttribute('aria-pressed', t.classList.contains('on'));
+      box._fitLines = t.classList.contains('on');
+      box._tv.autoscale();
+    } else if (t.classList.contains('tvw-reset')) {
+      box._tv.autoscale();              // tras estirar el eje de precios a mano (desactiva la escala automática)
+    } else if (t.classList.contains('tvw-log')) {
       t.classList.toggle('on');
       t.setAttribute('aria-pressed', t.classList.contains('on'));
       box._tv.log(t.classList.contains('on'));
