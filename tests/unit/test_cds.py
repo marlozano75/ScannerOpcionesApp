@@ -269,3 +269,15 @@ def test_adjusted_probability_uses_realized_move_in_the_score():
     # sin historial no hay realizado: la ajustada es igual a la original y la puntuación no cambia
     [nohist] = build_call_debit_spreads(snaps, info(), cfg(), TODAY)
     assert nohist.prob_adj_pct == nohist.prob_pct
+
+
+def test_realized_gap_marks_both_directions():
+    # aviso de «Esperado %» / «Realizado %» muy distintos: cociente < 0,6 («low») o > 1/0,6 («high»)
+    from dataclasses import replace
+    [r] = build_call_debit_spreads([call(130, 3.9, 4.0, 0.30), call(140, 2.2, 2.4, 0.22)], info(), cfg(), TODAY)
+    assert r.realized_gap is None                                                # sin historial
+    e = r.expected_move_pct
+    assert replace(r, realized_move_pct=e * 0.5).realized_gap == "low"
+    assert replace(r, realized_move_pct=e * 1.0).realized_gap is None
+    assert replace(r, realized_move_pct=e * 1.6).realized_gap is None
+    assert replace(r, realized_move_pct=e * 2.0).realized_gap == "high"

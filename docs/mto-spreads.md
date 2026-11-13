@@ -323,6 +323,7 @@ Para salir en días o semanas, cuando sube la acción, el spread tiene que ganar
 Dos filtros opcionales más en «Rentabilidad mínima esperada», **apagados por defecto** (`None`), con su casilla, chip, fila en «¿Cuánto descarta cada filtro?» y en la consulta de un CDS:
 
 - `scanner.cds.min_realized_ratio` (caja con 0,6): cociente movimiento realizado (60 sesiones) / esperado (IV). Por debajo de ~0,6 la IV está inflada y la probabilidad calculada (que usa el esperado) es optimista. Nueva columna «Real./Esp.» (en rojo por debajo de 0,6). Sin historial suficiente no descarta.
+- **Aviso de «Esperado %» / «Realizado %» muy distintos (2026-11-13; `CdsResult.realized_gap`, `scanner/cds.py::REALIZED_GAP_RATIO`):** las dos celdas se marcan en ámbar (`td.move-gap`, con explicación al pasar el ratón) cuando realizado/esperado < 0,6 (IV inflada: la probabilidad es optimista) o > 1/0,6 ≈ 1,67 (la acción se mueve más de lo que dice la IV). Solo visual, no filtra.
 - `scanner.cds.max_iv_rank` (caja con 60): IV Rank máximo del subyacente (el de la call comprada). Con IV en máximos las opciones son caras y una caída de la IV recorta la ganancia de la delta. Sin dato no descarta.
 
 ### Probabilidad ajustada en la puntuación (2026-11-12)

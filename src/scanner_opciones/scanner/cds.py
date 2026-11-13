@@ -18,6 +18,9 @@ from scanner_opciones.metrics import technical as ta
 from scanner_opciones.metrics.yields import mid_price, reference_price
 
 EPS = 1e-6
+# Aviso visual (2026-11-13): «Esperado %» y «Realizado %» se marcan cuando realizado/esperado < este valor o > su inversa (≈ 1,67):
+# la IV y lo que la acción se mueve de verdad discrepan mucho y la probabilidad calculada (con el esperado) es poco fiable.
+REALIZED_GAP_RATIO = 0.6
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,16 @@ class CdsResult:
     def realized_ratio(self) -> Optional[float]:
         """Movimiento realizado / esperado (informativo y filtro opcional): < 1 = la acción se mueve menos de lo que dice la IV. None sin historial."""
         return self.realized_move_pct / self.expected_move_pct if self.realized_move_pct is not None and self.expected_move_pct > 0 else None
+
+    @property
+    def realized_gap(self) -> Optional[str]:
+        """«low» si el realizado es mucho menor que el esperado (IV inflada), «high» si es mucho mayor; None si se parecen o no hay historial."""
+        r = self.realized_ratio
+        if r is None:
+            return None
+        if r < REALIZED_GAP_RATIO:
+            return "low"
+        return "high" if r > 1 / REALIZED_GAP_RATIO else None
 
     @property
     def delta_per_debit(self) -> float:

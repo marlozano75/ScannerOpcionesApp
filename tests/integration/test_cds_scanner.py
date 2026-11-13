@@ -406,3 +406,14 @@ def test_technical_entry_and_moving_average_filters_apply_in_the_cds_show_chips_
         assert prof.cds["ema20"] == "above" and prof.cds["use_near"] == "on" and prof.cds["near_pct"] == "8"
         page = client.get("/scanner?mode=cds&profile=CDS+tecnico").text
         assert 'name="use_near" checked' in page and "▲ EMA20 D" in page
+
+
+def test_expected_and_realized_moves_are_marked_when_they_differ_a_lot():
+    svc = _svc()
+    with _client(svc) as client:
+        client.portal.call(svc.wait_idle)
+        _seed(svc)
+        svc.bars.upsert("ZZZ", [(TODAY - timedelta(days=d), 100.0 + (0.1 if d % 2 else 0.0)) for d in range(1, 120)])   # casi plano: realizado ≪ esperado
+        svc._scan_memo.clear()
+        text = client.get("/scanner?" + cds_profile_query(svc)).text
+        assert text.count('class="move-gap"') == 2 and "la IV está inflada" in text
