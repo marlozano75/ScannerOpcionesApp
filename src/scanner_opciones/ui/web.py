@@ -298,7 +298,9 @@ def create_app(
 
     app = FastAPI(title="ScannerOpcionesApp", lifespan=lifespan)
     app.add_middleware(LoopSplit, service=service)             # por dentro de la compresión: ver `ui/loops.py`
-    app.add_middleware(GZipMiddleware, minimum_size=1024)      # el HTML del Scanner/Universo pesa MB y se comprime ~10:1
+    # el HTML del Scanner/Universo pesa MB y se comprime ~5:1. Nivel 4 y no el 9 por defecto: con los 5,7 MB del Universo el 9 tarda 121 ms
+    # y deja 1.215 KB; el 4, 47 ms y 1.321 KB (medido 2026-11-13). En local lo que cuenta es el tiempo, no el tamaño
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=4)
 
     symbols = {"EUR": "€", "GBP": "£", "CHF": "CHF ", "JPY": "¥"}
     quote_symbols = {t: symbols.get(i.currency, i.currency + " ") for t, i in service.settings.instruments.items() if i.currency != "USD"}
