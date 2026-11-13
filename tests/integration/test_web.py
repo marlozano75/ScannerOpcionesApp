@@ -12,6 +12,7 @@ from scanner_opciones.broker.fake_gateway import FakeGateway
 from scanner_opciones.domain.enums import AccountMode
 from scanner_opciones.domain.models import AccountSummary, OptionContract, OptionQuote
 from scanner_opciones.ui.web import create_app
+from scanner_opciones.ui import tv_charts
 from tests.integration.test_service import NOW, TODAY, make_service, seed_market
 
 
@@ -1156,10 +1157,10 @@ def test_los_gráficos_ampliados_ofrecen_la_vista_de_velas(client_and_service):
     data = client.get("/chart/candles?ticker=AAPL").json()
     assert len(data["candles"]) >= 39 and {"time", "open", "high", "low", "close"} <= set(data["candles"][0])
     assert data["supports"] == []                                                                  # sin soportes validados: lista vacía
-    cds = client.get(f"/chart/strike?ticker=AAPL&strike=120&long=110&prem=2&kind=cds&exit=105&need=5&expiry={TODAY + timedelta(days=300)}").text
+    cds = client.get(f"/chart/strike?ticker=AAPL&strike=120&long=110&prem=2&kind=cds&exit=105&need=5&xp=800&xd=10&expiry={TODAY + timedelta(days=300)}").text
     exp = TODAY + timedelta(days=300)
-    assert f"Obj. {('Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic')[exp.month - 1]} {exp.day} &#39;{exp.year % 100:02d}" in cds
-    assert "ganancia salida" not in cds
+    assert f"vto {tv_charts.short_date(exp)} (300 DTE)".replace("'", "&#39;") in cds              # junto al débito
+    assert "Obj.&#34;" in cds and "Salida +800 $" in cds                                          # objetivo corto; ganancia en la línea de la salida
     lib = client.get("/static/lightweight-charts.js")
     assert lib.status_code == 200 and "javascript" in lib.headers["content-type"] and "max-age" in lib.headers["cache-control"]
     assert "tvw-btn" in client.get("/scanner").text                                               # el script del conmutador va en todas las páginas

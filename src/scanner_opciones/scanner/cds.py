@@ -47,6 +47,7 @@ class CdsResult:
     exit_return_pct: float = 0.0      # ganancia neta / débito, en % (el objetivo menos la comisión de cierre)
     prob_adj_pct: float = 0.0         # probabilidad (%) con el movimiento mezclado de esperado y realizado (`realized_weight`): la que usa la puntuación; = `prob_pct` sin historial o con peso 0
     price: float = 0.0                # precio del subyacente al escanear (para pasar la delta neta a % del débito por % de subida)
+    move_days: int = 0                # días (naturales) en que se espera alcanzar el objetivo: el día de la salida es hoy + esto (gráfico de velas)
     realized_move_pct: Optional[float] = None   # informativo: movimiento típico a `move_days` días con la volatilidad realizada de 60 sesiones (None sin historial); contrástese con `expected_move_pct` (IV)
 
     @property
@@ -238,7 +239,7 @@ def build_call_debit_spreads(
             breakeven = strike + debit
             found.append(CdsResult(lg, sh, width, debit, debit * mult, max_return, breakeven, (breakeven / price - 1) * 100,
                                    otm, net_delta, required_pct, expected_pct, required_mult, dist200, prob, prob_adj * exit_return / 100,
-                                   exit_value, (exit_value - close_cost) * mult, exit_profit * mult, exit_return, prob_adj, price, realized_pct))
+                                   exit_value, (exit_value - close_cost) * mult, exit_profit * mult, exit_return, prob_adj, price, cds.move_days, realized_pct))
         if cds.best_width and found:
             found = [max(found, key=lambda r: r.score)]
         out.extend(found)

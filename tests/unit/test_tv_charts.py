@@ -108,11 +108,16 @@ def test_pre_y_post_mercado_se_marcan_como_fuera_de_horario():
     assert 'class="tvw-ext"' in str(tv_charts.candle_switch("<svg/>", "AAA"))
 
 
-def test_objetivo_del_cds_con_vencimiento_y_ganancia_de_salida_y_líneas_de_soporte():
+def test_objetivo_del_cds_vencimiento_junto_al_débito_ganancia_en_la_salida_y_líneas_de_soporte():
     from scanner_opciones.metrics.support_levels import SupportLevel
-    out = tv_charts.cds_levels(95.0, 85.0, 80.0, date(2028, 1, 21))
-    assert out[-1].title == "Obj. Ene 21 '28" and out[-1].price == 80.0                        # corto: no tapa las velas
-    assert tv_charts.cds_levels(95.0, 85.0, 80.0)[-1].title == "Obj."
+    out = tv_charts.cds_levels(95.0, 85.0, 80.0)
+    assert out[-1].title == "Obj." and out[-1].price == 80.0                                    # corto: no tapa las velas
+    assert tv_charts.cds_note(1.5, date(2028, 1, 21), date(2027, 1, 21)) == "Débito que se paga: 1.50 $ · 150.00 $ por contrato · vto Ene 21 '28 (365 DTE)"
+    ev = tv_charts.exit_event(date(2027, 1, 21), 10, 1234.4)
+    assert ev == [tv_charts.Event(date(2027, 1, 31), "Salida prevista Ene 31 '27 · 10 d · ganancia +1.234 $", tv_charts.EXIT, label="Salida +1.234 $")]
+    assert tv_charts.exit_event(date(2027, 1, 21), 10, -50.0)[0].label == "Salida −50 $"
+    assert tv_charts.exit_event(date(2027, 1, 21), None, 50.0) == []
+    assert '"label": "Salida +1.234 $"' in str(tv_charts.candle_switch("<svg/>", "AAA", events=ev)).replace("&#34;", '"')
     sup = SupportLevel(64.1, 65.88, 3, 4, 3, TODAY)
     assert tv_charts.support_lines([sup]) == [{"price": 65.88, "title": "Soporte · 3 toques", "color": tv_charts.SUPPORT}]
     assert 'data-i="1w"' in str(tv_charts.candle_switch("<svg/>", "AAA"))                       # velas semanales

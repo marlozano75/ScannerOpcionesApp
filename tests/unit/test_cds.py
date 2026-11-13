@@ -160,6 +160,7 @@ def test_exit_values_at_target_with_close_commission():
     assert abs(r.exit_value - r.debit * 1.2) < 1e-9
     assert abs(r.exit_credit_usd - (r.debit * 1.2 - 0.01) * 100) < 1e-6
     assert abs(r.exit_profit_usd - (r.debit * 0.2 - 0.01) * 100) < 1e-6
+    assert r.move_days == cfg().move_days                                    # plazo de la salida (línea vertical del gráfico de velas)
     assert abs(r.exit_return_pct - (r.debit * 0.2 - 0.01) / r.debit * 100) < 1e-6
     # un objetivo que supera el ancho no se puede cobrar: se descarta
     assert build_call_debit_spreads(snaps, info(), cfg(target_gain_pct=500, max_required_move_mult=100, min_prob_pct=None), TODAY) == []

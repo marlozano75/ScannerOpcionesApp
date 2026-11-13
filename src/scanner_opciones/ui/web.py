@@ -994,7 +994,8 @@ def create_app(
     @app.get("/chart/strike", response_class=HTMLResponse)
     async def strike_chart(ticker: str, strike: float, long: Optional[float] = None, expiry: Optional[date] = None,
                            prem: Optional[float] = None, kind: str = "",
-                           exit: Optional[float] = None, need: Optional[float] = None):
+                           exit: Optional[float] = None, need: Optional[float] = None,
+                           xp: Optional[float] = None, xd: Optional[int] = None):
         """Gráfico de cierres mensuales del ticker frente al strike, con los días desde el último toque
         (fragmento HTML que el Scanner muestra en una ventana)."""
         closes = service.bars.closes(ticker)
@@ -1020,16 +1021,17 @@ def create_app(
                + "".join(f"<li>{escape(a.text)}</li>" for a in alerts) + "</ul></div>") if alerts else ""
         bar = (f'<div class="shw-bar">{buttons}<button type="button" class="shw-log" aria-pressed="false" '
                f'title="Escala logarítmica del eje de precios">Log</button></div>')
-        levels = tv_charts.cds_levels(strike, long, exit, expiry) if kind == "cds" else tv_charts.put_levels(strike, long, prem)
+        levels = tv_charts.cds_levels(strike, long, exit) if kind == "cds" else tv_charts.put_levels(strike, long, prem)
         # lo que el gráfico de cierres lleva dentro y la vista de velas no: la prima y el último toque del strike (en todo el histórico)
         whole = strike_history(bars, strike, today, total)
         notes = []
         if prem is not None and prem > 0:
-            notes.append(f"{'Débito que se paga' if kind == 'cds' else 'Prima que se cobra'}: {_num(prem)} $ · {_num(prem * 100)} $ por contrato")
+            notes.append(tv_charts.cds_note(prem, expiry, today) if kind == "cds" else f"Prima que se cobra: {_num(prem)} $ · {_num(prem * 100)} $ por contrato")
         if kind != "cds":
             notes.append(f"Último toque del strike: {'hoy' if whole.touch[2] == 0 else 'hace 1 día' if whole.touch[2] == 1 else f'hace {whole.touch[2]} días'} (cierre de {_num(whole.touch[1])} $ el {whole.touch[0]:%d/%m/%Y})" if whole.touch
                          else f"Sin toques del strike en los {whole.history_days} días de histórico")
-        chart = tv_charts.candle_switch(Markup(f'<div class="shw">{bar}{views}</div>'), ticker, levels, tv_charts.date_events(expiry, earnings, today),
+        chart = tv_charts.candle_switch(Markup(f'<div class="shw">{bar}{views}</div>'), ticker, levels, tv_charts.date_events(expiry, earnings, today)
+                                        + (tv_charts.exit_event(today, xd, xp) if kind == "cds" else []),
                                         tv_charts.touch_marker(whole.touch) if kind != "cds" else (), notes)
         return HTMLResponse(service.company_card(ticker) + box + str(chart))      # `str`: sumar un Markup escaparía la ficha, que ya es HTML
 

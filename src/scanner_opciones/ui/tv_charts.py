@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
@@ -29,6 +29,7 @@ LIBRARY = STATIC_DIR / "lightweight-charts.js"
 SHORT, LONG, REFERENCE, EXPIRY, EARNINGS = "#d64545", "#1f9d55", "#8b94a3", "#1f2d4a", "#d9822b"
 REVIEW, OPENED, TOUCH = "#d9a400", "#1a7f37", "#e87a1e"         # zona de revisión, apertura de la posición y último toque del strike
 SUPPORT = "#3b7ea1"                                              # soportes validados (líneas punteadas)
+EXIT = "#1f9d55"                                                 # día previsto de la salida del CDS (con su ganancia)
 RANGES = ((1, "1 M"), (3, "3 M"), (6, "6 M"), (12, "1 A"), (24, "2 A"), (0, "Todo"))      # meses visibles (0 = todo el histórico)
 DEFAULT_RANGE = 6
 # velas intradía: intervalo de dxFeed -> (etiqueta, días naturales que se piden: ~5, ~15 y ~60 sesiones)
@@ -56,6 +57,7 @@ class Event:
     color: str = EXPIRY
     until: Optional[date] = None
     badge: str = ""                 # letra que se pinta sobre el eje de tiempo en esa fecha («E» de resultados, como TradingView)
+    label: str = ""                 # texto que se pinta arriba de la línea vertical (la ganancia de la salida del CDS)
 
 
 @dataclass(frozen=True)
@@ -161,7 +163,7 @@ def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), event
     `notes`: frases que el gráfico de cierres lleva dentro (prima, último toque) y que la vista de velas repite sobre el gráfico."""
     lines = [{"price": round(float(lv.price), 4), "title": lv.title, "color": lv.color} for lv in levels if lv.price and lv.price > 0]
     marks = [{"time": ev.day.isoformat(), "title": ev.title, "color": ev.color, **({"end": ev.until.isoformat()} if ev.until and ev.until > ev.day else {}),
-              **({"badge": ev.badge} if ev.badge else {})}
+              **({"badge": ev.badge} if ev.badge else {}), **({"label": ev.label} if ev.label else {})}
              for ev in events]
     signs = [{"time": m.day.isoformat(), "title": m.title, "color": m.color, "shape": m.shape, "below": m.below} for m in markers]
     note_html = "".join(f"<span>{escape(n)}</span>" for n in notes if n)
@@ -213,17 +215,36 @@ def put_levels(strike: float, long_strike: Optional[float] = None, premium: Opti
 _MONTHS = ("Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic")
 
 
-def cds_levels(short_strike: float, long_strike: Optional[float], exit_price: Optional[float] = None,
-               expiry: Optional[date] = None) -> list[Level]:
-    """Líneas de un Call Debit Spread: call comprada, call vendida y el precio objetivo de salida; el título del objetivo es corto
-    («Obj. Ene 21 '28», con el vencimiento del contrato) para no tapar las velas."""
+def short_date(d: date) -> str:
+    """«Ene 21 '28»: mes en tres letras, día y año en dos cifras."""
+    return f"{_MONTHS[d.month - 1]} {d.day} '{d.year % 100:02d}"
+
+
+def cds_levels(short_strike: float, long_strike: Optional[float], exit_price: Optional[float] = None) -> list[Level]:
+    """Líneas de un Call Debit Spread: call comprada, call vendida y el precio objetivo de salida, rotulado solo «Obj.» para no tapar las
+    velas (el vencimiento va junto al débito, `cds_note`, y la ganancia en la línea vertical de la salida, `exit_event`)."""
     out = [Level(short_strike, "Call vendida", SHORT)]
     if long_strike is not None:
         out.append(Level(long_strike, "Call comprada", LONG))
     if exit_price is not None:
-        title = "Obj." if expiry is None else f"Obj. {_MONTHS[expiry.month - 1]} {expiry.day} '{expiry.year % 100:02d}"
-        out.append(Level(exit_price, title, REFERENCE))
+        out.append(Level(exit_price, "Obj.", REFERENCE))
     return out
+
+
+def cds_note(debit: float, expiry: Optional[date], today: date) -> str:
+    """Frase del débito del CDS sobre el gráfico, con el vencimiento y su DTE."""
+    out = f"Débito que se paga: {debit:.2f} $ · {debit * 100:.2f} $ por contrato"
+    return out + (f" · vto {short_date(expiry)} ({(expiry - today).days} DTE)" if expiry is not None else "")
+
+
+def exit_event(today: date, days: Optional[int], profit: Optional[float]) -> list[Event]:
+    """Línea vertical del día previsto de la salida del CDS (hoy + `move_days` naturales, el plazo del modelo) con la ganancia neta por contrato."""
+    if not days or days <= 0:
+        return []
+    day = today + timedelta(days=days)
+    gain = "" if profit is None else f"{'+' if profit >= 0 else '−'}{abs(profit):,.0f} $".replace(",", ".")
+    title = f"Salida prevista {short_date(day)} · {days} d" + (f" · ganancia {gain}" if gain else "")
+    return [Event(day, title, EXIT, label=f"Salida {gain}" if gain else "Salida")]
 
 
 def support_lines(levels: Sequence) -> list[dict]:

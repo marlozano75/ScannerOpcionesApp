@@ -137,11 +137,12 @@
       for (var i = times.length - 1; i >= 0 && times[i] >= e.time; i--) at = times[i];
       shade[at] = e.color + '66';
     });
-    // «E» de resultados sobre el eje de tiempo (como TradingView), en la vela de esa fecha o la siguiente sesión
-    var badges = events.filter(function (e) { return e.badge && !e.end && e.time >= times[0]; }).map(function (e) {
+    // «E» de resultados sobre el eje de tiempo (como TradingView) y etiquetas arriba de la línea (ganancia de la salida del CDS),
+    // en la vela de esa fecha o la siguiente sesión
+    var badges = events.filter(function (e) { return (e.badge || e.label) && !e.end && e.time >= times[0]; }).map(function (e) {
       var at = times[times.length - 1];
       for (var i = times.length - 1; i >= 0 && times[i] >= e.time; i--) at = times[i];
-      return { time: at, text: e.badge, color: e.color, title: e.title };
+      return { time: at, text: e.label || e.badge, tag: !!e.label, color: e.color, title: e.title };
     });
     var bands = times.filter(function (t) { return shade[t]; });
     if (bands.length) {
@@ -308,7 +309,7 @@
 
     var badgeEls = badges.map(function (b) {
       var el = document.createElement('span');
-      el.className = 'tvw-badge';
+      el.className = b.tag ? 'tvw-tag' : 'tvw-badge';
       el.textContent = b.text;
       el.title = b.title;
       el.style.setProperty('--c', b.color);
@@ -319,7 +320,7 @@
       badges.forEach(function (b, i) {
         var x = chart.timeScale().timeToCoordinate(b.time), el = badgeEls[i];
         el.hidden = x == null || x < 0 || x > chart.timeScale().width();
-        if (!el.hidden) el.style.left = (x - 9) + 'px';
+        if (!el.hidden) el.style.left = (b.tag ? x : x - 9) + 'px';
       });
     }
     if (badges.length) {
