@@ -684,11 +684,32 @@ class BarRepo:
         self._recent[date.min] = (version, candles)
         log.info("Velas de %d tickers cargadas de %s en %.1f s", len(closes), source, time.perf_counter() - started)
 
-    def _read_all(self) -> tuple[dict, dict, dict]:
+    def refresh_snapshot(self) -> bool:
+        """Deja la copia en disco de las velas al día si no lo está (tras la actualización diaria, que reescribe los últimos días de todos los
+        tickers). Sin esto, la copia solo se reescribía cuando una carga en frío leía la base, y nada aseguraba que eso pasara después de la
+        última escritura: el arranque siguiente volvía a pagar los ~6 s. Lee con una conexión PROPIA y no toca la memoria de este
+        repositorio, así que puede ir en un hilo aparte (~6 s de CPU cuando hay que reescribirla; nada si ya vale). True si la reescribió."""
+        if self._snapshot is None:
+            return False
+        saver = self.snapshot_saver
+        if saver is not None and saver.is_alive():      # el guardado de la carga en frío aún no ha terminado: se espera para no repetirlo
+            saver.join()
+        conn = self.db.open_reader()
+        try:
+            tag = bar_snapshot.fingerprint(conn)
+            if bar_snapshot.stored_tag(self._snapshot) == tag:
+                return False
+            _, official, candles = self._read_all(conn)
+        finally:
+            conn.close()
+        bar_snapshot.save(self._snapshot, tag, official, candles)
+        return True
+
+    def _read_all(self, conn=None) -> tuple[dict, dict, dict]:
         """Una pasada por toda la tabla: (cierres limpios con los provisionales, cierres limpios solo de las velas oficiales —lo que guarda la
         copia en disco—, velas oficiales completas)."""
         closes, official, candles = {}, {}, {}
-        rows = self.db.conn.execute("SELECT ticker, day, close, high, low, open, provisional FROM daily_bars ORDER BY ticker, day")
+        rows = (conn or self.db.conn).execute("SELECT ticker, day, close, high, low, open, provisional FROM daily_bars ORDER BY ticker, day")
         for ticker, group in groupby(rows, key=lambda r: r[0]):
             bars = [(_day(r[1]), r[2], r[3], r[4], r[5], r[6]) for r in group]
             prov = [b for b in bars if b[5]]

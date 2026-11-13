@@ -9,7 +9,8 @@ esquema (`PRAGMA user_version`), el contador de escrituras oficiales de velas (`
 transacción que cada escritura) y el número de filas oficiales. Si algo no coincide, se ignora y se vuelve a leer la base. Los cierres
 provisionales del día no están en la copia: cambian en cada refresco y `BarRepo` los superpone al cargar.
 
-Formato `marshal` (no `pickle`: cargarlo no ejecuta código) escrito de forma atómica (fichero temporal + `os.replace`)."""
+Formato `marshal` (no `pickle`: cargarlo no ejecuta código): primero la etiqueta y después los datos, para comprobar si vale sin leer los ~100 MB.
+Se escribe de forma atómica (temporal propio de cada hilo + `os.replace`) y de uno en uno (`_SAVE_LOCK`)."""
 from __future__ import annotations
 
 import gc
@@ -33,6 +34,7 @@ BUMP_SQL = (f"INSERT INTO meta (key, value) VALUES ('{GENERATION_KEY}', '1') "
             "ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1")
 _CLEANING = zlib.crc32(Path(bar_cleaning.__file__).read_bytes())      # otra limpieza = otros cierres: la copia deja de valer
 _NAN = float("nan")
+_SAVE_LOCK = threading.Lock()
 
 Closes = dict[str, list[tuple[date, float]]]
 Candles = dict[str, list[tuple]]
@@ -67,14 +69,32 @@ def _pack(closes: Closes, candles: Candles) -> dict:
     return out
 
 
+def stored_tag(path: Optional[Path]) -> Optional[tuple]:
+    """Etiqueta de la copia guardada (solo la cabecera), o None si no hay o no se puede leer."""
+    if path is None or not path.is_file():
+        return None
+    try:
+        with path.open("rb") as f:
+            tag = marshal.load(f)
+        return tag if isinstance(tag, tuple) else None
+    except Exception:
+        return None
+
+
 def save(path: Path, tag: tuple, closes: Closes, candles: Candles) -> None:
     """Escribe la copia (atómica). `closes`: cierres limpios de las velas oficiales; `candles`: velas oficiales (día, apertura, máximo,
-    mínimo, cierre). Nunca falla: es optativa."""
-    tmp = path.with_name(path.name + ".tmp")
+    mínimo, cierre). No reescribe una copia igual. Si dos guardados acaban en otro orden y queda el más viejo, su etiqueta ya no coincide y
+    `BarRepo.refresh_snapshot` la rehace en el siguiente precalentado. Nunca falla: es optativa."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
-        data = marshal.dumps({"tag": tag, "bars": _pack(closes, candles)})
-        tmp.write_bytes(data)
-        os.replace(tmp, path)
+        with _SAVE_LOCK:
+            current = stored_tag(path)
+            if current == tag:
+                return
+            with tmp.open("wb") as f:
+                marshal.dump(tag, f)
+                marshal.dump(_pack(closes, candles), f)
+            os.replace(tmp, path)
     except Exception:      # disco lleno, permisos, base movida...: la próxima carga leerá la base
         log.warning("No se pudo guardar la copia de las velas en %s", path, exc_info=True)
         try:
@@ -99,13 +119,14 @@ def load(path: Optional[Path], tag: tuple) -> Optional[tuple[Closes, Candles]]:
     if path is None or not path.is_file():
         return None
     try:
-        stored = marshal.loads(path.read_bytes())
-        if stored.get("tag") != tag:
-            return None
+        with path.open("rb") as f:
+            if marshal.load(f) != tag:
+                return None
+            packed = marshal.load(f)
         was_enabled = gc.isenabled()
         gc.disable()
         try:
-            return _unpack(stored["bars"])
+            return _unpack(packed)
         finally:
             if was_enabled:
                 gc.enable()

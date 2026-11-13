@@ -505,6 +505,12 @@ class Database:
         self._reader_thread = threading.get_ident()
         return True
 
+    def open_reader(self) -> sqlite3.Connection:
+        """Conexión nueva para leer desde un hilo de trabajo (la cierra quien la pide). Con WAL ve lo último confirmado sin bloquear a nadie."""
+        if self.path == ":memory:":
+            raise ValueError("una base en memoria no se puede abrir dos veces")
+        return self._open()
+
     def settle(self) -> None:
         """Confirma lo que la conexión de este hilo tenga a medias (una escritura fuera de un `with conn:`): con dos conexiones, una transacción
         abierta en la de la interfaz dejaría esperando a las escrituras del refresco."""

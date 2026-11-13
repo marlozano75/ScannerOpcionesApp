@@ -1357,6 +1357,8 @@ class AppService:
             if self.page_warmer is not None:      # el escaneo de cada perfil guardado: abrir el Scanner o cambiar de perfil tras un refresco no lo espera
                 for _ in self.page_warmer():
                     await asyncio.sleep(0)
+            if not self.busy:      # copia en disco de las velas al día para el próximo arranque (no a mitad de la actualización diaria: cambia sin parar)
+                await asyncio.to_thread(self.bars.refresh_snapshot)
         except Exception:       # base cerrada al apagar, etc.: precalentar es optativo
             log.debug("No se pudieron precalentar las cachés", exc_info=True)
 

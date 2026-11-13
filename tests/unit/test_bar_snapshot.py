@@ -121,3 +121,18 @@ def test_añadir_un_cierre_que_pasa_la_regla_no_cambia_la_limpieza_anterior():
             checked += 1
             assert clean_bars(rows + [new]) == base + [new[:2]]
     assert checked > 1000
+
+
+def test_refresh_snapshot_deja_la_copia_al_día_tras_escrituras_sin_carga_completa(tmp_path, monkeypatch):
+    """La actualización diaria escribe todos los tickers; nada asegura que después haya una carga en frío que reescriba la copia."""
+    path = tmp_path / "app.db"
+    _fill(BarRepo(Database(path)))
+    repo, _, _ = _load(path)
+    repo.upsert_ohlc("AAA", [(DAY0 + timedelta(days=61), 21.0, 22.0, 20.0)])
+    assert bar_snapshot.stored_tag(repo._snapshot) != bar_snapshot.fingerprint(repo.db.conn)
+    assert repo.refresh_snapshot() is True
+    assert repo.refresh_snapshot() is False                         # ya vale: no se reescribe
+    _, closes, _ = _load(path, monkeypatch, forbid_db=True)
+    assert closes["AAA"][-1] == (DAY0 + timedelta(days=61), 21.0)
+    assert not list(tmp_path.glob("*.tmp"))
+    assert BarRepo(Database(":memory:")).refresh_snapshot() is False
