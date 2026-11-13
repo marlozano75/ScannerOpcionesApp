@@ -1038,6 +1038,8 @@ def create_app(
         """Velas diarias y volumen de un ticker (JSON) para la vista de velas de los gráficos ampliados (`ui/tv_charts.py`), con los soportes
         validados cercanos como líneas (`supports`)."""
         data = tv_charts.candle_data(service.bars, ticker)
+        if tv_charts.needs_live(data, service.now().date()):      # la vela de hoy entera (apertura, máximo, mínimo) y no solo el cierre provisional
+            data = tv_charts.merge_live(data, await service.on_jobs(service.live_daily_candle(ticker)))
         data["supports"] = tv_charts.support_lines(service.chart_supports(ticker))
         return data
 

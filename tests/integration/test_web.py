@@ -1186,3 +1186,24 @@ def test_las_velas_intradía_se_piden_al_proveedor_y_se_guardan_un_minuto(client
         assert calls[-1] == ("BRK-B", "15m", 21, True)                      # con pre/post es otra petición
     finally:
         svc.volatility = saved
+
+
+def test_la_vista_diaria_pide_la_vela_de_hoy_si_solo_hay_un_cierre_provisional(client_and_service):
+    client, svc, _, _ = client_and_service
+    svc.bars.upsert_ohlc("AAPL", [(TODAY - timedelta(days=i), 100.0, 101.0, 98.0, 99.0) for i in range(1, 10)])
+    svc.bars.upsert_provisional("AAPL", TODAY, 104.0)
+    calls = []
+
+    class Live:
+        async def get_daily_ohlc(self, tickers, days, timeout=20.0):
+            calls.append(tickers)
+            return {"AAPL": [(TODAY, 104.0, 105.0, 99.5, 100.5, 10.0)]}
+
+    saved, svc.volatility = svc.volatility, Live()
+    try:
+        data = client.get("/chart/candles?ticker=AAPL").json()
+        assert data["candles"][-1] == {"time": TODAY.isoformat(), "open": 100.5, "high": 105.0, "low": 99.5, "close": 104.0} and data["live"]
+        client.get("/chart/candles?ticker=AAPL")
+        assert calls == [["AAPL"]]                                         # la segunda vez, de la caché de un minuto
+    finally:
+        svc.volatility = saved

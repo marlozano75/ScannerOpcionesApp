@@ -55,6 +55,7 @@ class Event:
     title: str
     color: str = EXPIRY
     until: Optional[date] = None
+    badge: str = ""                 # letra que se pinta sobre el eje de tiempo en esa fecha («E» de resultados, como TradingView)
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,41 @@ def candle_data(bars: BarRepo, ticker: str) -> dict:
         candles.append({"time": iso, "open": round(opened, 4), "high": round(high, 4), "low": round(low, 4), "close": round(close, 4)})
         if volumes.get(day):
             volume.append({"time": iso, "value": volumes[day], "up": close >= opened})
-    return {"ticker": ticker, "candles": candles, "volume": volume}
+    last = max(clean) if clean else None
+    # la última vela es un cierre provisional (vela plana): la vista pide la vela en curso para dibujarla entera (`merge_live`)
+    flat = last is not None and raw.get(last) is None
+    return {"ticker": ticker, "candles": candles, "volume": volume, "flat_last": flat, "last_day": last.isoformat() if last else None}
+
+
+def needs_live(data: dict, today: date) -> bool:
+    """¿Hay que pedir la vela del día en curso? Si la última guardada es un cierre provisional o falta la de hoy en un día laborable."""
+    if not data["candles"]:
+        return False
+    return bool(data.get("flat_last")) or (data["last_day"] < today.isoformat() and today.weekday() < 5)
+
+
+def merge_live(data: dict, bar: Optional[tuple]) -> dict:
+    """Pone la vela diaria en curso de tastytrade (día, cierre, máximo, mínimo, apertura, volumen) en lugar de la última vela si es del mismo día, o
+    detrás si es de un día posterior; una vela de un día anterior a la última no cambia nada. Sin apertura, máximo o mínimo, vela plana."""
+    if bar is None or not data["candles"]:
+        return data
+    day, close, high, low, opened, vol = bar[:6]
+    iso = day.isoformat()
+    if iso < data["candles"][-1]["time"] or not close or close <= 0:
+        return data
+    opened = opened if opened and opened > 0 else close
+    high = max(v for v in (high, opened, close) if v)
+    low = min(v for v in (low, opened, close) if v)
+    candle = {"time": iso, "open": round(opened, 4), "high": round(high, 4), "low": round(low, 4), "close": round(close, 4)}
+    if data["candles"][-1]["time"] == iso:
+        data["candles"][-1] = candle
+    else:
+        data["candles"].append(candle)
+    data["volume"] = [v for v in data["volume"] if v["time"] != iso]
+    if vol:
+        data["volume"].append({"time": iso, "value": vol, "up": close >= opened})
+    data["live"] = True
+    return data
 
 
 def intraday_data(rows: Sequence[tuple], ticker: str, interval: str, extended: bool = False) -> dict:
@@ -123,7 +158,8 @@ def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), event
     """Envuelve el gráfico de cierres (`closes_chart`, HTML) con el conmutador «Cierres / Velas» y la caja vacía de la vista de velas.
     `notes`: frases que el gráfico de cierres lleva dentro (prima, último toque) y que la vista de velas repite sobre el gráfico."""
     lines = [{"price": round(float(lv.price), 4), "title": lv.title, "color": lv.color} for lv in levels if lv.price and lv.price > 0]
-    marks = [{"time": ev.day.isoformat(), "title": ev.title, "color": ev.color, **({"end": ev.until.isoformat()} if ev.until and ev.until > ev.day else {})}
+    marks = [{"time": ev.day.isoformat(), "title": ev.title, "color": ev.color, **({"end": ev.until.isoformat()} if ev.until and ev.until > ev.day else {}),
+              **({"badge": ev.badge} if ev.badge else {})}
              for ev in events]
     signs = [{"time": m.day.isoformat(), "title": m.title, "color": m.color, "shape": m.shape, "below": m.below} for m in markers]
     note_html = "".join(f"<span>{escape(n)}</span>" for n in notes if n)
@@ -143,7 +179,9 @@ def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), event
         '<button type="button" class="tvw-btn" data-v="tv" title="Velas interactivas, diarias o intradía. Rueda: zoom en el tiempo; arrastrar: desplazar; arrastrar el eje de precios: ampliar en vertical">Velas</button></div>'
         f'<div class="tvw-svg">{closes_chart}</div>'
         '<div class="tvw-tv" hidden>'
-        f'<div class="tvw-tools">{steps}{ranges}<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="50"> SMA 50</label>'
+        f'<div class="tvw-tools">{steps}{ranges}<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-t="ema" data-n="10"> EMA 10</label>'
+        '<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="20"> SMA 20</label>'
+        '<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="50"> SMA 50</label>'
         '<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="200"> SMA 200</label>'
         '<label class="tvw-opt" title="Índice de fuerza relativa (Wilder, 14 velas), con niveles 70 y 30, en un panel debajo de las velas">'
         '<input type="checkbox" class="tvw-ind" data-k="rsi"> RSI</label>'
@@ -215,5 +253,5 @@ def date_events(expiry: Optional[date], earnings: Optional[date], today: date) -
     if expiry is not None and expiry >= today:
         out.append(Event(expiry, f"Vencimiento {expiry:%d/%m} · {(expiry - today).days} d", EXPIRY))
     if earnings is not None and earnings >= today:
-        out.append(Event(earnings, f"Resultados {earnings:%d/%m} · {(earnings - today).days} d", EARNINGS))
+        out.append(Event(earnings, f"Resultados {earnings:%d/%m} · {(earnings - today).days} d", EARNINGS, badge="E"))
     return out

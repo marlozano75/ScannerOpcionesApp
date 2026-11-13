@@ -31,6 +31,8 @@
     }
     return out;
   }
+  var EXT_HOURS = '#5b7fa62e';
+  var MA_COLORS = { ema10: '#0e9f9a', sma20: '#d9822b', sma50: '#2f6fb0', sma200: '#8a4fb5' };    // fondo del pre y post-mercado
   var FUTURE_MAX_DAYS = 60;   // el eje solo se alarga hasta fechas a ≤ 60 días: un vencimiento más lejano no encoge las velas (su fecha sigue en el pie)
   function addDays(t, n) { var d = new Date(t + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return iso(d); }
   function monday(t) { var d = new Date(t + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return iso(d); }
@@ -103,9 +105,7 @@
     // soportes validados: vienen con las velas diarias (en semanal e intradía, los de las diarias ya cargadas)
     var supports = data.supports || ((box._tvData || {})['1d'] || {}).supports || [];
     var lines = JSON.parse(box.dataset.lines || '[]'), events = intra ? [] : JSON.parse(box.dataset.events || '[]');   // intradía: sin bandas de fechas
-    var candles = data.candles.map(function (c) {        // pre y post-mercado: velas tenues
-      return c.ext ? Object.assign({}, c, { color: (c.close >= c.open ? css('--green') : css('--red')) + '55', wickColor: (c.close >= c.open ? css('--green') : css('--red')) + '88' }) : c;
-    }), last = candles[candles.length - 1].time, line = css('--line'), up = css('--green'), down = css('--red');
+    var candles = data.candles, last = candles[candles.length - 1].time, line = css('--line'), up = css('--green'), down = css('--red');
     // fechas a más de FUTURE_MAX_DAYS (un vencimiento lejano, p. ej. un CDS de 300 días): no se dibujan para no encoger las velas;
     // una zona que empieza antes se recorta; en semanal cada fecha va a la vela de su semana
     if (!intra) {
@@ -137,11 +137,26 @@
       for (var i = times.length - 1; i >= 0 && times[i] >= e.time; i--) at = times[i];
       shade[at] = e.color + '66';
     });
+    // «E» de resultados sobre el eje de tiempo (como TradingView), en la vela de esa fecha o la siguiente sesión
+    var badges = events.filter(function (e) { return e.badge && !e.end && e.time >= times[0]; }).map(function (e) {
+      var at = times[times.length - 1];
+      for (var i = times.length - 1; i >= 0 && times[i] >= e.time; i--) at = times[i];
+      return { time: at, text: e.badge, color: e.color, title: e.title };
+    });
     var bands = times.filter(function (t) { return shade[t]; });
     if (bands.length) {
       var ev = chart.addHistogramSeries({ priceScaleId: 'ev', lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
       chart.priceScale('ev').applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
       ev.setData(bands.map(function (t) { return { time: t, value: 1, color: shade[t] }; }));
+    }
+    // pre y post-mercado (intradía con «Pre/post»): fondo de otro color en esas horas, como en TradingView. Es un área escalonada
+    // (0 o 1) en una escala oculta: continua, sin los huecos que dejarían las barras de un histograma
+    if (candles.some(function (c) { return c.ext; })) {
+      var ext = chart.addAreaSeries({ priceScaleId: 'ext', lineType: LC.LineType.WithSteps, lineColor: 'transparent', lineWidth: 1,
+                                      topColor: EXT_HOURS, bottomColor: EXT_HOURS, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+                                      autoscaleInfoProvider: function () { return { priceRange: { minValue: 0, maxValue: 1 } }; } });
+      chart.priceScale('ext').applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
+      ext.setData(candles.map(function (c) { return { time: c.time, value: c.ext ? 1 : 0 }; }));
     }
     var volume = chart.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
     chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
@@ -289,6 +304,27 @@
       syncing = false;
     });
 
+    var badgeEls = badges.map(function (b) {
+      var el = document.createElement('span');
+      el.className = 'tvw-badge';
+      el.textContent = b.text;
+      el.title = b.title;
+      el.style.setProperty('--c', b.color);
+      host.appendChild(el);
+      return el;
+    });
+    function placeBadges() {
+      badges.forEach(function (b, i) {
+        var x = chart.timeScale().timeToCoordinate(b.time), el = badgeEls[i];
+        el.hidden = x == null || x < 0 || x > chart.timeScale().width();
+        if (!el.hidden) el.style.left = (x - 9) + 'px';
+      });
+    }
+    if (badges.length) {
+      chart.timeScale().subscribeVisibleLogicalRangeChange(placeBadges);
+      chart.timeScale().subscribeSizeChange(placeBadges);
+    }
+
     var averages = {};
     var sessions = [];
     if (intra) candles.forEach(function (c) { if (sessions[sessions.length - 1] !== c.session) sessions.push(c.session); });
@@ -313,18 +349,24 @@
       range: range,
       autoscale: function () { chart.priceScale('right').applyOptions({ autoScale: true }); },
       log: function (on) { chart.priceScale('right').applyOptions({ mode: on ? LC.PriceScaleMode.Logarithmic : LC.PriceScaleMode.Normal }); },
-      average: function (n, on) {
-        if (on && !averages[n]) {
-          averages[n] = chart.addLineSeries({ color: n === 50 ? '#2f6fb0' : '#8a4fb5', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false, title: 'SMA ' + n });
-          averages[n].setData(sma(candles, n));
-        } else if (!on && averages[n]) { chart.removeSeries(averages[n]); delete averages[n]; }
+      average: function (kind, n, on) {      // kind: 'sma' o 'ema'
+        var key = kind + n;
+        if (on && !averages[key]) {
+          var values = kind === 'ema' ? ema(candles.map(function (c) { return c.close; }), n) : null;
+          averages[key] = chart.addLineSeries({ color: MA_COLORS[key] || '#2f6fb0', lineWidth: 1, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+                                                title: kind.toUpperCase() + ' ' + n });
+          averages[key].setData(kind === 'ema'
+            ? candles.map(function (c, i) { return { time: c.time, value: values[i] }; }).filter(function (p) { return p.value != null; })
+            : sma(candles, n));
+        } else if (!on && averages[key]) { chart.removeSeries(averages[key]); delete averages[key]; }
       }
     };
     var on = box.querySelector(intra ? '.tvw-irng.on' : '.tvw-rng.on:not(.tvw-irng)');
     range(on ? +(intra ? on.dataset.d : on.dataset.m) : (intra ? 1 : 6));
+    if (badges.length) requestAnimationFrame(placeBadges);
     // lo elegido antes de cambiar de intervalo se conserva: escala logarítmica y medias
     if (box.querySelector('.tvw-log.on')) box._tv.log(true);
-    box.querySelectorAll('.tvw-ma').forEach(function (m) { if (m.checked) box._tv.average(+m.dataset.n, true); });
+    box.querySelectorAll('.tvw-ma').forEach(function (m) { if (m.checked) box._tv.average(m.dataset.t || 'sma', +m.dataset.n, true); });
     box.querySelectorAll('.tvw-ind').forEach(function (m) { if (m.checked) box._tv.indicator(m.dataset.k, true); });
   }
 
@@ -405,7 +447,7 @@
     var box = t.closest('.tvw');
     if (!box || !box._tv) return;
     if (t.classList.contains('tvw-ind')) box._tv.indicator(t.dataset.k, t.checked);
-    else box._tv.average(+t.dataset.n, t.checked);
+    else box._tv.average(t.dataset.t || 'sma', +t.dataset.n, t.checked);
   });
   // quien prefirió las velas la última vez las ve directamente al abrir cualquier gráfico
   new MutationObserver(function (changes) {

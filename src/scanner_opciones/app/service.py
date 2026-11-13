@@ -344,6 +344,7 @@ class AppService:
         self._investors_syncing = False
         # cotizaciones en directo de las ideas fuera de lo guardado: (hora, generated_at del JSON, snapshots, fichas, cierres)
         self._community_live: Optional[tuple[datetime, str, dict, dict, dict]] = self._load_community_live()   # sobrevive al reinicio
+        self._live_day: dict[str, tuple[float, Optional[tuple]]] = {}      # ticker -> (monotonic, vela diaria en curso); ver `live_daily_candle`
         self._intraday: dict[tuple[str, str, bool], tuple[float, list]] = {}      # (ticker, intervalo, pre/post) -> (monotonic, velas intradía); ver `intraday_candles`
         self._community_live_running = False
         self._community_live_task: Optional[asyncio.Future] = None
@@ -1372,6 +1373,28 @@ class AppService:
             return asyncio.get_running_loop() is not loop
         except RuntimeError:
             return True
+
+    async def live_daily_candle(self, ticker: str, max_age_seconds: float = 60.0) -> Optional[tuple]:
+        """Vela diaria más reciente de tastytrade (día, cierre, máximo, mínimo, apertura, volumen), la de la sesión en curso si la hay: la vista de
+        velas la usa en lugar del cierre provisional (una vela plana). Solo en memoria `max_age_seconds`. None sin proveedor o si falla (no es
+        imprescindible: el gráfico sale con lo guardado). Habla con tastytrade: desde la interfaz, con `on_jobs`."""
+        provider = self.volatility
+        if provider is None or not hasattr(provider, "get_daily_ohlc"):
+            return None
+        now = time.monotonic()
+        hit = self._live_day.get(ticker)
+        if hit is not None and now - hit[0] < max_age_seconds:
+            return hit[1]
+        key = ticker.replace(" ", "-")
+        try:
+            bars = (await provider.get_daily_ohlc([key], 5, timeout=10.0)).get(key) or []
+        except Exception as exc:  # noqa: BLE001 - el gráfico se queda con lo guardado
+            log.info("Vela del día de %s: %s", ticker, exc)
+            bars = []
+        bar = bars[-1] if bars else None
+        self._live_day = {k: v for k, v in self._live_day.items() if now - v[0] < max_age_seconds}
+        self._live_day[ticker] = (now, bar)
+        return bar
 
     async def intraday_candles(self, ticker: str, interval: str, days: int, max_age_seconds: float = 60.0,
                                extended: bool = False) -> Optional[list]:

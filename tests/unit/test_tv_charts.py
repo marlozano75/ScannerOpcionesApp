@@ -35,7 +35,8 @@ def test_las_velas_anteriores_a_un_split_se_reescalan_como_sus_cierres():
 
 
 def test_un_ticker_sin_velas_devuelve_listas_vacías():
-    assert tv_charts.candle_data(BarRepo(Database(":memory:")), "NADA") == {"ticker": "NADA", "candles": [], "volume": []}
+    data = tv_charts.candle_data(BarRepo(Database(":memory:")), "NADA")
+    assert data["candles"] == [] and data["volume"] == [] and not tv_charts.needs_live(data, TODAY)
 
 
 def test_niveles_de_put_spread_y_cds():
@@ -116,3 +117,31 @@ def test_objetivo_del_cds_con_vencimiento_y_ganancia_de_salida_y_líneas_de_sopo
     sup = SupportLevel(64.1, 65.88, 3, 4, 3, TODAY)
     assert tv_charts.support_lines([sup]) == [{"price": 65.88, "title": "Soporte · 3 toques", "color": tv_charts.SUPPORT}]
     assert 'data-i="1w"' in str(tv_charts.candle_switch("<svg/>", "AAA"))                       # velas semanales
+
+
+def test_la_vela_de_hoy_sustituye_al_cierre_provisional():
+    repo = BarRepo(Database(":memory:"))
+    yesterday = TODAY - timedelta(days=1)
+    repo.upsert_ohlc("AAA", [(yesterday, 10.0, 10.5, 9.5, 9.8, 100.0)])
+    repo.upsert_provisional("AAA", TODAY, 10.4)
+    data = tv_charts.candle_data(repo, "AAA")
+    assert data["flat_last"] and tv_charts.needs_live(data, TODAY)
+    tv_charts.merge_live(data, (TODAY, 10.4, 10.9, 10.1, 10.2, 50.0))          # día, cierre, máximo, mínimo, apertura, volumen
+    assert data["candles"][-1] == {"time": TODAY.isoformat(), "open": 10.2, "high": 10.9, "low": 10.1, "close": 10.4} and data["live"]
+    assert data["volume"][-1] == {"time": TODAY.isoformat(), "value": 50.0, "up": True} and len(data["candles"]) == 2
+    old = tv_charts.merge_live(tv_charts.candle_data(repo, "AAA"), (yesterday - timedelta(days=1), 9.0, 9.0, 9.0, 9.0, 1.0))
+    assert "live" not in old                                                     # una vela anterior a la última no cambia nada
+    repo2 = BarRepo(Database(":memory:"))
+    repo2.upsert_ohlc("BBB", [(yesterday, 10.0, 10.5, 9.5, 9.8, 100.0)])
+    full = tv_charts.candle_data(repo2, "BBB")
+    assert not full["flat_last"] and tv_charts.needs_live(full, TODAY) is (TODAY.weekday() < 5)   # falta la de hoy en un día laborable
+    assert not tv_charts.needs_live(full, yesterday)
+
+
+def test_resultados_con_la_E_y_medias_EMA10_y_SMA20():
+    ev = tv_charts.date_events(None, TODAY + timedelta(days=10), TODAY)
+    assert ev[0].badge == "E"
+    html = str(tv_charts.candle_switch("<svg/>", "AAA", events=ev))
+    marks = json.loads(re.search(r'data-events="([^"]*)"', html).group(1).replace("&#34;", '"'))
+    assert marks[0]["badge"] == "E"
+    assert 'data-t="ema" data-n="10"' in html and 'class="tvw-ma" data-n="20"' in html
