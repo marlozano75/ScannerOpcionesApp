@@ -375,9 +375,11 @@ def create_app(
             if _put_key(s) == key:
                 closes = sorted(service.bars.closes(key_of(s.ticker)).items())
                 chart = windowed(lambda w, log: position_chart(closes, [s], mgmt_cfg, today, w, s.underlying_price, service.next_earnings(s.ticker), log), weeks_cfg)
-                chart = tv_charts.candle_switch(chart, s.ticker, tv_charts.put_levels(s.strike, s.long_strike, s.entry_credit),
-                                                tv_charts.date_events(s.expiry, service.next_earnings(s.ticker), today))
                 plan = exit_plan(s, mgmt_cfg, today)
+                chart = tv_charts.candle_switch(chart, s.ticker, tv_charts.put_levels(s.strike, s.long_strike, s.entry_credit),
+                                                tv_charts.review_zone(plan.review_date, s.expiry, plan.dte, plan.is_review, today)
+                                                + tv_charts.date_events(s.expiry, service.next_earnings(s.ticker), today),
+                                                tv_charts.opening_marker(s.opened, s.opened_exact))
                 lines = f"{s.contracts} × {_num(s.strike)}{'/' + _num(s.long_strike) if s.long_strike is not None else ''} · venc. {s.expiry.strftime('%d/%m')} ({s.dte} d) · {plan.text}"
                 return HTMLResponse(str(Markup(service.company_card(s.ticker)) + chart + Markup('<ul class="vs" style="margin:6px 0 0;padding-left:16px"><li>') + lines + Markup("</li></ul>")))
         for x in others:
@@ -387,7 +389,8 @@ def create_app(
                 legs = [tv_charts.Level(strike, f"{kind} {'vendida' if short else 'comprada'}", tv_charts.SHORT if short else tv_charts.LONG)
                         for strike, short, kind, _ in x.legs]
                 chart = tv_charts.candle_switch(chart, x.ticker, legs or [tv_charts.Level(v, "Strike") for v in x.levels],
-                                                tv_charts.date_events(x.expiry, service.next_earnings(x.ticker), today))
+                                                tv_charts.date_events(x.expiry, service.next_earnings(x.ticker), today),
+                                                tv_charts.opening_marker(x.opened, x.opened_exact))
                 return HTMLResponse(str(Markup(service.company_card(x.ticker)) + chart))
         return HTMLResponse("La posición ya no está en la cartera.", status_code=404)
 
@@ -1016,7 +1019,16 @@ def create_app(
         bar = (f'<div class="shw-bar">{buttons}<button type="button" class="shw-log" aria-pressed="false" '
                f'title="Escala logarítmica del eje de precios">Log</button></div>')
         levels = tv_charts.cds_levels(strike, long, exit) if kind == "cds" else tv_charts.put_levels(strike, long, prem)
-        chart = tv_charts.candle_switch(Markup(f'<div class="shw">{bar}{views}</div>'), ticker, levels, tv_charts.date_events(expiry, earnings, today))
+        # lo que el gráfico de cierres lleva dentro y la vista de velas no: la prima y el último toque del strike (en todo el histórico)
+        whole = strike_history(bars, strike, today, total)
+        notes = []
+        if prem is not None and prem > 0:
+            notes.append(f"{'Débito que se paga' if kind == 'cds' else 'Prima que se cobra'}: {_num(prem)} $ · {_num(prem * 100)} $ por contrato")
+        if kind != "cds":
+            notes.append(f"Último toque del strike: {'hoy' if whole.touch[2] == 0 else 'hace 1 día' if whole.touch[2] == 1 else f'hace {whole.touch[2]} días'} (cierre de {_num(whole.touch[1])} $ el {whole.touch[0]:%d/%m/%Y})" if whole.touch
+                         else f"Sin toques del strike en los {whole.history_days} días de histórico")
+        chart = tv_charts.candle_switch(Markup(f'<div class="shw">{bar}{views}</div>'), ticker, levels, tv_charts.date_events(expiry, earnings, today),
+                                        tv_charts.touch_marker(whole.touch) if kind != "cds" else (), notes)
         return HTMLResponse(service.company_card(ticker) + box + str(chart))      # `str`: sumar un Markup escaparía la ficha, que ya es HTML
 
     @app.get("/chart/candles")

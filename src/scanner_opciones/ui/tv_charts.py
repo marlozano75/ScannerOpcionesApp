@@ -22,6 +22,7 @@ LIBRARY = STATIC_DIR / "lightweight-charts.js"
 
 # colores de las líneas y bandas (los mismos papeles que en los gráficos SVG: vendida, comprada, referencia, vencimiento, resultados)
 SHORT, LONG, REFERENCE, EXPIRY, EARNINGS = "#d64545", "#1f9d55", "#8b94a3", "#1f2d4a", "#d9822b"
+REVIEW, OPENED, TOUCH = "#d9a400", "#1a7f37", "#e87a1e"         # zona de revisión, apertura de la posición y último toque del strike
 RANGES = ((1, "1 M"), (3, "3 M"), (6, "6 M"), (12, "1 A"), (24, "2 A"), (0, "Todo"))      # meses visibles (0 = todo el histórico)
 DEFAULT_RANGE = 6
 
@@ -36,10 +37,21 @@ class Level:
 
 @dataclass(frozen=True)
 class Event:
-    """Fecha que se marca con una banda vertical (puede ser futura: el eje se alarga hasta ella)."""
+    """Fecha que se marca con una banda vertical (puede ser futura: el eje se alarga hasta ella). Con `until`, una zona sombreada de `day` a `until`."""
     day: date
     title: str
     color: str = EXPIRY
+    until: Optional[date] = None
+
+
+@dataclass(frozen=True)
+class Marker:
+    """Señal sobre la vela de un día (apertura de la posición, último toque del strike); un día sin vela se lleva a la vela anterior."""
+    day: date
+    title: str
+    color: str = REFERENCE
+    shape: str = "arrowUp"          # arrowUp / arrowDown / circle / square (los de la librería)
+    below: bool = True
 
 
 def candle_data(bars: BarRepo, ticker: str) -> dict:
@@ -70,14 +82,19 @@ def candle_data(bars: BarRepo, ticker: str) -> dict:
     return {"ticker": ticker, "candles": candles, "volume": volume}
 
 
-def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), events: Sequence[Event] = ()) -> Markup:
-    """Envuelve el gráfico de cierres (`closes_chart`, HTML) con el conmutador «Cierres / Velas» y la caja vacía de la vista de velas."""
+def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), events: Sequence[Event] = (), markers: Sequence[Marker] = (),
+                  notes: Sequence[str] = ()) -> Markup:
+    """Envuelve el gráfico de cierres (`closes_chart`, HTML) con el conmutador «Cierres / Velas» y la caja vacía de la vista de velas.
+    `notes`: frases que el gráfico de cierres lleva dentro (prima, último toque) y que la vista de velas repite sobre el gráfico."""
     lines = [{"price": round(float(lv.price), 4), "title": lv.title, "color": lv.color} for lv in levels if lv.price and lv.price > 0]
-    marks = [{"time": ev.day.isoformat(), "title": ev.title, "color": ev.color} for ev in events]
+    marks = [{"time": ev.day.isoformat(), "title": ev.title, "color": ev.color, **({"end": ev.until.isoformat()} if ev.until and ev.until > ev.day else {})}
+             for ev in events]
+    signs = [{"time": m.day.isoformat(), "title": m.title, "color": m.color, "shape": m.shape, "below": m.below} for m in markers]
+    note_html = "".join(f"<span>{escape(n)}</span>" for n in notes if n)
     ranges = "".join(f'<button type="button" class="tvw-rng{" on" if m == DEFAULT_RANGE else ""}" data-m="{m}">{label}</button>' for m, label in RANGES)
     chips = "".join(f'<span class="tvw-chip" style="--c:{escape(ev.color)}">{escape(ev.title)}</span>' for ev in events)
     return Markup(
-        f'<div class="tvw" data-ticker="{escape(ticker)}" data-lines="{escape(json.dumps(lines))}" data-events="{escape(json.dumps(marks))}">'
+        f'<div class="tvw" data-ticker="{escape(ticker)}" data-lines="{escape(json.dumps(lines))}" data-events="{escape(json.dumps(marks))}" data-markers="{escape(json.dumps(signs))}">'
         '<div class="tvw-bar"><button type="button" class="tvw-btn on" data-v="svg" title="Gráfico de cierres con sus anotaciones">Cierres</button>'
         '<button type="button" class="tvw-btn" data-v="tv" title="Velas diarias interactivas (zoom con la rueda, arrastrar para desplazar)">Velas</button></div>'
         f'<div class="tvw-svg">{closes_chart}</div>'
@@ -85,6 +102,7 @@ def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), event
         f'<div class="tvw-tools">{ranges}<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="50"> SMA 50</label>'
         '<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="200"> SMA 200</label>'
         '<button type="button" class="tvw-log" aria-pressed="false" title="Escala logarítmica del eje de precios">Log</button></div>'
+        + (f'<div class="tvw-notes">{note_html}</div>' if note_html else "") +
         f'<div class="tvw-legend">&nbsp;</div><div class="tvw-chart"></div><div class="tvw-foot">{chips}'
         '<a class="tvw-credit" href="https://www.tradingview.com/" target="_blank" rel="noopener">Gráfico: TradingView Lightweight Charts™</a></div>'
         '</div></div>')
@@ -108,6 +126,24 @@ def cds_levels(short_strike: float, long_strike: Optional[float], exit_price: Op
     if exit_price is not None:
         out.append(Level(exit_price, "Objetivo", REFERENCE))
     return out
+
+
+def review_zone(review: Optional[date], expiry: date, dte: int, is_review: bool, today: date) -> list[Event]:
+    """Zona de revisión de una put vendida (de la fecha de revisión al vencimiento), como en el gráfico de cierres del Panel; si el perfil
+    no revisa (mantener hasta el vencimiento) la zona es solo una referencia."""
+    if review is None or expiry < today or review >= expiry:
+        return []
+    title = f"Zona de revisión (≤ {dte} DTE) desde el {review:%d/%m}" if is_review else f"Referencia {dte} DTE desde el {review:%d/%m}"
+    return [Event(review, title, REVIEW, expiry)]
+
+
+def opening_marker(opened: Optional[date], exact: bool = True) -> list[Marker]:
+    return [Marker(opened, "Apertura" if exact else "Apertura (aprox.)", OPENED, "arrowUp", True)] if opened is not None else []
+
+
+def touch_marker(touch: Optional[tuple]) -> list[Marker]:
+    """`touch`: (día, cierre, días transcurridos) del último cierre en o bajo el strike (`StrikeHistory.touch`)."""
+    return [Marker(touch[0], f"Último toque · hace {touch[2]} d", TOUCH, "circle", True)] if touch else []
 
 
 def date_events(expiry: Optional[date], earnings: Optional[date], today: date) -> list[Event]:

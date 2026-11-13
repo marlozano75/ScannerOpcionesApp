@@ -62,3 +62,18 @@ def test_el_conmutador_conserva_el_gráfico_de_cierres_y_escapa_los_datos():
 def test_la_librería_va_en_el_paquete():
     assert tv_charts.LIBRARY.is_file() and (tv_charts.STATIC_DIR / "lightweight-charts.LICENSE").is_file()
     assert "Lightweight Charts" in tv_charts.LIBRARY.read_text(encoding="utf-8")[:300]
+
+
+def test_zona_de_revisión_apertura_y_último_toque_viajan_al_navegador():
+    expiry, review = TODAY + timedelta(days=30), TODAY + timedelta(days=9)
+    zone = tv_charts.review_zone(review, expiry, 21, True, TODAY)
+    assert [(e.day, e.until, e.color) for e in zone] == [(review, expiry, tv_charts.REVIEW)] and "21 DTE" in zone[0].title
+    assert tv_charts.review_zone(review, expiry, 21, False, TODAY)[0].title.startswith("Referencia 21 DTE")      # el perfil no revisa
+    assert tv_charts.review_zone(None, expiry, 21, True, TODAY) == [] and tv_charts.review_zone(review, TODAY - timedelta(days=1), 21, True, TODAY) == []
+    assert tv_charts.opening_marker(None) == [] and tv_charts.opening_marker(TODAY, False)[0].title == "Apertura (aprox.)"
+    assert tv_charts.touch_marker(None) == [] and tv_charts.touch_marker((TODAY, 41.5, 12))[0].title == "Último toque · hace 12 d"
+    html = str(tv_charts.candle_switch("<svg/>", "AAA", [], zone, tv_charts.opening_marker(TODAY), ["Prima <b>1,25</b>"]))
+    attr = lambda name: json.loads(re.search(rf'data-{name}="([^"]*)"', html).group(1).replace("&#34;", '"'))      # noqa: E731
+    assert attr("events") == [{"time": review.isoformat(), "title": zone[0].title, "color": tv_charts.REVIEW, "end": expiry.isoformat()}]
+    assert attr("markers") == [{"time": TODAY.isoformat(), "title": "Apertura", "color": tv_charts.OPENED, "shape": "arrowUp", "below": True}]
+    assert '<div class="tvw-notes"><span>Prima &lt;b&gt;1,25&lt;/b&gt;</span></div>' in html

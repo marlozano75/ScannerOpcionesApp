@@ -53,15 +53,23 @@
       localization: { locale: 'es-ES', dateFormat: 'dd MMM \'yy' }
     });
     // bandas de fechas (vencimiento, resultados): una barra de altura completa en una escala propia y oculta, por debajo de las velas
-    var until = events.reduce(function (m, e) { return e.time > m ? e.time : m; }, last);
-    var future = futureDays(last, until), known = {};
-    candles.forEach(function (c) { known[c.time] = 1; }); future.forEach(function (t) { known[t] = 1; });
-    var bands = events.filter(function (e) { return known[e.time]; }).sort(function (a, b) { return a.time < b.time ? -1 : 1; });
+    // y zonas (la de revisión: de su fecha al vencimiento), más tenues; una fecha sin sesión (festivo) se lleva a la sesión siguiente
+    var until = events.reduce(function (m, e) { var t = e.end || e.time; return t > m ? t : m; }, last);
+    var future = futureDays(last, until);
+    var times = candles.map(function (c) { return c.time; }).concat(future), shade = {};
+    events.filter(function (e) { return e.end; }).forEach(function (e) {
+      for (var i = times.length - 1; i >= 0 && times[i] >= e.time; i--) if (times[i] <= e.end) shade[times[i]] = e.color + '26';
+    });
+    events.filter(function (e) { return !e.end && e.time >= times[0]; }).forEach(function (e) {
+      var at = times[times.length - 1];
+      for (var i = times.length - 1; i >= 0 && times[i] >= e.time; i--) at = times[i];
+      shade[at] = e.color + '66';
+    });
+    var bands = times.filter(function (t) { return shade[t]; });
     if (bands.length) {
       var ev = chart.addHistogramSeries({ priceScaleId: 'ev', lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false });
       chart.priceScale('ev').applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
-      var seen = {};
-      ev.setData(bands.filter(function (e) { return seen[e.time] ? false : (seen[e.time] = 1); }).map(function (e) { return { time: e.time, value: 1, color: e.color + '55' }; }));
+      ev.setData(bands.map(function (t) { return { time: t, value: 1, color: shade[t] }; }));
     }
     var volume = chart.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
     chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
@@ -83,6 +91,14 @@
     lines.forEach(function (l) {
       series.createPriceLine({ price: l.price, color: l.color, lineWidth: 2, lineStyle: LC.LineStyle.Dashed, axisLabelVisible: true, title: l.title });
     });
+    // señales sobre una vela (apertura de la posición, último toque del strike): en la vela de ese día o, si no hubo sesión, en la anterior
+    var signs = JSON.parse(box.dataset.markers || '[]').map(function (m) {
+      for (var i = candles.length - 1; i >= 0; i--) {
+        if (candles[i].time <= m.time) return { time: candles[i].time, position: m.below ? 'belowBar' : 'aboveBar', color: m.color, shape: m.shape, text: m.title };
+      }
+      return null;
+    }).filter(Boolean).sort(function (a, b) { return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0); });
+    if (signs.length) series.setMarkers(signs);
     var volAt = {};
     data.volume.forEach(function (v) { volAt[v.time] = v.value; });
     function describe(c) {

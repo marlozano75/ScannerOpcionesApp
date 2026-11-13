@@ -41,6 +41,7 @@ o 7496 (real). La app arranca aunque TWS no esté disponible y lo indica en pant
 - Exposición: **Gross Position Value**, **Nominal Assignment Exposure** (short puts − long puts) y **Leverage Assignment** (NAE / NLV).
 - Selector **cuenta real / simulada** en la cabecera.
 - **Capitulación de mercado:** aviso informativo en la tarjeta del VIX del Panel (VIX en backwardation + % de una cesta líquida bajo Keltner; `scanner.capitulation`, `docs/deteccion-suelos.md`). No filtra nada.
+- **Gráficos de velas:** los gráficos ampliados del Scanner, el Panel y el Universo tienen un conmutador **Cierres / Velas** (la elección se recuerda). «Cierres» es el gráfico de siempre; «Velas» muestra las velas diarias guardadas y el volumen con TradingView Lightweight Charts (incluida en el paquete, sin CDN): zoom con la rueda, rangos de 1 mes a todo el histórico, SMA 50/200 y escala logarítmica. Lleva los strikes, el breakeven y el objetivo del CDS como líneas, el vencimiento y los resultados como bandas, la zona de revisión de la put sombreada, la apertura de la posición y el último toque del strike marcados sobre su vela. El volumen es el de tastytrade (≈ 30-40 % del consolidado): sirve en relativo.
 - **Backtest:** pestaña con todo lo probado para decidir cuándo entrar (suelos, CDS, venta de puts) y sus resultados; las rondas nuevas se añaden a `src/scanner_opciones/backtest/resultados.json` (`docs/backtest.md`).
 
 ## Rango guardado y cotizaciones
@@ -64,6 +65,7 @@ DTE y de strike, yield mínimo, filtros, umbrales del semáforo, semanas de dive
 - **HighestSeverity:** la API no lo devolvió en la cuenta simulada (2026-09-29); el panel lo muestra como "Sin datos" hasta que IBKR lo envíe (¿solo cuando no es 0, o solo en cuenta real?).
 - Que las órdenes *what-if* funcionan con tu configuración de API (solo lectura o no).
 - Cotizaciones de opciones, OI, dividendos (tick 456) y futuros VIX con tus suscripciones.
+- **Jobs en su propio hilo (2026-11-12):** el refresco, la actualización diaria y las conexiones con IBKR y tastytrade corren en un hilo aparte; solo está probado con el gateway falso. En el primer arranque real comprueba que conecta, que el refresco termina y que funcionan el cambio real/simulada, la simulación y el roll del Panel. Si algo falla, quitar `jobs=JobsLoop()` en `main.py` vuelve al bucle único.
 
 ## Estructura
 
