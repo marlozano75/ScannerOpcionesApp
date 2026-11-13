@@ -861,7 +861,7 @@
         : a.dataset.ticker + ' · strike ' + usd(a.dataset.strike) + (a.dataset.long ? ' / ' + usd(a.dataset.long) : '');
       body.innerHTML = '<p class="muted">Cargando…</p>';
       if (!dlg.open) dlg.showModal();
-      fetchFrag('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike) + (a.dataset.long ? '&long=' + encodeURIComponent(a.dataset.long) : '') + (a.dataset.expiry ? '&expiry=' + encodeURIComponent(a.dataset.expiry) : '') + (a.dataset.prem ? '&prem=' + encodeURIComponent(a.dataset.prem) : '') + (cds ? '&kind=cds' + (a.dataset.exit ? '&exit=' + encodeURIComponent(a.dataset.exit) + '&need=' + encodeURIComponent(a.dataset.need) : '') : ''))
+      fetchFrag('/chart/strike?ticker=' + encodeURIComponent(a.dataset.ticker) + '&strike=' + encodeURIComponent(a.dataset.strike) + (a.dataset.long ? '&long=' + encodeURIComponent(a.dataset.long) : '') + (a.dataset.expiry ? '&expiry=' + encodeURIComponent(a.dataset.expiry) : '') + (a.dataset.prem ? '&prem=' + encodeURIComponent(a.dataset.prem) : '') + (cds ? '&kind=cds' + (a.dataset.exit ? '&exit=' + encodeURIComponent(a.dataset.exit) + '&need=' + encodeURIComponent(a.dataset.need) : '') + (a.dataset.xp ? '&xp=' + encodeURIComponent(a.dataset.xp) : '') : ''))
         .then(function (r) { return r.text(); })
         .then(function (html) { body.innerHTML = html; applyMa(); })
         .catch(function () { body.innerHTML = '<p class="muted">No se pudo cargar el gráfico.</p>'; });

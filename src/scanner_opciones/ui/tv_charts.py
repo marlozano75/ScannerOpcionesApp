@@ -28,6 +28,7 @@ LIBRARY = STATIC_DIR / "lightweight-charts.js"
 # colores de las líneas y bandas (los mismos papeles que en los gráficos SVG: vendida, comprada, referencia, vencimiento, resultados)
 SHORT, LONG, REFERENCE, EXPIRY, EARNINGS = "#d64545", "#1f9d55", "#8b94a3", "#1f2d4a", "#d9822b"
 REVIEW, OPENED, TOUCH = "#d9a400", "#1a7f37", "#e87a1e"         # zona de revisión, apertura de la posición y último toque del strike
+SUPPORT = "#3b7ea1"                                              # soportes validados (líneas punteadas)
 RANGES = ((1, "1 M"), (3, "3 M"), (6, "6 M"), (12, "1 A"), (24, "2 A"), (0, "Todo"))      # meses visibles (0 = todo el histórico)
 DEFAULT_RANGE = 6
 # velas intradía: intervalo de dxFeed -> (etiqueta, días naturales que se piden: ~5, ~15 y ~60 sesiones)
@@ -130,6 +131,7 @@ def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), event
     ranges += "".join(f'<button type="button" class="tvw-rng tvw-irng{" on" if d == 1 else ""}" data-d="{d}" hidden>{label}</button>' for d, label in INTRADAY_RANGES)
     steps = ('<span class="tvw-ivs" role="group" aria-label="Intervalo de las velas">'
              '<button type="button" class="tvw-iv on" data-i="1d" title="Una vela por sesión (histórico guardado)">Diario</button>'
+             '<button type="button" class="tvw-iv" data-i="1w" title="Una vela por semana (las diarias agrupadas; fecha = su lunes)">Semanal</button>'
              + "".join(f'<button type="button" class="tvw-iv" data-i="{key}" title="Velas de {label} de la sesión regular (hora de Nueva York), '
                        f'pedidas a tastytrade al pulsar">{label}</button>' for key, (label, _) in INTERVALS.items())
              + '<button type="button" class="tvw-ext" aria-pressed="false" hidden title="Incluir pre-mercado (4:00-9:30 NY) y post-mercado '
@@ -143,13 +145,17 @@ def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), event
         '<div class="tvw-tv" hidden>'
         f'<div class="tvw-tools">{steps}{ranges}<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="50"> SMA 50</label>'
         '<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="200"> SMA 200</label>'
+        '<label class="tvw-opt" title="Índice de fuerza relativa (Wilder, 14 velas), con niveles 70 y 30, en un panel debajo de las velas">'
+        '<input type="checkbox" class="tvw-ind" data-k="rsi"> RSI</label>'
+        '<label class="tvw-opt" title="MACD 12/26/9: línea, señal e histograma, en un panel debajo de las velas">'
+        '<input type="checkbox" class="tvw-ind" data-k="macd"> MACD</label>'
         '<button type="button" class="tvw-fit" aria-pressed="false" title="Ajustar la escala para que se vean siempre los strikes, el breakeven y el objetivo '
         '(sin marcar, se ajusta a las velas visibles y se puede ampliar una zona)">Niveles</button>'
         '<button type="button" class="tvw-reset" title="Volver a ajustar la escala de precios a lo visible (tras estirar el eje a mano; también con doble clic en el eje)">'
         'Reajustar</button>'
         '<button type="button" class="tvw-log" aria-pressed="false" title="Escala logarítmica del eje de precios">Log</button></div>'
         + (f'<div class="tvw-notes">{note_html}</div>' if note_html else "") +
-        f'<div class="tvw-legend">&nbsp;</div><div class="tvw-chart"></div><div class="tvw-foot">{chips}'
+        f'<div class="tvw-legend">&nbsp;</div><div class="tvw-chart"></div><div class="tvw-sub" data-k="rsi" hidden></div><div class="tvw-sub" data-k="macd" hidden></div><div class="tvw-foot">{chips}'
         '<a class="tvw-credit" href="https://www.tradingview.com/" target="_blank" rel="noopener">Gráfico: TradingView Lightweight Charts™</a></div>'
         '</div></div>')
 
@@ -164,14 +170,26 @@ def put_levels(strike: float, long_strike: Optional[float] = None, premium: Opti
     return out
 
 
-def cds_levels(short_strike: float, long_strike: Optional[float], exit_price: Optional[float] = None) -> list[Level]:
-    """Líneas de un Call Debit Spread: call comprada, call vendida y el precio objetivo de salida."""
+def cds_levels(short_strike: float, long_strike: Optional[float], exit_price: Optional[float] = None, expiry: Optional[date] = None,
+               exit_profit: Optional[float] = None) -> list[Level]:
+    """Líneas de un Call Debit Spread: call comprada, call vendida y el precio objetivo de salida; el título del objetivo lleva el vencimiento
+    del contrato y la ganancia neta por contrato al salir en él (columna «Ganancia salida ($)» del Scanner)."""
     out = [Level(short_strike, "Call vendida", SHORT)]
     if long_strike is not None:
         out.append(Level(long_strike, "Call comprada", LONG))
     if exit_price is not None:
-        out.append(Level(exit_price, "Objetivo", REFERENCE))
+        title = "Objetivo"
+        if expiry is not None:
+            title += f" · vto {expiry:%d/%m/%y}"
+        if exit_profit is not None:
+            title += f" · ganancia salida {'+' if exit_profit >= 0 else '−'}{abs(exit_profit):,.0f} $".replace(",", ".")
+        out.append(Level(exit_price, title, REFERENCE))
     return out
+
+
+def support_lines(levels: Sequence) -> list[dict]:
+    """Soportes validados (`metrics/support_levels.SupportLevel`) como líneas de la vista de velas: una en el techo de la zona, con sus toques."""
+    return [{"price": round(lv.high, 4), "title": f"Soporte · {lv.pivots} toques", "color": SUPPORT} for lv in levels]
 
 
 def review_zone(review: Optional[date], expiry: date, dte: int, is_review: bool, today: date) -> list[Event]:

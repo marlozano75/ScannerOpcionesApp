@@ -1155,6 +1155,9 @@ def test_los_gráficos_ampliados_ofrecen_la_vista_de_velas(client_and_service):
     assert "&lt;div" not in frag                                                                  # la ficha de la empresa no se escapa
     data = client.get("/chart/candles?ticker=AAPL").json()
     assert len(data["candles"]) >= 39 and {"time", "open", "high", "low", "close"} <= set(data["candles"][0])
+    assert data["supports"] == []                                                                  # sin soportes validados: lista vacía
+    cds = client.get(f"/chart/strike?ticker=AAPL&strike=120&long=110&prem=2&kind=cds&exit=105&need=5&xp=800&expiry={TODAY + timedelta(days=300)}").text
+    assert "ganancia salida +800 $" in cds and f"vto {(TODAY + timedelta(days=300)):%d/%m/%y}" in cds
     lib = client.get("/static/lightweight-charts.js")
     assert lib.status_code == 200 and "javascript" in lib.headers["content-type"] and "max-age" in lib.headers["cache-control"]
     assert "tvw-btn" in client.get("/scanner").text                                               # el script del conmutador va en todas las páginas

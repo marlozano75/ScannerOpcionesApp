@@ -4624,6 +4624,24 @@ class AppService:
 
         return self._memo_bars("drop_map", build)
 
+    def chart_supports(self, ticker: str) -> list:
+        """Soportes validados (≥ `min_pivots` pivotes) por debajo del precio de un ticker y a no más de `max_distance_pct` % de él, de mayor a menor:
+        las líneas de soporte de los gráficos de velas. Mismo cálculo que la columna «Soporte» del Scanner (velas oficiales de `history_days`), pero
+        devuelve todos los cercanos, no solo el más alto. Vacío si están apagados o no hay histórico."""
+        cfg = self.settings.scanner.support_levels
+        if not cfg.enabled:
+            return []
+        key = ticker.replace(" ", "-")
+        since = self.now().date() - timedelta(days=cfg.history_days)
+        candles = [c for c in self.bars.candles(key) if c[0] >= since and None not in (c[2], c[3])]
+        if not candles:
+            return []
+        info = self.infos().get(key) or self.infos().get(ticker)
+        price = info.underlying_price if info and info.underlying_price else candles[-1][4]
+        out = [lv for lv in support_levels(candles, cfg) if lv.pivots >= cfg.min_pivots and lv.high < price
+               and (cfg.max_distance_pct is None or (price / lv.high - 1) * 100 <= cfg.max_distance_pct)]
+        return sorted(out, key=lambda lv: -lv.high)
+
     def support_map(self) -> dict:
         """{ticker: SupportLevel} con el soporte validado más cercano por debajo del precio de cada ticker (columnas informativas del Scanner). Vacío si está apagado."""
         cfg = self.settings.scanner.support_levels

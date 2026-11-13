@@ -105,3 +105,14 @@ def test_pre_y_post_mercado_se_marcan_como_fuera_de_horario():
     hourly = tv_charts.intraday_data([(at(-30), 10.0, 10.0, 10.0, 10.0, 1.0), (at(-90), 10.0, 10.0, 10.0, 10.0, 1.0)], "AAA", "1h", extended=True)
     assert [bool(c.get("ext")) for c in hourly["candles"]] == [False, True]      # la de 9:00-10:00 incluye la apertura
     assert 'class="tvw-ext"' in str(tv_charts.candle_switch("<svg/>", "AAA"))
+
+
+def test_objetivo_del_cds_con_vencimiento_y_ganancia_de_salida_y_líneas_de_soporte():
+    from scanner_opciones.metrics.support_levels import SupportLevel
+    out = tv_charts.cds_levels(95.0, 85.0, 80.0, date(2027, 9, 9), 1234.4)
+    assert out[-1].title == "Objetivo · vto 09/09/27 · ganancia salida +1.234 $" and out[-1].price == 80.0
+    assert tv_charts.cds_levels(95.0, 85.0, 80.0)[-1].title == "Objetivo"                      # sin datos, como antes
+    assert "−50 $" in tv_charts.cds_levels(95.0, 85.0, 80.0, None, -50.0)[-1].title
+    sup = SupportLevel(64.1, 65.88, 3, 4, 3, TODAY)
+    assert tv_charts.support_lines([sup]) == [{"price": 65.88, "title": "Soporte · 3 toques", "color": tv_charts.SUPPORT}]
+    assert 'data-i="1w"' in str(tv_charts.candle_switch("<svg/>", "AAA"))                       # velas semanales

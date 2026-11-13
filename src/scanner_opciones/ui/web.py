@@ -994,7 +994,7 @@ def create_app(
     @app.get("/chart/strike", response_class=HTMLResponse)
     async def strike_chart(ticker: str, strike: float, long: Optional[float] = None, expiry: Optional[date] = None,
                            prem: Optional[float] = None, kind: str = "",
-                           exit: Optional[float] = None, need: Optional[float] = None):
+                           exit: Optional[float] = None, need: Optional[float] = None, xp: Optional[float] = None):
         """Gráfico de cierres mensuales del ticker frente al strike, con los días desde el último toque
         (fragmento HTML que el Scanner muestra en una ventana)."""
         closes = service.bars.closes(ticker)
@@ -1020,7 +1020,7 @@ def create_app(
                + "".join(f"<li>{escape(a.text)}</li>" for a in alerts) + "</ul></div>") if alerts else ""
         bar = (f'<div class="shw-bar">{buttons}<button type="button" class="shw-log" aria-pressed="false" '
                f'title="Escala logarítmica del eje de precios">Log</button></div>')
-        levels = tv_charts.cds_levels(strike, long, exit) if kind == "cds" else tv_charts.put_levels(strike, long, prem)
+        levels = tv_charts.cds_levels(strike, long, exit, expiry, xp) if kind == "cds" else tv_charts.put_levels(strike, long, prem)
         # lo que el gráfico de cierres lleva dentro y la vista de velas no: la prima y el último toque del strike (en todo el histórico)
         whole = strike_history(bars, strike, today, total)
         notes = []
@@ -1035,8 +1035,11 @@ def create_app(
 
     @app.get("/chart/candles")
     async def chart_candles(ticker: str):
-        """Velas diarias y volumen de un ticker (JSON) para la vista de velas de los gráficos ampliados (`ui/tv_charts.py`)."""
-        return tv_charts.candle_data(service.bars, ticker)
+        """Velas diarias y volumen de un ticker (JSON) para la vista de velas de los gráficos ampliados (`ui/tv_charts.py`), con los soportes
+        validados cercanos como líneas (`supports`)."""
+        data = tv_charts.candle_data(service.bars, ticker)
+        data["supports"] = tv_charts.support_lines(service.chart_supports(ticker))
+        return data
 
     @app.get("/chart/candles/intraday")
     async def chart_candles_intraday(ticker: str, interval: str, ext: bool = False):
