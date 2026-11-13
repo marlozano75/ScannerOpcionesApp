@@ -52,8 +52,8 @@ def test_cds_profile_renders_in_the_scanner_with_its_filters_chips_impact_and_ta
         assert 'href="/scanner?' in page.text and "mode=cds" in page.text and 'href="/cds' not in page.text
         text = client.get("/scanner?" + cds_profile_query(svc)).text
         for needle in ('id="sec-widths"', 'id="sec-debit"', 'id="sec-move"', 'name="dmax"', 'Base (', 'Activados (', 'Desactivados (', 'id="viz-box"', 'data-kind="cds"',
-                       '>ZZZ</a>', 'Comp./Vend.', '× esperado', 'Technology',
-                       'name="oi_s"', 'name="ls_s"', 'name="use_bsz"', 'name="use_asz"', 'name="use_lvol"', 'name="use_svol"', 'Vol. comp.', 'Vol. vend.', 'Bid size comp.', 'Ask size comp.', 'Bid size vend.', 'Ask size vend.', '>ATR ($)</th>', '>ATR %</th>'):
+                       '>ZZZ</a>', 'Comp./<br>Vend.', '× <br>esperado', 'Technology',
+                       'name="oi_s"', 'name="ls_s"', 'name="use_bsz"', 'name="use_asz"', 'name="use_lvol"', 'name="use_svol"', 'Vol. <br>comp.', 'Vol. <br>vend.', 'Bid size <br>comp.', 'Ask size <br>comp.', 'Bid size <br>vend.', 'Ask size <br>vend.', '>ATR ($)</th>', '>ATR %</th>'):
             assert needle in text, needle
         assert "Simular seleccionados" not in text and "Téc." not in text
         assert text.count("<tr><td class=\"tk\"") == 1         # el único spread 130/140

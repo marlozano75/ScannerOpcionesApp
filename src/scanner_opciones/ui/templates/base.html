@@ -36,6 +36,7 @@
   th:first-child, td:first-child { text-align:left; }
   /* cabeceras compactas: saltan de línea (la columna se ajusta al dato, no al título) para que quepan sin barra horizontal */
   th { color:var(--mute); font-weight:600; font-size:11px; white-space:normal; line-height:1.2; vertical-align:bottom; }
+  tr.h2 th { white-space:nowrap; }   /* cabeceras partidas a mano con <br>: dos líneas como máximo */
   th.txt, td.txt { text-align:left; }   /* columnas de texto (las cifras van a la derecha) */
   th.wrap, td.wrap { white-space:normal; text-align:left; min-width:230px; max-width:340px; vertical-align:top; line-height:1.35; }   /* texto largo (avisos, estado): salta de línea en vez de salirse de la tarjeta */
   .tscroll { overflow-x:auto; }   /* tablas más anchas que la tarjeta: se desplazan dentro de ella */

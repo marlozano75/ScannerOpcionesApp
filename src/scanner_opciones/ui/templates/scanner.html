@@ -766,7 +766,7 @@
     {% if cds_ok and cds_cfg.enabled %}
     {% set rmax = cds_rows|map(attribute='res.max_return_pct')|max if cds_rows else 0 %}
     <div class="scroll" id="results-scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results" data-colmanager>
-      <tr>{{ cols.cds_head() }}</tr>
+      <tr class="h2">{{ cols.cds_head() }}</tr>
       {% for x in cds_rows %}<tr>{{ cols.cds_cells(x, rmax, nlv_usd) }}</tr>
       {% else %}<tr><td colspan="60" class="muted empty">Ningún spread cumple los criterios (¿ya hay calls guardadas y cotizadas?).</td></tr>{% endfor %}
     </table></div>

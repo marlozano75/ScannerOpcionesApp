@@ -87,7 +87,7 @@
   <h3 style="margin:18px 0 6px">Call Debit Spreads</h3>
   <p class="headline" style="margin:4px 0 8px"><span class="big">{{ cds_rows|length }}</span> CDS cumplen los filtros de algún perfil CDS (mismas columnas que el perfil CDS del Scanner, más la de perfiles)</p>
   <div class="scroll" data-keep-scroll><table class="sortable sticky-tk" id="scan-results-cds" data-colmanager>
-    <tr>{{ cols.cds_head() }}<th class="txt" title="Perfiles CDS cuyos filtros cumple esta fila">Estrategias</th></tr>
+    <tr class="h2">{{ cols.cds_head() }}<th class="txt" title="Perfiles CDS cuyos filtros cumple esta fila">Estrategias</th></tr>
     {% for x in cds_rows %}<tr>{{ cols.cds_cells(x, cmax, nlv_usd) }}<td class="txt" data-sort="{{ cds_names[loop.index0]|length }}">{% for n in cds_names[loop.index0] %}<span class="pf-chip" style="background:{{ colors.get(n) or 'var(--accent)' }}">{{ n }}</span>{% endfor %}</td></tr>
     {% else %}<tr><td colspan="60" class="muted empty">Ningún CDS cumple los filtros de los perfiles CDS elegidos.</td></tr>{% endfor %}
   </table></div>
