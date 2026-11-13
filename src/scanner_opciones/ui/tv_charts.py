@@ -210,19 +210,18 @@ def put_levels(strike: float, long_strike: Optional[float] = None, premium: Opti
     return out
 
 
-def cds_levels(short_strike: float, long_strike: Optional[float], exit_price: Optional[float] = None, expiry: Optional[date] = None,
-               exit_profit: Optional[float] = None) -> list[Level]:
-    """Líneas de un Call Debit Spread: call comprada, call vendida y el precio objetivo de salida; el título del objetivo lleva el vencimiento
-    del contrato y la ganancia neta por contrato al salir en él (columna «Ganancia salida ($)» del Scanner)."""
+_MONTHS = ("Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic")
+
+
+def cds_levels(short_strike: float, long_strike: Optional[float], exit_price: Optional[float] = None,
+               expiry: Optional[date] = None) -> list[Level]:
+    """Líneas de un Call Debit Spread: call comprada, call vendida y el precio objetivo de salida; el título del objetivo es corto
+    («Obj. Ene 21 '28», con el vencimiento del contrato) para no tapar las velas."""
     out = [Level(short_strike, "Call vendida", SHORT)]
     if long_strike is not None:
         out.append(Level(long_strike, "Call comprada", LONG))
     if exit_price is not None:
-        title = "Objetivo"
-        if expiry is not None:
-            title += f" · vto {expiry:%d/%m/%y}"
-        if exit_profit is not None:
-            title += f" · ganancia salida {'+' if exit_profit >= 0 else '−'}{abs(exit_profit):,.0f} $".replace(",", ".")
+        title = "Obj." if expiry is None else f"Obj. {_MONTHS[expiry.month - 1]} {expiry.day} '{expiry.year % 100:02d}"
         out.append(Level(exit_price, title, REFERENCE))
     return out
 

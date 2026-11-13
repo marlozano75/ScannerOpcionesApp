@@ -42,7 +42,7 @@ def test_un_ticker_sin_velas_devuelve_listas_vacías():
 def test_niveles_de_put_spread_y_cds():
     assert [(lv.title, lv.price) for lv in tv_charts.put_levels(50.0, None, 1.25)] == [("Put vendida", 50.0), ("Breakeven", 48.75)]
     assert [lv.title for lv in tv_charts.put_levels(50.0, 45.0)] == ["Put vendida", "Put comprada"]
-    assert [(lv.title, lv.price) for lv in tv_charts.cds_levels(140.0, 130.0, 150.0)] == [("Call vendida", 140.0), ("Call comprada", 130.0), ("Objetivo", 150.0)]
+    assert [(lv.title, lv.price) for lv in tv_charts.cds_levels(140.0, 130.0, 150.0)] == [("Call vendida", 140.0), ("Call comprada", 130.0), ("Obj.", 150.0)]
 
 
 def test_solo_se_marcan_las_fechas_que_no_han_pasado():
@@ -110,10 +110,9 @@ def test_pre_y_post_mercado_se_marcan_como_fuera_de_horario():
 
 def test_objetivo_del_cds_con_vencimiento_y_ganancia_de_salida_y_líneas_de_soporte():
     from scanner_opciones.metrics.support_levels import SupportLevel
-    out = tv_charts.cds_levels(95.0, 85.0, 80.0, date(2027, 9, 9), 1234.4)
-    assert out[-1].title == "Objetivo · vto 09/09/27 · ganancia salida +1.234 $" and out[-1].price == 80.0
-    assert tv_charts.cds_levels(95.0, 85.0, 80.0)[-1].title == "Objetivo"                      # sin datos, como antes
-    assert "−50 $" in tv_charts.cds_levels(95.0, 85.0, 80.0, None, -50.0)[-1].title
+    out = tv_charts.cds_levels(95.0, 85.0, 80.0, date(2028, 1, 21))
+    assert out[-1].title == "Obj. Ene 21 '28" and out[-1].price == 80.0                        # corto: no tapa las velas
+    assert tv_charts.cds_levels(95.0, 85.0, 80.0)[-1].title == "Obj."
     sup = SupportLevel(64.1, 65.88, 3, 4, 3, TODAY)
     assert tv_charts.support_lines([sup]) == [{"price": 65.88, "title": "Soporte · 3 toques", "color": tv_charts.SUPPORT}]
     assert 'data-i="1w"' in str(tv_charts.candle_switch("<svg/>", "AAA"))                       # velas semanales
