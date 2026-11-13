@@ -101,7 +101,7 @@ def test_pre_y_post_mercado_se_marcan_como_fuera_de_horario():
     at = lambda minutes: base + minutes * 60               # noqa: E731
     rows = [(at(m), 10.0, 10.0, 10.0, 10.0, 1.0) for m in (-335, -330, -5, 0, 385, 390, 625, 630)]   # 3:55, 4:00, 9:25, 9:30, 15:55, 16:00, 19:55, 20:00
     data = tv_charts.intraday_data(rows, "AAA", "5m", extended=True)
-    assert [bool(c.get("ext")) for c in data["candles"]] == [True, True, False, False, True, True] and data["extended"]     # sin la nocturna
+    assert [c.get("ext") for c in data["candles"]] == ["pre", "pre", None, None, "post", "post"] and data["extended"]     # sin la nocturna
     assert not any(c.get("ext") for c in tv_charts.intraday_data(rows[2:6], "AAA", "5m")["candles"])     # sin pre/post no se marca nada
     hourly = tv_charts.intraday_data([(at(-30), 10.0, 10.0, 10.0, 10.0, 1.0), (at(-90), 10.0, 10.0, 10.0, 10.0, 1.0)], "AAA", "1h", extended=True)
     assert [bool(c.get("ext")) for c in hourly["candles"]] == [False, True]      # la de 9:00-10:00 incluye la apertura

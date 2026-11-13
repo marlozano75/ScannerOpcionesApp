@@ -134,7 +134,7 @@ def intraday_data(rows: Sequence[tuple], ticker: str, interval: str, extended: b
     """Velas intradía para la vista de velas: el mismo formato que `candle_data`, con `time` en segundos epoch DESPLAZADOS a la hora de
     Nueva York (la librería dibuja el eje en UTC: así se lee la hora del mercado, con el cambio de horario de cada fecha) y `session`, el
     día de la sesión de cada vela. `rows`: (segundos epoch UTC, apertura, máximo, mínimo, cierre, volumen). Con `extended` (pre y
-    post-mercado), las velas enteras fuera de la sesión regular llevan `ext: True` (se pintan tenues); la de 1 h de 9:00 a 10:00 cuenta como
+    post-mercado), las velas enteras fuera de la sesión regular llevan `ext: "pre"` o `ext: "post"` (cada tramo con su color de fondo); la de 1 h de 9:00 a 10:00 cuenta como
     regular. La sesión nocturna (20:00-4:00), que tastytrade también devuelve, se descarta."""
     step = INTERVAL_MINUTES.get(interval, 0)
     candles, volume = [], []
@@ -146,8 +146,10 @@ def intraday_data(rows: Sequence[tuple], ticker: str, interval: str, extended: b
         shifted = int(t + local.utcoffset().total_seconds())
         candles.append({"time": shifted, "open": round(op, 4), "high": round(max(hi, op, cl), 4), "low": round(min(lo, op, cl), 4),
                         "close": round(cl, 4), "session": local.date().isoformat()})
-        if extended and (start + step <= REGULAR_OPEN or start >= REGULAR_CLOSE):
-            candles[-1]["ext"] = True
+        if extended and start + step <= REGULAR_OPEN:
+            candles[-1]["ext"] = "pre"
+        elif extended and start >= REGULAR_CLOSE:
+            candles[-1]["ext"] = "post"
         if vol:
             volume.append({"time": shifted, "value": vol, "up": cl >= op})
     return {"ticker": ticker, "interval": interval, "extended": extended, "candles": candles, "volume": volume}
@@ -171,7 +173,7 @@ def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), event
              + "".join(f'<button type="button" class="tvw-iv" data-i="{key}" title="Velas de {label} de la sesión regular (hora de Nueva York), '
                        f'pedidas a tastytrade al pulsar">{label}</button>' for key, (label, _) in INTERVALS.items())
              + '<button type="button" class="tvw-ext" aria-pressed="false" hidden title="Incluir pre-mercado (4:00-9:30 NY) y post-mercado '
-               '(16:00-20:00 NY); sus velas se pintan más tenues">Pre/post</button></span>')
+               '(16:00-20:00 NY), cada uno con su color de fondo (azul el pre, ámbar el post)">Pre/post</button></span>')
     chips = "".join(f'<span class="tvw-chip" style="--c:{escape(ev.color)}">{escape(ev.title)}</span>' for ev in events)
     return Markup(
         f'<div class="tvw" data-ticker="{escape(ticker)}" data-lines="{escape(json.dumps(lines))}" data-events="{escape(json.dumps(marks))}" data-markers="{escape(json.dumps(signs))}">'

@@ -31,8 +31,8 @@
     }
     return out;
   }
-  var EXT_HOURS = '#5b7fa62e';
-  var MA_COLORS = { ema10: '#0e9f9a', sma20: '#d9822b', sma50: '#2f6fb0', sma200: '#8a4fb5' };    // fondo del pre y post-mercado
+  var EXT_HOURS = { pre: '#5b7fa633', post: '#b5794a33' };    // fondo del pre-mercado (azul) y del post-mercado (ámbar)
+  var MA_COLORS = { ema10: '#0e9f9a', sma20: '#d9822b', sma50: '#2f6fb0', sma200: '#8a4fb5' };
   var FUTURE_MAX_DAYS = 60;   // el eje solo se alarga hasta fechas a ≤ 60 días: un vencimiento más lejano no encoge las velas (su fecha sigue en el pie)
   function addDays(t, n) { var d = new Date(t + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return iso(d); }
   function monday(t) { var d = new Date(t + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return iso(d); }
@@ -149,15 +149,17 @@
       chart.priceScale('ev').applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
       ev.setData(bands.map(function (t) { return { time: t, value: 1, color: shade[t] }; }));
     }
-    // pre y post-mercado (intradía con «Pre/post»): fondo de otro color en esas horas, como en TradingView. Es un área escalonada
-    // (0 o 1) en una escala oculta: continua, sin los huecos que dejarían las barras de un histograma
-    if (candles.some(function (c) { return c.ext; })) {
+    // pre y post-mercado (intradía con «Pre/post»): fondo de un color distinto para cada tramo, como en TradingView. Cada uno es un
+    // área escalonada (0 o 1) en una escala oculta: continua, sin los huecos que dejarían las barras de un histograma
+    ['pre', 'post'].forEach(function (part) {
+      if (!candles.some(function (c) { return c.ext === part; })) return;
       var ext = chart.addAreaSeries({ priceScaleId: 'ext', lineType: LC.LineType.WithSteps, lineColor: 'transparent', lineWidth: 1,
-                                      topColor: EXT_HOURS, bottomColor: EXT_HOURS, lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+                                      topColor: EXT_HOURS[part], bottomColor: EXT_HOURS[part], lastValueVisible: false, priceLineVisible: false,
+                                      crosshairMarkerVisible: false,
                                       autoscaleInfoProvider: function () { return { priceRange: { minValue: 0, maxValue: 1 } }; } });
       chart.priceScale('ext').applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
-      ext.setData(candles.map(function (c) { return { time: c.time, value: c.ext ? 1 : 0 }; }));
-    }
+      ext.setData(candles.map(function (c) { return { time: c.time, value: c.ext === part ? 1 : 0 }; }));
+    });
     var volume = chart.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
     chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
     volume.setData(data.volume.map(function (v) { return { time: v.time, value: v.value, color: (v.up ? up : down) + '66' }; }));
