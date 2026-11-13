@@ -4,14 +4,19 @@ El gráfico de cierres en SVG de siempre se queda como estaba; `candle_switch` l
 se dibuja en el navegador (script de `base.html`) con la librería servida desde el propio paquete (`ui/static/lightweight-charts.js`, sin CDN;
 se carga la primera vez que se abre una vista de velas) y los datos de `candle_data` (`GET /chart/candles`). Los niveles (strikes, breakeven,
 objetivo) van como líneas de precio y las fechas (vencimiento, resultados) como bandas verticales.
+
+Además de las velas diarias, la vista ofrece velas intradía (`INTERVALS`: 5 min, 15 min y 1 h, solo sesión regular) para ver cómo se mueve el
+precio dentro del día: se piden a tastytrade al elegir el intervalo (`GET /chart/candles/intraday`, `intraday_data`), no se guardan en la base
+y llevan la hora de Nueva York. En esa vista no hay bandas de fechas ni señales diarias, solo los niveles.
 """
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional, Sequence
+from zoneinfo import ZoneInfo
 
 from markupsafe import Markup, escape
 
@@ -25,6 +30,13 @@ SHORT, LONG, REFERENCE, EXPIRY, EARNINGS = "#d64545", "#1f9d55", "#8b94a3", "#1f
 REVIEW, OPENED, TOUCH = "#d9a400", "#1a7f37", "#e87a1e"         # zona de revisión, apertura de la posición y último toque del strike
 RANGES = ((1, "1 M"), (3, "3 M"), (6, "6 M"), (12, "1 A"), (24, "2 A"), (0, "Todo"))      # meses visibles (0 = todo el histórico)
 DEFAULT_RANGE = 6
+# velas intradía: intervalo de dxFeed -> (etiqueta, días naturales que se piden: ~5, ~15 y ~60 sesiones)
+INTERVALS = {"5m": ("5 min", 7), "15m": ("15 min", 21), "1h": ("1 h", 90)}
+INTERVAL_MINUTES = {"5m": 5, "15m": 15, "1h": 60}
+REGULAR_OPEN, REGULAR_CLOSE = 9 * 60 + 30, 16 * 60       # sesión regular (minutos desde la medianoche de Nueva York)
+EXTENDED_OPEN, EXTENDED_CLOSE = 4 * 60, 20 * 60          # pre-mercado desde las 4:00 y post-mercado hasta las 20:00 (tastytrade da también la nocturna: se quita)
+INTRADAY_RANGES = ((1, "1 D"), (5, "5 D"), (0, "Todo"))      # sesiones visibles en la vista intradía (0 = todas)
+MARKET_TZ = ZoneInfo("America/New_York")
 
 
 @dataclass(frozen=True)
@@ -82,6 +94,29 @@ def candle_data(bars: BarRepo, ticker: str) -> dict:
     return {"ticker": ticker, "candles": candles, "volume": volume}
 
 
+def intraday_data(rows: Sequence[tuple], ticker: str, interval: str, extended: bool = False) -> dict:
+    """Velas intradía para la vista de velas: el mismo formato que `candle_data`, con `time` en segundos epoch DESPLAZADOS a la hora de
+    Nueva York (la librería dibuja el eje en UTC: así se lee la hora del mercado, con el cambio de horario de cada fecha) y `session`, el
+    día de la sesión de cada vela. `rows`: (segundos epoch UTC, apertura, máximo, mínimo, cierre, volumen). Con `extended` (pre y
+    post-mercado), las velas enteras fuera de la sesión regular llevan `ext: True` (se pintan tenues); la de 1 h de 9:00 a 10:00 cuenta como
+    regular. La sesión nocturna (20:00-4:00), que tastytrade también devuelve, se descarta."""
+    step = INTERVAL_MINUTES.get(interval, 0)
+    candles, volume = [], []
+    for t, op, hi, lo, cl, vol in rows:
+        local = datetime.fromtimestamp(t, timezone.utc).astimezone(MARKET_TZ)
+        start = local.hour * 60 + local.minute
+        if extended and (start + step <= EXTENDED_OPEN or start >= EXTENDED_CLOSE):
+            continue
+        shifted = int(t + local.utcoffset().total_seconds())
+        candles.append({"time": shifted, "open": round(op, 4), "high": round(max(hi, op, cl), 4), "low": round(min(lo, op, cl), 4),
+                        "close": round(cl, 4), "session": local.date().isoformat()})
+        if extended and (start + step <= REGULAR_OPEN or start >= REGULAR_CLOSE):
+            candles[-1]["ext"] = True
+        if vol:
+            volume.append({"time": shifted, "value": vol, "up": cl >= op})
+    return {"ticker": ticker, "interval": interval, "extended": extended, "candles": candles, "volume": volume}
+
+
 def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), events: Sequence[Event] = (), markers: Sequence[Marker] = (),
                   notes: Sequence[str] = ()) -> Markup:
     """Envuelve el gráfico de cierres (`closes_chart`, HTML) con el conmutador «Cierres / Velas» y la caja vacía de la vista de velas.
@@ -92,14 +127,21 @@ def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), event
     signs = [{"time": m.day.isoformat(), "title": m.title, "color": m.color, "shape": m.shape, "below": m.below} for m in markers]
     note_html = "".join(f"<span>{escape(n)}</span>" for n in notes if n)
     ranges = "".join(f'<button type="button" class="tvw-rng{" on" if m == DEFAULT_RANGE else ""}" data-m="{m}">{label}</button>' for m, label in RANGES)
+    ranges += "".join(f'<button type="button" class="tvw-rng tvw-irng{" on" if d == 1 else ""}" data-d="{d}" hidden>{label}</button>' for d, label in INTRADAY_RANGES)
+    steps = ('<span class="tvw-ivs" role="group" aria-label="Intervalo de las velas">'
+             '<button type="button" class="tvw-iv on" data-i="1d" title="Una vela por sesión (histórico guardado)">Diario</button>'
+             + "".join(f'<button type="button" class="tvw-iv" data-i="{key}" title="Velas de {label} de la sesión regular (hora de Nueva York), '
+                       f'pedidas a tastytrade al pulsar">{label}</button>' for key, (label, _) in INTERVALS.items())
+             + '<button type="button" class="tvw-ext" aria-pressed="false" hidden title="Incluir pre-mercado (4:00-9:30 NY) y post-mercado '
+               '(16:00-20:00 NY); sus velas se pintan más tenues">Pre/post</button></span>')
     chips = "".join(f'<span class="tvw-chip" style="--c:{escape(ev.color)}">{escape(ev.title)}</span>' for ev in events)
     return Markup(
         f'<div class="tvw" data-ticker="{escape(ticker)}" data-lines="{escape(json.dumps(lines))}" data-events="{escape(json.dumps(marks))}" data-markers="{escape(json.dumps(signs))}">'
         '<div class="tvw-bar"><button type="button" class="tvw-btn on" data-v="svg" title="Gráfico de cierres con sus anotaciones">Cierres</button>'
-        '<button type="button" class="tvw-btn" data-v="tv" title="Velas diarias interactivas (zoom con la rueda, arrastrar para desplazar)">Velas</button></div>'
+        '<button type="button" class="tvw-btn" data-v="tv" title="Velas interactivas, diarias o intradía (zoom con la rueda, arrastrar para desplazar)">Velas</button></div>'
         f'<div class="tvw-svg">{closes_chart}</div>'
         '<div class="tvw-tv" hidden>'
-        f'<div class="tvw-tools">{ranges}<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="50"> SMA 50</label>'
+        f'<div class="tvw-tools">{steps}{ranges}<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="50"> SMA 50</label>'
         '<label class="tvw-opt"><input type="checkbox" class="tvw-ma" data-n="200"> SMA 200</label>'
         '<button type="button" class="tvw-log" aria-pressed="false" title="Escala logarítmica del eje de precios">Log</button></div>'
         + (f'<div class="tvw-notes">{note_html}</div>' if note_html else "") +

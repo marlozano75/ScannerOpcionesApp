@@ -1158,3 +1158,28 @@ def test_los_gráficos_ampliados_ofrecen_la_vista_de_velas(client_and_service):
     lib = client.get("/static/lightweight-charts.js")
     assert lib.status_code == 200 and "javascript" in lib.headers["content-type"] and "max-age" in lib.headers["cache-control"]
     assert "tvw-btn" in client.get("/scanner").text                                               # el script del conmutador va en todas las páginas
+
+
+def test_las_velas_intradía_se_piden_al_proveedor_y_se_guardan_un_minuto(client_and_service):
+    """5 min / 15 min / 1 h: se piden a tastytrade (aquí un proveedor falso) al elegir el intervalo; un intervalo desconocido o sin proveedor da error."""
+    client, svc, _, _ = client_and_service
+    calls = []
+
+    class Intraday:
+        async def get_intraday_candles(self, ticker, interval, days, extended=False):
+            calls.append((ticker, interval, days, extended))
+            return [(1_783_517_400, 10.0, 10.5, 9.8, 10.2, 1500.0)]      # 2026-07-08 13:30 UTC = 09:30 en Nueva York (verano)
+
+    saved, svc.volatility = svc.volatility, None
+    assert client.get("/chart/candles/intraday?ticker=AAPL&interval=5m").status_code == 503
+    svc.volatility = Intraday()
+    try:
+        assert client.get("/chart/candles/intraday?ticker=AAPL&interval=2m").status_code == 400
+        data = client.get("/chart/candles/intraday?ticker=BRK B&interval=15m").json()
+        assert data["interval"] == "15m" and data["candles"][0]["session"] == "2026-07-08"
+        client.get("/chart/candles/intraday?ticker=BRK B&interval=15m")
+        assert calls == [("BRK-B", "15m", 21, False)]                      # la segunda vez, de la caché de un minuto
+        assert client.get("/chart/candles/intraday?ticker=BRK B&interval=15m&ext=1").json()["extended"]
+        assert calls[-1] == ("BRK-B", "15m", 21, True)                      # con pre/post es otra petición
+    finally:
+        svc.volatility = saved

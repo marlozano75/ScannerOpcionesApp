@@ -243,6 +243,19 @@
     .side-head { padding-right:0; }
   }
 </style>
+<script>
+/* fetch de fragmentos (gráficos, roll, impacto) con tiempo máximo: si el servidor tarda o no responde, el aviso
+   «Cargando…» no se queda para siempre; falla y los .catch de cada pantalla muestran el error. Uso: fetchFrag(url[, ms][, opciones]).
+   Va en <head> porque los scripts del contenido lo llaman nada más cargarse (p. ej. el panel «¿Cuánto descarta cada filtro?», abierto
+   por defecto): definido después del contenido daba «fetchFrag is not defined» y el panel se quedaba en «Calculando…». */
+window.fetchFrag = function (url, ms, opts) {
+  if (typeof ms === 'object' && ms) { opts = ms; ms = 0; }
+  var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, ms || 30000);
+  var o = Object.assign({ cache: 'no-store' }, opts || {}, { signal: ctl.signal });
+  return fetch(url, o).then(function (r) { clearTimeout(t); if (!r.ok) throw new Error(r.status); return r; },
+                            function (e) { clearTimeout(t); throw e; });
+};
+</script>
 </head>
 <body class="{% block body_class %}{% endblock %}">
 <header>
@@ -426,9 +439,10 @@
 <style>
   /* vista de velas de los gráficos ampliados (ui/tv_charts.py, tv_charts.js) */
   .tvw-bar { display:flex; gap:6px; margin:6px 0; }
-  .tvw-btn, .tvw-rng, .tvw-log { font-size:12px; padding:2px 10px; border:1px solid var(--line-strong); border-radius:999px; background:var(--panel); color:var(--mute); cursor:pointer; }
-  .tvw-btn.on, .tvw-rng.on, .tvw-log.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .tvw-btn, .tvw-rng, .tvw-log, .tvw-iv, .tvw-ext { font-size:12px; padding:2px 10px; border:1px solid var(--line-strong); border-radius:999px; background:var(--panel); color:var(--mute); cursor:pointer; }
+  .tvw-btn.on, .tvw-rng.on, .tvw-log.on, .tvw-iv.on, .tvw-ext.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   .tvw-tools { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 4px; }
+  .tvw-ivs { display:inline-flex; gap:4px; padding-right:8px; margin-right:2px; border-right:1px solid var(--line-strong); }
   .tvw-opt { font-size:12px; color:var(--mute); display:inline-flex; align-items:center; gap:3px; margin-left:6px; }
   .tvw-log { margin-left:auto; }
   .tvw-notes { display:flex; flex-wrap:wrap; gap:2px 14px; font-size:12.5px; margin:2px 0 4px; }
@@ -441,17 +455,6 @@
 </style>
 <script>{% include "tv_charts.js" %}</script>
 <script>document.querySelectorAll('table.sortable').forEach(function (t, i) { SortableTables.init(t, i); });</script>
-<script>
-/* fetch de fragmentos (gráficos, roll, impacto) con tiempo máximo: si el servidor tarda o no responde, el aviso
-   «Cargando…» no se queda para siempre; falla y los .catch de cada pantalla muestran el error. Uso: fetchFrag(url[, ms][, opciones]). */
-window.fetchFrag = function (url, ms, opts) {
-  if (typeof ms === 'object' && ms) { opts = ms; ms = 0; }
-  var ctl = new AbortController(), t = setTimeout(function () { ctl.abort(); }, ms || 30000);
-  var o = Object.assign({ cache: 'no-store' }, opts || {}, { signal: ctl.signal });
-  return fetch(url, o).then(function (r) { clearTimeout(t); if (!r.ok) throw new Error(r.status); return r; },
-                            function (e) { clearTimeout(t); throw e; });
-};
-</script>
 <script>{% include "columns.js" %}</script>
 <script>document.querySelectorAll('table[data-colmanager]').forEach(function (t) { ColumnManager.init(t); });</script>
 <script>

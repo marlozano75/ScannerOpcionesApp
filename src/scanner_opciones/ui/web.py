@@ -13,7 +13,7 @@ from typing import Awaitable, Callable, Optional
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import QueryParams
 
@@ -28,7 +28,7 @@ from scanner_opciones.app.service import SCANNER_USER_CONFIG, AppService, Select
 from scanner_opciones.marketdata.analysts import summary
 from scanner_opciones.broker.base import BrokerGateway
 from scanner_opciones.domain.enums import AccountMode, OptionRight, Platform, PriceReference, TrafficLight
-from scanner_opciones.domain.errors import WatchlistError
+from scanner_opciones.domain.errors import CandleError, WatchlistError
 from scanner_opciones.rankedstocks.loader import clean_ticker
 from scanner_opciones.community.ideas import idea_key
 from scanner_opciones.domain.models import TickerInfo
@@ -1037,6 +1037,20 @@ def create_app(
     async def chart_candles(ticker: str):
         """Velas diarias y volumen de un ticker (JSON) para la vista de velas de los gráficos ampliados (`ui/tv_charts.py`)."""
         return tv_charts.candle_data(service.bars, ticker)
+
+    @app.get("/chart/candles/intraday")
+    async def chart_candles_intraday(ticker: str, interval: str, ext: bool = False):
+        """Velas intradía (5 min, 15 min, 1 h) de un ticker (JSON), pedidas a tastytrade al elegir el intervalo en la vista de velas; con
+        `ext`, también pre y post-mercado."""
+        if interval not in tv_charts.INTERVALS:
+            return JSONResponse({"error": "Intervalo no admitido"}, status_code=400)
+        try:
+            rows = await service.on_jobs(service.intraday_candles(ticker, interval, tv_charts.INTERVALS[interval][1], extended=ext))
+        except CandleError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=502)
+        if rows is None:
+            return JSONResponse({"error": "Sin proveedor de velas intradía (tastytrade)"}, status_code=503)
+        return tv_charts.intraday_data(rows, ticker, interval, ext)
 
     @app.get("/static/lightweight-charts.js", include_in_schema=False)
     async def lightweight_charts():

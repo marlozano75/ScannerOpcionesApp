@@ -77,3 +77,31 @@ def test_zona_de_revisión_apertura_y_último_toque_viajan_al_navegador():
     assert attr("events") == [{"time": review.isoformat(), "title": zone[0].title, "color": tv_charts.REVIEW, "end": expiry.isoformat()}]
     assert attr("markers") == [{"time": TODAY.isoformat(), "title": "Apertura", "color": tv_charts.OPENED, "shape": "arrowUp", "below": True}]
     assert '<div class="tvw-notes"><span>Prima &lt;b&gt;1,25&lt;/b&gt;</span></div>' in html
+
+
+def test_velas_intradía_en_hora_de_nueva_york_con_su_cambio_de_horario():
+    summer, winter = 1_783_517_400, 1_794_407_400        # 2026-07-08 13:30 UTC (EDT, -4 h) y 2026-11-11 14:30 UTC (EST, -5 h): ambas a las 09:30 en NY
+    data = tv_charts.intraday_data([(summer, 10.0, 10.4, 9.9, 10.2, 0.0), (winter, 20.0, 19.0, 19.5, 20.5, 300.0)], "AAA", "5m")
+    first, second = data["candles"]
+    assert first["time"] == summer - 4 * 3600 and second["time"] == winter - 5 * 3600
+    assert first["session"] == "2026-07-08" and second["session"] == "2026-11-11"
+    assert second["high"] == 20.5 and second["low"] == 19.5                  # máximo y mínimo abarcan apertura y cierre (datos incoherentes)
+    assert data["volume"] == [{"time": second["time"], "value": 300.0, "up": True}]    # sin volumen no hay barra
+
+
+def test_el_conmutador_ofrece_los_intervalos_intradía():
+    html = str(tv_charts.candle_switch("<svg/>", "AAA"))
+    assert 'data-i="1d"' in html and all(f'data-i="{k}"' in html for k in ("5m", "15m", "1h"))
+    assert 'class="tvw-rng tvw-irng on" data-d="1" hidden' in html            # los rangos intradía se ven solo en esa vista
+
+
+def test_pre_y_post_mercado_se_marcan_como_fuera_de_horario():
+    base = 1_794_407_400                                   # 2026-11-11 09:30 NY (EST)
+    at = lambda minutes: base + minutes * 60               # noqa: E731
+    rows = [(at(m), 10.0, 10.0, 10.0, 10.0, 1.0) for m in (-335, -330, -5, 0, 385, 390, 625, 630)]   # 3:55, 4:00, 9:25, 9:30, 15:55, 16:00, 19:55, 20:00
+    data = tv_charts.intraday_data(rows, "AAA", "5m", extended=True)
+    assert [bool(c.get("ext")) for c in data["candles"]] == [True, True, False, False, True, True] and data["extended"]     # sin la nocturna
+    assert not any(c.get("ext") for c in tv_charts.intraday_data(rows[2:6], "AAA", "5m")["candles"])     # sin pre/post no se marca nada
+    hourly = tv_charts.intraday_data([(at(-30), 10.0, 10.0, 10.0, 10.0, 1.0), (at(-90), 10.0, 10.0, 10.0, 10.0, 1.0)], "AAA", "1h", extended=True)
+    assert [bool(c.get("ext")) for c in hourly["candles"]] == [False, True]      # la de 9:00-10:00 incluye la apertura
+    assert 'class="tvw-ext"' in str(tv_charts.candle_switch("<svg/>", "AAA"))

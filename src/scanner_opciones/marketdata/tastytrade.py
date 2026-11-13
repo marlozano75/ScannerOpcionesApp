@@ -32,6 +32,8 @@ CANDLE_RETRY_WAIT = 5.0  # segundos antes del primer reintento (x2 en el segundo
 CANDLE_RETRIES = 2      # reintentos (con una conexión nueva) de los símbolos que no responden
 NO_CANDLES_TTL = 24 * 3600   # un símbolo que no respondió a ninguna de las pasadas no se vuelve a pedir hasta pasado este tiempo (segundos; se guarda entre ejecuciones: un valor sin velas como WBD costaba ~85 s en cada arranque)
 CANDLE_BATCH_SIZE = 50   # suscripciones a velas por lote (con todos a la vez tastytrade corta: «subscription size too big»)
+INTRADAY_TIMEOUT = 20.0  # espera máxima (s) a las velas intradía de un ticker (vista de velas de los gráficos ampliados)
+IntradayBars = list[tuple[int, float, float, float, float, float]]   # (segundos epoch UTC del inicio de la vela, apertura, máximo, mínimo, cierre, volumen)
 
 
 SUBSCRIBE_CHUNK = 400   # símbolos por mensaje de suscripción DXLink (un mensaje no puede pasar de 64 KB: ~1000 símbolos)
@@ -651,6 +653,39 @@ class TastytradeVolatility:
             self._session = None
             raise CandleError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
         return {symbols[s]: bars for s, bars in raw.items() if s in symbols}
+
+    async def get_intraday_candles(self, ticker: str, interval: str, days: int, timeout: float = INTRADAY_TIMEOUT,
+                                   extended: bool = False) -> IntradayBars:
+        """Velas intradía (`interval`: «5m», «15m», «1h»…) de un ticker de los últimos `days` días naturales, por DXLink: solo de la sesión
+        regular (`tho=true`) o, con `extended`, también pre y post-mercado. La vela en curso llega con su valor actual. Lista vacía si tastytrade no tiene velas de ese símbolo."""
+        from tastytrade.dxfeed import Candle
+        from tastytrade.streamer import DXLinkStreamer
+
+        symbol = tasty_symbol(ticker)
+        bars: dict[int, tuple[float, float, float, float, float]] = {}
+        try:
+            async with DXLinkStreamer(self._open_session()) as streamer:
+                await streamer.subscribe_candle([symbol], interval, start_time=datetime.now() - timedelta(days=days),
+                                              extended_trading_hours=extended)
+
+                async def read() -> None:
+                    async for c in streamer.listen(Candle):
+                        if c.event_symbol.split("{")[0] != symbol:
+                            continue
+                        vals = [float(v) if v is not None else float("nan") for v in (c.open, c.high, c.low, c.close)]
+                        if all(v == v and v > 0 for v in vals):     # NaN o 0 = vela vacía (o borrada)
+                            vol = float(c.volume) if c.volume is not None else 0.0
+                            bars[int(c.time) // 1000] = (*vals, vol if vol == vol and vol >= 0 else 0.0)
+                        if c.snapshot_end:
+                            return
+                try:
+                    await asyncio.wait_for(read(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    log.info("Velas intradía %s %s: sin final del envío en %g s (%d velas)", ticker, interval, timeout, len(bars))
+        except Exception as exc:   # el SDK lanza tipos variados (red, autenticación, formato)
+            self._session = None
+            raise CandleError(f"tastytrade: {type(exc).__name__}: {str(exc)[:200]}") from exc
+        return [(t, *v) for t, v in sorted(bars.items())]
 
     async def get_daily_closes(self, tickers: list[str], days: int, timeout: float = 20.0) -> dict[str, DailyBars]:
         symbols = {tasty_symbol(t): t for t in tickers}

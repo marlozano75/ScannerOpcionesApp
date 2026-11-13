@@ -344,6 +344,7 @@ class AppService:
         self._investors_syncing = False
         # cotizaciones en directo de las ideas fuera de lo guardado: (hora, generated_at del JSON, snapshots, fichas, cierres)
         self._community_live: Optional[tuple[datetime, str, dict, dict, dict]] = self._load_community_live()   # sobrevive al reinicio
+        self._intraday: dict[tuple[str, str, bool], tuple[float, list]] = {}      # (ticker, intervalo, pre/post) -> (monotonic, velas intradía); ver `intraday_candles`
         self._community_live_running = False
         self._community_live_task: Optional[asyncio.Future] = None
         self.europe_added: set[str] = self._load_europe()      # valores europeos dados de alta desde el Universo (ya registrados en `settings.instruments`)
@@ -1371,6 +1372,23 @@ class AppService:
             return asyncio.get_running_loop() is not loop
         except RuntimeError:
             return True
+
+    async def intraday_candles(self, ticker: str, interval: str, days: int, max_age_seconds: float = 60.0,
+                               extended: bool = False) -> Optional[list]:
+        """Velas intradía de un ticker para la vista de velas (`ui/tv_charts.py`), pedidas a tastytrade al abrir esa vista y guardadas solo en
+        memoria `max_age_seconds` (cambiar de intervalo y volver no repite la petición). None si no hay proveedor que las dé; lanza `CandleError`
+        si falla. Habla con tastytrade: desde la interfaz se llama con `on_jobs`."""
+        provider = self.volatility
+        if provider is None or not hasattr(provider, "get_intraday_candles"):
+            return None
+        key, now = (ticker, interval, extended), time.monotonic()
+        hit = self._intraday.get(key)
+        if hit is not None and now - hit[0] < max_age_seconds:
+            return hit[1]
+        rows = await provider.get_intraday_candles(ticker.replace(" ", "-"), interval, days, extended=extended)
+        self._intraday = {k: v for k, v in self._intraday.items() if now - v[0] < max_age_seconds}    # sin crecer sin límite
+        self._intraday[key] = (now, rows)
+        return rows
 
     def on_jobs(self, coro):
         """Devuelve algo que se puede esperar (`await`) para ejecutar la corrutina en el bucle de los jobs: lo que habla con el broker o toma los
