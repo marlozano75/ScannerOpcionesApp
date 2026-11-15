@@ -238,3 +238,11 @@ Prueba de la idea «el suelo bien formado, operado solo tras el cierre sobre la 
 - El volumen alto baja la probabilidad de cerrar arriba (−2) pero sube el retorno medio (cola derecha). Cierre en lo alto de la vela y ADX > 25 tampoco ayudan.
 
 **Límites.** Supervivencia (watchlist de hoy); subyacente, no CDS ni prima; filas solapadas (el IC es por días). Uso posible, no implementado: no entrar justo después de un impulso con RSI > 80 o extensión ≥ 3 ATR. R17 en la pestaña Backtest.
+
+## R18 — Squeeze de Bollinger: ¿anticipa la dirección? (2026-11-15)
+
+`scripts/suelos/squeeze.py $D` (27 tickers) y `squeeze.py $D val` (2.179 tickers, 2004-2026, 8,6 M de días). Todos los días, no solo tras un impulso. Squeeze = ancho de Bollinger (20, 2) en su 20 % inferior de 120 sesiones, o TTM (Bollinger dentro de Keltner EMA20 ± 1,5 ATR20); «dispara» = salía de squeeze en las 5 sesiones previas y cierra fuera de la banda. Diferencias frente a la media de todos los tickers del mismo día.
+- **Simétrico:** con las bandas en su 10 % más estrecho sube tocar +1,5 ATR en 10 d (+2,0) y también −1,5 ATR (+1,8); con las bandas muy abiertas bajan los dos (−2,2). Cierra arriba a 20 d: sin cambio.
+- **El disparo al alza engaña:** después toca −1,5 ATR más a menudo (+3,9) que +1,5 ATR (+2,4); con tendencia alcista, +3,6 frente a +2,7. El TTM, igual o más débil.
+- El +3,5 de la carrera en R17 es un efecto de la volatilidad (la carrera se decide antes), no de la dirección.
+- **Para un CDS:** no sirve para entrar buscando una subida rápida; con el CDS en beneficio, un squeeze anuncia un movimiento mayor en cualquier sentido (mejor recoger o proteger). La salida medida es el agotamiento de R17. No medido: el efecto de la IV baja en el débito (sin histórico de opciones). R18 en la pestaña Backtest.

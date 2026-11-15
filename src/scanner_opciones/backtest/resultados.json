@@ -44,7 +44,8 @@
     "Usar las medias para medir la tendencia del ticker (persistencia, apiladas, pendiente, regularidad) tampoco predice: solo separa tickers por volatilidad (R13).",
     "La fuerza relativa estilo IBD (percentil RS 0-99) no mejora la venta de puts: los RS altos empeoran el aguante de la put aun a igual volatilidad (R15).",
     "Los filtros de calidad de la empresa (caja, deuda, recompras, FCF/activos; SEC EDGAR punto en el tiempo, 2024-2026) no mejoran el aguante de una put a 2 ATR: la cola izquierda más corta de las empresas de calidad se explica por su menor volatilidad (R16).",
-    "Tras un impulso alcista ningún indicador predice que la subida continúe (≤ +1,4 puntos); sí avisan de agotamiento RSI14 > 80 y extensión ≥ 3 ATR sobre la EMA21 (−3 a −6 puntos a 20 sesiones y peor aguante de la put). El squeeze previo solo anticipa un movimiento rápido en cualquier sentido (R17)."
+    "Tras un impulso alcista ningún indicador predice que la subida continúe (≤ +1,4 puntos); sí avisan de agotamiento RSI14 > 80 y extensión ≥ 3 ATR sobre la EMA21 (−3 a −6 puntos a 20 sesiones y peor aguante de la put). El squeeze previo solo anticipa un movimiento rápido en cualquier sentido (R17).",
+    "El squeeze de Bollinger anticipa amplitud, no dirección: sube por igual tocar +1,5 y −1,5 ATR, y su disparo al alza acaba más a menudo en −1,5 ATR; no sirve para entrar ni para aguantar un CDS en beneficio (R18)."
   ],
   "pendientes": [
     "Medir la prima de las puts tras una caída (necesita precios históricos de opciones; hoy no los hay).",
@@ -2781,6 +2782,134 @@
       ],
       "scripts": [
         "scripts/suelos/continuidad.py"
+      ],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R18",
+      "fecha": "2026-11-15",
+      "titulo": "Squeeze de Bollinger: ¿anticipa la dirección del movimiento?",
+      "objetivo": "cds",
+      "pregunta": "En R17 el squeeze previo subía la carrera ±1,5 ATR a 10 días. Medido en todos los días, ¿anticipa una subida rápida que sirva para un CDS (entrar o mantenerlo cuando ya va en beneficio), o solo un movimiento mayor en cualquier sentido?",
+      "veredicto": "sin_ventaja",
+      "veredicto_texto": "Anticipa amplitud, no dirección: sube por igual la probabilidad de tocar +1,5 y −1,5 ATR; el disparo al alza acaba más a menudo en −1,5 ATR",
+      "tablas": [
+        {
+          "titulo": "Squeeze y movimiento posterior — 2.179 tickers, 2004-2026",
+          "columnas": [
+            "Situación",
+            "n",
+            "Toca +1,5 ATR en 10 d",
+            "Toca −1,5 ATR en 10 d",
+            "Sube primero ±1,5 ATR 10 d",
+            "Cierra arriba a 20 d",
+            "Dif. sube primero 2004-18 / 2019-26"
+          ],
+          "filas": [
+            [
+              "Base: todos los días",
+              "8.635.459",
+              "47,6 %",
+              "43,2 %",
+              "43,1 %",
+              "53,5 %",
+              "—"
+            ],
+            [
+              "Ancho de Bollinger en su 10 % inferior",
+              "1.096.170",
+              "+2,0",
+              "+1,8",
+              "+1,4",
+              "−0,1",
+              "+1,3 / +1,5"
+            ],
+            [
+              "Ancho en su 10-20 % inferior",
+              "851.502",
+              "+1,5",
+              "+1,3",
+              "+1,1",
+              "+0,1",
+              "+1,1 / +1,1"
+            ],
+            [
+              "Ancho en su 20 % superior (bandas abiertas)",
+              "1.824.440",
+              "−2,2",
+              "−2,2",
+              "−1,6",
+              "0,0",
+              "−1,5 / −1,7"
+            ],
+            [
+              "Squeeze TTM activo (Bollinger dentro de Keltner)",
+              "1.058.544",
+              "−1,3",
+              "−1,3",
+              "−1,0",
+              "−0,3",
+              "−1,3 / −0,5"
+            ],
+            [
+              "Squeeze + tendencia alcista (c > SMA50 > SMA200)",
+              "803.119",
+              "+2,5",
+              "+2,9",
+              "+1,6",
+              "+0,8",
+              "+1,4 / +1,9"
+            ],
+            [
+              "**Squeeze que dispara al alza** (cierre sobre la banda sup.)",
+              "274.927",
+              "+2,4",
+              "**+3,9**",
+              "+1,2",
+              "−0,3",
+              "+0,9 / +1,5"
+            ],
+            [
+              "Squeeze que dispara a la baja",
+              "228.318",
+              "+0,3",
+              "−1,0",
+              "+0,4",
+              "+0,3",
+              "+0,7 / 0,0"
+            ],
+            [
+              "Squeeze TTM que dispara al alza",
+              "246.789",
+              "+0,9",
+              "+2,4",
+              "+0,2",
+              "−0,4",
+              "−0,2 / +0,8"
+            ],
+            [
+              "Dispara al alza + tendencia alcista",
+              "166.265",
+              "+2,7",
+              "+3,6",
+              "+1,4",
+              "+0,6",
+              "+1,3 / +1,6"
+            ]
+          ],
+          "nota": "Salvo la base, diferencias en puntos frente a la media de todos los tickers del mismo día. Squeeze = ancho de Bollinger (20, 2) en su 20 % inferior de 120 sesiones; «dispara» = salía de squeeze en las 5 sesiones previas y cierra fuera de la banda. Los 27 tickers líquidos dan lo mismo (+1 a +2 puntos en cada sentido)."
+        }
+      ],
+      "puntos": [
+        "El squeeze es simétrico: con las bandas estrechas sube por igual tocar +1,5 ATR (+2,0) y −1,5 ATR (+1,8) en 10 días; con las bandas muy abiertas bajan los dos (−2,2). Mide la amplitud del movimiento siguiente, no su sentido.",
+        "El disparo al alza engaña: después toca −1,5 ATR más a menudo (+3,9) que +1,5 ATR (+2,4) y a 20 sesiones no cierra más arriba. Con tendencia alcista, igual.",
+        "El +3,5 de R17 sale de la carrera: una carrera de 3-5 días se decide antes con más volatilidad, no es ventaja direccional.",
+        "Para un CDS (200-400 DTE): no sirve como entrada para una subida rápida. Con el CDS ya en beneficio, un squeeze anuncia un movimiento algo mayor en cualquier sentido: motivo para recoger o proteger la ganancia, no para aguantar. La señal medida para salir es el agotamiento de R17 (RSI14 > 80 o extensión ≥ 3 ATR).",
+        "No medido: el squeeze suele coincidir con IV baja (opciones más baratas); en un débito spread se compensa en parte con la pata vendida. No hay histórico de precios de opciones.",
+        "Cautelas: supervivencia (watchlist de hoy); lo medido es el subyacente, no el CDS."
+      ],
+      "scripts": [
+        "scripts/suelos/squeeze.py"
       ],
       "doc": "docs/deteccion-suelos.md"
     },
