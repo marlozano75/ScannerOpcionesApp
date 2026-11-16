@@ -167,6 +167,26 @@ Hipótesis: se eligen DTE tan lejanos para tener tiempo de que cualquier recuper
 - **El coste de esperar:** de los 21 CDS abiertos, 8 llegaron a +20 % o más y ya no están ahí. EOSE +91 % → −100 %, ONDS +51 % → −70 %, NKE +44 % → −88 %, IBIT +31 % → −65 %, RIVN +22 % → −73 %. Los 6 que nunca fueron positivos (ASTS, RKLB, NFLX, GOOGL ×2, AVGO) tienen una tesis que aún no ha empezado.
 - **Lectura:** el DTE largo funciona **si hay una regla que obligue a cerrar en el primer rebote** (+20 %). Sin esa regla, el tiempo se convierte en el riesgo: la mayoría de los que no cerraron en el pico devolvieron todo. Recuperar a cero (> 0) no cubre además comisiones ni deslizamiento.
 
+## ¿Llega la ventana de +20 % en un CDS largo de calidad? (2026-11-16, R20)
+
+Pregunta: con un CDS de más de 200 DTE en una gran empresa en tendencia alcista, ¿qué probabilidad hay de que antes de la salida a 90 DTE llegue a valer +20 % sobre el débito (la salida del perfil MTO)?
+
+**Método** (`scripts/suelos/cds_fetch.py`, `cds_ventana.py`, `cds_vencimiento.py`): 36 grandes empresas, Yahoo 2005-2025, entradas cada 3 sesiones con cierre > SMA200, SMA50 > SMA200 y SMA200 subiendo. CDS con la comprada a +10/+25/+40 % y la vendida 15 % del precio más arriba, valorado al cierre de cada día con Black-Scholes (IV = volatilidad realizada de 60 sesiones × 1,1; no hay histórico de opciones). Se paga el valor + fricción y se vende a valor − fricción.
+
+| DTE / comprada (fricción 10 %) | Llega a +20 % | Antes del stop −70 % | En ≤ 60 d | Días (mediana) | Pierde si se mantiene |
+|---|---|---|---|---|---|
+| 250 / +25 % | 66 % | 53 % | 48 % | 30 | 78 % |
+| 365 / +25 % | **72 %** | **59 %** | 41 % | 49 | 69 % |
+| 500 / +25 % | 76 % | 65 % | 33 % | 71 | 61 % |
+| 365 / +10 % | 73 % | 66 % | 33 % | 67 | 50 % |
+| 365 / +40 % | 72 % | 54 % | 46 % | 38 | 82 % |
+
+- Con fricción del 3 % sube a 75-85 % (365 / +25 %: 80 %, el mismo 80 % que los CDS de DTE 200-400 del logbook); con 15 %, 64 %. La horquilla es lo que más mueve el resultado; que la IV se mueva o no, casi nada.
+- Comprar en un retroceso ≥ 7 % dentro de la tendencia: llegar antes del stop pasa de 58 % a 69 % (+25 %).
+- Depende del año (2022: 41 %, 2008: 44 %; 2017-2024 buenos: 81-87 %) y de la volatilidad del valor (QCOM, PG, JNJ, KO, PEP 52-64 %; NVDA, NOW, AAPL 83-85 %).
+- Mantenido hasta el vencimiento, el subyacente no sube un +25 % en 365 días el 66 % de las veces (exigir tendencia alcista no cambia nada; 58 % a 500 días). El implícito de hoy da ~27 % de acabar por encima de +25 %.
+- **Lectura:** ~7 de cada 10 tienen la ventana, ~6 antes del stop. Es la salida rápida la que hace funcionar el CDS; el resto acaba en pérdida grande. Cifra realista con supervivencia y sin skew: 60-70 %. R20 en la pestaña Backtest.
+
 ## Salidas implementadas en el perfil MTO (2026-11-02)
 
 `ExitRules` tiene tres campos nuevos: `risk_take_profit_pct` y `risk_stop_pct` (spreads verticales de crédito, % del **riesgo** = ancho − crédito) y `debit_gain_pct` (debit spread, % de lo **pagado**). Los aplican `management.put_status` (puts-spread) y `other_mgmt` (call credit spreads y debit spreads). El perfil de gestión MTO (`mgmt_profiles.MTO_EXITS`, sobre el estilo TPC) lleva:

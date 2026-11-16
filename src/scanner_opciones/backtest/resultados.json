@@ -46,11 +46,12 @@
     "Los filtros de calidad de la empresa (caja, deuda, recompras, FCF/activos; SEC EDGAR punto en el tiempo, 2024-2026) no mejoran el aguante de una put a 2 ATR: la cola izquierda más corta de las empresas de calidad se explica por su menor volatilidad (R16).",
     "Tras un impulso alcista ningún indicador predice que la subida continúe (≤ +1,4 puntos); sí avisan de agotamiento RSI14 > 80 y extensión ≥ 3 ATR sobre la EMA21 (−3 a −6 puntos a 20 sesiones y peor aguante de la put). El squeeze previo solo anticipa un movimiento rápido en cualquier sentido (R17).",
     "El squeeze de Bollinger anticipa amplitud, no dirección: sube por igual tocar +1,5 y −1,5 ATR, y su disparo al alza acaba más a menudo en −1,5 ATR; no sirve para entrar ni para aguantar un CDS en beneficio (R18).",
-    "Comprar acciones grandes al cruzar −3σ/−4σ de un canal de regresión de 10 años (vídeo de TradingView) casi siempre acaba en ganancia, pero no bate al igual peso de las mismas acciones en las mismas fechas y deja el capital la mitad del tiempo en efectivo: 7-8 % anual frente al 13-14 % de SPY desde 2014-2016 (R19)."
+    "Comprar acciones grandes al cruzar −3σ/−4σ de un canal de regresión de 10 años (vídeo de TradingView) casi siempre acaba en ganancia, pero no bate al igual peso de las mismas acciones en las mismas fechas y deja el capital la mitad del tiempo en efectivo: 7-8 % anual frente al 13-14 % de SPY desde 2014-2016 (R19).",
+    "Un CDS a 365 DTE con la comprada a +25 % en una gran empresa en tendencia alcista llega a +20 % del débito antes de 90 DTE en ~70 % de los casos (60 % antes del stop −70 %; mediana ~50 días); mantenido hasta el vencimiento pierde en 2 de cada 3. La salida rápida es lo que hace funcionar la estrategia (R20, modelo Black-Scholes sin histórico de opciones)."
   ],
   "pendientes": [
     "Medir la prima de las puts tras una caída (necesita precios históricos de opciones; hoy no los hay).",
-    "Backtest del propio CDS con las reglas de salida del logbook de MTO (+20 % / −70 % / 90 DTE) en lugar del subyacente.",
+    "Backtest del propio CDS con precios históricos de opciones (R20 lo modela con Black-Scholes y volatilidad realizada: falta el skew, la IV real y la horquilla real).",
     "Horizontes de 30 sesiones y objetivos expresados como el movimiento que necesita cada CDS (5, 10 y 20 sesiones ya medidos en R17).",
     "Volume Profile con ticks o velas intradía, y FVG con selección manual de zonas.",
     "Mogalef con la fórmula exacta (las implementaciones difieren) y más variantes de MACD.",
@@ -3168,6 +3169,292 @@
         "scripts/suelos/canal10.py"
       ],
       "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R20",
+      "fecha": "2026-11-16",
+      "titulo": "CDS largo en empresas de calidad: ¿llega la ventana de +20 % antes de la salida?",
+      "objetivo": "cds",
+      "pregunta": "Call debit spread con DTE de más de 200 días en grandes empresas de calidad en tendencia alcista. ¿Qué probabilidad hay de que, antes de la salida a 90 DTE, el CDS llegue a valer +20 % sobre el débito pagado (la salida del perfil MTO) y se pueda cerrar? ¿Y qué pasa si se mantiene hasta el vencimiento?",
+      "veredicto": "parcial",
+      "veredicto_texto": "La ventana de +20 % llega en ~70 % de los casos (60-65 % antes del stop −70 %); mantenido hasta el vencimiento, se pierde en 2 de cada 3",
+      "tablas": [
+        {
+          "titulo": "¿Llega a +20 % del débito antes de 90 DTE? — fricción 10 % por lado",
+          "columnas": [
+            "DTE",
+            "Comprada",
+            "Llega a +20 %",
+            "Antes del stop −70 %",
+            "En ≤ 30 d",
+            "En ≤ 60 d",
+            "En ≤ 90 d",
+            "Días (mediana)",
+            "Pierde al vencer"
+          ],
+          "filas": [
+            [
+              "250",
+              "+10 %",
+              "66,5 %",
+              "61,1 %",
+              "23,2 %",
+              "42,7 %",
+              "54,1 %",
+              "44",
+              "57,8 %"
+            ],
+            [
+              "250",
+              "+25 %",
+              "65,8 %",
+              "53,4 %",
+              "32,4 %",
+              "48,3 %",
+              "56,6 %",
+              "30",
+              "77,6 %"
+            ],
+            [
+              "250",
+              "+40 %",
+              "64,6 %",
+              "48,3 %",
+              "37,6 %",
+              "50,9 %",
+              "57,4 %",
+              "23",
+              "89,3 %"
+            ],
+            [
+              "365",
+              "+10 %",
+              "73,1 %",
+              "66,4 %",
+              "14,1 %",
+              "33,1 %",
+              "46,3 %",
+              "67",
+              "50,4 %"
+            ],
+            [
+              "**365**",
+              "**+25 %**",
+              "**72,1 %**",
+              "**59,4 %**",
+              "23,8 %",
+              "41,4 %",
+              "52,0 %",
+              "49",
+              "68,6 %"
+            ],
+            [
+              "365",
+              "+40 %",
+              "71,8 %",
+              "53,9 %",
+              "30,5 %",
+              "46,3 %",
+              "54,9 %",
+              "38",
+              "82,0 %"
+            ],
+            [
+              "500",
+              "+10 %",
+              "77,4 %",
+              "70,5 %",
+              "7,6 %",
+              "23,8 %",
+              "37,5 %",
+              "94",
+              "44,7 %"
+            ],
+            [
+              "500",
+              "+25 %",
+              "76,4 %",
+              "64,7 %",
+              "16,1 %",
+              "33,4 %",
+              "45,6 %",
+              "71",
+              "60,9 %"
+            ],
+            [
+              "500",
+              "+40 %",
+              "76,8 %",
+              "59,3 %",
+              "23,1 %",
+              "40,1 %",
+              "50,4 %",
+              "57",
+              "73,4 %"
+            ]
+          ],
+          "barra": {
+            "col": 2,
+            "max": 100
+          },
+          "nota": "36 grandes empresas (Yahoo 2005-2025), entradas cada 3 sesiones con cierre > SMA200, SMA50 > SMA200 y SMA200 subiendo (≈35.000 por casilla). Vendida = comprada + 15 % del precio. Valor Black-Scholes al cierre con IV = volatilidad realizada de 60 sesiones × 1,1; se paga el valor + 10 % y se vende a valor − 10 %. Con fricción del 3 %: 75-85 % llega a +20 % (365 / +25 %: 80,5 %, antes del stop 70,5 %, mediana 29 días). «Pierde al vencer» = valor final < débito si se mantiene."
+        },
+        {
+          "titulo": "Sensibilidad (DTE 365, comprada +25 %)",
+          "columnas": [
+            "Fricción por lado",
+            "Ancho",
+            "IV",
+            "Débito / ancho",
+            "Llega a +20 %",
+            "Antes del stop",
+            "En ≤ 60 d",
+            "Días (mediana)"
+          ],
+          "filas": [
+            [
+              "3 %",
+              "15 %",
+              "móvil",
+              "0,14",
+              "81 %",
+              "71 %",
+              "58 %",
+              "29"
+            ],
+            [
+              "3 %",
+              "15 %",
+              "fija",
+              "0,14",
+              "80 %",
+              "73 %",
+              "59 %",
+              "28"
+            ],
+            [
+              "**10 %**",
+              "15 %",
+              "fija",
+              "0,15",
+              "**71 %**",
+              "**62 %**",
+              "41 %",
+              "49"
+            ],
+            [
+              "15 %",
+              "15 %",
+              "fija",
+              "0,16",
+              "64 %",
+              "54 %",
+              "30 %",
+              "65"
+            ],
+            [
+              "10 %",
+              "40 %",
+              "fija",
+              "0,09",
+              "69 %",
+              "61 %",
+              "43 %",
+              "43"
+            ],
+            [
+              "10 %",
+              "40 %",
+              "móvil",
+              "0,09",
+              "72 %",
+              "57 %",
+              "44 %",
+              "43"
+            ]
+          ],
+          "barra": {
+            "col": 4,
+            "max": 100
+          },
+          "nota": "La horquilla manda; que la IV se mueva o quede fija apenas cambia el resultado. Entradas cada 6 sesiones."
+        },
+        {
+          "titulo": "Mantenido hasta el vencimiento: el subyacente NO sube al menos +X % (tendencia alcista)",
+          "columnas": [
+            "Plazo",
+            "n",
+            "Mediana",
+            "< 0 %",
+            "< +10 %",
+            "< +25 %",
+            "< +40 %",
+            "< +60 %"
+          ],
+          "filas": [
+            [
+              "200 días",
+              "106.957",
+              "+8,0 %",
+              "31,5 %",
+              "54,4 %",
+              "81,0 %",
+              "92,3 %",
+              "97,0 %"
+            ],
+            [
+              "280 días",
+              "106.091",
+              "+11,0 %",
+              "28,7 %",
+              "48,0 %",
+              "72,4 %",
+              "86,7 %",
+              "94,5 %"
+            ],
+            [
+              "**365 días**",
+              "105.102",
+              "+14,2 %",
+              "26,7 %",
+              "43,2 %",
+              "**65,6 %**",
+              "80,8 %",
+              "91,2 %"
+            ],
+            [
+              "500 días",
+              "103.328",
+              "+18,8 %",
+              "24,7 %",
+              "37,6 %",
+              "57,7 %",
+              "72,1 %",
+              "84,8 %"
+            ]
+          ],
+          "barra": {
+            "col": 5,
+            "max": 100
+          },
+          "nota": "Si al vencer el precio no pasa la call comprada se pierde todo el débito. Exigir tendencia alcista no cambia nada frente a todos los días (365 d, < +25 %: 64,4 %). Comprar en un retroceso ≥ 7 % dentro de la tendencia: 57,0 %. Implícito de hoy (delta de la call, 28 empresas, ~305-400 DTE): +25 % OTM ≈ 27 % de acabar en el dinero, +40 % ≈ 18-21 %."
+        }
+      ],
+      "puntos": [
+        "**Respuesta:** con 365 DTE y la comprada a +25 %, ~7 de cada 10 CDS tienen en algún momento la ventana de +20 % (6 de cada 10 antes de tocar el stop −70 %), en una mediana de ~50 días. Más DTE da más probabilidad de que llegue, pero más tarde; las más OTM llegan antes (más apalancadas) y también tocan antes el stop.",
+        "Coincide con el logbook de MTO: los CDS de DTE 200-400 llegaron a +20 % en el 80 % de los casos y el 55 % en conjunto (`docs/mto-spreads.md`).",
+        "El ~30 % que no llega casi siempre acaba en pérdida grande: al vencer pierde el 68,6 % (365 / +25 %). La ventana solo sirve con una orden límite de cierre ya puesta.",
+        "Retroceso ≥ 7 % desde el máximo de 20 sesiones dentro de la tendencia: llegar antes del stop sube de 58 % a 69 % (+25 %) y de 52 % a 67 % (+40 %).",
+        "Por año (365 / +25 %, fricción 10 %): 41 % en 2022, 44 % en 2008, 55 % en 2015, frente a 81-87 % en 2017, 2019, 2020, 2023 y 2024. Los fallos se concentran en los mismos años: varios CDS fallan a la vez.",
+        "Por ticker: valores de baja volatilidad (QCOM 52 %, PG 61 %, JNJ 61 %, KO 63 %, PEP 64 %) por debajo de los volátiles (NVDA 85 %, NOW 83 %, AAPL 83 %, V 80 %, AVGO 80 %).",
+        "Cautelas: modelo, no precios de opciones reales (sin histórico de opciones): sin skew de la IV ni IV real ni saltos por resultados; cierre diario (la ventana puede durar un solo día); 36 empresas supervivientes elegidas hoy (optimista); sin dividendos. Cifra realista: 60-70 % con 365 DTE y +25 % OTM."
+      ],
+      "scripts": [
+        "scripts/suelos/cds_fetch.py",
+        "scripts/suelos/cds_ventana.py",
+        "scripts/suelos/cds_vencimiento.py"
+      ],
+      "doc": "docs/mto-spreads.md"
     },
     {
       "id": "D1",
