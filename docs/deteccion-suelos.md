@@ -246,3 +246,19 @@ Prueba de la idea «el suelo bien formado, operado solo tras el cierre sobre la 
 - **El disparo al alza engaña:** después toca −1,5 ATR más a menudo (+3,9) que +1,5 ATR (+2,4); con tendencia alcista, +3,6 frente a +2,7. El TTM, igual o más débil.
 - El +3,5 de la carrera en R17 es un efecto de la volatilidad (la carrera se decide antes), no de la dirección.
 - **Para un CDS:** no sirve para entrar buscando una subida rápida; con el CDS en beneficio, un squeeze anuncia un movimiento mayor en cualquier sentido (mejor recoger o proteger). La salida medida es el agotamiento de R17. No medido: el efecto de la IV baja en el débito (sin histórico de opciones). R18 en la pestaña Backtest.
+
+## R19 — Canal de regresión de 10 años: comprar en −3σ / −4σ (2026-11-16)
+
+**Origen.** Vídeo de YouTube con el indicador «Standard Deviation Channel» de TradingView (Pine v5): regresión LINEAL por mínimos cuadrados de los cierres de las últimas `length` sesiones (2500 ≈ 10 años), σ = raíz de Σ(cierre − recta)² / (n − 1) (residuos, no `ta.stdev`), bandas = recta ± k·σ. El indicador solo calcula en la última vela (sin historia ni alertas pasadas). Reglas: acciones de más de 50.000 M$; comprar al cruzar −3σ (las 10 mayores) o −4σ (el resto); pendiente positiva y la banda por encima de 0; vender al tocar la recta, sin stop; 5-10 % por posición; filtro de IA (¿problema temporal?, ¿riesgo de quiebra?). El autor dice ×9,99 desde 2016.
+
+**Método.** `scripts/suelos/canal10.py $D` (`yf.pkl` + `yf_val_ok.pkl`; capitalización de `data/app.db` en solo lectura). Canal recalculado cada día con los 2500 cierres hasta ese día (lo que se ve en el «replay»); también en escala logarítmica. Capitalización de cada fecha ≈ la de hoy × cierre / último cierre; solo acciones (con capitalización; sin ETF). Cruces y salidas sobre la serie completa de cada ticker; capitalización, pendiente y banda solo se exigen el día de entrada. Controles: media de las acciones elegibles del mismo día, igual peso de las elegibles entre la entrada y la salida (misma supervivencia) y una caída del 25 % desde el máximo de 252 sesiones sin canal. 1.583 acciones con 10 años; 349 llegan a 50.000 M$; canal desde 2014.
+
+**Comprobación.** MSFT cruza −3σ el 26-27/03/2026 y vuelve a la recta el 03/08/2026 (+33,5 %; el vídeo dice +31 %); ADBE no llega a −3σ; MCD baja de −4σ; META cruza −4σ el 13/06/2022. «La banda por encima de 0» se mide en el extremo actual: medida en el inicio del canal excluía la compra de MSFT del vídeo.
+
+**Resultado.**
+- Estudio de eventos: la regla del vídeo (72 cruces) sube +11,3 puntos a 252 sesiones frente al mismo día, pero 28 cruces son de marzo de 2020; con un voto por mes queda en +0,4 (47 % de meses por encima) y en 2014-2019 −1,8. El canal logarítmico y la caída del 25 % sin canal no dan nada (+2,5 y −0,4).
+- Operaciones: el 81 % se cierran en la recta con +40 % mediano en 187 sesiones, pero el exceso frente al igual peso de las mismas fechas es −1,1 de mediana (49 % positivas), el 22 % cae más de un 30 % antes de salir y las perdedoras quedan años abiertas (PCG −70 %, FIS −72 % desde 2021, MMM 5 años).
+- Cartera (10 % por posición, máx. 10, efectivo al 0 %): ×2,27 y +7,9 % anual desde 2016 (caída máx. −19,7 %, 50 % invertido) frente a SPY ×4,35 (+14,5 %, −33,7 %) y el igual peso de las elegibles ×7,54 (+20,5 %). Solo 2022 en negativo, como en el vídeo, pero con años casi sin operaciones.
+- Para vender puts: tras un cruce la put a 2 ATR (21 sesiones) aguanta +4 a +9 puntos más; la put a un 10 % OTM (35 sesiones), 1-5 puntos menos (la volatilidad es alta tras la caída). Prima sin medir.
+
+**Límites.** Supervivencia (lista de hoy; favorece a la estrategia y aun así no gana); capitalización aproximada; sin 2008; el filtro de IA y la discreción del autor no se pueden reproducir. No se cambia nada en la app. R19 en la pestaña Backtest.

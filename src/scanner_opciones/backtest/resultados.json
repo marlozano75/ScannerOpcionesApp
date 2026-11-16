@@ -1,5 +1,5 @@
 {
-  "actualizado": "2026-11-15",
+  "actualizado": "2026-11-16",
   "metodologia": [
     "27 tickers líquidos (SPY, QQQ, IWM, AAPL, MSFT, NVDA, AMZN, META, GOOGL, TSLA, AMD, NFLX, JPM, BAC, XOM, INTC, MU, PLTR, COIN, SOFI, UBER, DIS, BA, XLF, GLD, TLT, SMH) con velas diarias de Yahoo 2004-2026 (≈128.000 ticker-día, incluye 2008, 2020 y 2022).",
     "Descubrimiento con 2004-2018 y validación fuera de muestra con 2019-2026 (IS / OOS). Las señales se calculan con el cierre de t, sin mirar el futuro.",
@@ -45,7 +45,8 @@
     "La fuerza relativa estilo IBD (percentil RS 0-99) no mejora la venta de puts: los RS altos empeoran el aguante de la put aun a igual volatilidad (R15).",
     "Los filtros de calidad de la empresa (caja, deuda, recompras, FCF/activos; SEC EDGAR punto en el tiempo, 2024-2026) no mejoran el aguante de una put a 2 ATR: la cola izquierda más corta de las empresas de calidad se explica por su menor volatilidad (R16).",
     "Tras un impulso alcista ningún indicador predice que la subida continúe (≤ +1,4 puntos); sí avisan de agotamiento RSI14 > 80 y extensión ≥ 3 ATR sobre la EMA21 (−3 a −6 puntos a 20 sesiones y peor aguante de la put). El squeeze previo solo anticipa un movimiento rápido en cualquier sentido (R17).",
-    "El squeeze de Bollinger anticipa amplitud, no dirección: sube por igual tocar +1,5 y −1,5 ATR, y su disparo al alza acaba más a menudo en −1,5 ATR; no sirve para entrar ni para aguantar un CDS en beneficio (R18)."
+    "El squeeze de Bollinger anticipa amplitud, no dirección: sube por igual tocar +1,5 y −1,5 ATR, y su disparo al alza acaba más a menudo en −1,5 ATR; no sirve para entrar ni para aguantar un CDS en beneficio (R18).",
+    "Comprar acciones grandes al cruzar −3σ/−4σ de un canal de regresión de 10 años (vídeo de TradingView) casi siempre acaba en ganancia, pero no bate al igual peso de las mismas acciones en las mismas fechas y deja el capital la mitad del tiempo en efectivo: 7-8 % anual frente al 13-14 % de SPY desde 2014-2016 (R19)."
   ],
   "pendientes": [
     "Medir la prima de las puts tras una caída (necesita precios históricos de opciones; hoy no los hay).",
@@ -2910,6 +2911,261 @@
       ],
       "scripts": [
         "scripts/suelos/squeeze.py"
+      ],
+      "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R19",
+      "fecha": "2026-11-16",
+      "titulo": "Canal de regresión de 10 años: comprar en −3σ / −4σ",
+      "objetivo": "suelos",
+      "pregunta": "Estrategia de un vídeo («Standard Deviation Channel» de TradingView): regresión lineal de los cierres de 2500 sesiones con bandas de ±kσ de los residuos; comprar acciones de más de 50.000 M$ al cruzar −3σ (las 10 mayores) o −4σ (el resto), con pendiente positiva y la banda por encima de 0, y vender al tocar la recta, sin stop. El autor dice que desde 2016 multiplicó por 10 su dinero y batió al S&P 500 y al NASDAQ. ¿Se sostiene con el canal calculado en cada fecha?",
+      "veredicto": "sin_ventaja",
+      "veredicto_texto": "Las operaciones casi siempre ganan, pero menos que las mismas acciones a igual peso en las mismas fechas; la cartera saca un 7-8 % anual frente al 13-14 % de SPY",
+      "tablas": [
+        {
+          "titulo": "Cruces de las bandas — acciones de más de 50.000 M$, 2014-2026",
+          "columnas": [
+            "Señal",
+            "n",
+            "Días distintos",
+            "Ret. 252 d",
+            "Dif. 252 d (mismo día)",
+            "Dif. 2014-19 / 2020-26",
+            "Dif. un voto por mes",
+            "Put 2 ATR 21 ses. (dif.)",
+            "Put 10 % 35 ses. (dif.)"
+          ],
+          "filas": [
+            [
+              "Base: todos los días elegibles",
+              "≈519.000",
+              "—",
+              "+12,2 %",
+              "—",
+              "—",
+              "—",
+              "58,2 %",
+              "79,8 %"
+            ],
+            [
+              "Cruza −2σ",
+              "567",
+              "384",
+              "+19,0 %",
+              "−1,2",
+              "−2,3 / −0,8",
+              "−3,0",
+              "+1,7",
+              "−2,0"
+            ],
+            [
+              "Cruza −3σ",
+              "223",
+              "160",
+              "+26,1 %",
+              "+3,4",
+              "−0,8 / +4,8",
+              "−0,4",
+              "+2,0",
+              "−1,5"
+            ],
+            [
+              "Cruza −4σ",
+              "71",
+              "50",
+              "+44,7 %",
+              "+9,4",
+              "−1,8 / +12,9",
+              "−3,3",
+              "+7,2",
+              "−1,4"
+            ],
+            [
+              "**Regla del vídeo** (top 10 −3σ, resto −4σ, filtros)",
+              "72",
+              "53",
+              "+45,3 %",
+              "**+11,3**",
+              "−1,8 / +15,3",
+              "**+0,4**",
+              "+4,1",
+              "−4,6"
+            ],
+            [
+              "Misma regla con canal logarítmico",
+              "92",
+              "59",
+              "+35,8 %",
+              "+2,5",
+              "−14,7 / +4,8",
+              "−5,3",
+              "−1,0",
+              "−0,8"
+            ],
+            [
+              "Log cruza −3σ",
+              "276",
+              "191",
+              "+23,8 %",
+              "+0,4",
+              "+1,2 / +0,3",
+              "−0,6",
+              "+8,5",
+              "+0,5"
+            ],
+            [
+              "Control sin canal: cae −25 % desde el máx. de 252 d",
+              "972",
+              "569",
+              "+18,5 %",
+              "−0,4",
+              "−4,8 / +1,1",
+              "−3,7",
+              "+5,7",
+              "−5,4"
+            ]
+          ],
+          "nota": "Diferencias en puntos frente a la media de las acciones elegibles del mismo día. Cruce = primer cierre bajo la banda sin otro cruce en 63 sesiones. 28 de los 72 cruces de la regla son de marzo de 2020: el +11,3 se queda en +0,4 con un voto por mes (47 % de meses por encima)."
+        },
+        {
+          "titulo": "Operaciones (entrada al cierre del cruce, salida al primer cierre ≥ recta, sin stop)",
+          "columnas": [
+            "Regla",
+            "n",
+            "Cerradas",
+            "Sesiones (mediana / p90)",
+            "Ret. mediano cerradas",
+            "Exceso vs igual peso (mediana)",
+            "Con exceso > 0",
+            "Caída ≤ −30 % por el camino"
+          ],
+          "filas": [
+            [
+              "**Regla del vídeo** (lineal)",
+              "63",
+              "81,0 %",
+              "187 / 822",
+              "+40,1 %",
+              "**−1,1**",
+              "49,2 %",
+              "22,2 %"
+            ],
+            [
+              "Misma regla, canal logarítmico",
+              "78",
+              "70,5 %",
+              "306 / 896",
+              "+58,8 %",
+              "−9,9",
+              "39,7 %",
+              "28,2 %"
+            ],
+            [
+              "Todas a −3σ, pendiente > 0",
+              "159",
+              "76,7 %",
+              "210 / 730",
+              "+31,9 %",
+              "+1,0",
+              "50,9 %",
+              "20,8 %"
+            ],
+            [
+              "Todas a −4σ, pendiente > 0",
+              "61",
+              "80,3 %",
+              "187 / 825",
+              "+41,1 %",
+              "−2,7",
+              "47,5 %",
+              "23,0 %"
+            ]
+          ],
+          "barra": {
+            "col": 6,
+            "max": 100
+          },
+          "nota": "Exceso = rentabilidad de la operación menos la del igual peso de las acciones elegibles entre la entrada y la salida. Abiertas hoy con la regla del vídeo: 12, entre ellas FIS −72 % (desde 2021), INTU −20 %, CCI −11 %, CMCSA −12 % y UNH −4 % (caída máxima −44 %); cerradas tras años: PCG −70 % (quiebra), MMM 5 años, BTI 3,5 años."
+        },
+        {
+          "titulo": "Cartera como la del vídeo (efectivo sin rentabilidad), 2016-01 a 2026-11",
+          "columnas": [
+            "Cartera",
+            "Multiplica",
+            "CAGR",
+            "Caída máx.",
+            "Invertido medio"
+          ],
+          "filas": [
+            [
+              "**Regla del vídeo, 10 % por posición (máx. 10)**",
+              "×2,27",
+              "**+7,9 %**",
+              "−19,7 %",
+              "50 %"
+            ],
+            [
+              "Regla del vídeo, 5 % (máx. 20)",
+              "×2,15",
+              "+7,3 %",
+              "−14,1 %",
+              "33 %"
+            ],
+            [
+              "Todas a −3σ, pendiente > 0, 10 %",
+              "×1,98",
+              "+6,5 %",
+              "−30,8 %",
+              "62 %"
+            ],
+            [
+              "SPY",
+              "×4,35",
+              "+14,5 %",
+              "−33,7 %",
+              "100 %"
+            ],
+            [
+              "QQQ",
+              "×6,46",
+              "+18,8 %",
+              "−35,1 %",
+              "100 %"
+            ],
+            [
+              "Igual peso de las elegibles (misma supervivencia)",
+              "×7,54",
+              "+20,5 %",
+              "−31,5 %",
+              "100 %"
+            ],
+            [
+              "Lo que dice el vídeo",
+              "×9,99",
+              "≈+24 %",
+              "—",
+              "—"
+            ]
+          ],
+          "barra": {
+            "col": 2,
+            "max": 25
+          },
+          "nota": "Desde 2014-01: regla del vídeo ×2,40 (+7,1 %), SPY ×4,97 (+13,3 %). Por año (10 %): solo 2022 negativo (−4,5 %), como dice el vídeo, pero 2014-2018 casi sin operaciones. Rentabilidad/caída: 0,40 frente a 0,43 de SPY y 0,65 del igual peso."
+        }
+      ],
+      "puntos": [
+        "Réplica comprobada con el vídeo: MSFT cruza −3σ el 26-27/03/2026 (cierre 366 $) y vuelve a la recta el 03/08/2026 (+33,5 %; el vídeo dice +31 %); ADBE no llega a −3σ (mínimo −2,80 en 2026); MCD baja de −4σ (−5,15 el 30/09/2026). META cruza −4σ el 13/06/2022, como cuenta el autor (ya había tocado −3σ el 06/05 siendo top 10).",
+        "«Banda por encima de 0» se mide en el extremo actual del canal: medida en su inicio excluía la compra de MSFT del vídeo (con 10 años de subida, la banda −3σ empieza en negativo) y dejaba solo valores defensivos.",
+        "La regresión lineal sobre precio hace que σ dependa de los años caros y de las burbujas pasadas: llegar a −4σ exige una caída mediana del 34,5 % desde el máximo de un año, y el filtro se llena de valores estables (KO, PEP, D, DUK, UPS, MDT).",
+        "Las operaciones aciertan por construcción (solo se vende al tocar la recta), pero la mitad lo hace peor que el igual peso de las mismas acciones, una de cada cinco cae más de un 30 % antes de salir y las perdedoras quedan años abiertas: el «sin stop» funciona si la empresa no se rompe (PCG, FIS, BTI, MMM).",
+        "Las señales se concentran en crisis (28 de 72 en marzo de 2020, 14 en 2022): sin ellas el capital está mayormente en efectivo, y eso explica el CAGR bajo. La cartera cae menos (−20 % frente a −34 %), pero rinde la mitad que SPY.",
+        "Para vender puts: la put a 2 ATR (21 sesiones) aguanta +4 a +9 puntos más tras un cruce, pero una put a un 10 % OTM (35 sesiones) aguanta 1-5 puntos menos: tras la caída la volatilidad es alta y el strike en ATR queda más lejos. No se ha medido la prima (sin histórico de opciones).",
+        "Cautelas: lista de acciones de hoy (supervivencia, favorece a la estrategia: aun así no gana); capitalización de cada fecha ≈ la de hoy × cierre / último cierre (acciones constantes); canal solo desde 2014 (necesita 2500 sesiones desde 2004: sin 2008); el filtro de la IA (problema temporal, riesgo de quiebra) no se puede reproducir; efectivo al 0 %."
+      ],
+      "scripts": [
+        "scripts/suelos/canal10.py"
       ],
       "doc": "docs/deteccion-suelos.md"
     },
