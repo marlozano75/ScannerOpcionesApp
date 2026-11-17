@@ -1,5 +1,5 @@
 {
-  "actualizado": "2026-11-16",
+  "actualizado": "2026-11-17",
   "metodologia": [
     "27 tickers líquidos (SPY, QQQ, IWM, AAPL, MSFT, NVDA, AMZN, META, GOOGL, TSLA, AMD, NFLX, JPM, BAC, XOM, INTC, MU, PLTR, COIN, SOFI, UBER, DIS, BA, XLF, GLD, TLT, SMH) con velas diarias de Yahoo 2004-2026 (≈128.000 ticker-día, incluye 2008, 2020 y 2022).",
     "Descubrimiento con 2004-2018 y validación fuera de muestra con 2019-2026 (IS / OOS). Las señales se calculan con el cierre de t, sin mirar el futuro.",
@@ -56,7 +56,8 @@
     "Volume Profile con ticks o velas intradía, y FVG con selección manual de zonas.",
     "Mogalef con la fórmula exacta (las implementaciones difieren) y más variantes de MACD.",
     "Validar las combinaciones de la ronda 7 con datos posteriores al 2026-11-06 como muestra fuera de muestra real.",
-    "Repetir R16 con una muestra que incluya deslistadas (supervivencia), más años y la prima de las puts; probar el PEG de analistas cuando haya histórico."
+    "Repetir R16 con una muestra que incluya deslistadas (supervivencia), más años y la prima de las puts; probar el PEG de analistas cuando haya histórico.",
+    "Repetir R21 (registro de escaneos) cuando venzan los contratos de noviembre y diciembre y haya sesiones alcistas: comprobar el objetivo del 25 %, la delta máx. de los spreads y el filtro de SMA50 en las puts."
   ],
   "rondas": [
     {
@@ -3527,6 +3528,292 @@
         "scripts/suelos/fetch_yf.py"
       ],
       "doc": "docs/deteccion-suelos.md"
+    },
+    {
+      "id": "R21",
+      "fecha": "2026-11-17",
+      "titulo": "Registro de escaneos: entrar en lo que salió y gestionarlo con las salidas del perfil",
+      "objetivo": "puts",
+      "pregunta": "Si se hubiera entrado en cada contrato del registro de escaneos (perfiles propios, Comunidad y MarketRadar) al aparecer por primera vez y se hubiera gestionado con las salidas de su perfil, ¿cómo habría ido? ¿Qué criterios de entrada o de salida lo habrían mejorado?",
+      "veredicto": "info",
+      "veredicto_texto": "Muestra corta (13 sesiones, 30-oct → 17-nov) y toda en caída: casi todo sigue abierto y en pérdidas. Pistas: limitar la delta y la distancia de los spreads, tendencia del ticker en las puts y recoger antes en mercado bajista",
+      "tablas": [
+        {
+          "titulo": "Resultado por perfil y fuente (valoración al precio medio)",
+          "columnas": [
+            "Perfil / fuente",
+            "Entradas",
+            "Cerradas o vencidas",
+            "Ganan (de esas)",
+            "P&L cerradas",
+            "P&L abiertas",
+            "Total",
+            "% de la prima"
+          ],
+          "filas": [
+            [
+              "Táctico (TPC) · puts",
+              "24",
+              "17",
+              "82 %",
+              "−204 $",
+              "−125 $",
+              "−329 $",
+              "−13 %"
+            ],
+            [
+              "Mensual (TPC) · puts",
+              "208",
+              "0",
+              "—",
+              "—",
+              "−64.984 $",
+              "−64.984 $",
+              "−203 %"
+            ],
+            [
+              "TastyPut",
+              "76",
+              "26",
+              "100 %",
+              "+1.980 $",
+              "−5.715 $",
+              "−3.736 $",
+              "−39 %"
+            ],
+            [
+              "TastySpread",
+              "122",
+              "64",
+              "58 %",
+              "−1.589 $",
+              "−2.648 $",
+              "−4.237 $",
+              "−27 %"
+            ],
+            [
+              "Comunidad · puts",
+              "130",
+              "65",
+              "86 %",
+              "+4.453 $",
+              "−15.445 $",
+              "−10.991 $",
+              "−40 %"
+            ],
+            [
+              "Comunidad · spreads",
+              "41",
+              "29",
+              "7 %",
+              "−3.452 $",
+              "−609 $",
+              "−4.061 $",
+              "−109 %"
+            ],
+            [
+              "MarketRadar · puts",
+              "144",
+              "35",
+              "100 %",
+              "+16.444 $",
+              "−38.568 $",
+              "−22.123 $",
+              "−28 %"
+            ],
+            [
+              "MarketRadar · spreads",
+              "110",
+              "93",
+              "17 %",
+              "−20.864 $",
+              "−2.151 $",
+              "−23.016 $",
+              "−119 %"
+            ]
+          ],
+          "barra": {
+            "col": 3,
+            "max": 100
+          },
+          "nota": "Una entrada por perfil o fuente, ticker y vencimiento (la de mayor yield al aparecer), 1 contrato al precio de referencia del escáner. Velas diarias de bid y ask de tastytrade. Salidas: TPC al vencimiento; TastyPut, Comunidad y MarketRadar (perfil de gestión MTP) 50 % o 21 DTE; spreads además stop a 2 × el crédito. Comisión 1,05 $ por pata y lado. Recomprando al ask y vendiendo la comprada al bid, TastySpread pasa de −1.589 $ a −13.469 $ en las cerradas (salta muchos más stops) y MarketRadar · spreads de −20.864 $ a −41.924 $."
+        },
+        {
+          "titulo": "Spreads: resultado según la delta de la vendida al entrar",
+          "columnas": [
+            "Delta",
+            "n",
+            "Ganan",
+            "% del riesgo (media)"
+          ],
+          "filas": [
+            [
+              "0,10 – 0,15",
+              "16",
+              "31 %",
+              "−3,6 %"
+            ],
+            [
+              "0,15 – 0,20",
+              "20",
+              "30 %",
+              "−7,1 %"
+            ],
+            [
+              "0,20 – 0,25",
+              "58",
+              "38 %",
+              "−10,4 %"
+            ],
+            [
+              "0,25 – 0,30",
+              "75",
+              "21 %",
+              "−13,5 %"
+            ],
+            [
+              "**> 0,30**",
+              "72",
+              "**11 %**",
+              "**−22,6 %**"
+            ]
+          ],
+          "barra": {
+            "col": 2,
+            "max": 50
+          },
+          "nota": "Por distancia del strike: < 5 % pierde de media un 26,5 % del riesgo; 15-20 %, un 4,8 %. Los spreads de MarketRadar suelen estar en la zona cercana."
+        },
+        {
+          "titulo": "Puts: características de la entrada",
+          "columnas": [
+            "Condición",
+            "n",
+            "Ganan",
+            "P&L medio",
+            "% capital (media)"
+          ],
+          "filas": [
+            [
+              "Ticker sobre su SMA50",
+              "222",
+              "37 %",
+              "−94 $",
+              "−0,92 %"
+            ],
+            [
+              "**Ticker bajo su SMA50**",
+              "352",
+              "37 %",
+              "**−231 $**",
+              "**−1,34 %**"
+            ],
+            [
+              "IV Rank 50 – 75",
+              "233",
+              "41 %",
+              "−130 $",
+              "−1,00 %"
+            ],
+            [
+              "IV Rank 30 – 50",
+              "132",
+              "31 %",
+              "−266 $",
+              "−1,58 %"
+            ],
+            [
+              "Resultados antes del vencimiento",
+              "235",
+              "39 %",
+              "−187 $",
+              "−1,42 %"
+            ],
+            [
+              "Sin resultados",
+              "347",
+              "36 %",
+              "−168 $",
+              "−1,10 %"
+            ]
+          ],
+          "nota": "Capital = strike × 100. El yield alto no ayuda (25-60 % anualizado, de las peores) y entrar tras una caída de 5 sesiones tampoco. Todas las entradas se hicieron con el SPY bajo su SMA20: el filtro de mercado no se puede medir con esta muestra."
+        },
+        {
+          "titulo": "Salidas alternativas sobre las mismas entradas (P&L total)",
+          "columnas": [
+            "Salida",
+            "TastyPut",
+            "MarketRadar · puts",
+            "TastySpread",
+            "Táctico",
+            "Mensual"
+          ],
+          "filas": [
+            [
+              "La del perfil",
+              "−3.736 $",
+              "−22.123 $",
+              "−4.237 $",
+              "−329 $",
+              "−64.984 $"
+            ],
+            [
+              "**Recoger al 25 %**",
+              "**−1.749 $**",
+              "**−17.387 $**",
+              "**−3.373 $**",
+              "+115 $",
+              "−66.650 $"
+            ],
+            [
+              "Recoger al 50 %",
+              "−3.736 $",
+              "−22.123 $",
+              "−3.852 $",
+              "**+278 $**",
+              "−71.563 $"
+            ],
+            [
+              "Recoger al 75 %",
+              "−4.439 $",
+              "−27.964 $",
+              "−4.859 $",
+              "−208 $",
+              "−73.739 $"
+            ],
+            [
+              "50 % + stop a 2 × crédito",
+              "−5.871 $",
+              "−28.164 $",
+              "−4.237 $",
+              "+280 $",
+              "−78.733 $"
+            ],
+            [
+              "50 % + cierre bajo el strike",
+              "−5.158 $",
+              "−23.554 $",
+              "−3.530 $",
+              "+137 $",
+              "−84.458 $"
+            ]
+          ],
+          "nota": "Todas con revisión a 21 DTE salvo «la del perfil» en los TPC (al vencimiento). En TastySpread «recoger al 50 %» es sin stop."
+        }
+      ],
+      "puntos": [
+        "Los cierres por objetivo ganan siempre (~60 % de la prima en ~5 días); lo que no llegó antes de la caída del SPY (−5,3 % desde el 29-oct; QQQ −9,4 %) sigue abierto y en pérdidas valorado al 17-nov, el mínimo del periodo.",
+        "Spreads: la señal más clara. Delta > 0,30 o strike a < 5 % pierden 3-5 veces más que delta 0,10-0,20 o distancia ≥ 15 %. Candidato: delta máx. ~0,25 y distancia mín. ~10 %.",
+        "Puts: bajo la SMA50 del ticker la pérdida media es más del doble con el mismo acierto; las grandes pérdidas del Mensual (SNDK −15.559 $, AXON −7.384 $, MU) son de valores que ya caían. IV Rank ≥ 50 acierta ~10 puntos más.",
+        "Salidas: recoger al 25 % mejora todos los perfiles de estilo tastytrade con mercado bajista (con mercado alcista se espera lo contrario en el total). Los stops en puts empeoran siempre (cierran antes del rebote del 5 al 11-nov). Al Mensual ninguna salida le ayuda: su problema es la selección y la concentración (12 strikes de SNDK a la vez si no se limita a una entrada por ticker).",
+        "Cautelas: 13 sesiones de un único régimen; entradas solapadas y correladas; solo el cierre diario (sin salidas intradía); en Comunidad la entrada es cuando apareció en el registro, no cuando la abrió el trader; sin límite de margen. Repetir cuando venzan los contratos de noviembre y diciembre."
+      ],
+      "scripts": [
+        "scripts/suelos/registro_fetch.py",
+        "scripts/suelos/registro_ev.py"
+      ],
+      "doc": "docs/escaneo-automatico.md"
     }
   ]
 }
