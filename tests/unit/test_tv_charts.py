@@ -108,6 +108,10 @@ def test_pre_y_post_mercado_se_marcan_como_fuera_de_horario():
     assert 'class="tvw-ext"' in str(tv_charts.candle_switch("<svg/>", "AAA"))
 
 
+def test_candle_switch_has_measure_tool():
+    assert 'class="tvw-measure" aria-pressed="false"' in str(tv_charts.candle_switch("<svg/>", "AAA"))     # regla de % entre dos puntos
+
+
 def test_objetivo_del_cds_vencimiento_junto_al_débito_ganancia_en_la_salida_y_líneas_de_soporte():
     from scanner_opciones.metrics.support_levels import SupportLevel
     out = tv_charts.cds_levels(95.0, 85.0, 80.0)

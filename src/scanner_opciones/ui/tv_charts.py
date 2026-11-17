@@ -191,6 +191,8 @@ def candle_switch(closes_chart, ticker: str, levels: Sequence[Level] = (), event
         '<input type="checkbox" class="tvw-ind" data-k="rsi"> RSI</label>'
         '<label class="tvw-opt" title="MACD 12/26/9: línea, señal e histograma, en un panel debajo de las velas">'
         '<input type="checkbox" class="tvw-ind" data-k="macd"> MACD</label>'
+        '<button type="button" class="tvw-measure" aria-pressed="false" title="Medir la subida o caída en % entre dos puntos: clic en el inicio y clic en el final '
+        '(también Mayús + clic sin el botón; Esc la borra)">Medir</button>'
         '<button type="button" class="tvw-fit" aria-pressed="false" title="Ajustar la escala para que se vean siempre los strikes, el breakeven y el objetivo '
         '(sin marcar, se ajusta a las velas visibles y se puede ampliar una zona)">Niveles</button>'
         '<button type="button" class="tvw-reset" title="Volver a ajustar la escala de precios a lo visible (tras estirar el eje a mano; también con doble clic en el eje)">'

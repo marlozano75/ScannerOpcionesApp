@@ -328,6 +328,82 @@
       chart.timeScale().subscribeSizeChange(placeBadges);
     }
 
+    // medición (botón «Medir» o Mayús + clic): el primer clic fija el inicio, el recuadro sigue al ratón y el segundo clic fija el final;
+    // se ve la variación en % del precio, la diferencia, las velas y el tiempo entre ambos puntos. Cerca de una vela el precio se
+    // pega a su apertura/máximo/mínimo/cierre. El recuadro sigue al zoom y al desplazamiento; un tercer clic empieza otra medición
+    // y Esc (o desmarcar «Medir») la borra.
+    var meas = document.createElement('div'), measTxt = document.createElement('span'), measA = null, measB = null, measDone = false;
+    meas.className = 'tvw-meas';
+    meas.hidden = true;
+    measTxt.className = 'tvw-meas-txt';
+    meas.appendChild(measTxt);
+    host.appendChild(meas);
+    // los clics se leen del DOM: la librería toma dos clics seguidos por un doble clic y no avisa del segundo; un arrastre (desplazar) no cuenta
+    var measDown = null;
+    host.addEventListener('pointerdown', function (e) { measDown = { x: e.clientX, y: e.clientY, shift: e.shiftKey }; }, true);
+    host.addEventListener('click', function (e) {
+      var down = measDown;
+      measDown = null;
+      if (!down || Math.abs(e.clientX - down.x) > 4 || Math.abs(e.clientY - down.y) > 4) return;
+      if (!box._measure && !down.shift) return;
+      var r = host.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+      if (x < 0 || x > chart.timeScale().width()) return;          // sobre el eje de precios, no
+      measClick(measPoint({ point: { x: x, y: y } }));
+    });
+    function measPoint(p) {
+      if (!p || !p.point) return null;
+      var lg = chart.timeScale().coordinateToLogical(p.point.x), price = series.coordinateToPrice(p.point.y);
+      if (lg == null || price == null) return null;
+      lg = Math.max(0, Math.min(times.length - 1, Math.round(lg)));
+      var c = candles[lg], best = 8;
+      if (c && c.open != null) [c.open, c.high, c.low, c.close].forEach(function (v) {
+        var y = series.priceToCoordinate(v);
+        if (y != null && Math.abs(y - p.point.y) < best) { best = Math.abs(y - p.point.y); price = v; }
+      });
+      return { logical: lg, price: price };
+    }
+    function span(a, b) {
+      var t1 = times[a], t2 = times[b];
+      if (t1 == null || t2 == null) return '';
+      var secs = Math.abs(intra ? t2 - t1 : (Date.parse(t2 + 'T00:00:00Z') - Date.parse(t1 + 'T00:00:00Z')) / 1000);
+      if (secs < 86400) { var h = Math.floor(secs / 3600), m = Math.round(secs % 3600 / 60); return (h ? h + ' h ' : '') + (m || !h ? m + ' min' : ''); }
+      var d = Math.round(secs / 86400);
+      return d + (d === 1 ? ' día' : ' días');
+    }
+    function measDraw() {
+      if (!measA || !measB || !host.isConnected) { meas.hidden = true; return; }
+      var ts = chart.timeScale(), x1 = ts.logicalToCoordinate(measA.logical), x2 = ts.logicalToCoordinate(measB.logical);
+      var y1 = series.priceToCoordinate(measA.price), y2 = series.priceToCoordinate(measB.price);
+      if (x1 == null || x2 == null || y1 == null || y2 == null) { meas.hidden = true; return; }
+      meas.hidden = false;
+      meas.style.left = Math.min(x1, x2) + 'px';
+      meas.style.width = Math.max(1, Math.abs(x2 - x1)) + 'px';
+      meas.style.top = Math.min(y1, y2) + 'px';
+      meas.style.height = Math.max(1, Math.abs(y2 - y1)) + 'px';
+      var diff = measB.price - measA.price, pct = measA.price ? diff / measA.price * 100 : 0, bars = Math.abs(measB.logical - measA.logical);
+      meas.classList.toggle('down', diff < 0);
+      measTxt.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(2).replace('.', ',') + ' %   ' + (diff >= 0 ? '+' : '') + fmt(diff)
+        + '   ' + bars + (bars === 1 ? ' vela' : ' velas') + (bars ? ' · ' + span(measA.logical, measB.logical) : '');
+    }
+    function measLoop() {          // el eje de precios se puede estirar sin evento: se recoloca en cada fotograma mientras hay medición
+      measDraw();
+      if (measA && host.isConnected) requestAnimationFrame(measLoop);
+    }
+    function measClear() { measA = measB = null; measDone = false; meas.hidden = true; }
+    function measClick(pt) {
+      if (!pt) return;
+      if (!measA || measDone) {
+        var idle = !measA;
+        measA = measB = pt; measDone = false;
+        if (idle) requestAnimationFrame(measLoop);
+      } else { measB = pt; measDone = true; }
+    }
+    chart.subscribeCrosshairMove(function (p) {
+      if (!measA || measDone) return;
+      var pt = measPoint(p);
+      if (pt) measB = pt;
+    });
+
     var averages = {};
     var sessions = [];
     if (intra) candles.forEach(function (c) { if (sessions[sessions.length - 1] !== c.session) sessions.push(c.session); });
@@ -347,7 +423,8 @@
     }
     box._tv = {
       intra: intra,
-      remove: function () { Object.keys(panes).forEach(removePane); chart.remove(); },
+      remove: function () { measClear(); Object.keys(panes).forEach(removePane); chart.remove(); },
+      clearMeasure: measClear,
       indicator: function (k, on) { if (on) addPane(k); else removePane(k); describe(candles[candles.length - 1]); },
       range: range,
       autoscale: function () { chart.priceScale('right').applyOptions({ autoScale: true }); },
@@ -413,7 +490,7 @@
   }
 
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('.tvw-btn, .tvw-rng, .tvw-log, .tvw-iv, .tvw-ext, .tvw-fit, .tvw-reset');
+    var t = e.target.closest && e.target.closest('.tvw-btn, .tvw-rng, .tvw-log, .tvw-iv, .tvw-ext, .tvw-fit, .tvw-reset, .tvw-measure');
     if (!t) return;
     var box = t.closest('.tvw');
     if (!box) return;
@@ -424,6 +501,13 @@
       t.setAttribute('aria-pressed', t.classList.contains('on'));
       var cur = box.querySelector('.tvw-iv.on');
       if (cur && cur.dataset.i !== '1d' && cur.dataset.i !== '1w') load(box, cur.dataset.i);
+      return;
+    }
+    if (t.classList.contains('tvw-measure')) {
+      t.classList.toggle('on');
+      t.setAttribute('aria-pressed', t.classList.contains('on'));
+      box._measure = t.classList.contains('on');
+      if (!box._measure && box._tv) box._tv.clearMeasure();
       return;
     }
     if (!box._tv) return;
@@ -451,6 +535,10 @@
     if (!box || !box._tv) return;
     if (t.classList.contains('tvw-ind')) box._tv.indicator(t.dataset.k, t.checked);
     else box._tv.average(t.dataset.t || 'sma', +t.dataset.n, t.checked);
+  });
+  document.addEventListener('keydown', function (e) {        // Esc borra las mediciones
+    if (e.key !== 'Escape') return;
+    document.querySelectorAll('.tvw').forEach(function (box) { if (box._tv) box._tv.clearMeasure(); });
   });
   // quien prefirió las velas la última vez las ve directamente al abrir cualquier gráfico
   new MutationObserver(function (changes) {
