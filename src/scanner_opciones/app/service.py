@@ -298,6 +298,9 @@ class AppService:
         self.refresh_job.ratio_store = (lambda: self.meta.get("margin_ratios") or "", lambda s: self.meta.set("margin_ratios", s))
         self.state = AppState()
         self._scan_memo: dict[tuple, tuple[float, object]] = {}
+        # cambios hechos por el usuario (cada POST lo sube, `ui/loops.py::LoopSplit`): invalidan las cachés `stable` de `_memo`, que las escrituras
+        # del refresco no tocan
+        self.user_edits = 0
         self._bars_memo: dict[str, tuple[tuple, object]] = {}      # ver `_memo_bars`
         self._openings: Optional[tuple[float, OpeningsData]] = None
         self._openings_error: Optional[str] = None
@@ -1844,7 +1847,7 @@ class AppService:
                 if why:
                     out[t] = f"sin la calidad mínima para puts: {why}"
             return out
-        return self._memo(f"put_floor|{eps}|{quarters}|{fcf}", build)
+        return self._memo(f"put_floor|{eps}|{quarters}|{fcf}", build, stable=True)
 
     def naked_blocked(self, criteria: Optional[ScanCriteria] = None) -> dict[str, str]:
         """{ticker: motivo} de los que no pueden salir como put desnuda con la calidad mínima de `criteria`, vengan de donde vengan (la
@@ -1914,7 +1917,9 @@ class AppService:
     def quality_exempt(self) -> tuple[str, ...]:
         """Sectores y tickers exentos de los filtros de la empresa: los de `scanner.quality` más los ETF del radar de Tortuga (sector «ETF»)."""
         base = self.settings.scanner.quality.exempt_entries
-        radar = self.radar_spreads()
+        # el sector sale del fichero del radar (en memoria mientras no cambie); `radar_spreads()` además re-valora cada fila con los snapshots
+        # de la base, y esto se llama varias veces por carga del Scanner: costaba ~2 s por pestaña durante un refresco (medido 2026-11-19)
+        radar = self._radar_file()
         etfs = sorted({r.ticker for r in radar.rows if (r.sector or "").upper() == "ETF"}) if radar else []
         own = [f"={t}" for t in self.settings.instruments] + [f"~{t}" for t in self.settings.instruments]    # índices de TWS: exentos y sin liquidez de tastytrade
         return (*base, *own, *(f"={t}" for t in etfs))
@@ -3801,21 +3806,26 @@ class AppService:
     def criteria(self, **overrides) -> ScanCriteria:
         return criteria_from_settings(self.settings).with_filters(**overrides)
 
-    def _memo(self, name: str, build, by_version: bool = False):
+    def _memo(self, name: str, build, by_version: bool = False, stable: bool = False):
         """Lectura costosa (snapshots, cierres, ATR) reutilizada entre los cálculos de una misma petición del Scanner: el escaneo y el aviso de resultados vacíos una más. Caduca a los `SCAN_MEMO_SECONDS` o si cambian los datos (`data_version`).
         `by_version=True`: solo la invalida `data_version` (que sube al terminar cada refresco), no las escrituras sueltas de la base. Es para los snapshots: durante un refresco,
-        que escribe sin parar, releer los ~60 MB en cada carga del Scanner congelaba la app; se ven los del último refresco terminado."""
+        que escribe sin parar, releer los ~60 MB en cada carga del Scanner congelaba la app; se ven los del último refresco terminado.
+        `stable=True`: la invalidan `data_version` y los cambios del usuario (`user_edits`, cualquier POST), no las escrituras del refresco. Es para los
+        resultados del Scanner (escaneo, impacto, calidad mínima, recuentos): con el mercado abierto el refresco escribe sin parar y cada cambio de
+        pestaña los recalculaba (2–22 s; medido 2026-11-19), así que el precalentado de los perfiles no servía. Sus snapshots ya son los del último
+        refresco terminado; lo que el refresco cambie a medias (precio o IV de una ficha) se ve al terminar, como los snapshots."""
         with self._memo_lock:       # un cálculo a la vez: la interfaz y los jobs (otro hilo) comparten la caché y no repiten el mismo trabajo
             now = time.monotonic()
-            data_changes = self.watchlist.db.data_changes       # cualquier escritura en la base invalida (salvo `by_version`)
-            key = (name, self.state.data_version, None if by_version else data_changes)
+            data_changes = self.watchlist.db.data_changes       # cualquier escritura en la base invalida (salvo `by_version`/`stable`)
+            edits = ("edits", self.user_edits)
+            key = (name, self.state.data_version, None if by_version else edits if stable else data_changes)
             hit = self._scan_memo.get(key)
             if hit is not None and now - hit[0] < SCAN_MEMO_SECONDS:
                 return hit[1]
             value = build()
             # solo se conserva lo de la versión actual de los datos: lo de las anteriores ya no puede acertar y ocuparía memoria (~60 MB de snapshots)
             self._scan_memo = {k: v for k, v in self._scan_memo.items()
-                               if k[1] == key[1] and (k[2] is None or k[2] == data_changes) and now - v[0] < SCAN_MEMO_SECONDS}
+                               if k[1] == key[1] and (k[2] is None or k[2] == data_changes or k[2] == edits) and now - v[0] < SCAN_MEMO_SECONDS}
             self._scan_memo[key] = (now, value)
             return value
 
@@ -3851,7 +3861,7 @@ class AppService:
             hash(key)
         except TypeError:
             return build()
-        return self._memo(repr(key), build)
+        return self._memo(repr(key), build, stable=True)
 
     def _scan_snapshots(self):
         """Snapshots de PUTS para los escaneos (las calls guardadas para los Call Debit Spread no entran: `_scan_call_snapshots`)."""

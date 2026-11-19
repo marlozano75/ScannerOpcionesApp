@@ -25,12 +25,19 @@ class LoopSplit:
 
     async def __call__(self, scope, receive, send) -> None:
         jobs = self.service.jobs_loop
-        if scope["type"] != "http" or jobs is None or asyncio.get_running_loop() is jobs:
-            await self.app(scope, receive, send)
-        elif scope["method"] in READ_METHODS:
-            await self._read(scope, receive, send)
-        else:
-            await self._on_jobs(jobs, scope, receive, send)
+        edit = scope["type"] == "http" and scope["method"] not in READ_METHODS
+        if edit:      # antes y después: una página que se calcule mientras tanto no deja en caché el estado a medias (`AppService._memo`, `stable`)
+            self.service.user_edits += 1
+        try:
+            if scope["type"] != "http" or jobs is None or asyncio.get_running_loop() is jobs:
+                await self.app(scope, receive, send)
+            elif scope["method"] in READ_METHODS:
+                await self._read(scope, receive, send)
+            else:
+                await self._on_jobs(jobs, scope, receive, send)
+        finally:
+            if edit:
+                self.service.user_edits += 1
 
     async def _read(self, scope, receive, send) -> None:
         started = False

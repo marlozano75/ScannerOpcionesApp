@@ -106,6 +106,7 @@ def test_an_invalid_level_is_reported_in_the_universe(client_and_service):
 def test_the_scanner_shows_how_many_tickers_of_the_watchlist_pass_each_liquidity_option(client_and_service):
     client, svc, gw, _ = client_and_service
     svc.quality.save([TickerInfo("AAPL", eps_ttm=5.0, option_liquidity=3)])
+    svc.state.data_version += 1      # como los jobs que escriben fichas al terminar: las escrituras sueltas no invalidan los recuentos (`_memo`, `stable`)
     page = client.get("/scanner?reset=1").text
     assert re.search(r"3 o más · 1/1", page) and re.search(r"4 o más · 0/1", page)   # la watchlist de prueba tiene 1 ticker (AAPL)
 

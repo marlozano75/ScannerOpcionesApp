@@ -157,6 +157,7 @@ async def test_earnings_filter_only_drops_the_contracts_that_cross_the_report():
     assert strikes(svc) == [75.0, 80.0]
     assert strikes(svc, avoid_earnings=True) == []
     svc.quality.save([TickerInfo("AAPL", next_earnings=TODAY + timedelta(days=40))])
+    svc.state.data_version += 1      # como los jobs que escriben fichas al terminar: el escaneo guardado solo caduca así o con un POST
     assert strikes(svc, avoid_earnings=True) == [75.0, 80.0]                         # los resultados llegan tras el vencimiento
 
 

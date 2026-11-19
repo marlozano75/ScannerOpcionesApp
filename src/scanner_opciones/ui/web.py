@@ -851,7 +851,7 @@ def create_app(
         """Cuántos tickers pasan cada nivel de los filtros de calidad. No depende del perfil (base de config.yaml): se reutiliza entre cargas
         mientras no cambien los datos."""
         return service._memo("quality_counts", lambda: quality_counts(
-            service.ticker_info.all(), service.watchlist.list(), service.criteria(), service.settings.scanner.quality))
+            service.ticker_info.all(), service.watchlist.list(), service.criteria(), service.settings.scanner.quality), stable=True)
 
     def warm_profiles():
         """Deja hecho, perfil a perfil, lo que su página del Scanner calcula al abrirse (escaneo, resumen técnico, recuentos de calidad) con los
@@ -866,7 +866,10 @@ def create_app(
                 else:
                     _, parsed = parse_one(qp)
                     if parsed["criteria"] is not None:
-                        service.tech_summaries(service.scan(parsed["criteria"]))
+                        out = service.scan(parsed["criteria"])
+                        service.tech_summaries(out)
+                        if not out.results:      # la página explica entonces por qué no sale nada (`explain_empty`, ~1-7 s)
+                            service.scan_impact(parsed["criteria"])
             except Exception:  # noqa: BLE001 - precalentar es optativo
                 log.debug("No se pudo precalentar el perfil %s", p.name, exc_info=True)
             yield

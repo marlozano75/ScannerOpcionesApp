@@ -452,3 +452,23 @@ async def test_warming_the_caches_can_be_turned_off():
     svc.settings = svc.settings.model_copy(update={"refresh": svc.settings.refresh.model_copy(update={"warm_caches": False})})
     svc.warm_caches()
     assert svc._warming is None
+
+
+async def test_stable_caches_survive_refresh_writes_but_not_user_edits():
+    """Los resultados del Scanner (`_memo(..., stable=True)`) no caducan con cada escritura del refresco (con el mercado abierto el
+    refresco escribe sin parar y cada cambio de pestaña recalculaba el escaneo); sí con `data_version` y con un cambio del usuario (POST)."""
+    svc, gw = make_service()
+    calls = []
+
+    def build():
+        calls.append(1)
+        return len(calls)
+
+    assert svc._memo("x", build, stable=True) == 1
+    svc.meta.set("una_escritura_cualquiera", "1")           # escritura en la base, como las del refresco
+    assert svc._memo("x", build, stable=True) == 1
+    assert svc._memo("y", build) == 2 and (svc.meta.set("otra", "2") or True) and svc._memo("y", build) == 3   # sin `stable`, sí caduca
+    svc.user_edits += 1
+    assert svc._memo("x", build, stable=True) == 4
+    svc.state.data_version += 1
+    assert svc._memo("x", build, stable=True) == 5
