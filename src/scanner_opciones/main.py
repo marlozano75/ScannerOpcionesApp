@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import socket
 import sys
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
@@ -166,11 +167,23 @@ def build_app(settings: Settings):
         await account_runner.stop()
         for t in startup_task:
             t.cancel()
+        if startup_task:
+            await asyncio.wait(startup_task, timeout=10)
         await service.stop()
         db.close()
 
     # los jobs (y con ellos la conexión con el broker) van en su propio hilo: la interfaz no espera a los tramos síncronos del refresco
     return create_app(service, factory, on_startup, on_shutdown, jobs=JobsLoop())
+
+
+def port_in_use(host: str, port: int) -> bool:
+    """¿Hay ya algo escuchando en host:port (normalmente otra instancia de la app)?"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+        except OSError:
+            return True
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -179,6 +192,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
+    # antes de abrir la base y conectar con TWS: una segunda instancia chocaría con el clientId (Error 326) y no podría usar el puerto
+    if port_in_use(args.host, args.port):
+        print(f"Ya hay una instancia de la app (u otro programa) usando http://{args.host}:{args.port}.\n"
+              f"Ábrela en el navegador, o ciérrala antes de arrancar otra (o usa --port).", file=sys.stderr)
+        return 1
     try:
         settings = load_settings(args.config)
     except ConfigError as exc:

@@ -1145,7 +1145,10 @@ class AppService:
             self.state.data_version += 1
             return True
 
-    async def stop(self) -> None:
+    async def stop(self, timeout: float = 10.0) -> None:
+        """Cancela y espera las tareas de fondo (`launch`) antes de desconectar: al apagar, la base se cierra
+        justo después y una tarea viva fallaría con «Cannot operate on a closed database»."""
+        await self.cancel_background(timeout)
         await self.gateway.disconnect()
         self.state.connected = False
 
@@ -1453,6 +1456,22 @@ class AppService:
         self._background.add(task)
         task.add_done_callback(self._background.discard)
         return task
+
+    async def cancel_background(self, timeout: float = 10.0) -> None:
+        """Cancela las tareas lanzadas con `launch` y espera (como mucho `timeout` s) a que acaben. Se repite por si
+        alguna lanza otra al cancelarse (en un `finally`)."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while True:
+            pending = [t for t in self._background if not t.done()]
+            left = deadline - loop.time()
+            if not pending or left <= 0:
+                if pending:
+                    log.warning("Apagado: %d tareas de fondo no terminaron a tiempo", len(pending))
+                return
+            for t in pending:
+                t.cancel()
+            await asyncio.wait(pending, timeout=left)
 
     async def wait_idle(self) -> None:
         """Espera a que terminen las tareas lanzadas con `launch` (útil en tests)."""
